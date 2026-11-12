@@ -1158,23 +1158,23 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(codenine
 
   @variant dark {
     color-scheme: dark;
-    /* Layered greys, darkest at the canvas: sidebar, then cards and the composer, then menus,
-       popovers, and the user's message. Keep these equal to CODENINE_DARK_THEME_COLORS. */
-    --background: #0c0c0e;
-    --surface-raised: #131316;
-    --foreground: var(--color-neutral-100);
-    --card: #131316;
-    --card-foreground: var(--color-neutral-100);
-    --popover: #1a1a1e;
-    --popover-foreground: var(--color-neutral-100);
-    --primary: oklch(0.571 0.21 264);
+    /* Layered near-blacks, darkest at the sidebar frame: the canvas, then cards and the composer,
+       then menus, popovers, and the user's message. Keep these equal to CODENINE_DARK_THEME_COLORS. */
+    --background: #0f1011;
+    --surface-raised: #141517;
+    --foreground: #f7f8f8;
+    --card: #141517;
+    --card-foreground: #f7f8f8;
+    --popover: #18191b;
+    --popover-foreground: #f7f8f8;
+    --primary: #5e6ad2;
     --secondary: --alpha(var(--color-white) / 3%);
-    --secondary-foreground: var(--color-neutral-100);
+    --secondary-foreground: #f7f8f8;
     --muted: --alpha(var(--color-white) / 3%);
-    --muted-foreground: var(--color-neutral-400);
+    --muted-foreground: #8a8f98;
     --accent: --alpha(var(--color-white) / 6%);
-    --accent-foreground: var(--color-neutral-100);
-    --message-surface: #1a1a1e;
+    --accent-foreground: #f7f8f8;
+    --message-surface: #1a1b1e;
     --error: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
     --error-foreground: var(--color-red-400);
     --tool-error-icon: #fca5a5;
@@ -1185,8 +1185,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(codenine
     --success-foreground: var(--color-emerald-400);
     --warning-foreground: var(--color-amber-400);
     --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
-    --update-foreground: var(--color-blue-400);
-    --sidebar: #101013;
+    --update-foreground: #8f98ff;
+    --sidebar: #08090a;
     --sidebar-control-surface: var(--muted);
     --sidebar-row-hover: var(--accent);
     --sidebar-row-active: var(--accent);
@@ -1222,16 +1222,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(codenine
   --sidebar-stage-fade: var(--sidebar);
 
   @variant dark {
-    --background: #101013;
-    --foreground: #f1f3f7;
-    --card: #101013;
+    --background: #08090a;
+    --foreground: #f7f8f8;
+    --card: #08090a;
     --card-foreground: var(--foreground);
-    --accent: #1a1a1e;
-    --accent-foreground: #f7f9ff;
-    --muted: #151518;
-    --muted-foreground: #a3a3a3;
-    --border: rgb(255 255 255 / 8%);
-    --input: rgb(255 255 255 / 18%);
+    --accent: #1a1b1e;
+    --accent-foreground: #f7f8f8;
+    --muted: #111214;
+    --muted-foreground: #8a8f98;
+    --border: rgb(255 255 255 / 7%);
+    --input: rgb(255 255 255 / 16%);
     --sidebar: var(--card);
     --sidebar-foreground: var(--foreground);
     --sidebar-muted-foreground: var(--muted-foreground);
@@ -1242,7 +1242,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(codenine
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
     /* Row metadata sits a step below read titles (75% white), still 4.5:1 on a pressed row. */
-    --secondary-label: #96969c;
+    --secondary-label: #8a8f98;
   }
 }
 
