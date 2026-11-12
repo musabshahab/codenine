@@ -4,7 +4,7 @@ import {
   type ServerProvider,
 } from "@codenine/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { memo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useRef, useState } from "react";
 import { InfoIcon, XIcon } from "lucide-react";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button, InlineButton } from "../ui/button";
@@ -13,6 +13,13 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { RefreshIcon } from "../ui/refresh-icon";
+import {
+  type AgentSetupDriver,
+  canSetUpInTerminal,
+  isAgentSetupDriver,
+} from "../../onboarding/providerReadiness.logic";
+
+const AgentSetupDialog = lazy(() => import("../onboarding/AgentSetupDialog"));
 
 function getIncompatibleVersion(status: ServerProvider) {
   const compatibility = status.compatibilityAdvisory;
@@ -95,6 +102,22 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   });
   const refreshingRef = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Kept apart from the status, so the dialog stays open to show success once the banner is gone.
+  const [setupFor, setSetupFor] = useState<{
+    readonly driver: AgentSetupDriver;
+    readonly instanceId: ProviderInstanceId;
+  } | null>(null);
+  const setupDialog =
+    setupFor === null ? null : (
+      <Suspense fallback={null}>
+        <AgentSetupDialog
+          environmentId={environmentId}
+          driver={setupFor.driver}
+          instanceId={setupFor.instanceId}
+          onClose={() => setSetupFor(null)}
+        />
+      </Suspense>
+    );
 
   const refresh = async () => {
     if (!status || !canRefresh || refreshingRef.current) return;
@@ -109,10 +132,12 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   };
 
   if (!status || getProviderStatusBannerKey(status) === null) {
-    return null;
+    return setupDialog;
   }
 
   const providerName = status.displayName?.trim() || formatProviderDriverKindLabel(status.driver);
+  const setupDriver =
+    isAgentSetupDriver(status.driver) && canSetUpInTerminal(status) ? status.driver : null;
   const isUnauthenticated = status.status === "error" && status.auth.status === "unauthenticated";
   const incompatible = getIncompatibleVersion(status);
   const message = incompatible?.message ?? getProviderStatusMessage(status);
@@ -145,7 +170,15 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
               </TooltipPopup>
             </Tooltip>
             <div className="flex flex-wrap items-center justify-end gap-3">
-              {onOpenProviderSetup && hasProviderSetup(status) ? (
+              {setupDriver !== null ? (
+                <InlineButton
+                  onClick={() =>
+                    setSetupFor({ driver: setupDriver, instanceId: status.instanceId })
+                  }
+                >
+                  Set up
+                </InlineButton>
+              ) : onOpenProviderSetup && hasProviderSetup(status) ? (
                 <InlineButton onClick={() => onOpenProviderSetup(status.instanceId)}>
                   Open provider setup
                 </InlineButton>
@@ -174,6 +207,7 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
           </Button>
         </AlertAction>
       </Alert>
+      {setupDialog}
     </div>
   );
 });

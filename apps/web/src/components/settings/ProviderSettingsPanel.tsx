@@ -98,6 +98,8 @@ import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
+import AgentSetupDialog from "../onboarding/AgentSetupDialog";
+import { canSetUpInTerminal, isAgentSetupDriver } from "../../onboarding/providerReadiness.logic";
 import { providerClients } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
 import { CompactIdleThreadsRow } from "./SettingsPanels";
@@ -1200,6 +1202,14 @@ function ProviderInstanceRow({
       }
     : undefined;
   const codexSetupMode = driver === "codex" ? readCodexSetupMode(instance.config) : null;
+  // A missing or signed-out Claude or Codex CLI gets the Welcome page's setup card.
+  const [setupOpen, setSetupOpen] = useState(false);
+  const setupDriver = isAgentSetupDriver(driver) ? driver : null;
+  const offerSetup =
+    mode === "editor" &&
+    setupDriver !== null &&
+    liveProvider !== undefined &&
+    canSetUpInTerminal(liveProvider);
   const recommendedVersion = liveProvider?.compatibilityAdvisory?.recommendedVersion;
   const canInstallRecommended =
     !readOnly &&
@@ -1209,124 +1219,143 @@ function ProviderInstanceRow({
     liveProvider.versionAdvisory?.canInstallVersion === true;
 
   return (
-    <ProviderInstanceCard
-      environmentId={environmentId}
-      secretSources={secretSources}
-      projectOverride={projectOverride}
-      instanceId={instanceId}
-      instance={instance}
-      driverOption={driverOption}
-      liveProvider={liveProvider}
-      mode={mode}
-      selected={selected}
-      onSelect={mode === "list" ? () => actions.selectInstance(instanceId) : undefined}
-      readOnly={readOnly}
-      runtime={
-        mode === "editor" && codexSetupMode === "managed" ? (
-          <CodexManagedRuntimeFields
-            environmentId={environmentId}
-            instanceId={instanceId}
-            provider={liveProvider}
-          />
-        ) : undefined
-      }
-      canWriteSettings={canWriteSettings}
-      setup={
-        mode === "editor" && codexSetupMode === "managed" ? (
-          <CodexSetupSection
-            environmentId={environmentId}
-            instanceId={instanceId}
-            provider={liveProvider}
-            mode={codexSetupMode}
-            enabled={resolveProviderInstanceEnabled(instance)}
-            readOnly={readOnly}
-            onModeChange={(setupMode) =>
-              actions.enableInstance(instanceId, {
-                ...instance,
-                enabled: true,
-                config: {
-                  ...(instance.config !== null && typeof instance.config === "object"
-                    ? instance.config
-                    : {}),
+    <>
+      {setupOpen && setupDriver !== null ? (
+        <AgentSetupDialog
+          environmentId={environmentId}
+          driver={setupDriver}
+          instanceId={instanceId}
+          onClose={() => setSetupOpen(false)}
+        />
+      ) : null}
+      <ProviderInstanceCard
+        environmentId={environmentId}
+        secretSources={secretSources}
+        statusAction={
+          offerSetup ? (
+            <Button size="xs" variant="outline" onClick={() => setSetupOpen(true)}>
+              Set up
+            </Button>
+          ) : undefined
+        }
+        projectOverride={projectOverride}
+        instanceId={instanceId}
+        instance={instance}
+        driverOption={driverOption}
+        liveProvider={liveProvider}
+        mode={mode}
+        selected={selected}
+        onSelect={mode === "list" ? () => actions.selectInstance(instanceId) : undefined}
+        readOnly={readOnly}
+        runtime={
+          mode === "editor" && codexSetupMode === "managed" ? (
+            <CodexManagedRuntimeFields
+              environmentId={environmentId}
+              instanceId={instanceId}
+              provider={liveProvider}
+            />
+          ) : undefined
+        }
+        canWriteSettings={canWriteSettings}
+        setup={
+          mode === "editor" && codexSetupMode === "managed" ? (
+            <CodexSetupSection
+              environmentId={environmentId}
+              instanceId={instanceId}
+              provider={liveProvider}
+              mode={codexSetupMode}
+              enabled={resolveProviderInstanceEnabled(instance)}
+              readOnly={readOnly}
+              onModeChange={(setupMode) =>
+                actions.enableInstance(instanceId, {
+                  ...instance,
                   enabled: true,
-                  setupMode,
-                },
-              })
-            }
-          />
-        ) : mode === "editor" &&
-          !readOnly &&
-          liveProvider &&
-          liveProvider.setup?.canAuthenticate ? (
-          <ProviderAuthenticationSection
-            key={`${environmentId}:${instanceId}`}
-            environmentId={environmentId}
-            environmentLabel={environmentLabel}
-            instanceId={instanceId}
-            provider={liveProvider}
-            readOnly={readOnly}
-          />
-        ) : null
-      }
-      onUpdate={(next) => actions.updateInstance(instanceId, instance, next)}
-      onDelete={
-        mode === "editor" && !isDefault
-          ? () => actions.deleteInstance(instanceId, instance)
-          : undefined
-      }
-      headerAction={
-        mode === "editor" && isDefault && isDirty ? (
-          <SettingResetButton
-            label={`${resetLabel} provider settings`}
-            onClick={() => actions.resetDefaultInstance(driver)}
-          />
-        ) : null
-      }
-      hiddenModels={hiddenModels}
-      favoriteModels={favoriteModels}
-      modelOrder={modelOrder}
-      onHiddenModelsChange={(next, affectedModels) => {
-        const hidden = new Set(next);
-        void actions.updateModelPreferences({
-          setModelsHidden: affectedModels.map((model) => ({
-            provider: instanceId,
-            model,
-            hidden: hidden.has(model),
-          })),
-        });
-      }}
-      onToggleFavorite={(model) => {
-        void actions.toggleModelFavorite(instanceId, model);
-      }}
-      onFavoriteModelsChange={(next) => {
-        void actions.updateModelPreferences({
-          setModelFavorites: modelListChanges(favoriteModels, next).map(({ model, selected }) => ({
-            provider: instanceId,
-            model,
-            favorite: selected,
-          })),
-        });
-      }}
-      onModelOrderChange={(nextOrder) => {
-        void actions.updateModelPreferences({
-          setProviderModelOrder: { provider: instanceId, modelOrder: nextOrder },
-        });
-      }}
-      onInstallRecommended={
-        canInstallRecommended
-          ? () => {
-              void actions.runProviderUpdate(liveProvider, recommendedVersion ?? undefined);
-            }
-          : undefined
-      }
-      onRunUpdate={
-        !readOnly && updateCandidate
-          ? () => {
-              if (!isInstanceUpdateRunning) void actions.runProviderUpdate(updateCandidate);
-            }
-          : undefined
-      }
-      isUpdating={isInstanceUpdateRunning}
-    />
+                  config: {
+                    ...(instance.config !== null && typeof instance.config === "object"
+                      ? instance.config
+                      : {}),
+                    enabled: true,
+                    setupMode,
+                  },
+                })
+              }
+            />
+          ) : mode === "editor" &&
+            !readOnly &&
+            liveProvider &&
+            liveProvider.setup?.canAuthenticate ? (
+            <ProviderAuthenticationSection
+              key={`${environmentId}:${instanceId}`}
+              environmentId={environmentId}
+              environmentLabel={environmentLabel}
+              instanceId={instanceId}
+              provider={liveProvider}
+              readOnly={readOnly}
+            />
+          ) : null
+        }
+        onUpdate={(next) => actions.updateInstance(instanceId, instance, next)}
+        onDelete={
+          mode === "editor" && !isDefault
+            ? () => actions.deleteInstance(instanceId, instance)
+            : undefined
+        }
+        headerAction={
+          mode === "editor" && isDefault && isDirty ? (
+            <SettingResetButton
+              label={`${resetLabel} provider settings`}
+              onClick={() => actions.resetDefaultInstance(driver)}
+            />
+          ) : null
+        }
+        hiddenModels={hiddenModels}
+        favoriteModels={favoriteModels}
+        modelOrder={modelOrder}
+        onHiddenModelsChange={(next, affectedModels) => {
+          const hidden = new Set(next);
+          void actions.updateModelPreferences({
+            setModelsHidden: affectedModels.map((model) => ({
+              provider: instanceId,
+              model,
+              hidden: hidden.has(model),
+            })),
+          });
+        }}
+        onToggleFavorite={(model) => {
+          void actions.toggleModelFavorite(instanceId, model);
+        }}
+        onFavoriteModelsChange={(next) => {
+          void actions.updateModelPreferences({
+            setModelFavorites: modelListChanges(favoriteModels, next).map(
+              ({ model, selected }) => ({
+                provider: instanceId,
+                model,
+                favorite: selected,
+              }),
+            ),
+          });
+        }}
+        onModelOrderChange={(nextOrder) => {
+          void actions.updateModelPreferences({
+            setProviderModelOrder: { provider: instanceId, modelOrder: nextOrder },
+          });
+        }}
+        onInstallRecommended={
+          canInstallRecommended
+            ? () => {
+                void actions.runProviderUpdate(liveProvider, recommendedVersion ?? undefined);
+              }
+            : undefined
+        }
+        onRunUpdate={
+          !readOnly && updateCandidate
+            ? () => {
+                if (!isInstanceUpdateRunning) void actions.runProviderUpdate(updateCandidate);
+              }
+            : undefined
+        }
+        isUpdating={isInstanceUpdateRunning}
+      />
+    </>
   );
 }

@@ -644,6 +644,8 @@ interface ProviderInstanceCardProps {
   readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
   readonly onDelete?: (() => void) | undefined;
   readonly headerAction?: ReactNode | undefined;
+  /** Shown beside the editor's status, for a step the status calls for. */
+  readonly statusAction?: ReactNode;
   readonly setup?: ReactNode;
   readonly runtime?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
@@ -681,6 +683,7 @@ export function ProviderInstanceCard({
   onUpdate,
   onDelete,
   headerAction,
+  statusAction,
   setup,
   runtime,
   hiddenModels,
@@ -1172,7 +1175,7 @@ export function ProviderInstanceCard({
   return (
     <>
       <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
-        <SettingsRow title="Status" status={statusContent} />
+        <SettingsRow title="Status" status={statusContent} control={statusAction} />
         <SettingsRow
           title="Display name"
           control={

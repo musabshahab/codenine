@@ -10,6 +10,7 @@ import {
   agentSetupAction,
   agentSetupChecks,
   agentStepAfterCommand,
+  canSetUpInTerminal,
   followSetupTerminalCommand,
   getOnboardingProviderState,
   INITIAL_SETUP_TERMINAL_WATCH,
@@ -332,6 +333,31 @@ describe("agent card", () => {
     if (expected === null) expect(flat).toBeNull();
     else expect(flat).toMatchObject(expected as object);
     expect(agentSetupAction(provider, state)).toBe(action);
+  });
+
+  it("offers the terminal only for a missing or signed-out Claude or Codex CLI", () => {
+    expect(canSetUpInTerminal(codex({ installed: false, status: "error" }))).toBe(true);
+    expect(canSetUpInTerminal(codex({ auth: { status: "unauthenticated" } }))).toBe(true);
+    expect(canSetUpInTerminal(codex())).toBe(false);
+    expect(
+      canSetUpInTerminal(
+        codex({ compatibilityAdvisory: broken, auth: { status: "unauthenticated" } }),
+      ),
+    ).toBe(false);
+    // ChatGPT sign-in has its own setup.
+    expect(
+      canSetUpInTerminal(
+        codex({
+          auth: { status: "unauthenticated" },
+          setup: { canAuthenticate: true, canInstall: true },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      canSetUpInTerminal(
+        codex({ driver: ProviderDriverKind.make("cursor"), auth: { status: "unauthenticated" } }),
+      ),
+    ).toBe(false);
   });
 
   it("types the next step's command once a command finishes", () => {

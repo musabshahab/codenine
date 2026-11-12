@@ -249,6 +249,15 @@ export function agentSetupAction(
   }
 }
 
+/** Whether a not-ready agent is one a terminal can fix: a missing or signed-out CLI. */
+export function canSetUpInTerminal(provider: ServerProvider): boolean {
+  if (!isAgentSetupDriver(provider.driver)) return false;
+  // ChatGPT sign-in runs Codex for the user; it is set up in its own panel.
+  if (provider.setup?.canAuthenticate === true) return false;
+  const action = agentSetupAction(provider, getOnboardingProviderState(provider));
+  return action === "install" || action === "signIn";
+}
+
 export type AgentCommandOutcome =
   | { readonly type: "ready" }
   | { readonly type: "next"; readonly step: AgentTerminalStep }
