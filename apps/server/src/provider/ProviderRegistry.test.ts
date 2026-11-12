@@ -37,7 +37,7 @@ import {
   type ServerProviderSlashCommand,
   type ServerSettings as ContractServerSettings,
 } from "@codenine/contracts";
-import { HttpClient, HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 import * as HostProcess from "@codenine/shared/HostProcess";
 import { deepMerge } from "@codenine/shared/Struct";
@@ -2682,6 +2682,155 @@ it.layer(
           }),
         ),
       ),
+    );
+
+    it.effect.each([
+      {
+        key: "accepted with a spending limit",
+        token: "sk-or-test",
+        reply: { data: { limit: 20, limit_remaining: 12.4 } },
+        status: "ready",
+        auth: {
+          status: "authenticated",
+          type: "openrouter",
+          label: "OpenRouter · $12.40 left",
+        } as const,
+        message: undefined,
+      },
+      {
+        key: "accepted without a spending limit",
+        token: "sk-or-test",
+        reply: { data: { limit: null, limit_remaining: null } },
+        status: "ready",
+        auth: { status: "authenticated", type: "openrouter", label: "OpenRouter" } as const,
+        message: undefined,
+      },
+      {
+        key: "rejected",
+        token: "sk-or-test",
+        reply: 401,
+        status: "error",
+        auth: { status: "unauthenticated", type: "openrouter", label: "OpenRouter" } as const,
+        message: "OpenRouter rejected this API key. Check it in Settings → Providers.",
+      },
+      {
+        key: "unreachable",
+        token: "sk-or-test",
+        reply: null,
+        status: "ready",
+        auth: { status: "authenticated", type: "openrouter", label: "OpenRouter" } as const,
+        message: "Could not reach OpenRouter to check the API key.",
+      },
+      {
+        key: "missing",
+        token: undefined,
+        reply: null,
+        status: "error",
+        auth: { status: "unauthenticated", type: "openrouter", label: "OpenRouter" } as const,
+        message: "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Providers.",
+      },
+    ])("checks an OpenRouter instance's key: $key", ({ token, reply, status, auth, message }) =>
+      Effect.gen(function* () {
+        const requests: Array<readonly [string, string | undefined]> = [];
+        const http = HttpClient.make((request) => {
+          requests.push([request.url, request.headers.authorization]);
+          return reply === null
+            ? Effect.fail(
+                new HttpClientError.HttpClientError({
+                  reason: new HttpClientError.TransportError({ request }),
+                }),
+              )
+            : Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  typeof reply === "number"
+                    ? new Response(null, { status: reply })
+                    : Response.json(reply),
+                ),
+              );
+        });
+        const snapshot = yield* checkClaudeProviderStatus(
+          {
+            ...defaultClaudeSettings,
+            customModels: ["anthropic/claude-sonnet-5.5", "z-ai/glm-5.3"],
+          },
+          // A Claude login in the same config directory says nothing about the OpenRouter key.
+          claudeCapabilities({
+            email: "claude-login@example.com",
+            subscriptionType: "max",
+            tokenSource: "claude.ai",
+            models: [{ value: "openai/gpt-6-luna", displayName: "GPT-6 Luna", description: "" }],
+          }),
+          {
+            ANTHROPIC_BASE_URL: "https://openrouter.ai/api",
+            ANTHROPIC_API_KEY: "",
+            ...(token ? { ANTHROPIC_AUTH_TOKEN: token } : {}),
+          },
+        ).pipe(Effect.provideService(HttpClient.HttpClient, http));
+
+        assert.deepStrictEqual(
+          requests,
+          token ? [["https://openrouter.ai/api/v1/key", `Bearer ${token}`]] : [],
+        );
+        assert.strictEqual(snapshot.status, status);
+        assert.deepStrictEqual(snapshot.auth, auth);
+        assert.strictEqual(snapshot.message, message);
+        assert.strictEqual(snapshot.displayName, "OpenRouter");
+        // Neither Claude's catalog nor the models Claude Code discovered through the gateway.
+        assert.deepStrictEqual(
+          snapshot.models.map((model) => model.slug),
+          ["anthropic/claude-sonnet-5.5", "z-ai/glm-5.3"],
+        );
+        assert.deepStrictEqual(
+          snapshot.usageLimits,
+          status === "ready"
+            ? {
+                checkedAt: snapshot.checkedAt,
+                windows: [],
+                unavailable: {
+                  reason: "unsupported",
+                  message: "OpenRouter charges per request and has no subscription limits.",
+                },
+                externalUsage: {
+                  label: "OpenRouter activity",
+                  url: "https://openrouter.ai/activity",
+                },
+              }
+            : undefined,
+        );
+        assert.notInclude(JSON.stringify(snapshot), "sk-or-test");
+      }).pipe(
+        Effect.provide(
+          layerMockSpawner((args) => {
+            const joined = args.join(" ");
+            if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
+            throw new Error(`Unexpected args: ${joined}`);
+          }),
+        ),
+      ),
+    );
+
+    it.effect("marks an OpenRouter instance it has not checked", () =>
+      Effect.gen(function* () {
+        const snapshot = yield* checkClaudeProviderStatus(
+          { ...defaultClaudeSettings, enabled: false, customModels: ["z-ai/glm-5.3"] },
+          undefined,
+          {
+            ANTHROPIC_BASE_URL: "https://eu.openrouter.ai/api",
+            ANTHROPIC_AUTH_TOKEN: "sk-or-test",
+          },
+        );
+        assert.deepStrictEqual(snapshot.auth, {
+          status: "unknown",
+          type: "openrouter",
+          label: "OpenRouter",
+        });
+        assert.strictEqual(snapshot.displayName, "OpenRouter");
+        assert.deepStrictEqual(
+          snapshot.models.map((model) => model.slug),
+          ["z-ai/glm-5.3"],
+        );
+      }),
     );
 
     it.effect("keeps an API key install authenticated when it reports no token source", () =>

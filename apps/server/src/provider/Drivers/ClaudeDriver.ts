@@ -31,6 +31,7 @@ import {
   makePendingClaudeProvider,
   probeClaudeCapabilities,
   probeClaudeWorkspaceSnapshot,
+  resolveClaudeEndpoint,
   type ClaudeCapabilitiesProbe,
 } from "../ClaudeProvider.ts";
 import { makeManagedServerProvider } from "@codenine/provider-core/server/managedProvider";
@@ -131,6 +132,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
     const continuationGroupKey = yield* makeClaudeContinuationGroupKey(effectiveConfig, processEnv);
+    // Each status check reads the endpoint again; this one shapes the first snapshot and the probe.
+    const { openRouter } = yield* resolveClaudeEndpoint(effectiveConfig, stateDir, processEnv);
     const configDir = yield* resolveClaudeHomePath(effectiveConfig, processEnv);
     const accountConfigPath = yield* ClaudeResetCredits.claudeAccountConfigPath(
       effectiveConfig.homePath.trim() || processEnv.CLAUDE_CONFIG_DIR?.trim()
@@ -183,7 +186,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     const lastGoodCapabilities = yield* Ref.make<ClaudeCapabilitiesProbe | undefined>(undefined);
     const capabilitiesProbeCache = yield* Cache.makeWith(
       () =>
-        probeClaudeCapabilities(effectiveConfig, processEnv, stateDir).pipe(
+        // OpenRouter has no subscription windows to read.
+        probeClaudeCapabilities(effectiveConfig, processEnv, stateDir, !openRouter).pipe(
           Effect.flatMap((capabilities) =>
             ClaudeResetCredits.readClaudeOrganizationId(accountConfigPath).pipe(
               Effect.map((workspaceId) => ({
@@ -218,10 +222,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       {
         capacity: 1,
         timeToLive: (exit) =>
-          // Only fresh usage earns the TTL; failures, fallbacks and usage-less probes retry.
+          // Only a fresh probe with the usage it asked for earns the TTL; failures and fallbacks retry.
           Exit.isSuccess(exit) &&
           exit.value._tag === "fresh" &&
-          exit.value.capabilities.usage !== undefined
+          (openRouter || exit.value.capabilities.usage !== undefined)
             ? CAPABILITIES_PROBE_TTL
             : Duration.zero,
       },
@@ -265,6 +269,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
     );
 
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
@@ -275,7 +280,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
       initialSnapshot: (settings) =>
         modelCatalog.pipe(
-          Effect.flatMap((catalog) => makePendingClaudeProvider(settings.provider, catalog)),
+          Effect.flatMap((catalog) =>
+            makePendingClaudeProvider(settings.provider, catalog, openRouter),
+          ),
           Effect.map(stampIdentity),
         ),
       checkProvider,

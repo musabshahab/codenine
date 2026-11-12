@@ -5,6 +5,7 @@ import {
   type ServerProviderModel,
   type ServerProviderSlashCommand,
   type ServerProviderResetCredits,
+  type ServerProviderUsageLimits,
 } from "@codenine/contracts";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -15,8 +16,14 @@ import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import type { HttpClient } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { createModelCapabilities } from "@codenine/shared/model";
+import {
+  isOpenRouterBaseUrl,
+  OPENROUTER_ACTIVITY_URL,
+  OPENROUTER_AUTH_TYPE,
+} from "@codenine/shared/openRouter";
 import { resolveSpawnCommand } from "@codenine/shared/shell";
 import {
   query as claudeQuery,
@@ -57,6 +64,7 @@ import {
   resolveClaudeUpdateRequiredModels,
   withUltracodeToggle,
 } from "./ClaudeModelCatalog.ts";
+import { checkOpenRouterKey } from "./OpenRouterKey.ts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
@@ -80,6 +88,51 @@ const CLAUDE_PRESENTATION = {
   showInteractionModeToggle: true,
   reportsContextWindow: true,
 } as const;
+
+const OPENROUTER_PRESENTATION = { ...CLAUDE_PRESENTATION, displayName: "OpenRouter" } as const;
+const OPENROUTER_AUTH = { type: OPENROUTER_AUTH_TYPE, label: "OpenRouter" } as const;
+
+/** OpenRouter routes the model IDs its users add; the built-in Claude slugs do not route reliably. */
+function claudeInstanceModels(
+  openRouter: boolean,
+  builtInModels: ReadonlyArray<ServerProviderModel>,
+  customModels: ClaudeSettings["customModels"],
+): ReadonlyArray<ServerProviderModel> {
+  return claudeProviderModels(openRouter ? [] : builtInModels, customModels);
+}
+
+function openRouterUsageLimits(checkedAt: string): ServerProviderUsageLimits {
+  return {
+    ...makeUnavailableUsageLimits({
+      checkedAt,
+      reason: "unsupported",
+      message: "OpenRouter charges per request and has no subscription limits.",
+    }),
+    externalUsage: { label: "OpenRouter activity", url: OPENROUTER_ACTIVITY_URL },
+  };
+}
+
+function openRouterAuthLabel(limitRemaining: number | null): string {
+  return limitRemaining === null
+    ? OPENROUTER_AUTH.label
+    : `${OPENROUTER_AUTH.label} · $${Math.max(0, limitRemaining).toFixed(2)} left`;
+}
+
+/** Where Claude Code sends requests, and with which token: its settings `env` wins over the process's. */
+export const resolveClaudeEndpoint = Effect.fn("resolveClaudeEndpoint")(function* (
+  claudeSettings: Pick<ClaudeSettings, "homePath">,
+  cwd: string | undefined,
+  environment: NodeJS.ProcessEnv,
+) {
+  const settingsEnv = yield* readClaudeSettingsEnv(claudeSettings, cwd, environment);
+  const baseUrl = settingsEnv.ANTHROPIC_BASE_URL ?? environment.ANTHROPIC_BASE_URL;
+  return {
+    baseUrl,
+    openRouter: isOpenRouterBaseUrl(baseUrl),
+    authToken: (settingsEnv.ANTHROPIC_AUTH_TOKEN ?? environment.ANTHROPIC_AUTH_TOKEN)?.trim(),
+  };
+});
+
 function toTitleCaseWords(value: string): string {
   const parts: Array<string> = [];
   for (const part of value.split(/[\s_-]+/g)) {
@@ -524,18 +577,28 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 ): Effect.fn.Return<
   ServerProviderDraft,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+  | ChildProcessSpawner.ChildProcessSpawner
+  | FileSystem.FileSystem
+  | Path.Path
+  | HttpClient.HttpClient
 > {
   const resolvedEnvironment = environment ?? process.env;
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
-  const allModels = claudeProviderModels(
+  const endpoint = yield* resolveClaudeEndpoint(claudeSettings, cwd, resolvedEnvironment);
+  const { openRouter } = endpoint;
+  const presentation = openRouter ? OPENROUTER_PRESENTATION : CLAUDE_PRESENTATION;
+  const unknownAuth = openRouter
+    ? { status: "unknown" as const, ...OPENROUTER_AUTH }
+    : { status: "unknown" as const };
+  const allModels = claudeInstanceModels(
+    openRouter,
     modelCatalog.models.map((entry) => entry.model),
     claudeSettings.customModels,
   );
 
   if (!claudeSettings.enabled) {
     return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
+      presentation,
       enabled: false,
       checkedAt,
       models: allModels,
@@ -543,8 +606,8 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         installed: false,
         version: null,
         status: "warning",
-        auth: { status: "unknown" },
-        message: "Claude is disabled in Codenine settings.",
+        auth: unknownAuth,
+        message: `${presentation.displayName} is disabled in Codenine settings.`,
       },
     });
   }
@@ -562,7 +625,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       errorTag: error._tag,
     });
     return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
+      presentation,
       enabled: claudeSettings.enabled,
       checkedAt,
       models: allModels,
@@ -570,7 +633,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         installed: !isCommandMissingCause(error),
         version: null,
         status: "error",
-        auth: { status: "unknown" },
+        auth: unknownAuth,
         message: isCommandMissingCause(error)
           ? "Claude Agent CLI (`claude`) was not found on PATH."
           : "Failed to execute Claude Agent CLI health check.",
@@ -580,7 +643,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 
   if (Option.isNone(versionProbe.success)) {
     return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
+      presentation,
       enabled: claudeSettings.enabled,
       checkedAt,
       models: allModels,
@@ -588,7 +651,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         installed: true,
         version: null,
         status: "error",
-        auth: { status: "unknown" },
+        auth: unknownAuth,
         message:
           "Claude Agent CLI is installed but failed to run. Timed out while running command.",
       },
@@ -604,7 +667,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       stderrLength: version.stderr.length,
     });
     return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
+      presentation,
       enabled: claudeSettings.enabled,
       checkedAt,
       models: allModels,
@@ -612,14 +675,44 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         installed: true,
         version: parsedVersion,
         status: "error",
-        auth: { status: "unknown" },
+        auth: unknownAuth,
         message: "Claude Agent CLI is installed but failed to run.",
       },
     });
   }
 
-  const updateRequiredModels = resolveClaudeUpdateRequiredModels(modelCatalog, parsedVersion);
-  const versionUpgradeMessage = formatClaudeVersionUpgradeMessage(modelCatalog, parsedVersion);
+  // Built-in model notices are about Claude's own catalog, which OpenRouter instances do not list.
+  const updateRequiredModels = openRouter
+    ? []
+    : resolveClaudeUpdateRequiredModels(modelCatalog, parsedVersion);
+  const versionUpgradeMessage = openRouter
+    ? undefined
+    : formatClaudeVersionUpgradeMessage(modelCatalog, parsedVersion);
+
+  // Checked before Claude Code starts, which a rejected or missing key would make pointless.
+  const openRouterKey = !openRouter
+    ? undefined
+    : endpoint.authToken
+      ? yield* checkOpenRouterKey(endpoint.authToken)
+      : ({ status: "missing" } as const);
+  if (openRouterKey?.status === "rejected" || openRouterKey?.status === "missing") {
+    return buildServerProvider({
+      presentation,
+      enabled: claudeSettings.enabled,
+      checkedAt,
+      models: allModels,
+      probe: {
+        installed: true,
+        version: parsedVersion,
+        status: "error",
+        auth: { status: "unauthenticated", ...OPENROUTER_AUTH },
+        message:
+          openRouterKey.status === "rejected"
+            ? "OpenRouter rejected this API key. Check it in Settings → Providers."
+            : "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Providers.",
+      },
+    });
+  }
 
   const probeResult = resolveCapabilities
     ? yield* resolveCapabilities(claudeSettings).pipe(Effect.result)
@@ -628,20 +721,23 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     probeResult && Result.isSuccess(probeResult) ? probeResult.success : undefined;
   const probeFailure =
     probeResult && Result.isFailure(probeResult) ? probeResult.failure : undefined;
-  const models = claudeProviderModels(
-    [
-      ...resolveClaudeModelsForVersion(modelCatalog, parsedVersion),
-      ...claudeReportedModels(modelCatalog, claudeSettings.customModels, capabilities?.models),
-    ],
-    claudeSettings.customModels,
-  );
+  // Gateway model discovery would list OpenRouter's whole catalog.
+  const models = openRouter
+    ? allModels
+    : claudeProviderModels(
+        [
+          ...resolveClaudeModelsForVersion(modelCatalog, parsedVersion),
+          ...claudeReportedModels(modelCatalog, claudeSettings.customModels, capabilities?.models),
+        ],
+        claudeSettings.customModels,
+      );
   const skills = yield* discoverClaudeSkills(claudeSettings, cwd, resolvedEnvironment);
   const slashCommands = [COMPACT_SLASH_COMMAND, ...(capabilities?.slashCommands ?? [])];
   const dedupedSlashCommands = dedupeSlashCommands(slashCommands);
 
   if (!capabilities) {
     return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
+      presentation,
       enabled: claudeSettings.enabled,
       checkedAt,
       models,
@@ -652,7 +748,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         installed: true,
         version: parsedVersion,
         status: "warning",
-        auth: { status: "unknown" },
+        auth: unknownAuth,
         message: probeFailure
           ? Cause.isTimeoutError(probeFailure)
             ? `Timed out after ${CAPABILITIES_PROBE_TIMEOUT_MS / 1_000}s while checking Claude account status.`
@@ -662,19 +758,44 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
+  if (openRouterKey) {
+    // Claude Code's account fields describe a Claude login, not the OpenRouter key.
+    return buildServerProvider({
+      presentation,
+      enabled: claudeSettings.enabled,
+      checkedAt,
+      models,
+      slashCommands: dedupedSlashCommands,
+      skills,
+      probe: {
+        installed: true,
+        version: parsedVersion,
+        status: "ready",
+        auth: {
+          status: "authenticated",
+          ...OPENROUTER_AUTH,
+          ...(openRouterKey.status === "valid"
+            ? { label: openRouterAuthLabel(openRouterKey.limitRemaining) }
+            : {}),
+        },
+        ...(openRouterKey.status === "unreachable"
+          ? { message: "Could not reach OpenRouter to check the API key." }
+          : {}),
+        usageLimits: openRouterUsageLimits(checkedAt),
+      },
+    });
+  }
+
   // First-party account fields cannot verify custom endpoint credentials.
-  const baseUrl =
-    (yield* readClaudeSettingsEnv(claudeSettings, cwd, resolvedEnvironment)).ANTHROPIC_BASE_URL ??
-    resolvedEnvironment.ANTHROPIC_BASE_URL;
-  const endpoint = URL.parse(baseUrl?.trim() ?? "");
+  const endpointUrl = URL.parse(endpoint.baseUrl?.trim() ?? "");
   const customApiEndpoint =
-    endpoint !== null &&
-    (endpoint.protocol === "http:" || endpoint.protocol === "https:") &&
-    endpoint.hostname !== "" &&
-    endpoint.hostname !== "api.anthropic.com";
+    endpointUrl !== null &&
+    (endpointUrl.protocol === "http:" || endpointUrl.protocol === "https:") &&
+    endpointUrl.hostname !== "" &&
+    endpointUrl.hostname !== "api.anthropic.com";
   if (!customApiEndpoint && claudeAuthStatus(capabilities) === "unauthenticated") {
     return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
+      presentation,
       enabled: claudeSettings.enabled,
       checkedAt,
       models,
@@ -719,7 +840,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
       ? yield* resolveResetCredits(parsedVersion)
       : undefined;
   return buildServerProvider({
-    presentation: CLAUDE_PRESENTATION,
+    presentation,
     enabled: claudeSettings.enabled,
     checkedAt,
     models,
@@ -748,16 +869,22 @@ export const makePendingClaudeProvider = Effect.fn("ClaudeProvider.makePendingCl
   function* (
     claudeSettings: ClaudeSettings,
     modelCatalog: ClaudeModelCatalog = BUNDLED_CLAUDE_MODEL_CATALOG,
+    openRouter = false,
   ): Effect.fn.Return<ServerProviderDraft> {
     const checkedAt = yield* nowIso;
-    const models = claudeProviderModels(
+    const presentation = openRouter ? OPENROUTER_PRESENTATION : CLAUDE_PRESENTATION;
+    const auth = openRouter
+      ? { status: "unknown" as const, ...OPENROUTER_AUTH }
+      : { status: "unknown" as const };
+    const models = claudeInstanceModels(
+      openRouter,
       modelCatalog.models.map((entry) => entry.model),
       claudeSettings.customModels,
     );
 
     if (!claudeSettings.enabled) {
       return buildServerProvider({
-        presentation: CLAUDE_PRESENTATION,
+        presentation,
         enabled: false,
         checkedAt,
         models,
@@ -765,14 +892,14 @@ export const makePendingClaudeProvider = Effect.fn("ClaudeProvider.makePendingCl
           installed: false,
           version: null,
           status: "warning",
-          auth: { status: "unknown" },
-          message: "Claude is disabled in Codenine settings.",
+          auth,
+          message: `${presentation.displayName} is disabled in Codenine settings.`,
         },
       });
     }
 
     return buildServerProvider({
-      presentation: CLAUDE_PRESENTATION,
+      presentation,
       enabled: true,
       checkedAt,
       models,
@@ -780,8 +907,8 @@ export const makePendingClaudeProvider = Effect.fn("ClaudeProvider.makePendingCl
         installed: false,
         version: null,
         status: "warning",
-        auth: { status: "unknown" },
-        message: "Claude provider status has not been checked in this session yet.",
+        auth,
+        message: `${presentation.displayName} provider status has not been checked in this session yet.`,
       },
     });
   },
