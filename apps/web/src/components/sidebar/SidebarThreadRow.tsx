@@ -1304,7 +1304,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 </span>
               ) : null}
               {multiline ? titleLineIcons : null}
-              {pinIndicator}
+              {compact && pinIndicator !== null ? (
+                // Under the Pinned label the pin says nothing new; it shows as Unpin on hover.
+                <span className="hidden shrink-0 group-focus-within/sidebar-row:inline-flex group-hover/sidebar-row:inline-flex">
+                  {pinIndicator}
+                </span>
+              ) : (
+                pinIndicator
+              )}
               {multiline ? null : terminalStatusIcon}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">

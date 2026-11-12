@@ -37,7 +37,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
             onPressedChange={onToggleRightPanel}
             aria-label="Toggle right panel"
             data-right-panel-toggle
-            variant="ghost"
+            variant="ghost-muted"
             size="sm"
             disabled={!rightPanelAvailable}
           >
@@ -71,7 +71,7 @@ export const RightPanelMaximizeControl = memo(function RightPanelMaximizeControl
             pressed={maximized}
             onPressedChange={onToggle}
             aria-label={label}
-            variant="ghost"
+            variant="ghost-muted"
             size="sm"
           >
             <MorphIcon className="size-4" icon={maximized ? Minimize2 : Maximize2} />
@@ -94,7 +94,7 @@ export function WorkspaceTitlebarControls(props: {
 }) {
   return (
     <div
-      className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
+      className="pointer-events-none fixed top-[calc(var(--workspace-controls-top)+var(--workspace-frame,0px))] right-[calc(var(--workspace-controls-right)+var(--workspace-frame,0px))] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
       data-workspace-titlebar-controls
     >
       {props.showMaximizeControl ? (

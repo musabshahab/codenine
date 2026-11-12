@@ -739,7 +739,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="sidebar" title="Sidebar">
         <SettingsRow
           {...searchableSetting("sidebar-group-by-project")}
-          description="Show chats in a folder for each project, with the chats that need you at the top. Pinned chats stay above the folders, and Snoozed and Done stay below them. Off shows one list."
+          description="Show chats in a folder for each project. Pinned chats stay above the folders and Snoozed below them; finished chats move to Completed & archived. Off shows one list, with its own Done shelf."
           resetAction={
             settings.sidebarGroupByProject !== DEFAULT_UNIFIED_SETTINGS.sidebarGroupByProject ? (
               <SettingResetButton
@@ -839,7 +839,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("working-shelf")}
-          description="In the single list, fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you. Chats grouped by project have no Working section."
+          description="In the single list, fold working and monitoring threads into a Working section. They return to the top of the list when they need you. Chats grouped by project have no Working section."
           resetAction={
             settings.sidebarWorkingShelfEnabled !==
             DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (

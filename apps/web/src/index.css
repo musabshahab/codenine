@@ -120,7 +120,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(codenine
   --glass-opacity: 80%;
   --glass-saturation: 1.14;
   --desktop-window-right-resize-inset: 0px;
-  --workspace-topbar-height: 52px;
+  /* The window's top band; macOS window buttons are centered in it. */
+  --workspace-topbar-band: 52px;
+  --workspace-topbar-height: var(--workspace-topbar-band);
   --workspace-controls-top: 0px;
   --workspace-controls-left: calc(env(safe-area-inset-left) + 0.75rem);
   --workspace-controls-right: calc(env(safe-area-inset-right) + 0.75rem);
@@ -1247,23 +1249,39 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(codenine
 }
 
 /* On wide screens the main view is a rounded panel set inside the sidebar's frame. Unlayered, so it
-   overrides the routes' full-height utilities. */
+   overrides the routes' full-height utilities. Windows and Linux desktop windows draw their buttons
+   over the top right corner, so they keep the full-bleed view. */
 @media (width >= 48rem) {
-  [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"]) {
+  :root:not(.wco) [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"]) {
     background-color: var(--sidebar);
+    /* The panel's margin and border: controls fixed over the panel move in by it. */
+    --workspace-frame: calc(0.5rem + 1px);
   }
-  [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"]) [data-slot="sidebar-container"] {
+  :root:not(.wco)
+    [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"])
+    [data-slot="sidebar-container"] {
     border-right-width: 0;
   }
-  [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"]) > [data-slot="sidebar-inset"] {
+  :root:not(.wco)
+    [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"])
+    > [data-slot="sidebar-inset"] {
     height: calc(100dvh - 1rem);
     max-height: calc(100dvh - 1rem);
     margin: 0.5rem 0.5rem 0.5rem 0;
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 0.625rem;
+    /* Its top bars end where the sidebar's first row does. */
+    --workspace-topbar-height: calc(var(--workspace-topbar-band) - var(--workspace-frame));
   }
-  [data-slot="sidebar-wrapper"][data-sidebar-state="collapsed"] > [data-slot="sidebar-inset"] {
+  :root:not(.wco)
+    [data-slot="sidebar-wrapper"][data-sidebar-state="collapsed"]:has(> [data-slot="sidebar"]) {
+    /* With the sidebar away, its toggle sits over the panel too. */
+    --workspace-frame-left: var(--workspace-frame);
+  }
+  :root:not(.wco)
+    [data-slot="sidebar-wrapper"][data-sidebar-state="collapsed"]
+    > [data-slot="sidebar-inset"] {
     margin-left: 0.5rem;
   }
 }

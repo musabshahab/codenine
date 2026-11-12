@@ -3841,6 +3841,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   key={`project-folder:${folder.key}`}
                                   group={folder.group}
                                   collapsed={folder.collapsed}
+                                  empty={folder.threads.length + folder.hiddenThreads.length === 0}
                                   hiddenThreads={folder.hiddenThreads}
                                   onToggle={toggleProjectFolder}
                                   onOpen={openProjectPage}
@@ -3853,6 +3854,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   folderKey={folder.key}
                                   name={folder.name}
                                   collapsed={folder.collapsed}
+                                  empty={folder.threads.length + folder.hiddenThreads.length === 0}
                                   hiddenThreads={folder.hiddenThreads}
                                   onToggle={toggleChatFolder}
                                   onNewChat={startChatWithoutProject}

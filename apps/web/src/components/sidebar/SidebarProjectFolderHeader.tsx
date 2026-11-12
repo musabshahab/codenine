@@ -35,6 +35,8 @@ function SidebarFolderHeaderRow(props: {
   label: string;
   newChatLabel: string;
   collapsed: boolean;
+  /** Nothing to show when open, such as a folder whose chats are all pinned. */
+  empty: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: () => void;
   onOpen: (() => void) | null;
@@ -84,7 +86,7 @@ function SidebarFolderHeaderRow(props: {
         <button
           type="button"
           data-sidebar-row={rowId}
-          aria-expanded={!collapsed}
+          aria-expanded={props.empty ? undefined : !collapsed}
           aria-label={onOpen ? `Show or hide ${props.label}` : undefined}
           onClick={props.onToggle}
           onContextMenu={handleContextMenu}
@@ -99,7 +101,8 @@ function SidebarFolderHeaderRow(props: {
             aria-hidden
             className={cn(
               "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
-              collapsed && "-rotate-90",
+              (collapsed || props.empty) && "-rotate-90",
+              props.empty && "invisible",
             )}
           />
           {onOpen ? null : name}
@@ -145,6 +148,7 @@ function SidebarFolderHeaderRow(props: {
 export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHeader(props: {
   group: SidebarProjectSnapshot;
   collapsed: boolean;
+  empty: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: (group: SidebarProjectSnapshot) => void;
   onOpen: (group: SidebarProjectSnapshot) => void;
@@ -162,6 +166,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
         group.isScratch ? "New chat without a project" : `New chat in ${group.displayName}`
       }
       collapsed={props.collapsed}
+      empty={props.empty}
       hiddenThreads={props.hiddenThreads}
       onToggle={() => props.onToggle(group)}
       onOpen={group.isScratch ? null : () => props.onOpen(group)}
@@ -176,13 +181,14 @@ export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(pro
   folderKey: string;
   name: string | null;
   collapsed: boolean;
+  empty: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: (folderKey: string) => void;
   onNewChat: () => void;
   onContextMenu: ((name: string, position: { x: number; y: number }) => void) | null;
 }) {
   const { name, onContextMenu } = props;
-  const FolderGlyph = props.collapsed ? FolderIcon : FolderOpenIcon;
+  const FolderGlyph = props.collapsed || props.empty ? FolderIcon : FolderOpenIcon;
   return (
     <SidebarFolderHeaderRow
       testId="sidebar-chat-folder"
@@ -197,6 +203,7 @@ export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(pro
       label={name ?? "Recent"}
       newChatLabel="New chat"
       collapsed={props.collapsed}
+      empty={props.empty}
       hiddenThreads={props.hiddenThreads}
       onToggle={() => props.onToggle(props.folderKey)}
       onOpen={null}

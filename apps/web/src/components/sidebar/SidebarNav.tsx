@@ -1,4 +1,5 @@
 import {
+  FolderCodeIcon,
   FolderPlusIcon,
   InboxIcon,
   ListChecksIcon,
@@ -41,7 +42,7 @@ export function SidebarNewMenu(props: {
         </MenuItem>
         <MenuSeparator />
         <MenuItem onClick={props.onNewProject}>
-          <FolderPlusIcon />
+          <FolderCodeIcon />
           New project
         </MenuItem>
         <MenuItem onClick={props.onNewFolder}>

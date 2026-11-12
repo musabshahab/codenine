@@ -46,7 +46,7 @@ function HeaderToolToggle(props: {
             pressed={props.pressed}
             onPressedChange={props.onToggle}
             disabled={props.disabled}
-            variant="ghost"
+            variant="ghost-muted"
             size="sm"
           />
         }
@@ -86,7 +86,9 @@ function ThreadDetailsToolToggle(props: ThreadDetailsTool) {
       <TooltipTrigger render={<span className="flex shrink-0" />}>
         <PopoverTrigger
           handle={props.popoverHandle}
-          render={<Toggle aria-label="Details" pressed={props.open} variant="ghost" size="sm" />}
+          render={
+            <Toggle aria-label="Details" pressed={props.open} variant="ghost-muted" size="sm" />
+          }
         >
           <ListIcon />
         </PopoverTrigger>

@@ -2,6 +2,7 @@ import { scopeProjectRef, scopeThreadRef } from "@codenine/client-runtime/enviro
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import {
   FolderIcon,
+  GitBranchIcon,
   MessageCirclePlusIcon,
   MonitorIcon,
   SettingsIcon,
@@ -20,6 +21,8 @@ import { openWorkThreads, useTeamTasks } from "../../hooks/useWorkLists";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useQuietThreadShells } from "../../state/entities";
 import { useEnvironmentIdentities } from "../../state/environments";
+import { useEnvironmentQuery } from "../../state/query";
+import { vcsEnvironment } from "../../state/vcs";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatElapsedDurationLabel } from "../../timestampFormat";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -63,6 +66,13 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
   const nowMs = Date.parse(`${nowMinute}Z`);
   // Saved commands live in settings, the same source the thread header's command button reads.
   const scripts = resolveProjectScripts(useEnvironmentSettings(group.environmentId), group);
+  const gitStatus = useEnvironmentQuery(
+    vcsEnvironment.status({
+      environmentId: group.environmentId,
+      input: { cwd: group.workspaceRoot },
+    }),
+  ).data;
+  const branch = gitStatus?.isRepo ? gitStatus.refName : null;
   const memberKeys = new Set(
     group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
   );
@@ -123,19 +133,22 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
     >
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-10">
         <ProjectFavicon project={group} className="size-11 rounded-lg" />
-        <div className="flex flex-col gap-2">
-          <h2 className="text-3xl font-semibold tracking-tight text-foreground">
-            {group.displayName}
-          </h2>
-          <p className="truncate font-mono text-xs text-muted-foreground">{group.workspaceRoot}</p>
-        </div>
-        <dl className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-sm">
-          <dt className="text-muted-foreground">Details</dt>
+        <h2 className="text-3xl font-semibold tracking-tight text-foreground">
+          {group.displayName}
+        </h2>
+        <dl className="grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 text-sm">
+          <dt className="leading-7 text-muted-foreground">Details</dt>
           <dd className="flex flex-wrap gap-2">
             <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs text-foreground">
               <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate font-mono">{group.workspaceRoot}</span>
             </span>
+            {branch === null ? null : (
+              <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs text-foreground">
+                <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{branch}</span>
+              </span>
+            )}
             {machines.map((machine) => (
               <span
                 key={machine}
@@ -146,7 +159,7 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
               </span>
             ))}
           </dd>
-          <dt className="text-muted-foreground">Commands</dt>
+          <dt className="leading-7 text-muted-foreground">Commands</dt>
           <dd className="flex flex-wrap gap-2">
             {scripts.length === 0 ? (
               <span className="text-xs text-muted-foreground">

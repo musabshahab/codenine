@@ -46,7 +46,7 @@ import {
   useComboboxFilter,
 } from "../ui/combobox";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { Button } from "../ui/button";
+import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { DraftProjectName } from "./DraftProjectName";
 import { resolveProjectSettings } from "@codenine/shared/projectSettings";
 import { resolveProjectDefaultProviderModelSelection } from "../../providerInstances";
@@ -244,18 +244,26 @@ export function DraftProjectPicker({
         <TooltipTrigger
           render={
             <ComboboxTrigger
-              render={<Button size="xs" variant="outline" />}
+              // Sized and shaped like the Team toggle beside it.
+              render={
+                <ComposerControl className="min-w-0 max-w-56 rounded-full border-border/80" />
+              }
               data-draft-project-trigger=""
               aria-label={`Project: ${activeProjectTitle ?? "none chosen"}`}
-              className="min-w-0 max-w-56"
             />
           }
         >
           {activeProjectGroup ? (
-            <ProjectFavicon project={activeProjectGroup} className="size-3.5 shrink-0" />
+            <ProjectFavicon project={activeProjectGroup} className="size-4 shrink-0" />
           ) : null}
-          <DraftProjectName value={activeProjectTitle ?? "Choose a project"} singleLine />
-          <ChevronDownIcon aria-hidden className="size-3 shrink-0 opacity-70" />
+          <span data-composer-control-label className="min-w-0">
+            <DraftProjectName value={activeProjectTitle ?? "Choose a project"} singleLine />
+          </span>
+          <ChevronDownIcon
+            aria-hidden
+            data-composer-control-chevron
+            className="size-3.5 opacity-70"
+          />
         </TooltipTrigger>
         <TooltipPopup side="top">Choose the project</TooltipPopup>
       </Tooltip>
@@ -315,10 +323,10 @@ export function DraftProjectPicker({
       </ComboboxPopup>
     </Combobox>
   ) : (
-    <Button size="xs" variant="outline" onClick={openNewProject}>
-      <FolderPlusIcon aria-hidden />
-      Add a project
-    </Button>
+    <ComposerControl className="rounded-full border-border/80" onClick={openNewProject}>
+      <ComposerControlIcon icon={FolderPlusIcon} />
+      <span data-composer-control-label>Add a project</span>
+    </ComposerControl>
   );
 }
 
