@@ -1,34 +1,15 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import {
-  isAtomCommandInterrupted,
-  settlePromise,
-  squashAtomCommandFailure,
-} from "@codenine/client-runtime/state/runtime";
-import {
   canCancelTeam,
   canRetryTeamTask,
-  editTeamDraft,
-  resolveTeamDraft,
-  savedTeamDraftEdit,
-  teamApproveCommands,
-  teamCancelCommand,
-  teamCommandFailure,
-  teamDraftIssue,
   teamHandoffs,
-  teamRetryCommand,
-  teamSaveCommand,
   teamStatusText,
   teamTaskOfThread,
   teamTaskStatus,
-  type TeamDraftChange,
-  type TeamDraftEdit,
   type TeamTaskDisplayStatus,
 } from "@codenine/client-runtime/team";
 import {
-  AuthOrchestrationOperateScope,
-  CommandId,
-  type OrchestrationV2Command,
   type ScopedThreadRef,
   type TeamAgent,
   type TeamAgentId,
@@ -42,16 +23,12 @@ import { teamPlanSummary } from "@codenine/shared/team";
 import { formatTokens } from "@codenine/shared/usageFormat";
 import { Link } from "@tanstack/react-router";
 import { ArrowDownIcon, ChevronDownIcon } from "lucide-react";
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import { ComposerHandleContext } from "../../composerHandleContext";
-import { readLocalApi } from "../../localApi";
-import { cn, randomUUID } from "../../lib/utils";
+import { cn } from "../../lib/utils";
 import { useQuietThreadShell, useThreadStatus } from "../../state/entities";
-import { orchestrationEnvironment } from "../../state/orchestration";
-import { useEnvironmentScope } from "../../state/session";
 import { environmentThreadDetails } from "../../state/threads";
-import { useAtomCommand } from "../../state/use-atom-command";
 import { Badge } from "../ui/badge";
 import { Button, InlineButton } from "../ui/button";
 import { Group } from "../ui/group";
@@ -60,6 +37,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { TeamModelLabel, useTeamModelCatalog, type TeamModelCatalog } from "./TeamAgentModel";
 import { TEAM_ROLE_LABELS, TeamDraftEditor } from "./TeamDraftEditor";
 import { TeamResultText } from "./TeamResultText";
+import { useTeamPlanActions, type TeamPlanPendingAction } from "./useTeamPlanActions";
 
 type BadgeVariant = "info" | "success" | "error" | "warning" | "secondary" | "outline";
 
@@ -79,13 +57,6 @@ const TASK_STATUS_BADGE: Record<TeamTaskDisplayStatus, BadgeVariant> = {
   cancelled: "secondary",
   not_started: "outline",
 };
-
-const CONFLICT_NOTICE =
-  "The team changed before your changes reached it, so they were not applied. This is the new plan; review it and approve again.";
-const OVERTAKEN_NOTICE =
-  "The team changed while you were editing, so your unsaved changes were dropped. This is the new plan.";
-
-type PendingAction = "save" | "approve" | "cancel" | `retry:${string}`;
 
 /** The Task tab: the team a lead proposed or runs, or the team an agent's thread works for. */
 export function TaskPanel(props: {
@@ -214,94 +185,29 @@ function TeamPlanView(props: {
   onViewChanges: (() => void) | undefined;
 }) {
   const { leadRef, plan, agentTask } = props;
-  const { environmentId, threadId } = leadRef;
+  const { environmentId } = leadRef;
   const lead = useQuietThreadShell(leadRef);
   const catalog = useTeamModelCatalog(environmentId, lead?.projectId ?? null);
-  const hasOperateScope = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
-  const permitted = useAtomValue(
-    orchestrationEnvironment.v2.dispatchCommand.permissionAtom(environmentId),
-  );
-  const dispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
-    reportFailure: false,
-  });
-  const [edit, setEdit] = useState<TeamDraftEdit | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingAction | null>(null);
-
-  const canOperate = hasOperateScope && permitted;
-  const proposed = plan.status === "proposed";
-  const resolved = resolveTeamDraft(plan, edit);
-  const issue = proposed ? teamDraftIssue(resolved.draft) : null;
-  // While this client approves or cancels, the plan leaves `proposed` before its edits are cleared.
-  const shownNotice = notice ?? (resolved.overtaken && pending === null ? OVERTAKEN_NOTICE : null);
-  const newCommandId = () => CommandId.make(randomUUID());
-
-  /** Sends the commands in order and stops at the first one the server rejects. */
-  const run = async (action: PendingAction, commands: ReadonlyArray<OrchestrationV2Command>) => {
-    if (!canOperate || pending !== null) return;
-    setPending(action);
-    setError(null);
-    setNotice(null);
-    for (const command of commands) {
-      const result = await dispatch({ environmentId, input: command });
-      if (result._tag === "Failure") {
-        setPending(null);
-        if (isAtomCommandInterrupted(result)) return;
-        const failure = teamCommandFailure(squashAtomCommandFailure(result));
-        if (failure.conflict) {
-          setEdit(null);
-          setNotice(CONFLICT_NOTICE);
-        } else {
-          setError(failure.message);
-        }
-        return;
-      }
-      if (command.type === "team.edit") setEdit(savedTeamDraftEdit(plan, resolved));
-    }
-    if (action === "approve" || action === "cancel") setEdit(null);
-    setPending(null);
-  };
-
-  const change = (next: TeamDraftChange) => {
-    setNotice(null);
-    setError(null);
-    setEdit(editTeamDraft(plan, edit, next));
-  };
-  const save = () =>
-    void run("save", [teamSaveCommand({ threadId, resolved, commandId: newCommandId() })]);
-  const approve = () =>
-    void run("approve", teamApproveCommands({ threadId, resolved, newCommandId }));
-  const cancel = async () => {
-    const api = readLocalApi();
-    if (plan.status === "running" && api !== undefined) {
-      const confirmed = await settlePromise(() =>
-        api.dialogs.confirm(
-          "Cancel the team?\nRunning agents stop, and tasks that have not started will not start.",
-          { variant: "destructive" },
-        ),
-      );
-      if (confirmed._tag === "Failure" || !confirmed.value) return;
-    }
-    await run("cancel", [teamCancelCommand({ threadId, commandId: newCommandId() })]);
-  };
-  const retry = (task: TeamTask, agentId?: TeamAgentId) =>
-    void run(`retry:${task.id}`, [
-      teamRetryCommand({
-        threadId,
-        task,
-        ...(agentId === undefined ? {} : { agentId }),
-        commandId: newCommandId(),
-      }),
-    ]);
-  const dismissNotice = () => {
-    setNotice(null);
-    if (resolved.overtaken) setEdit(null);
-  };
-
-  const busy = pending !== null || !canOperate;
+  const {
+    canOperate,
+    proposed,
+    resolved,
+    issue,
+    notice: shownNotice,
+    error,
+    pending,
+    busy,
+    change,
+    discard,
+    dismissNotice,
+    ...actions
+  } = useTeamPlanActions(leadRef, plan);
+  const save = () => void actions.save();
+  const approve = () => void actions.approve();
+  const cancel = () => void actions.cancel();
+  const retry = (task: TeamTask, agentId?: TeamAgentId) => void actions.retry(task, agentId);
   const cancelButton = canCancelTeam(plan) ? (
-    <Button size="xs" variant="ghost-destructive" disabled={busy} onClick={() => void cancel()}>
+    <Button size="xs" variant="ghost-destructive" disabled={busy} onClick={cancel}>
       {pending === "cancel" ? "Cancelling…" : "Cancel team"}
     </Button>
   ) : null;
@@ -340,12 +246,7 @@ function TeamPlanView(props: {
             <div className="ms-auto flex flex-wrap items-center gap-2">
               {resolved.dirty ? (
                 <>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    disabled={pending !== null}
-                    onClick={() => setEdit(null)}
-                  >
+                  <Button size="xs" variant="ghost" disabled={pending !== null} onClick={discard}>
                     Discard changes
                   </Button>
                   <Button
@@ -440,7 +341,7 @@ function TeamTaskList(props: {
   catalog: TeamModelCatalog;
   agentTask: AgentTask | null;
   environmentId: ScopedThreadRef["environmentId"];
-  pendingAction: PendingAction | null;
+  pendingAction: TeamPlanPendingAction | null;
   disabled: boolean;
   onRetry: (task: TeamTask, agentId?: TeamAgentId) => void;
 }) {

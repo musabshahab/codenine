@@ -36,6 +36,15 @@ describe("resolveThreadKind", () => {
       "pr",
     ],
     [
+      "a finished team whose open pull request was dismissed from its stack",
+      {
+        ...idle,
+        source: { teamSummary: team("completed") },
+        pullRequests: [{ ...openPullRequest, source: "stack-dismissed" }],
+      },
+      "done",
+    ],
+    [
       "a team waiting on an approval its lead asks for",
       { ...idle, hasPendingApprovals: true, source: { teamSummary: team("running") } },
       "approval",

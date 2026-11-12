@@ -86,6 +86,11 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "files");
   };
   const addFilesSurfaceStable = useStableCallback(addFilesSurface);
+  const toggleFilesSurface = () => {
+    if (!activeThreadRef || !activeProject) return;
+    useRightPanelStore.getState().toggle(activeThreadRef, "files");
+  };
+  const toggleFilesSurfaceStable = useStableCallback(toggleFilesSurface);
   const openTaskSurface = () => {
     if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "task");
   };
@@ -240,5 +245,6 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
+    toggleFilesSurfaceStable,
   };
 }

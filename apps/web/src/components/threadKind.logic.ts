@@ -8,6 +8,17 @@ type ThreadKindInput = Parameters<typeof resolveSidebarThreadStatus>[0] &
     readonly source: Pick<EnvironmentThreadShell["source"], "teamSummary">;
   };
 
+/** The pull request a thread's work waits in, if one is open. */
+export function openPullRequestOf<Link extends EnvironmentThreadShell["pullRequests"][number]>(
+  pullRequests: ReadonlyArray<Link>,
+): Link | null {
+  return (
+    pullRequests.find(
+      (link) => link.snapshot?.state === "open" && link.source !== "stack-dismissed",
+    ) ?? null
+  );
+}
+
 /**
  * What a thread's icon says at a glance: what it waits on, then a task's team, then its pull
  * request. A thread with none of these reads as a chat.
@@ -16,7 +27,7 @@ export function resolveThreadKind(thread: ThreadKindInput): ThreadKind {
   const status = resolveSidebarThreadStatus(thread);
   if (status === "approval") return "approval";
   if (status === "input") return "question";
-  const hasOpenPullRequest = thread.pullRequests.some((link) => link.snapshot?.state === "open");
+  const hasOpenPullRequest = openPullRequestOf(thread.pullRequests) !== null;
   const team = thread.source.teamSummary;
   if (team) {
     if (team.status === "proposed") return "approval";

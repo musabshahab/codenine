@@ -275,9 +275,11 @@ import {
   PanelLayoutControls,
   type PanelLayoutControlsProps,
   RightPanelMaximizeControl,
-  ThreadPanelHeaderControl,
   WorkspaceTitlebarControls,
 } from "./chat/PanelLayoutControls";
+import { ThreadHeaderTools } from "./chat/ThreadHeaderTools";
+import { ThreadNextStep } from "./chat/ThreadNextStep";
+import ProjectScriptsControl from "./ProjectScriptsControl";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -1079,7 +1081,6 @@ export default function ChatView(props: ChatViewProps) {
   const handleNewThreadInActiveProject = () => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   };
-  const handleNewThreadInActiveProjectStable = useStableCallback(handleNewThreadInActiveProject);
   const projectGroupingSettings = selectProjectGroupingSettings(settings);
   const activeDraftLogicalProjectKey =
     !isServerThread && activeProject
@@ -2229,6 +2230,8 @@ export default function ChatView(props: ChatViewProps) {
     moveRightPanelSurfaceStable,
     onOpenToolDiffStable,
     onOpenTurnDiffStable,
+    onToggleDiffStable,
+    toggleFilesSurfaceStable,
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
     openTaskSurfaceStable,
@@ -3062,27 +3065,84 @@ export default function ChatView(props: ChatViewProps) {
     />
   ) : null;
   const panelToggleControlProps = {
-    terminalAvailable: activeProject !== null,
-    terminalOpen: terminalUiState.terminalOpen,
-    terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
-    threadPanelOpen,
-    threadPanelPresentation,
-    threadPanelPopoverHandle,
-    threadPanelShortcutLabel: shortcutLabelForCommand(keybindings, "threadPanel.toggle"),
     rightPanelAvailable: activeProject !== null,
     rightPanelOpen,
     rightPanelShortcutLabel: shortcutLabelForCommand(keybindings, "rightPanel.toggle"),
-    onToggleTerminal: toggleTerminalVisibilityStable,
-    onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
   } satisfies PanelLayoutControlsProps;
-  const panelToggleControls = (
-    <PanelLayoutControls
-      {...panelToggleControlProps}
-      showThreadPanelControl={!inlineRightPanelOwnsTitleBar}
+  const panelToggleControls = <PanelLayoutControls {...panelToggleControlProps} />;
+  const threadDetailsTool = {
+    open: threadPanelOpen,
+    presentation: threadPanelPresentation,
+    popoverHandle: threadPanelPopoverHandle,
+    shortcutLabel: shortcutLabelForCommand(keybindings, "threadPanel.toggle"),
+    onToggle: toggleThreadPanelStable,
+  };
+  const isChatThread = activeProject?.isScratch === true;
+  const headerTools = isChatThread ? (
+    <ThreadHeaderTools
+      environmentId={activeThread.environmentId}
+      scripts={null}
+      details={threadDetailsTool}
+      terminal={null}
+      changes={null}
+      files={null}
+    />
+  ) : (
+    <ThreadHeaderTools
+      environmentId={activeThread.environmentId}
+      scripts={
+        activeProject && activeProjectScripts.length > 0 ? (
+          <ProjectScriptsControl
+            environmentId={activeThread.environmentId}
+            scripts={activeProjectScripts}
+            preferredScriptId={lastInvokedScriptByProjectId[activeProject.id] ?? null}
+            onRunScript={canOperateTerminal ? runProjectScriptStable : undefined}
+            onAddScript={saveProjectScriptStable}
+            onUpdateScript={updateProjectScriptStable}
+            onDeleteScript={deleteProjectScriptStable}
+          />
+        ) : null
+      }
+      details={threadDetailsTool}
+      terminal={
+        activeProject === null
+          ? null
+          : {
+              open: Boolean(terminalUiState.terminalOpen),
+              shortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
+              onToggle: toggleTerminalVisibilityStable,
+            }
+      }
+      changes={
+        isServerThread && isGitRepo
+          ? {
+              gitCwd: gitStatusCwd,
+              open: diffOpen,
+              shortcutLabel: shortcutLabelForCommand(keybindings, "diff.toggle"),
+              onToggle: onToggleDiffStable,
+            }
+          : null
+      }
+      files={
+        activeProject === null
+          ? null
+          : { open: activeRightPanelKind === "files", onToggle: toggleFilesSurfaceStable }
+      }
     />
   );
-  const threadPanelHeaderControl = <ThreadPanelHeaderControl {...panelToggleControlProps} />;
+  const headerNextStep =
+    isServerThread && activeThreadRef !== null && !isChatThread ? (
+      <ThreadNextStep
+        threadRef={activeThreadRef}
+        team={threadTeamInfo}
+        teamTask={serverThreadShell?.source.teamTask ?? null}
+        working={isWorking}
+        pullRequests={activeThread.pullRequests ?? []}
+        gitCwd={gitStatusCwd}
+        onOpenTask={openTaskSurfaceStable}
+      />
+    ) : null;
   const panelLayoutControls = (
     <WorkspaceTitlebarControls
       showMaximizeControl={!shouldUsePlanSidebarSheet}
@@ -3120,7 +3180,7 @@ export default function ChatView(props: ChatViewProps) {
             ref={threadPanelPopoverAnchorRef}
             data-chat-header
             className={cn(
-              "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
+              "@container/header-actions relative border-b bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
               isElectron
                 ? cn(
                     "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
@@ -3139,7 +3199,6 @@ export default function ChatView(props: ChatViewProps) {
               />
             ) : null}
             {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
-            {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
             <ChatHeader
               activeThreadEnvironmentId={activeThread.environmentId}
               activeThreadId={activeThread.id}
@@ -3150,18 +3209,12 @@ export default function ChatView(props: ChatViewProps) {
               teamAgent={teamAgentThread?.header ?? null}
               onOpenThread={onOpenRelatedThreadStable}
               rightPanelOpen={inlineRightPanelOwnsTitleBar}
-              onNewThreadInProject={handleNewThreadInActiveProjectStable}
               {...(activeDraftLogicalProjectKey
                 ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
                 : {})}
               {...(threadFindEnabled ? { onFindInThread: openThreadFindStable } : {})}
-              gitCwd={gitStatusCwd}
-              threadBranch={activeThread.branch}
-              machineLabel={activeEnvironment?.label ?? null}
-              threadPanelOpen={threadPanelOpen}
-              threadPanelPresentation={threadPanelPresentation}
-              threadPanelPopoverHandle={threadPanelPopoverHandle}
-              onToggleThreadPanel={toggleThreadPanelStable}
+              tools={headerTools}
+              nextStep={headerNextStep}
             />
           </header>
         )}

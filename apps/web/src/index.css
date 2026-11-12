@@ -1460,8 +1460,9 @@ html[data-theme-id] [data-chat-header] {
   color: var(--contrast-toolbar-foreground);
 }
 
-html[data-theme-id] [data-chat-header] [data-slot="button"],
-html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"],
+/* The next step keeps its own look: it is the header's one call to action. */
+html[data-theme-id] [data-chat-header] [data-slot="button"]:not([data-next-step] *),
+html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"]:not([data-next-step] *),
 html[data-theme-id] [data-chat-header] [data-toolbar-control] {
   --control-icon-color: var(--contrast-toolbar-control-foreground);
   background-color: var(--toolbar-control);
@@ -1494,8 +1495,8 @@ html[data-theme-id] [data-workspace-titlebar-controls] [data-slot="tooltip-trigg
   color: color-mix(in oklab, var(--contrast-toolbar-foreground) 55%, var(--toolbar-background));
 }
 
-html[data-theme-id] [data-chat-header] [data-slot="button"]:hover,
-html[data-theme-id] [data-chat-header] [data-slot="button"][data-pressed],
+html[data-theme-id] [data-chat-header] [data-slot="button"]:not([data-next-step] *):hover,
+html[data-theme-id] [data-chat-header] [data-slot="button"]:not([data-next-step] *)[data-pressed],
 html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"]:hover,
 html[data-theme-id] [data-chat-header] [data-slot="menu-trigger"][data-pressed],
 html[data-theme-id] [data-chat-header] [data-toolbar-control]:hover,

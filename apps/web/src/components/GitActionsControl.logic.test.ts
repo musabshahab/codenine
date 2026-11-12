@@ -6,6 +6,7 @@ import {
   requiresDefaultBranchConfirmation,
   resolveChangesTotals,
   resolveLiveThreadBranchUpdate,
+  resolvePullRequestNextStep,
   resolveQuickAction,
 } from "./GitActionsControl.logic";
 
@@ -157,6 +158,49 @@ describe("when: ref has no upstream configured", () => {
       label: "Publish repository",
       disabled: false,
     });
+  });
+});
+
+describe("resolvePullRequestNextStep", () => {
+  const openPr = {
+    number: 13,
+    title: "Open PR",
+    url: "https://example.com/pr/13",
+    baseRef: "main",
+    headRef: "feature/test",
+    state: "open",
+  } as const;
+  const main = { refName: "main", isDefaultRef: true } as const;
+  it.each([
+    ["a feature ref with changes", status({ hasWorkingTreeChanges: true }), "commit_push_pr"],
+    ["a feature ref ahead of the default", status({ aheadOfDefaultCount: 1 }), "create_pr"],
+    [
+      "the default ref with changes, offering a feature ref",
+      status({ ...main, hasWorkingTreeChanges: true }),
+      "commit_push_pr",
+    ],
+    ["a clean default ref ahead of upstream", status({ ...main, aheadCount: 2 }), null],
+    [
+      "the default ref with changes and no remote",
+      status({ ...main, hasWorkingTreeChanges: true, hasPrimaryRemote: false }),
+      null,
+    ],
+    [
+      "the default ref with changes, behind upstream",
+      status({ ...main, hasWorkingTreeChanges: true, behindCount: 1 }),
+      null,
+    ],
+    ["a feature ref whose PR is open", status({ hasWorkingTreeChanges: true, pr: openPr }), null],
+  ] as const)("on %s gives %s", (_name, gitStatus, action) => {
+    assert.equal(
+      resolvePullRequestNextStep(
+        gitStatus,
+        false,
+        gitStatus.isDefaultRef ?? false,
+        gitStatus.hasPrimaryRemote ?? true,
+      ),
+      action,
+    );
   });
 });
 

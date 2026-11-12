@@ -300,7 +300,13 @@ export default function ProjectScriptsControl({
             >
               <ScriptIcon
                 icon={primaryScript.icon}
-                {...(isPanel ? { className: THREAD_DETAILS_PANEL_ICON_CLASS } : {})}
+                className={
+                  isPanel
+                    ? THREAD_DETAILS_PANEL_ICON_CLASS
+                    : primaryScript.icon === "play"
+                      ? "size-3.5 fill-current text-success-foreground"
+                      : "size-3.5"
+                }
               />
               <span
                 className={cn(

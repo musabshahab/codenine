@@ -59,6 +59,7 @@ import {
   resolveGitActionResultToastTiming,
   resolveLiveThreadBranchUpdate,
   resolveThreadBranchMetadataPatch,
+  resolvePullRequestNextStep,
   resolveQuickAction,
   resolveThreadBranchUpdate,
 } from "./GitActionsControl.logic";
@@ -112,6 +113,7 @@ import { getSourceControlPresentation, sourceControlIcon } from "~/sourceControl
 import { sourceControlClients } from "@codenine/client-runtime/source-control-clients";
 import { formatDiffCount } from "@codenine/client-runtime/diff-count";
 import { openExternalLink } from "~/lib/openExternalLink";
+import { PullRequestGlyph } from "./pullRequest/pullRequestIcons";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -121,6 +123,8 @@ interface GitActionsControlProps {
   showActions?: boolean;
   showChanges?: boolean;
   onOpenChanges?: () => void;
+  /** "next-step" shows only the button that opens a pull request, for the thread header. */
+  presentation?: "panel" | "next-step";
 }
 
 interface PendingDefaultBranchAction {
@@ -931,6 +935,7 @@ export default function GitActionsControl({
   showActions = true,
   showChanges = true,
   onOpenChanges,
+  presentation = "panel",
 }: GitActionsControlProps) {
   const panelAnchorRef = useRef<HTMLDivElement | null>(null);
   const updateThreadMetadata = useAtomCommand(
@@ -1483,10 +1488,49 @@ export default function GitActionsControl({
   );
 
   if (!gitCwd) return null;
+  const nextStep = presentation === "next-step";
+  const pullRequestAction =
+    nextStep && canWriteSourceControl
+      ? resolvePullRequestNextStep(
+          gitStatusForActions,
+          isGitActionRunning,
+          isDefaultRef,
+          hasPrimaryRemote,
+        )
+      : null;
 
   return (
     <>
-      {!showActions ? null : !isRepo ? (
+      {nextStep ? (
+        !isRepo ? null : gitActionProgress ? (
+          <span
+            role="status"
+            className="flex h-6.5 shrink-0 items-center gap-1.5 rounded-full bg-primary/16 px-2.5 text-xs font-medium text-foreground"
+          >
+            <Spinner className="size-3" />
+            {gitActionProgress.status}
+          </span>
+        ) : pullRequestAction !== null ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="xs"
+                  onClick={() => void runGitActionWithToast({ action: pullRequestAction })}
+                />
+              }
+            >
+              <PullRequestGlyph.pullRequest aria-hidden />
+              Create {changeRequestTerminology.shortLabel}
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              {pullRequestAction === "commit_push_pr"
+                ? `Commit, push & create ${changeRequestTerminology.shortLabel}`
+                : `Push & create ${changeRequestTerminology.shortLabel}`}
+            </TooltipPopup>
+          </Tooltip>
+        ) : null
+      ) : !showActions ? null : !isRepo ? (
         <ThreadDetailsControl
           size="xs"
           variant="ghost"
@@ -1628,7 +1672,7 @@ export default function GitActionsControl({
         </div>
       )}
 
-      {showChanges && isRepo && !quietEmptyDraft ? (
+      {!nextStep && showChanges && isRepo && !quietEmptyDraft ? (
         <ThreadDetailsControl
           type="button"
           variant="ghost"

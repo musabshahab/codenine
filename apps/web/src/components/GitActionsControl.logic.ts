@@ -326,6 +326,37 @@ export function resolveQuickAction(
   };
 }
 
+/**
+ * The action behind the thread header's Create PR: the quick action when it opens one, and on
+ * the default ref a commit that first offers to move the changes to a feature ref.
+ */
+export function resolvePullRequestNextStep(
+  gitStatus: VcsStatusResult | null,
+  isBusy: boolean,
+  isDefaultRef: boolean,
+  hasPrimaryRemote: boolean,
+): "create_pr" | "commit_push_pr" | null {
+  const quick = resolveQuickAction(gitStatus, isBusy, isDefaultRef, hasPrimaryRemote);
+  if (
+    quick.kind === "run_action" &&
+    !quick.disabled &&
+    (quick.action === "create_pr" || quick.action === "commit_push_pr")
+  ) {
+    return quick.action;
+  }
+  // A clean default ref cannot name a feature ref, and a PR from it to itself means nothing.
+  const offersFeatureRef =
+    gitStatus !== null &&
+    !isBusy &&
+    isDefaultRef &&
+    hasPrimaryRemote &&
+    gitStatus.refName !== null &&
+    gitStatus.hasWorkingTreeChanges &&
+    gitStatus.behindCount === 0 &&
+    gitStatus.pr?.state !== "open";
+  return offersFeatureRef ? "commit_push_pr" : null;
+}
+
 export function resolveDefaultBranchActionDialogCopy(input: {
   action: DefaultBranchConfirmableAction;
   branchName: string;
