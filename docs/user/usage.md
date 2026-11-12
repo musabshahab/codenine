@@ -91,24 +91,25 @@ setting removes it from `settings.json`.
 
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
 or Claude accounts across your enabled environments and hubs you read one number per window rather than a
-list. Each window card shows how much of the pool is left and a bar with one segment per account,
-kept in the same column across windows. Accounts are ordered by their next 5-hour refill, soonest
+list. Each window card shows how much of the pool is used and a bar with one segment per account,
+kept in the same column across windows. Bars fill as quota is used, and the line on a bar marks
+even pace for the time that has passed. Accounts are ordered by their next 5-hour refill, soonest
 first. For an account with no weekly quota left, this is when its session becomes usable again.
 The first available window is used when no account reports a 5-hour limit. A gap means the
 account does not report that window. When the provider reports reset times, the card also says
-when the next reset lands and how much it hands back. The hatched
-part of a segment is what that reset restores. Select a segment or account row for the account's plan,
+when the next reset lands and how much it hands back. When a reset will hand back only part of an
+account's use, the hatched part of its segment is what comes back. Select a segment or account row for the account's plan,
 where it is signed in, and its reset time. You can hover too. Codex and Claude accounts
 with banked reset credits show a ticket count and the **Use reset** action in the account details.
 Claude resets are not available when the server runs on macOS, where Claude keeps its login in the
 Keychain. On narrow screens, numbered rows below
-the bar show each account's quota, countdown, and credits. Select a row to open its details.
+the bar show each account's use, countdown, and credits. Select a row to open its details.
 
 The same account signed in on more than one environment, or reported by a hub as well, counts once.
 Filter with the environment dropdown to see what a single machine has.
 
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution
-shows 0% left. The next refill depends on both reset times: an exhausted session must also reset,
+shows 100% used. The next refill depends on both reset times: an exhausted session must also reset,
 and a partly spent session may only regain its unused portion when the week resets. Missing or
 stale reset times have no refill estimate; refresh Limits for a new reading. Claude's
 model-specific weekly allowances keep their reported values.
@@ -123,8 +124,8 @@ closes when you dismiss it or send your next message. It uses the same snapshot 
 anything. The command is offered only for providers that appear under **Usage → Limits**.
 
 To keep them in view, turn on **Usage limits** in **Settings → Appearance → Thread details**, or right-click the thread details card.
-The bottom of the thread details card then shows how much is left in each limit window of the
-current provider account. Some windows, such as a weekly Opus limit, count only one model. Hover a
+The bottom of the thread details card then shows how much of each limit window of the current
+provider account is used. Some windows, such as a weekly Opus limit, count only one model. Hover a
 row to see when it resets and your pace. Turn on **Context window** to also show the thread's
 context use against the model's limit. A tick on the bar marks where the provider compacts
 automatically, when it reports that point.

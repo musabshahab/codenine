@@ -370,7 +370,6 @@ export interface LimitPoolWindow {
   readonly columns: ReadonlyArray<
     LimitPoolMember | { readonly account: LimitAccount; readonly window: null }
   >;
-  readonly remainingPercent: number;
   readonly usedPercent: number;
   readonly pace: LimitPace | null;
   readonly resets: ReadonlyArray<{
@@ -533,8 +532,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
       columns: accounts.map(
         (account) => memberByAccount.get(account.key) ?? { account, window: null },
       ),
-      usedPercent: Math.round(usedPercent),
-      remainingPercent: Math.round(100 - usedPercent),
+      usedPercent: roundUsedPercent(usedPercent),
       pace: meanElapsed === null ? null : paceOfShares(timedUsed, meanElapsed),
       resets,
     };
@@ -552,8 +550,14 @@ export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
   return limits.windows.length === 0 ? "No limits reported." : null;
 }
 
-export function remainingPercent(window: ServerProviderUsageWindow): number {
-  return Math.round(100 - Math.max(0, Math.min(100, window.usedPercent)));
+// 100% means spent; a window with any quota left never rounds up to it.
+function roundUsedPercent(usedPercent: number): number {
+  const used = Math.max(0, Math.min(100, usedPercent));
+  return used >= 100 ? 100 : Math.min(99, Math.round(used));
+}
+
+export function windowUsedPercent(window: ServerProviderUsageWindow): number {
+  return roundUsedPercent(window.usedPercent);
 }
 
 function resetMillis(window: ServerProviderUsageWindow): number | null {
@@ -570,13 +574,10 @@ export function elapsedShare(window: ServerProviderUsageWindow, now: number): nu
   return Math.max(0, Math.min(1, (length - (resetsAt - now)) / length));
 }
 
-// Bars show quota remaining, so even pace tracks time remaining.
-export function paceRemainingPercent(
-  window: ServerProviderUsageWindow,
-  now: number,
-): number | null {
+// Bars fill as quota is used, so even pace sits at the share of the window that has passed.
+export function paceUsedPercent(window: ServerProviderUsageWindow, now: number): number | null {
   const elapsed = elapsedShare(window, now);
-  return elapsed === null ? null : Math.round((1 - elapsed) * 100);
+  return elapsed === null ? null : Math.round(elapsed * 100);
 }
 
 export type LimitPace = "ahead" | "on" | "under";
