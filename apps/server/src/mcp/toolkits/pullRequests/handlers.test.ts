@@ -1,0 +1,551 @@
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type OrchestrationV2ServerCommand as OrchestrationCommand,
+  type OrchestrationProjectShell,
+  type ThreadPullRequestLink,
+  SourceControlProviderKind,
+} from "@codenine/contracts";
+import { describe, expect, it } from "@effect/vitest";
+import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
+import type { Tool } from "effect/ai";
+
+import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
+import {
+  type PullRequestTestThread,
+  v2PullRequestThread,
+} from "../../../orchestration-v2/testkit/pullRequestFixtures.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as McpToolAccessTestkit from "../../McpToolAccess.testkit.ts";
+import { listThreadPullRequests } from "./handlers.ts";
+import * as PullRequestsHandlers from "./handlers.ts";
+import { CHILD_PULL_REQUEST_REPORT_NEXT, PullRequestsToolkit } from "./tools.ts";
+
+const PROJECT_ID = ProjectId.make("project-1");
+const THREAD_ID = ThreadId.make("thread-1");
+
+const testCrypto = SecureRandom.make((size) => new Uint8Array(size).fill(7));
+
+const invocation = (
+  capabilities: ReadonlyArray<McpInvocationContext.McpCapability>,
+): McpInvocationContext.McpInvocationScope => ({
+  environmentId: EnvironmentId.make("environment-1"),
+  requestNamespace: "provider-session-1",
+  thread: {
+    threadId: THREAD_ID,
+    providerSessionId: "provider-session-1",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
+  capabilities: new Set(capabilities),
+  issuedAt: 1,
+});
+
+function makeProject(
+  repositoryIdentity: OrchestrationProjectShell["repositoryIdentity"] = {
+    canonicalKey: "github.com/codenine/codenine",
+    locator: {
+      source: "git-remote",
+      remoteName: "origin",
+      remoteUrl: "git@github.com:Codenine/Codenine.git",
+    },
+    provider: SourceControlProviderKind.make("github"),
+    displayName: "Codenine/Codenine",
+    owner: "Codenine",
+    name: "Codenine",
+  },
+): OrchestrationProjectShell {
+  return {
+    id: PROJECT_ID,
+    title: "Project",
+    workspaceRoot: "/workspace/project",
+    defaultModelSelection: null,
+    scripts: [],
+    repositoryIdentity,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+  };
+}
+
+function makeThread(pullRequests: ReadonlyArray<ThreadPullRequestLink>): PullRequestTestThread {
+  return {
+    id: THREAD_ID,
+    projectId: PROJECT_ID,
+    title: "Thread",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath: null,
+    pullRequests,
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-20T00:00:00.000Z",
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    latestUserMessageAt: "2026-08-20T00:00:00.000Z",
+  };
+}
+
+function makeLink(
+  number: number,
+  overrides: Partial<ThreadPullRequestLink> & {
+    readonly headBranch?: string;
+    readonly baseBranch?: string;
+  } = {},
+): ThreadPullRequestLink {
+  const { headBranch, baseBranch, ...rest } = overrides;
+  return {
+    host: "github.com",
+    repository: "codenine/codenine",
+    number,
+    url: `https://github.com/codenine/codenine/pull/${number}`,
+    source: "manual",
+    linkedAt: "2026-08-10T00:00:00.000Z",
+    snapshot:
+      headBranch === undefined
+        ? null
+        : {
+            state: "open",
+            title: `PR ${number}`,
+            headBranch,
+            baseBranch: baseBranch ?? "main",
+            isDraft: false,
+            updatedAt: null,
+            syncedAt: "2026-08-27T00:00:00.000Z",
+          },
+    stack: null,
+    ...rest,
+  };
+}
+
+interface HarnessOptions {
+  readonly thread?: PullRequestTestThread | null;
+  readonly project?: OrchestrationProjectShell | null;
+  readonly reject?: (command: OrchestrationCommand) => string | null;
+  readonly projects?: ReadonlyArray<OrchestrationProjectShell>;
+}
+
+const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
+  options: HarnessOptions = {},
+) {
+  const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+  const thread = options.thread === undefined ? makeThread([]) : options.thread;
+  const project = options.project === undefined ? makeProject() : options.project;
+  const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) =>
+    Effect.gen(function* () {
+      const rejection = options.reject?.(command) ?? null;
+      if (rejection !== null)
+        return yield* new Orchestrator.OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: rejection,
+        });
+      yield* Ref.update(commands, (recorded) => [...recorded, command]);
+      return { sequence: 1, storedEvents: [] };
+    });
+  const layerDependencies = Layer.mergeAll(
+    Layer.mock(ProjectService.ProjectService)({
+      getShell: () => Effect.succeed(Option.fromNullishOr(project)),
+      listShells: () => Effect.succeed(options.projects ?? (project ? [project] : [])),
+    }),
+    Layer.mock(Orchestrator.OrchestratorV2)({
+      getThreadShell: (id) =>
+        Effect.succeed(id === thread?.id ? v2PullRequestThread(thread) : null),
+      dispatch,
+    }),
+    Layer.succeed(SecureRandom.SecureRandom, testCrypto),
+    McpToolAccessTestkit.liveThreadsLayer,
+  );
+  const toolkit = yield* PullRequestsToolkit.pipe(
+    Effect.provide(
+      McpToolAccess.HandlersLayer.layer(PullRequestsHandlers.layer).pipe(
+        Layer.provide(layerDependencies),
+      ),
+    ),
+  );
+  const call = <Name extends keyof typeof PullRequestsToolkit.tools>(
+    name: Name,
+    params: Parameters<typeof toolkit.handle<Name>>[1],
+    capabilities: ReadonlyArray<McpInvocationContext.McpCapability> = ["pull-requests"],
+  ) =>
+    toolkit.handle(name, params).pipe(
+      Stream.unwrap,
+      Stream.runCollect,
+      Effect.map(
+        (chunk) => chunk.at(-1)!.result as Tool.Success<(typeof PullRequestsToolkit.tools)[Name]>,
+      ),
+      Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
+      Effect.provide(layerDependencies),
+    );
+  return { commands, call };
+});
+
+describe("pull request toolkit handlers", () => {
+  it.effect("refuses a credential without the pull-requests capability", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const error = yield* harness
+        .call("list_thread_pull_requests", {}, ["worktree"])
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "McpCapabilityUnavailableError",
+        capability: "pull-requests",
+        threadId: THREAD_ID,
+      });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("points a bare thread uuid at the mcp: thread it belongs to", () =>
+    Effect.gen(function* () {
+      const bareId = ThreadId.make("5d0b4a3e-8c1f-4a52-9d37-2f6c7e1b9a04");
+      const harness = yield* makeHarness({
+        thread: { ...makeThread([]), id: ThreadId.make(`mcp:${bareId}`) },
+      });
+      const error = yield* harness
+        .call("link_pull_request", { threadId: bareId, number: 123 })
+        .pipe(Effect.flip);
+      expect(error.message).toBe(`Thread ${bareId} was not found. Did you mean \`mcp:${bareId}\`?`);
+      expect(error).toMatchObject({ _tag: "OrchestratorMcpFailure", code: "thread_not_found" });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("links by URL with source agent on the token's thread", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const result = yield* harness.call("link_pull_request", {
+        url: "https://github.com/Codenine/Codenine/pull/123/files",
+      });
+      expect(result).toEqual({
+        host: "github.com",
+        repository: "codenine/codenine",
+        number: 123,
+        url: "https://github.com/Codenine/Codenine/pull/123/files",
+        alreadyLinked: false,
+      });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        {
+          type: "thread.pull-request.link",
+          threadId: THREAD_ID,
+          host: "github.com",
+          repository: "codenine/codenine",
+          number: 123,
+          source: "agent",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("watching an unlinked pull request links it first", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const result = yield* harness.call("watch_pull_request", {
+        url: "https://github.com/codenine/codenine/pull/9",
+      });
+      expect(result).toMatchObject({ number: 9, watching: false, wasWatching: false });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        {
+          type: "thread.pull-request.watch",
+          number: 9,
+          watching: true,
+          link: { url: "https://github.com/codenine/codenine/pull/9", source: "agent" },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("refuses to watch a merged pull request and stops an existing watch", () =>
+    Effect.gen(function* () {
+      const watch = {
+        startedAt: "2026-08-20T00:00:00.000Z",
+        headSha: null,
+        failedChecks: [],
+        passed: false,
+        passedChecks: [],
+        remarksThrough: "2026-08-20T00:00:00.000Z",
+        remarkIds: [],
+        conflicting: false,
+        wakes: 0,
+      };
+      const merged = makeLink(1, { headBranch: "done" });
+      const harness = yield* makeHarness({
+        thread: makeThread([
+          { ...merged, snapshot: merged.snapshot && { ...merged.snapshot, state: "merged" } },
+          makeLink(2, { headBranch: "idle" }),
+          makeLink(3, { headBranch: "watched", watch }),
+        ]),
+      });
+      const error = yield* harness
+        .call("watch_pull_request", { repository: "codenine/codenine", number: 1 })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({ _tag: "PullRequestNotOpenError", state: "merged" });
+      expect(
+        yield* harness.call("unwatch_pull_request", { repository: "codenine/codenine", number: 3 }),
+      ).toMatchObject({ wasWatching: true });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.pull-request.watch", number: 3, watching: false },
+      ]);
+    }),
+  );
+
+  it.effect("watches a pull request saved as closed, since it may have reopened", () =>
+    Effect.gen(function* () {
+      const closed = makeLink(1, { headBranch: "closed" });
+      const harness = yield* makeHarness({
+        thread: makeThread([
+          { ...closed, snapshot: closed.snapshot && { ...closed.snapshot, state: "closed" } },
+        ]),
+      });
+      yield* harness.call("watch_pull_request", { repository: "codenine/codenine", number: 1 });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.pull-request.watch", number: 1, watching: true },
+      ]);
+    }),
+  );
+
+  it.effect("refuses a watch from a subagent thread, whose parent owns the pull request", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: {
+          ...makeThread([makeLink(1, { headBranch: "feature" })]),
+          lineage: {
+            rootThreadId: ThreadId.make("parent"),
+            parentThreadId: ThreadId.make("parent"),
+            relationshipToParent: "subagent",
+          },
+        },
+      });
+      const error = yield* harness
+        .call("watch_pull_request", { repository: "codenine/codenine", number: 1 })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({ _tag: "PullRequestWatchFromSubagentError" });
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("asks a subagent thread to end with its PR report after it links", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: {
+          ...makeThread([]),
+          lineage: {
+            rootThreadId: ThreadId.make("parent"),
+            parentThreadId: ThreadId.make("parent"),
+            relationshipToParent: "subagent",
+          },
+        },
+      });
+      const result = yield* harness.call("link_pull_request", {
+        url: "https://github.com/codenine/codenine/pull/124",
+      });
+      expect(result).toMatchObject({ number: 124, next: CHILD_PULL_REQUEST_REPORT_NEXT });
+    }),
+  );
+
+  it.effect("treats a duplicate link as alreadyLinked rather than an error", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread([makeLink(123)]),
+        reject: (command) =>
+          command.type === "thread.pull-request.link" ? "already linked" : null,
+      });
+      const result = yield* harness.call("link_pull_request", {
+        url: "https://github.com/codenine/codenine/pull/123",
+      });
+      expect(result.alreadyLinked).toBe(true);
+    }),
+  );
+
+  it.effect("unlinks a linked pull request and reports a missing one as wasLinked=false", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread([makeLink(5)]),
+        reject: (command) =>
+          command.type === "thread.pull-request.unlink" && command.number !== 5
+            ? "not linked"
+            : null,
+      });
+      const linked = yield* harness.call("unlink_pull_request", {
+        repository: "codenine/codenine",
+        number: 5,
+      });
+      expect(linked).toEqual({
+        host: "github.com",
+        repository: "codenine/codenine",
+        number: 5,
+        wasLinked: true,
+      });
+      const missing = yield* harness.call("unlink_pull_request", {
+        url: "https://github.com/codenine/codenine/pull/9",
+      });
+      expect(missing.wasLinked).toBe(false);
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.pull-request.unlink", number: 5 },
+      ]);
+    }),
+  );
+
+  it.effect("reports a dismissed stack member as not linked and leaves it dismissed", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread([makeLink(9, { source: "stack-dismissed" })]),
+      });
+      const result = yield* harness.call("unlink_pull_request", {
+        repository: "codenine/codenine",
+        number: 9,
+      });
+      expect(result.wasLinked).toBe(false);
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
+
+  it.effect("links several pull requests in one call", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread([makeLink(1), { ...makeLink(2), source: "stack-dismissed" }]),
+      });
+      const url = (number: number) => `https://github.com/codenine/codenine/pull/${number}`;
+      const result = yield* harness.call("link_pull_requests", {
+        urls: [url(1), url(2), url(3), url(3), "https://example.com/not-a-pr"],
+      });
+      expect(result).toEqual({
+        linked: [{ host: "github.com", repository: "codenine/codenine", numbers: [2, 3] }],
+        alreadyLinked: [{ host: "github.com", repository: "codenine/codenine", numbers: [1] }],
+        linkedCount: 3,
+        invalidUrls: ["https://example.com/not-a-pr"],
+      });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.pull-request.link", number: 2, source: "agent" },
+        { type: "thread.pull-request.link", number: 3, source: "agent" },
+      ]);
+    }),
+  );
+
+  it.effect("unlinks every visible pull request in the given states in one call", () =>
+    Effect.gen(function* () {
+      const withState = (number: number, state: "open" | "closed" | "merged") => {
+        const link = makeLink(number, { headBranch: `branch-${number}` });
+        return { ...link, snapshot: { ...link.snapshot!, state } };
+      };
+      const harness = yield* makeHarness({
+        thread: makeThread([
+          withState(1, "merged"),
+          withState(2, "open"),
+          withState(3, "closed"),
+          makeLink(4),
+          { ...withState(5, "merged"), source: "stack-dismissed" },
+        ]),
+      });
+      const result = yield* harness.call("unlink_pull_requests", {
+        states: ["closed", "merged"],
+      });
+      expect(result).toEqual({
+        unlinked: [
+          { host: "github.com", repository: "codenine/codenine", state: "merged", numbers: [1] },
+          { host: "github.com", repository: "codenine/codenine", state: "closed", numbers: [3] },
+        ],
+        unlinkedCount: 2,
+        remaining: 2,
+      });
+      expect(yield* Ref.get(harness.commands)).toMatchObject([
+        { type: "thread.pull-request.unlink", number: 1 },
+        { type: "thread.pull-request.unlink", number: 3 },
+      ]);
+    }),
+  );
+
+  it.effect("lists visible links with host state and derived chain order", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        thread: makeThread([
+          makeLink(3, { headBranch: "feat-c", baseBranch: "feat-b", source: "agent" }),
+          makeLink(1, { headBranch: "feat-a", baseBranch: "main", source: "created" }),
+          makeLink(2, { headBranch: "feat-b", baseBranch: "feat-a", source: "agent" }),
+          makeLink(9, { source: "stack-dismissed" }),
+          makeLink(10),
+        ]),
+      });
+      const result = yield* harness.call("list_thread_pull_requests", {});
+      expect(result.pullRequests.map((entry) => entry.number)).toEqual([3, 1, 2, 10]);
+      expect(result.pullRequests[0]).toEqual({
+        host: "github.com",
+        repository: "codenine/codenine",
+        number: 3,
+        url: "https://github.com/codenine/codenine/pull/3",
+        source: "agent",
+        watching: false,
+        state: "open",
+        title: "PR 3",
+        headBranch: "feat-c",
+        baseBranch: "feat-b",
+        isDraft: false,
+        stack: { kind: "derived", position: 3, size: 3 },
+      });
+      expect(result.pullRequests[3]).toMatchObject({
+        number: 10,
+        state: null,
+        title: null,
+        headBranch: null,
+        stack: null,
+      });
+      expect(result.chains).toEqual([
+        { kind: "derived", numbers: [1, 2, 3] },
+        { kind: "derived", numbers: [10] },
+      ]);
+    }),
+  );
+});
+
+describe("listThreadPullRequests", () => {
+  it("reports a native stack position for each member", () => {
+    const stack = {
+      kind: "native" as const,
+      id: "stack-1",
+      number: 1,
+      url: "https://github.com/codenine/codenine/stack/1",
+      base: "main",
+      layers: [
+        { number: 1, headBranch: "a", state: "open" as const },
+        { number: 2, headBranch: "b", state: "open" as const },
+      ],
+    };
+    const result = listThreadPullRequests({
+      pullRequests: [
+        makeLink(2, { stack, source: "stack" }),
+        makeLink(1, { stack, source: "created" }),
+      ],
+    });
+    expect(result.pullRequests.map((entry) => [entry.number, entry.stack])).toEqual([
+      [2, { kind: "native", position: 2, size: 2 }],
+      [1, { kind: "native", position: 1, size: 2 }],
+    ]);
+    expect(result.chains).toEqual([{ kind: "native", numbers: [1, 2] }]);
+  });
+
+  it("gives pull requests built on the same one the same position", () => {
+    const result = listThreadPullRequests({
+      pullRequests: [
+        makeLink(1, { headBranch: "feat-a", baseBranch: "main" }),
+        makeLink(2, { headBranch: "feat-b", baseBranch: "feat-a" }),
+        makeLink(3, { headBranch: "feat-c", baseBranch: "feat-a" }),
+      ],
+    });
+    expect(result.pullRequests.map((entry) => [entry.number, entry.stack])).toEqual([
+      [1, { kind: "derived", position: 1, size: 3 }],
+      [2, { kind: "derived", position: 2, size: 3 }],
+      [3, { kind: "derived", position: 2, size: 3 }],
+    ]);
+    expect(result.chains).toEqual([{ kind: "derived", numbers: [1, 2, 3] }]);
+  });
+});

@@ -1,0 +1,419 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
+import * as HostProcess from "@codenine/shared/HostProcess";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as TestClock from "effect/testing/TestClock";
+import * as TestConsole from "effect/testing/TestConsole";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { afterEach, vi } from "vite-plus/test";
+
+import packageJson from "../../package.json" with { type: "json" };
+import * as BootService from "../cloud/bootService.ts";
+import { pinnedRuntimePaths, prunePinnedRuntimes } from "../cloud/pinnedRuntime.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import { repointLauncher, resolveLauncherPath, resolveNewestVersion, runUpdate } from "./update.ts";
+
+// lsof listing one process, so prune sees a process list in which no runtime is running.
+const unrelatedLsof = ProcessRunner.ProcessRunner.of({
+  run: () =>
+    Effect.succeed({
+      stdout: "p1\nftxt\nn/usr/bin/true\n",
+      stderr: "",
+      code: ChildProcessSpawner.ExitCode(0),
+      timedOut: false,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      stdoutInvalidUtf8: false,
+      stderrInvalidUtf8: false,
+    }),
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+it.effect("lists no releases without a configured release repository", () =>
+  Effect.gen(function* () {
+    let requests = 0;
+    const httpClient = HttpClient.make((request) => {
+      requests += 1;
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json([])));
+    });
+    const error = yield* resolveNewestVersion("stable").pipe(
+      Effect.provideService(HostProcess.Environment, {}),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.flip,
+    );
+    assert.match(error.reason, /Release checks are off/);
+    assert.equal(requests, 0);
+  }),
+);
+
+it.effect("authenticates each release page until the requested channel is found", () =>
+  Effect.gen(function* () {
+    const pages: string[] = [];
+    const httpClient = HttpClient.make((request) => {
+      const url = new URL(request.url);
+      assert.equal(url.origin, "https://api.github.com");
+      assert.equal(url.pathname, "/repos/example/codenine/releases");
+      assert.equal(request.headers.accept, "application/vnd.github+json");
+      assert.equal(request.headers.authorization, "Bearer gh-token");
+      const page = url.searchParams.get("page") ?? "";
+      pages.push(page);
+      const tag_name = page === "1" ? "v1.2.4-preview.20260101.1" : "v1.2.3";
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json([{ tag_name }])));
+    });
+    const version = yield* resolveNewestVersion("stable").pipe(
+      Effect.provideService(HostProcess.Environment, {
+        GH_TOKEN: "gh-token",
+        CODENINE_RELEASE_REPOSITORY: "example/codenine",
+      }),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+    assert.equal(version, "1.2.3");
+    assert.deepStrictEqual(pages, ["1", "2"]);
+  }),
+);
+
+it.layer(NodeServices.layer)("codenine update launcher", (it) => {
+  it.effect("repoints a symlink that lives in a runtime versions tree", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "codenine-update-" });
+      const oldExe = path.join(root, "runtime/versions/1.0.0/codenine");
+      const newExe = path.join(root, "runtime/versions/2.0.0/codenine");
+      const launcher = path.join(root, "bin/codenine");
+      for (const file of [oldExe, newExe]) {
+        yield* fs.makeDirectory(path.dirname(file), { recursive: true });
+        yield* fs.writeFileString(file, "");
+      }
+      yield* fs.makeDirectory(path.dirname(launcher), { recursive: true });
+      yield* fs.symlink(oldExe, launcher);
+
+      const repointed = yield* repointLauncher({
+        launchedAs: launcher,
+        baseDir: root,
+        targetEntryPath: newExe,
+      });
+
+      assert.deepStrictEqual(Option.getOrUndefined(repointed), launcher);
+      assert.equal(yield* fs.readLink(launcher), newExe);
+    }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
+  it.effect.each([
+    { name: "no launcher records", recorded: undefined },
+    { name: "an empty launcher record", recorded: "" },
+    { name: "whole launcher records", recorded: "/opt/codenine\n" },
+    { name: "Windows launcher records", recorded: "C:\\codenine.cmd\r\n" },
+    // An interrupted append cut this record short.
+    { name: "an unterminated launcher record", recorded: "/opt/t" },
+    // Another process's append is cut short after codenine update reads the records.
+    { name: "a record cut short after the read", recorded: "/opt/codenine\n", cut: "/opt/t" },
+  ])("keeps the runtime a repointed launcher off PATH points at with $name", ({ recorded, cut }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "codenine-update-" });
+      yield* TestClock.setTime(Duration.toMillis(Duration.days(1)));
+      for (const version of ["1.0.0", "2.0.0"]) {
+        const directory = path.join(root, "runtime/versions", version);
+        yield* fs.makeDirectory(directory, { recursive: true });
+        yield* fs.writeFileString(path.join(directory, "codenine"), "");
+        yield* fs.writeFileString(path.join(directory, ".install-complete"), `${version}\n`);
+        yield* fs.utimes(path.join(directory, ".install-complete"), 0, 0);
+      }
+      if (recorded !== undefined) {
+        yield* fs.writeFileString(path.join(root, "runtime/launchers"), recorded);
+      }
+      // A launcher in the Codenine home itself, which neither PATH nor the default bin dir reaches.
+      const launcher = path.join(root, "codenine");
+      yield* fs.symlink(path.join(root, "runtime/versions/1.0.0/codenine"), launcher);
+
+      const launchersFile = path.join(root, "runtime/launchers");
+      yield* repointLauncher({
+        launchedAs: launcher,
+        baseDir: root,
+        targetEntryPath: path.join(root, "runtime/versions/2.0.0/codenine"),
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          readFileString: (file, encoding) =>
+            fs
+              .readFileString(file, encoding)
+              .pipe(
+                Effect.tap(() =>
+                  cut === undefined || file !== launchersFile
+                    ? Effect.void
+                    : fs.writeFileString(file, cut, { flag: "a" }),
+                ),
+              ),
+        }),
+      );
+      // A later server start prunes with no idea how this machine launches codenine.
+      const removed = yield* prunePinnedRuntimes({ baseDir: root, keep: [] }).pipe(
+        Effect.provideService(ProcessRunner.ProcessRunner, unrelatedLsof),
+        Effect.provideService(HostProcess.Platform, "darwin"),
+        Effect.provideService(HostProcess.Environment, { PATH: "" }),
+        Effect.provideService(HostProcess.HomeDirectory, root),
+      );
+
+      assert.deepStrictEqual(removed, ["1.0.0"]);
+      // macOS temp dirs sit behind the /var -> /private/var symlink, so compare canonical paths.
+      assert.equal(
+        yield* fs.realPath(launcher),
+        yield* fs.realPath(path.join(root, "runtime/versions/2.0.0/codenine")),
+      );
+    }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
+  const launcherFixture = Effect.fnUntraced(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "codenine-update-" });
+    const oldExe = path.join(root, "runtime/versions/1.0.0/codenine");
+    const newExe = path.join(root, "runtime/versions/2.0.0/codenine");
+    const launcher = path.join(root, "codenine");
+    for (const file of [oldExe, newExe]) {
+      yield* fs.makeDirectory(path.dirname(file), { recursive: true });
+      yield* fs.writeFileString(file, "");
+    }
+    yield* fs.symlink(oldExe, launcher);
+    return { root, oldExe, newExe, launcher, launchersFile: path.join(root, "runtime/launchers") };
+  });
+
+  it.effect("records a relative launcher path as absolute", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const { root, newExe, launcher, launchersFile } = yield* launcherFixture();
+
+      yield* repointLauncher({
+        launchedAs: path.relative(path.resolve("."), launcher),
+        baseDir: root,
+        targetEntryPath: newExe,
+      });
+
+      assert.equal(yield* fs.readFileString(launchersFile), `\n${launcher}\n`);
+    }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
+  it.effect("fails instead of repointing a launcher it cannot record", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const { root, oldExe, newExe, launcher, launchersFile } = yield* launcherFixture();
+      // Appending to a directory fails the way a read-only or full disk would.
+      yield* fs.makeDirectory(launchersFile);
+
+      const result = yield* repointLauncher({
+        launchedAs: launcher,
+        baseDir: root,
+        targetEntryPath: newExe,
+      }).pipe(Effect.exit);
+
+      assert.isTrue(Exit.isFailure(result));
+      assert.equal(yield* fs.readLink(launcher), oldExe);
+    }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
+  it.effect.each(["recording", "repointing"] as const)(
+    "never leaves a repointed launcher unrecorded when codenine update dies while %s",
+    (step) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const { root, newExe, launcher, launchersFile } = yield* launcherFixture();
+
+        yield* repointLauncher({
+          launchedAs: launcher,
+          baseDir: root,
+          targetEntryPath: newExe,
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, {
+            ...fs,
+            writeFileString: (path, data, options) =>
+              step === "recording" && path === launchersFile
+                ? Effect.die("codenine update was killed")
+                : fs.writeFileString(path, data, options),
+            rename: (from, to) =>
+              step === "repointing" && to === launcher
+                ? Effect.die("codenine update was killed")
+                : fs.rename(from, to),
+          }),
+          Effect.exit,
+        );
+
+        const repointed = (yield* fs.readLink(launcher)) === newExe;
+        const recorded = (yield* fs
+          .readFileString(launchersFile)
+          .pipe(Effect.orElseSucceed(() => "")))
+          .split("\n")
+          .includes(launcher);
+        assert.isFalse(repointed && !recorded);
+      }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
+  it.effect("leaves a plain copy or a foreign symlink alone", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "codenine-update-" });
+      const newExe = path.join(root, "runtime/versions/2.0.0/codenine");
+      const copy = path.join(root, "copy/codenine");
+      const foreign = path.join(root, "foreign/codenine");
+      const elsewhere = path.join(root, "elsewhere/codenine");
+      const otherHome = path.join(root, "other/runtime/versions/1.0.0/codenine");
+      const otherLauncher = path.join(root, "other/bin/codenine");
+      for (const file of [newExe, copy, elsewhere, otherHome]) {
+        yield* fs.makeDirectory(path.dirname(file), { recursive: true });
+        yield* fs.writeFileString(file, "");
+      }
+      yield* fs.makeDirectory(path.dirname(foreign), { recursive: true });
+      yield* fs.symlink(elsewhere, foreign);
+      yield* fs.makeDirectory(path.dirname(otherLauncher), { recursive: true });
+      yield* fs.symlink(otherHome, otherLauncher);
+
+      for (const launchedAs of [copy, foreign, otherLauncher, undefined]) {
+        const repointed = yield* repointLauncher({
+          launchedAs,
+          baseDir: root,
+          targetEntryPath: newExe,
+        });
+        assert.equal(repointed._tag, "None", launchedAs ?? "undefined");
+      }
+      assert.equal(yield* fs.readLink(foreign), elsewhere);
+      assert.equal(yield* fs.readLink(otherLauncher), otherHome);
+    }).pipe(Effect.scoped, Effect.provideService(HostProcess.Platform, "linux")),
+  );
+
+  it.effect("finds the launcher a bare command name resolved to on PATH", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const delimiter = (yield* HostProcess.Platform) === "win32" ? ";" : ":";
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "codenine-update-" });
+      const launcher = path.join(root, "bin/codenine");
+      yield* fs.makeDirectory(path.dirname(launcher), { recursive: true });
+      yield* fs.writeFileString(launcher, "");
+
+      const bare = yield* resolveLauncherPath.pipe(
+        Effect.provideService(HostProcess.InvokedAs, "codenine"),
+        Effect.provideService(HostProcess.Environment, {
+          PATH: [path.join(root, "missing"), path.join(root, "bin")].join(delimiter),
+        }),
+        Effect.provideService(HostProcess.WorkingDirectory, root),
+      );
+      const relative = yield* resolveLauncherPath.pipe(
+        Effect.provideService(HostProcess.InvokedAs, "./bin/codenine"),
+        Effect.provideService(HostProcess.Environment, { PATH: "" }),
+        Effect.provideService(HostProcess.WorkingDirectory, root),
+      );
+      const absent = yield* resolveLauncherPath.pipe(
+        Effect.provideService(HostProcess.InvokedAs, "codenine"),
+        Effect.provideService(HostProcess.Environment, { PATH: path.join(root, "missing") }),
+        Effect.provideService(HostProcess.WorkingDirectory, root),
+      );
+
+      assert.equal(bare, launcher);
+      assert.equal(relative, launcher);
+      assert.equal(absent, undefined);
+    }).pipe(Effect.scoped),
+  );
+});
+
+// Without terminals, update skips its restart prompt whatever runs the test.
+const withoutTerminals = Effect.acquireRelease(
+  Effect.sync(() =>
+    [process.stdin, process.stdout].map((stream) => {
+      const descriptor = Object.getOwnPropertyDescriptor(stream, "isTTY");
+      Object.defineProperty(stream, "isTTY", { configurable: true, value: false });
+      return { stream, descriptor };
+    }),
+  ),
+  (saved) =>
+    Effect.sync(() => {
+      for (const { stream, descriptor } of saved) {
+        if (descriptor === undefined) Reflect.deleteProperty(stream, "isTTY");
+        else Object.defineProperty(stream, "isTTY", descriptor);
+      }
+    }),
+);
+
+it.layer(NodeServices.layer)("codenine update with a background service", (it) => {
+  it.effect("names the version a service with a pending restart still runs", () =>
+    Effect.gen(function* () {
+      yield* withoutTerminals;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "codenine-update-" });
+      const version = packageJson.version;
+      const runtime = pinnedRuntimePaths(path, baseDir, version, "linux");
+      yield* fs.makeDirectory(runtime.versionDir, { recursive: true });
+      yield* fs.writeFileString(runtime.entryPath, "");
+      yield* fs.writeFileString(runtime.sentinelPath, `${version}\n`);
+      const unitPath = path.join(baseDir, "codenine.service");
+      const logPath = path.join(baseDir, "boot-service.log");
+      // An earlier `codenine update` pointed the service at this version without restarting it.
+      const service = Layer.mock(BootService.BootService, {
+        status: Effect.succeed<BootService.BootServiceStatus>({
+          supported: true,
+          installed: true,
+          current: false,
+          installedVersion: version,
+          installedBaseDir: baseDir,
+          problems: ["restart-pending"],
+          unitPath,
+          logPath,
+        }),
+        install: () => Effect.succeed({ program: [runtime.entryPath], baseDir, unitPath, logPath }),
+      });
+      vi.spyOn(BootService, "layer").mockReturnValue(service);
+      const runner = ProcessRunner.ProcessRunner.of({
+        run: (input) =>
+          input.args?.includes("--version") === true
+            ? unrelatedLsof
+                .run(input)
+                .pipe(Effect.map((result) => ({ ...result, stdout: `codenine v${version}\n` })))
+            : unrelatedLsof.run(input),
+      });
+
+      const output = yield* runUpdate({
+        baseDir,
+        logsDir: baseDir,
+        serverRuntimeStatePath: path.join(baseDir, "server-runtime.json"),
+        channel: undefined,
+        requestedVersion: version,
+        allowDowngrade: false,
+        assumeYes: false,
+      }).pipe(
+        Effect.andThen(TestConsole.logLines),
+        Effect.map((lines) => lines.join("\n")),
+        Effect.provide(
+          Layer.mergeAll(
+            service,
+            Layer.succeed(ProcessRunner.ProcessRunner, runner),
+            Layer.succeed(
+              HttpClient.HttpClient,
+              HttpClient.make(() => Effect.die("unexpected release lookup")),
+            ),
+            Layer.fresh(TestConsole.layer),
+          ),
+        ),
+      );
+
+      assert.include(
+        output,
+        `Background service still running the version before ${version}. Run \`codenine service restart\` when you are ready to switch it to ${version}.`,
+      );
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(HostProcess.Environment, { PATH: "" }),
+    ),
+  );
+});

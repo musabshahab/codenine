@@ -1,0 +1,84 @@
+import { serializeComposerFileLink } from "@codenine/shared/composerTrigger";
+
+export const COMPOSER_MENTION_DRAG_TYPE = "application/x-codenine-composer-mention";
+
+export function composerMentionFromTreePath(treePath: string): string | null {
+  const relativePath = treePath.replace(/\/+$/, "");
+  if (relativePath.length === 0) {
+    return null;
+  }
+  return serializeComposerFileLink(relativePath);
+}
+
+export function dataTransferHasComposerMention(types: ReadonlyArray<string>): boolean {
+  return types.includes(COMPOSER_MENTION_DRAG_TYPE);
+}
+
+interface ComposerMentionDragTransfer {
+  readonly types: ReadonlyArray<string>;
+  getData(format: string): string;
+  dropEffect: string;
+}
+
+interface ComposerMentionDragEvent {
+  readonly dataTransfer: ComposerMentionDragTransfer;
+  readonly nativeEvent: { stopPropagation(): void };
+  preventDefault(): void;
+  stopPropagation(): void;
+}
+
+/** Insertion focuses next frame; synchronous focus would overwrite the unreconciled mention. */
+export interface ComposerMentionDropHost {
+  insertMentionAtEnd(text: string): boolean;
+  setDragActive(active: boolean): void;
+  onInsertRejected(): void;
+}
+
+interface ComposerMentionDragHandlers {
+  onDragEnter(event: ComposerMentionDragEvent): void;
+  onDragOver(event: ComposerMentionDragEvent): void;
+  onDrop(event: ComposerMentionDragEvent): void;
+}
+
+export function makeComposerMentionDragHandlers(
+  host: ComposerMentionDropHost,
+): ComposerMentionDragHandlers {
+  // Stop native propagation so the editor cannot process claimed drags.
+  const claim = (event: ComposerMentionDragEvent): boolean => {
+    if (!dataTransferHasComposerMention(event.dataTransfer.types)) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopPropagation();
+    return true;
+  };
+  return {
+    onDragEnter(event) {
+      if (claim(event)) {
+        host.setDragActive(true);
+      }
+    },
+    onDragOver(event) {
+      if (!claim(event)) {
+        return;
+      }
+      // Tree drags allow only "move"; other drop effects cancel delivery.
+      event.dataTransfer.dropEffect = "move";
+      host.setDragActive(true);
+    },
+    onDrop(event) {
+      if (!claim(event)) {
+        return;
+      }
+      host.setDragActive(false);
+      const mention = event.dataTransfer.getData(COMPOSER_MENTION_DRAG_TYPE);
+      if (mention.length === 0) {
+        return;
+      }
+      if (!host.insertMentionAtEnd(`${mention} `)) {
+        host.onInsertRejected();
+      }
+    },
+  };
+}

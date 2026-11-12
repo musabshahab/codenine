@@ -1,0 +1,39 @@
+{
+  "name": "@codenine/desktop",
+  "version": "0.1.7",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/boot.cjs",
+  "scripts": {
+    "ensure:electron": "node scripts/ensure-electron-runtime.mjs",
+    "start": "node scripts/start-electron.mjs",
+    "test": "vp test run --passWithNoTests"
+  },
+  "dependencies": {
+    "@clerk/electron": "catalog:",
+    "@clerk/electron-passkeys": "catalog:",
+    "@codenine/client-runtime": "workspace:*",
+    "@codenine/contracts": "workspace:*",
+    "@codenine/shared": "workspace:*",
+    "@codenine/ssh": "workspace:*",
+    "@codenine/tailscale": "workspace:*",
+    "@crowecawcaw/xa11y": "0.15.4",
+    "@effect/platform-node": "catalog:",
+    "dbus-next": "0.10.2",
+    "effect": "catalog:",
+    "electron": "44.10.1",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.9",
+    "ffi-rs": "1.3.2",
+    "playwright-core": "1.60.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "acorn": "8.16.0",
+    "cross-env": "^10.1.0",
+    "electron-builder": "26.16.1",
+    "vite-plus": "catalog:"
+  },
+  "productName": "Codenine (Beta)"
+}

@@ -1,0 +1,207 @@
+import { describe, expect, it } from "vite-plus/test";
+
+import { ThreadId, TurnItemId, type OrchestrationV2TurnItem } from "@codenine/contracts";
+import * as DateTime from "effect/DateTime";
+
+import {
+  resolveWorkEntryToolPresentation,
+  toolItemForDisplay,
+  type WorkLogPresentationEntry,
+  workEntryIndicatesToolFailure,
+  workEntryDisplayIndicatesToolFailure,
+} from "./presentation.js";
+
+function commandItem(
+  fields: Partial<Extract<OrchestrationV2TurnItem, { type: "command_execution" }>> = {},
+): OrchestrationV2TurnItem {
+  return {
+    id: TurnItemId.make("command"),
+    threadId: ThreadId.make("thread"),
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "completed",
+    title: null,
+    startedAt: null,
+    completedAt: null,
+    updatedAt: DateTime.makeUnsafe("2026-09-08T00:00:00.000Z"),
+    type: "command_execution",
+    input: 'rg "command not found"',
+    ...fields,
+  };
+}
+
+describe("workEntryIndicatesToolFailure", () => {
+  const base = {
+    id: "w1",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    label: "Read",
+  };
+
+  it.each([
+    [{ exitCode: 2 }, true],
+    [{ output: "sh: missing-command: command not found" }, true],
+    [{ output: `${"x".repeat(32_768)} command not found` }, false],
+  ] as const)(
+    "preserves command failure state after removing displayed output: %j",
+    (fields, failed) => {
+      const structuredPayload = commandItem(fields);
+      const entry: WorkLogPresentationEntry = {
+        ...base,
+        tone: "tool",
+        itemType: "command_execution",
+        toolLifecycleStatus: "completed",
+        structuredPayload,
+      };
+      expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(failed);
+      expect(JSON.stringify(toolItemForDisplay(structuredPayload))).not.toContain('"output":');
+    },
+  );
+
+  it.each([
+    "logs/app.log:12: Error: ENOENT: no such file or directory",
+    "fixtures/ci.txt:3: Process exited with exit code 2",
+  ])("trusts a zero exit code over failure text in the output and command: %s", (output) => {
+    const entry: WorkLogPresentationEntry = {
+      ...base,
+      tone: "tool",
+      itemType: "command_execution",
+      toolLifecycleStatus: "completed",
+      command: 'rg -n "ENOENT|exit code" logs fixtures',
+      structuredPayload: commandItem({ output, exitCode: 0, outputIndicatesFailure: true }),
+    };
+    expect(workEntryIndicatesToolFailure(entry)).toBe(false);
+    expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(false);
+  });
+
+  it("ignores failure phrases in reasoning text", () => {
+    const entry: WorkLogPresentationEntry = {
+      ...base,
+      label: "Thinking",
+      tone: "thinking",
+      itemType: "reasoning",
+      toolLifecycleStatus: "completed",
+      detail: "That exit code 2 is just from listing the deleted directory, which is expected.",
+    };
+    expect(workEntryIndicatesToolFailure(entry)).toBe(false);
+    expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(false);
+  });
+
+  it("does not treat error text in a command as rendered failure", () => {
+    const entry = {
+      ...base,
+      label: "Ran command",
+      tone: "tool",
+      toolLifecycleStatus: "completed",
+      command: 'rg "file not found"',
+      detail: "Found 3 matches",
+    } satisfies WorkLogPresentationEntry;
+
+    expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(false);
+
+    expect(workEntryIndicatesToolFailure(entry)).toBe(true);
+    expect(workEntryDisplayIndicatesToolFailure({ ...entry, detail: "File not found" })).toBe(true);
+  });
+});
+
+describe("resolveWorkEntryToolPresentation", () => {
+  it("shows returned MCP errors as failures even in the live activity row", () => {
+    const entry: WorkLogPresentationEntry = {
+      id: "clone",
+      createdAt: "2026-09-19T00:00:00.000Z",
+      tone: "tool",
+      label: "Codenine.codenine_project_clone",
+      toolLifecycleStatus: "inProgress",
+      itemType: "dynamic_tool",
+      toolData: { output: { isError: true } },
+    };
+    expect(resolveWorkEntryToolPresentation(entry)?.displayName).toBe(
+      "Failed to clone a repository",
+    );
+    expect(workEntryDisplayIndicatesToolFailure(entry)).toBe(true);
+    const childFailure = {
+      ...entry,
+      label: "Codenine.task_status",
+      toolLifecycleStatus: "completed" as const,
+      toolData: { output: { taskId: "child", status: "failed", summary: "command not found" } },
+    };
+    expect(workEntryDisplayIndicatesToolFailure(childFailure)).toBe(false);
+  });
+  it.each([
+    "mcp__codenine__codenine_worktree_handoff",
+    "mcp__codenine__codenine_worktree_handoff",
+    "mcp__codenine__codenine_worktree_handoff",
+    "Codenine.codenine_worktree_handoff",
+    "codenine · codenine_worktree_handoff completed",
+    "codenine/codenine_worktree_handoff",
+    "codenine_worktree_handoff",
+  ])("recognizes Codenine tool names across providers: %s", (label) => {
+    expect(resolveWorkEntryToolPresentation({ label })).toEqual({
+      displayName: "Handing off thread to a git worktree",
+      icon: "codenine",
+    });
+  });
+
+  it("uses structured MCP identity when the provider supplies a custom title", () => {
+    expect(
+      resolveWorkEntryToolPresentation({
+        label: "Tool call complete",
+        toolTitle: "Check the worktree",
+        toolData: {
+          server: "codenine",
+          tool: "codenine_worktree_status",
+          result: { status: "ready" },
+        },
+      }),
+    ).toEqual({ displayName: "Getting thread worktree status", icon: "codenine" });
+  });
+
+  it("uses the summary's state only when the provider omitted a lifecycle status", () => {
+    const entry = { label: "Codenine.codenine_worktree_handoff" };
+    expect(resolveWorkEntryToolPresentation(entry, "inProgress")?.displayName).toBe(
+      "Handing off thread to a git worktree",
+    );
+    expect(resolveWorkEntryToolPresentation(entry, "completed")?.displayName).toBe(
+      "Handed off thread to a git worktree",
+    );
+    expect(
+      resolveWorkEntryToolPresentation({ ...entry, toolLifecycleStatus: "completed" }, "inProgress")
+        ?.displayName,
+    ).toBe("Handed off thread to a git worktree");
+    expect(
+      resolveWorkEntryToolPresentation({ ...entry, toolLifecycleStatus: "failed" }, "completed")
+        ?.displayName,
+    ).toBe("Failed to hand off thread to a git worktree");
+  });
+
+  it("names a linked change request with its host's term", () => {
+    expect(
+      resolveWorkEntryToolPresentation({
+        label: "Codenine.link_pull_request",
+        toolLifecycleStatus: "completed",
+        toolData: { arguments: { url: "https://github.com/acme/web/pull/7" } },
+      })?.displayName,
+    ).toMatch(/ PR #7$/);
+  });
+
+  it("does not brand unknown tools or another server's matching tool name", () => {
+    for (const label of [
+      "mcp__github__codenine_worktree_status",
+      "codenine.unknown_tool",
+      "codenine.toString",
+      "Search files",
+    ]) {
+      expect(resolveWorkEntryToolPresentation({ label })).toBeNull();
+    }
+    expect(
+      resolveWorkEntryToolPresentation({
+        label: "codenine_worktree_status",
+        toolData: { server: "another-server", tool: "codenine_worktree_status" },
+      }),
+    ).toBeNull();
+  });
+});

@@ -1,0 +1,890 @@
+import {
+  DEFAULT_TEXT_GENERATION_MODEL,
+  DEFAULT_SERVER_SETTINGS,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@codenine/contracts";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS,
+  type UnifiedSettings,
+} from "@codenine/contracts/settings";
+import { describe, expect, it } from "vite-plus/test";
+import { createModelSelection } from "@codenine/shared/model";
+import { deriveEffectiveComposerModelState } from "./composerDraftStore";
+import { getComposerProviderState } from "./components/chat/composerProviderState";
+import { resolveComposerProviderSelection } from "./components/ChatView.logic";
+import {
+  deriveProviderInstanceEntries,
+  NO_PROVIDER_MODEL_SELECTION,
+  providerInstanceEntriesFor,
+} from "./providerInstances";
+import {
+  defaultModelSelectionsAreMixed,
+  getAppModelOptionsForInstance,
+  resolveAppModelSelectionForInstance,
+  resolveAppModelSelectionState,
+  resolveEffectiveDefaultModelSelection,
+} from "./modelSelection";
+
+function provider(input: {
+  provider?: ProviderDriverKind;
+  instanceId: string;
+  models?: ReadonlyArray<string>;
+  supportsTextGeneration?: boolean;
+}): ServerProvider {
+  const driver =
+    input.provider ??
+    (input.instanceId.startsWith("claude_")
+      ? ProviderDriverKind.make("claudeAgent")
+      : ProviderDriverKind.make("codex"));
+  return {
+    instanceId: ProviderInstanceId.make(input.instanceId),
+    driver,
+    ...(input.supportsTextGeneration === undefined
+      ? {}
+      : { supportsTextGeneration: input.supportsTextGeneration }),
+    enabled: true,
+    installed: true,
+    version: null,
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: "2026-01-01T00:00:00.000Z",
+    models: (input.models ?? []).map((slug) => ({
+      slug,
+      name: slug,
+      isCustom: false,
+      capabilities: {},
+    })),
+    slashCommands: [],
+    skills: [],
+  };
+}
+
+function settingsWithProviderInstances(): UnifiedSettings {
+  return {
+    ...DEFAULT_UNIFIED_SETTINGS,
+    providerInstances: {
+      [ProviderInstanceId.make("claudeAgent")]: {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        config: { customModels: [] },
+      },
+      [ProviderInstanceId.make("claude_openrouter")]: {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        config: { customModels: ["openai/gpt-5.5"] },
+      },
+    },
+  };
+}
+
+describe("scoped default model selections", () => {
+  // regression: #27997 equal automatic defaults can resolve to different providers
+  it("compares automatic defaults using each environment's models", () => {
+    const codex = {
+      projectId: null,
+      settings: DEFAULT_UNIFIED_SETTINGS,
+      providers: [provider({ instanceId: "codex", models: ["gpt-6-astra"] })],
+    };
+    const claude = {
+      projectId: null,
+      settings: DEFAULT_UNIFIED_SETTINGS,
+      providers: [
+        provider({
+          instanceId: "claudeAgent",
+          provider: ProviderDriverKind.make("claudeAgent"),
+          models: ["claude-sonnet-4-6"],
+        }),
+      ],
+    };
+
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [codex, claude])).toBe(true);
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [claude, codex])).toBe(true);
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [codex, codex])).toBe(false);
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [claude])).toBe(false);
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [])).toBe(false);
+    expect(
+      defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [codex, { ...codex, providers: [] }]),
+    ).toBe(true);
+    expect(
+      defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [
+        codex,
+        { ...codex, providers: [provider({ instanceId: "codex", models: ["gpt-6-sol"] })] },
+      ]),
+    ).toBe(true);
+
+    const projectId = ProjectId.make("claude-only");
+    const project = {
+      projectId,
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        projectSettingsOverrides: {
+          [projectId]: {
+            providerInstances: { [ProviderInstanceId.make("codex")]: { enabled: false } },
+          },
+        },
+      },
+      providers: [...codex.providers, ...claude.providers],
+    };
+    const remoteProject = { ...claude, projectId: ProjectId.make("remote-project") };
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [project, remoteProject])).toBe(
+      false,
+    );
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [remoteProject, project])).toBe(
+      false,
+    );
+    expect(
+      defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [
+        project,
+        { ...project, projectId: ProjectId.make("other-project") },
+      ]),
+    ).toBe(true);
+
+    const configured = {
+      projectId: null,
+      settings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerModelPreferences: {
+          [ProviderInstanceId.make("codex")]: {
+            hiddenModels: ["gpt-6-astra"],
+            modelOrder: [],
+          },
+        },
+      },
+      providers: [provider({ instanceId: "codex", models: ["gpt-6-astra", "gpt-6-sol"] })],
+    };
+    const inherited = { ...configured, settings: DEFAULT_SERVER_SETTINGS };
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [configured, inherited])).toBe(
+      true,
+    );
+    expect(defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [inherited, configured])).toBe(
+      true,
+    );
+    const clientSettings = {
+      ...DEFAULT_CLIENT_SETTINGS,
+      providerModelPreferences: configured.settings.providerModelPreferences,
+    };
+    expect(defaultModelSelectionsAreMixed(clientSettings, [configured, inherited])).toBe(false);
+    expect(defaultModelSelectionsAreMixed(clientSettings, [inherited, configured])).toBe(false);
+    expect(
+      defaultModelSelectionsAreMixed(clientSettings, [
+        { ...inherited, settings: { ...DEFAULT_SERVER_SETTINGS, providerModelPreferences: {} } },
+        inherited,
+      ]),
+    ).toBe(true);
+  });
+
+  it("keeps automatic, explicit, and different saved options distinct", () => {
+    const providers = [provider({ instanceId: "codex", models: ["gpt-6-astra"] })];
+    const selected = {
+      projectId: null,
+      providers,
+      settings: {
+        ...DEFAULT_UNIFIED_SETTINGS,
+        defaultModelSelection: createModelSelection(
+          ProviderInstanceId.make("codex"),
+          "gpt-6-astra",
+        ),
+      },
+    };
+    expect(
+      defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [selected, { ...selected }]),
+    ).toBe(false);
+    expect(
+      defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [
+        selected,
+        { projectId: null, providers, settings: DEFAULT_UNIFIED_SETTINGS },
+      ]),
+    ).toBe(true);
+    expect(
+      defaultModelSelectionsAreMixed(DEFAULT_CLIENT_SETTINGS, [
+        selected,
+        {
+          ...selected,
+          settings: {
+            ...selected.settings,
+            defaultModelSelection: {
+              ...selected.settings.defaultModelSelection,
+              options: [{ id: "reasoningEffort", value: "xhigh" }],
+            },
+          },
+        },
+      ]),
+    ).toBe(true);
+  });
+});
+
+describe("instance-scoped model selection", () => {
+  it("keeps custom models on the provider instance that declared them", () => {
+    const providers = [
+      provider({
+        instanceId: "claudeAgent",
+        models: ["claude-sonnet-4-6"],
+      }),
+      provider({
+        instanceId: "claude_openrouter",
+        models: ["claude-sonnet-4-6"],
+      }),
+    ];
+    const entries = deriveProviderInstanceEntries(providers);
+    const stock = entries.find((entry) => entry.instanceId === "claudeAgent")!;
+    const openrouter = entries.find((entry) => entry.instanceId === "claude_openrouter")!;
+
+    expect(
+      getAppModelOptionsForInstance(settingsWithProviderInstances(), stock).map(
+        (option) => option.slug,
+      ),
+    ).not.toContain("openai/gpt-5.5");
+    expect(
+      getAppModelOptionsForInstance(settingsWithProviderInstances(), openrouter).map(
+        (option) => option.slug,
+      ),
+    ).toContain("openai/gpt-5.5");
+  });
+
+  it("preserves a custom slug that collides with a provider alias", () => {
+    const providers = [
+      provider({
+        provider: ProviderDriverKind.make("claudeAgent"),
+        instanceId: "claude_openrouter",
+        models: ["claude-opus-4-8"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerInstances: {
+        ...settingsWithProviderInstances().providerInstances,
+        [ProviderInstanceId.make("claude_openrouter")]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          config: { customModels: ["opus"] },
+        },
+      },
+    };
+    const openrouter = deriveProviderInstanceEntries(providers)[0]!;
+
+    expect(
+      getAppModelOptionsForInstance(settings, openrouter).map((option) => option.slug),
+    ).toEqual(["claude-opus-4-8", "opus"]);
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("claude_openrouter"),
+        settings,
+        providers,
+        "opus",
+      ),
+    ).toBe("opus");
+  });
+
+  it("offers and resolves every saved custom model, past the first 32", () => {
+    const providers = [
+      provider({
+        provider: ProviderDriverKind.make("claudeAgent"),
+        instanceId: "claude_openrouter",
+      }),
+    ];
+    const customModels = Array.from({ length: 40 }, (_, index) => `proxy/model-${index + 1}`);
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerInstances: {
+        ...settingsWithProviderInstances().providerInstances,
+        [ProviderInstanceId.make("claude_openrouter")]: {
+          driver: ProviderDriverKind.make("claudeAgent"),
+          config: { customModels },
+        },
+      },
+    };
+    const openrouter = deriveProviderInstanceEntries(providers)[0]!;
+
+    expect(
+      getAppModelOptionsForInstance(settings, openrouter).map((option) => option.slug),
+    ).toEqual(customModels);
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("claude_openrouter"),
+        settings,
+        providers,
+        "proxy/model-40",
+      ),
+    ).toBe("proxy/model-40");
+  });
+
+  it("drops server-reported custom rows that are no longer in settings", () => {
+    const baseProvider = provider({
+      instanceId: "claude_openrouter",
+      models: ["claude-sonnet-4-6"],
+    });
+    const providers = [
+      {
+        ...baseProvider,
+        models: [
+          ...baseProvider.models,
+          { slug: "removed/custom", name: "removed/custom", isCustom: true, capabilities: {} },
+        ],
+      },
+    ];
+    const openrouter = deriveProviderInstanceEntries(providers)[0]!;
+
+    expect(
+      getAppModelOptionsForInstance(settingsWithProviderInstances(), openrouter).map(
+        (option) => option.slug,
+      ),
+    ).toEqual(["claude-sonnet-4-6", "openai/gpt-5.5"]);
+  });
+
+  it("falls back when the selected model is hidden", () => {
+    const providers = [
+      provider({
+        instanceId: "claudeAgent",
+        models: ["claude-opus-4-6", "claude-sonnet-4-6"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      providerModelPreferences: {
+        [ProviderInstanceId.make("claudeAgent")]: {
+          hiddenModels: ["claude-opus-4-6"],
+          modelOrder: [],
+        },
+      },
+    };
+
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("claudeAgent"),
+        settings,
+        providers,
+        "claude-opus-4-6",
+      ),
+    ).toBe("claude-sonnet-4-6");
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("claudeAgent"),
+        settings,
+        providers,
+        "claude-opus-4-6",
+      ),
+    ).toBe("claude-sonnet-4-6");
+  });
+
+  it("falls back instead of resolving a custom slug against the wrong instance", () => {
+    const providers = [
+      provider({
+        instanceId: "claudeAgent",
+        models: ["claude-sonnet-4-6"],
+      }),
+      provider({
+        instanceId: "claude_openrouter",
+        models: ["claude-sonnet-4-6"],
+      }),
+    ];
+
+    expect(
+      resolveAppModelSelectionForInstance(
+        ProviderInstanceId.make("claudeAgent"),
+        settingsWithProviderInstances(),
+        providers,
+        "openai/gpt-5.5",
+      ),
+    ).toBe("claude-sonnet-4-6");
+  });
+
+  it("falls back from an explicit non-OpenCode draft with a missing model", () => {
+    const instanceId = ProviderInstanceId.make("codex");
+    const driver = ProviderDriverKind.make("codex");
+    const providers = [provider({ provider: driver, instanceId, models: ["gpt-5.6-sol"] })];
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        activeProvider: instanceId,
+        modelSelectionByProvider: {
+          [instanceId]: createModelSelection(instanceId, "gpt-missing", [
+            { id: "effort", value: "max" },
+          ]),
+        },
+      },
+      providers,
+      selectedProvider: driver,
+      selectedInstanceId: instanceId,
+      threadModelSelection: null,
+      projectModelSelection: null,
+      settings: settingsWithProviderInstances(),
+    });
+    const dispatch = getComposerProviderState({
+      provider: driver,
+      model: state.selectedModel,
+      models: providers[0]!.models,
+      modelOptions: state.modelOptions?.[instanceId],
+    });
+
+    expect(state.selectedModel).toBe("gpt-5.6-sol");
+    expect(dispatch.modelOptionsForDispatch).toBeUndefined();
+  });
+
+  it("keeps a custom-instance draft model while dropping unsupported options", () => {
+    const instanceId = ProviderInstanceId.make("claude_openrouter");
+    const driver = ProviderDriverKind.make("claudeAgent");
+    const providers = [
+      provider({ provider: driver, instanceId: "claudeAgent", models: ["claude-opus-5"] }),
+      provider({ provider: driver, instanceId, models: ["claude-opus-5"] }),
+    ];
+    const threadSelection = createModelSelection(instanceId, "claude-opus-5", [
+      { id: "effort", value: "high" },
+    ]);
+    const draftSelection = createModelSelection(instanceId, "openai/gpt-5.5", [
+      { id: "effort", value: "max" },
+    ]);
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        activeProvider: instanceId,
+        modelSelectionByProvider: { [instanceId]: draftSelection },
+      },
+      providers,
+      selectedProvider: driver,
+      selectedInstanceId: instanceId,
+      threadModelSelection: threadSelection,
+      projectModelSelection: null,
+      settings: settingsWithProviderInstances(),
+    });
+    const dispatch = getComposerProviderState({
+      provider: driver,
+      model: state.selectedModel,
+      models: providers[1]!.models,
+      modelOptions: state.modelOptions?.[instanceId],
+    });
+
+    expect(
+      createModelSelection(instanceId, state.selectedModel, dispatch.modelOptionsForDispatch),
+    ).toEqual(createModelSelection(instanceId, "openai/gpt-5.5"));
+  });
+
+  it("keeps the default instance's draft model off a custom instance of the same driver", () => {
+    const driver = ProviderDriverKind.make("codex");
+    const defaultInstanceId = ProviderInstanceId.make("codex");
+    const kimiInstanceId = ProviderInstanceId.make("kimi_api");
+    const kimiModel = "kimi-code-plan-global/k3.1-pro";
+    const providers = [
+      provider({
+        provider: driver,
+        instanceId: defaultInstanceId,
+        models: ["opencode-go/kimi-k3.1-pro"],
+      }),
+      provider({ provider: driver, instanceId: kimiInstanceId, models: [kimiModel] }),
+    ];
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        activeProvider: kimiInstanceId,
+        modelSelectionByProvider: {
+          [defaultInstanceId]: createModelSelection(defaultInstanceId, "opencode-go/kimi-k3.1-pro"),
+        },
+      },
+      providers,
+      selectedProvider: driver,
+      selectedInstanceId: kimiInstanceId,
+      threadModelSelection: null,
+      projectModelSelection: null,
+      settings: DEFAULT_UNIFIED_SETTINGS,
+    });
+
+    expect(state.selectedModel).toBe(kimiModel);
+  });
+
+  it("self-heals a persisted selection pointing at a text-generation-incapable instance", () => {
+    const providers = [
+      provider({
+        provider: ProviderDriverKind.make("claudeAgent"),
+        instanceId: "claude_work",
+        models: ["default"],
+        supportsTextGeneration: false,
+      }),
+      provider({
+        instanceId: "codex",
+        models: ["gpt-5.6-luna"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      textGenerationModelSelection: {
+        instanceId: ProviderInstanceId.make("claude_work"),
+        model: "default",
+      },
+    };
+
+    expect(resolveAppModelSelectionState(settings, providers).instanceId).toBe(
+      ProviderInstanceId.make("codex"),
+    );
+  });
+  it("falls back to the text generation default, not the chat default, for a removed model", () => {
+    const codex = provider({ instanceId: "codex", models: ["gpt-6-astra", "gpt-6-luna"] });
+    const providers = [
+      { ...codex, models: codex.models.map((m, i) => (i === 0 ? { ...m, isDefault: true } : m)) },
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      textGenerationModelSelection: createModelSelection(
+        ProviderInstanceId.make("codex"),
+        "gpt-5.6-luna",
+      ),
+    };
+
+    expect(resolveAppModelSelectionState(settings, providers).model).toBe(
+      DEFAULT_TEXT_GENERATION_MODEL,
+    );
+  });
+
+  it("does not select a provider that cannot generate system text", () => {
+    const instanceId = ProviderInstanceId.make("claude_work");
+    const unsupported = {
+      ...provider({
+        provider: ProviderDriverKind.make("claudeAgent"),
+        instanceId,
+        models: ["gemini-3.1-pro"],
+      }),
+      supportsTextGeneration: false,
+    };
+    const supported = provider({ instanceId: "codex", models: ["gpt-5.6-sol"] });
+    const settings = {
+      ...settingsWithProviderInstances(),
+      textGenerationModelSelection: createModelSelection(instanceId, "gemini-3.1-pro"),
+    };
+
+    expect(resolveAppModelSelectionState(settings, [unsupported, supported])).toEqual(
+      createModelSelection(supported.instanceId, "gpt-5.6-sol"),
+    );
+    expect(resolveAppModelSelectionState(settings, [unsupported])).toEqual(
+      NO_PROVIDER_MODEL_SELECTION,
+    );
+  });
+});
+
+describe("default model settings and new-thread composer parity", () => {
+  it.each([
+    ["hidden", "claudeAgent", "claude-opus-5", "claude-opus-5-5", "medium"],
+    ["visible", "claudeAgent", "claude-opus-5", "claude-opus-5", "max"],
+  ] as const)(
+    "resolves the %s default and its traits",
+    (visibility, kind, model, expectedModel, effort) => {
+      const driver = ProviderDriverKind.make(kind);
+      const instanceId = ProviderInstanceId.make(`${kind}_work`);
+      const snapshot = provider({ provider: driver, instanceId });
+      const models: ServerProvider["models"] = ["claude-opus-5-5", "claude-opus-5"].map(
+        (slug, index) => ({
+          slug,
+          name: slug,
+          isCustom: false,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "effort",
+                label: "Effort",
+                type: "select",
+                options: (index === 0 ? ["medium", "high"] : ["high", "max"]).map(
+                  (id, optionIndex) => ({ id, label: id, isDefault: optionIndex === 0 }),
+                ),
+              },
+            ],
+          },
+        }),
+      );
+      const providers = [{ ...snapshot, models }];
+      const stored = createModelSelection(instanceId, model, [{ id: "effort", value: "max" }]);
+      const settings: UnifiedSettings = {
+        ...settingsWithProviderInstances(),
+        providerModelPreferences: {
+          [instanceId]: { hiddenModels: visibility === "hidden" ? [model] : [], modelOrder: [] },
+        },
+      };
+      // ChatView builds the local draft with the project default as its thread selection.
+      const composer = deriveEffectiveComposerModelState({
+        draft: null,
+        providers,
+        selectedProvider: driver,
+        selectedInstanceId: instanceId,
+        threadModelSelection: stored,
+        projectModelSelection: stored,
+        settings,
+      });
+      const effective = resolveEffectiveDefaultModelSelection(settings, providers, stored);
+      const traits = (model: string, modelOptions: typeof stored.options) =>
+        getComposerProviderState({
+          provider: driver,
+          model,
+          models,
+          modelOptions,
+        });
+      const composerTraits = traits(composer.selectedModel, composer.modelOptions?.[instanceId]);
+
+      expect(composer.selectedModel).toBe(expectedModel);
+      expect(traits(effective.model, effective.options)).toEqual(composerTraits);
+      expect(effective).toEqual({ ...stored, model: composer.selectedModel });
+      expect(composerTraits.promptEffort).toBe(effort);
+    },
+  );
+});
+
+describe("composer fallback to another instance of the same driver", () => {
+  const claude = ProviderDriverKind.make("claudeAgent");
+  const codex = ProviderDriverKind.make("codex");
+  const disabled = ProviderInstanceId.make("claudeAgent");
+  const fallback = ProviderInstanceId.make("claude_team");
+  const effortModels: ServerProvider["models"] = [
+    {
+      slug: "claude-opus-5-5",
+      name: "Claude Opus 5.5",
+      isCustom: false,
+      capabilities: {
+        optionDescriptors: [
+          {
+            id: "effort",
+            label: "Effort",
+            type: "select",
+            options: ["medium", "high", "xhigh"].map((id) => ({
+              id,
+              label: id,
+              isDefault: id === "medium",
+            })),
+          },
+        ],
+      },
+    },
+  ];
+  const providers: ReadonlyArray<ServerProvider> = [
+    {
+      ...provider({ provider: claude, instanceId: disabled }),
+      enabled: false,
+      models: effortModels,
+    },
+    { ...provider({ provider: claude, instanceId: fallback }), models: effortModels },
+  ];
+  const picked = createModelSelection(disabled, "claude-opus-5-5", [
+    { id: "effort", value: "xhigh" },
+  ]);
+
+  // The same steps useComposerProviderModel takes, without the draft store.
+  function composerFor(input: {
+    readonly providers: ReadonlyArray<ServerProvider>;
+    readonly draft?: Parameters<typeof deriveEffectiveComposerModelState>[0]["draft"];
+    readonly threadModelSelection: ReturnType<typeof createModelSelection>;
+    readonly customModels?: Partial<Record<string, ReadonlyArray<string>>>;
+  }) {
+    const settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: Object.fromEntries(
+        input.providers.map((provider) => [
+          provider.instanceId,
+          {
+            driver: provider.driver,
+            enabled: provider.enabled,
+            config: {
+              customModels: (input.customModels?.[provider.instanceId] ?? []).map((slug) => ({
+                slug,
+                name: slug,
+                capabilities: null,
+              })),
+            },
+          },
+        ]),
+      ),
+    };
+    const selection = resolveComposerProviderSelection({
+      entries: providerInstanceEntriesFor(input.providers, settings, null),
+      candidateInstanceIds: [input.threadModelSelection.instanceId],
+      lockedProvider: null,
+      lockedInstanceId: undefined,
+    });
+    const selectedInstanceId = selection.selectedProviderEntry!.instanceId;
+    const selectedProvider = selection.selectedProviderEntry!.driverKind;
+    const state = deriveEffectiveComposerModelState({
+      draft: input.draft ?? null,
+      providers: input.providers,
+      selectedProvider,
+      selectedInstanceId,
+      requestedInstanceId: selection.requestedInstanceId,
+      threadModelSelection: input.threadModelSelection,
+      projectModelSelection: null,
+      settings,
+    });
+    const traits = getComposerProviderState({
+      provider: selectedProvider,
+      model: state.selectedModel,
+      models: selection.selectedProviderEntry!.models,
+      modelOptions: state.modelOptions?.[selectedInstanceId],
+    });
+    return { selectedInstanceId, state, traits };
+  }
+
+  it("keeps the requested instance's effort on the fallback instance", () => {
+    const { selectedInstanceId, state, traits } = composerFor({
+      providers,
+      threadModelSelection: picked,
+    });
+
+    expect(selectedInstanceId).toBe(fallback);
+    expect(state.selectedModel).toBe("claude-opus-5-5");
+    expect(traits.promptEffort).toBe("xhigh");
+    expect(
+      createModelSelection(fallback, state.selectedModel, traits.modelOptionsForDispatch),
+    ).toEqual(
+      createModelSelection(fallback, "claude-opus-5-5", [{ id: "effort", value: "xhigh" }]),
+    );
+  });
+
+  it("keeps options the fallback instance already has", () => {
+    const { traits } = composerFor({
+      providers,
+      threadModelSelection: picked,
+      draft: {
+        activeProvider: disabled,
+        modelSelectionByProvider: {
+          [disabled]: picked,
+          [fallback]: createModelSelection(fallback, "claude-opus-5-5", [
+            { id: "effort", value: "high" },
+          ]),
+        },
+      },
+    });
+
+    expect(traits.promptEffort).toBe("high");
+  });
+
+  it("does not carry options picked with another model", () => {
+    // An optionless draft pick takes its options from the thread, which holds another model.
+    const { state, traits } = composerFor({
+      providers,
+      threadModelSelection: createModelSelection(disabled, "claude-sonnet-4-6", [
+        { id: "effort", value: "high" },
+      ]),
+      draft: {
+        activeProvider: disabled,
+        modelSelectionByProvider: { [disabled]: createModelSelection(disabled, "claude-opus-5-5") },
+      },
+    });
+
+    expect(state.selectedModel).toBe("claude-opus-5-5");
+    expect(traits.promptEffort).toBe("medium");
+    expect(traits.modelOptionsForDispatch).toBeUndefined();
+  });
+
+  describe("with model aliases", () => {
+    const reasoningModel = (
+      slug: string,
+      id: string,
+      extra: Partial<ServerProvider["models"][number]> = {},
+    ): ServerProvider["models"][number] => ({
+      slug,
+      name: slug,
+      isCustom: false,
+      ...extra,
+      capabilities: {
+        optionDescriptors: [
+          {
+            id,
+            label: id,
+            type: "select",
+            options: ["medium", "high", "xhigh"].map((value) => ({
+              id: value,
+              label: value,
+              isDefault: value === "medium",
+            })),
+          },
+        ],
+      },
+    });
+
+    it.each([
+      ["5.4", "gpt-5.4"],
+      ["gpt-5-codex", "gpt-5.4"],
+      ["gpt-5.4", "5.4"],
+    ])("keeps the effort from %s on fallback %s", (savedModel, fallbackModel) => {
+      const disabledCodex = ProviderInstanceId.make("codex");
+      const fallbackCodex = ProviderInstanceId.make("codex_team");
+      const models = [reasoningModel(fallbackModel, "reasoningEffort")];
+      const { selectedInstanceId, state, traits } = composerFor({
+        providers: [
+          { ...provider({ provider: codex, instanceId: disabledCodex }), enabled: false, models },
+          { ...provider({ provider: codex, instanceId: fallbackCodex }), models },
+        ],
+        threadModelSelection: createModelSelection(disabledCodex, savedModel, [
+          { id: "reasoningEffort", value: "xhigh" },
+        ]),
+      });
+
+      expect(selectedInstanceId).toBe(fallbackCodex);
+      expect(state.selectedModel).toBe(fallbackModel);
+      expect(traits.promptEffort).toBe("xhigh");
+    });
+
+    it.each([
+      {
+        // A disabled Codex instance reports only its custom models.
+        state: "disabled",
+        requested: {
+          enabled: false,
+          models: [reasoningModel("5.4", "reasoningEffort", { isCustom: true })],
+        },
+      },
+      {
+        // An unavailable instance reports no models; its custom models are only in settings.
+        state: "unavailable",
+        requested: { enabled: false, availability: "unavailable" as const, models: [] },
+      },
+    ])(
+      "does not alias-expand a custom model named 5.4 when the requested instance is $state",
+      ({ requested }) => {
+        const disabledCodex = ProviderInstanceId.make("codex");
+        const { state, traits } = composerFor({
+          providers: [
+            { ...provider({ provider: codex, instanceId: disabledCodex }), ...requested },
+            {
+              ...provider({ provider: codex, instanceId: "codex_team" }),
+              models: [reasoningModel("gpt-5.4", "reasoningEffort")],
+            },
+          ],
+          customModels: { [disabledCodex]: ["5.4"] },
+          threadModelSelection: createModelSelection(disabledCodex, "5.4", [
+            { id: "reasoningEffort", value: "xhigh" },
+          ]),
+        });
+
+        expect(state.selectedModel).toBe("gpt-5.4");
+        expect(traits.modelOptionsForDispatch).toBeUndefined();
+      },
+    );
+
+    it("does not alias-expand the fallback instance's custom model", () => {
+      const { state, traits } = composerFor({
+        providers: [
+          { ...provider({ provider: codex, instanceId: "codex" }), enabled: false },
+          {
+            ...provider({ provider: codex, instanceId: "codex_team" }),
+            models: [reasoningModel("5.4", "reasoningEffort", { isCustom: true })],
+          },
+        ],
+        customModels: { codex_team: ["5.4"] },
+        threadModelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+          { id: "reasoningEffort", value: "xhigh" },
+        ]),
+      });
+
+      expect(state.selectedModel).toBe("5.4");
+      expect(traits.modelOptionsForDispatch).toBeUndefined();
+    });
+  });
+
+  it("does not carry options to another driver", () => {
+    const codexOnly: ReadonlyArray<ServerProvider> = [
+      {
+        ...provider({ provider: claude, instanceId: disabled }),
+        enabled: false,
+        models: effortModels,
+      },
+      provider({ provider: codex, instanceId: "codex", models: ["gpt-6-astra"] }),
+    ];
+    const { selectedInstanceId, state } = composerFor({
+      providers: codexOnly,
+      threadModelSelection: picked,
+    });
+
+    expect(selectedInstanceId).toBe(ProviderInstanceId.make("codex"));
+    expect(state.modelOptions?.[selectedInstanceId]).toBeUndefined();
+  });
+});

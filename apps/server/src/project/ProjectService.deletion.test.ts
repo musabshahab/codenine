@@ -1,0 +1,678 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
+import {
+  CommandId,
+  EventId,
+  type OrchestrationV2AppThread,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@codenine/contracts";
+import * as HostProcess from "@codenine/shared/HostProcess";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
+import { TestClock } from "effect/testing";
+import * as SqlClient from "effect/sql/SqlClient";
+
+import * as ServerConfig from "../config.ts";
+import { OrchestrationEffectRequestV2 } from "../orchestration-v2/EffectOutbox.ts";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
+import * as EventStore from "../orchestration-v2/EventStore.ts";
+import * as IdAllocator from "@codenine/provider-core/server/IdAllocator";
+import * as LegacyV1ThreadImporter from "../orchestration-v2/legacy/LegacyV1ThreadImporter.ts";
+import * as ProjectionReplay from "../orchestration-v2/testkit/ProjectionReplay.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
+import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
+import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
+import * as ProjectService from "./ProjectService.ts";
+import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
+
+const layerEventPersistence = EventSink.layer.pipe(
+  Layer.provideMerge(Layer.merge(EventStore.layer, ProjectionStore.layer)),
+);
+const layerServices = Layer.mergeAll(
+  LegacyV1ThreadImporter.layer.pipe(Layer.provideMerge(layerEventPersistence)),
+  ProjectionReplay.layer.pipe(Layer.provide(layerEventPersistence)),
+  ProjectStore.layer,
+  IdAllocator.layer,
+  ThreadCommandExecutor.layer,
+  Layer.succeed(WorkspacePaths.WorkspacePaths, {
+    normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
+    resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>
+      Effect.succeed({ absolutePath: `${workspaceRoot}/${relativePath}`, relativePath }),
+  }),
+).pipe(
+  Layer.provideMerge(
+    ProjectEnrichmentService.layer.pipe(
+      Layer.provide(
+        Layer.merge(
+          Layer.succeed(RepositoryIdentityResolver.RepositoryIdentityResolver, {
+            resolve: () => Effect.succeed(null),
+          }),
+          Layer.succeed(ProjectFaviconResolver.ProjectFaviconResolver, {
+            invalidate: () => Effect.void,
+            resolvePath: () => Effect.succeed(null),
+          }),
+        ),
+      ),
+    ),
+  ),
+  Layer.provideMerge(ServerSettings.layerTest()),
+);
+const layerDatabase = SqlitePersistence.layerMemory.pipe(
+  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "project-deletion-test-" })),
+  Layer.provideMerge(NodeServices.layer),
+);
+const decodeEffectRequest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(OrchestrationEffectRequestV2),
+);
+
+const seedProject = Effect.fn("ProjectDeletionTest.seedProject")(function* (
+  projectId: ProjectId,
+  workspaceRoot = `/work/${projectId}`,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    INSERT INTO projection_projects (
+      project_id, title, workspace_root, default_model_selection_json,
+      scripts_json, created_at, updated_at, deleted_at
+    ) VALUES (
+      ${projectId}, 'Deletion test', ${workspaceRoot}, NULL,
+      '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL
+    )
+  `;
+});
+
+function nativeThreadCreated(
+  projectId: ProjectId,
+  threadId: ThreadId,
+  worktreePath: string | null = null,
+) {
+  const createdAt = DateTime.makeUnsafe("2026-01-01T00:00:00.000Z");
+  const providerInstanceId = ProviderInstanceId.make("codex");
+  const payload: OrchestrationV2AppThread = {
+    createdBy: "user",
+    creationSource: "web",
+    id: threadId,
+    projectId,
+    title: threadId,
+    providerInstanceId,
+    modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    branch: null,
+    worktreePath,
+    activeProviderThreadId: null,
+    lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+    forkedFrom: null,
+    createdAt,
+    updatedAt: createdAt,
+    archivedAt: null,
+    settledOverride: null,
+    settledAt: null,
+    lastVisitedAt: null,
+    deletedAt: null,
+  };
+  return {
+    id: EventId.make(`created:${threadId}`),
+    type: "thread.created" as const,
+    threadId,
+    providerInstanceId,
+    occurredAt: createdAt,
+    payload,
+  };
+}
+
+it.effect("retries a partial project deletion without repeating child events or cleanup", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const projectId = ProjectId.make("project:partial-deletion");
+    const threadIds = [ThreadId.make("thread:delete-a"), ThreadId.make("thread:delete-b")] as const;
+    const commandId = CommandId.make("command:partial-project-delete");
+    yield* seedProject(projectId);
+    yield* TestClock.setTime(Date.parse("2026-09-04T12:00:00.000Z"));
+
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      yield* eventSink.write({
+        events: threadIds.map((threadId) => nativeThreadCreated(projectId, threadId)),
+      });
+      const attempts: ThreadId[] = [];
+      const failingEventSink = EventSink.EventSinkV2.of({
+        ...eventSink,
+        commitCommand: Effect.fn("ProjectDeletionTest.failSecondChild")(function* (
+          input: Parameters<EventSink.EventSinkV2Shape["commitCommand"]>[0],
+        ) {
+          attempts.push(input.threadId);
+          if (attempts.length === 2) {
+            return yield* new EventSink.EventSinkWriteError({
+              commandId: input.commandId,
+              eventCount: input.events.length,
+              cause: new Error("Injected failure for the second child"),
+            });
+          }
+          return yield* eventSink.commitCommand(input);
+        }),
+      });
+      const service = yield* ProjectService.make.pipe(
+        Effect.provideService(EventSink.EventSinkV2, failingEventSink),
+      );
+      const input = { commandId, projectId, force: true };
+      const failure = yield* service.delete(input).pipe(Effect.flip);
+      assert.instanceOf(failure, ProjectService.ProjectOperationError);
+      if (failure._tag !== "ProjectOperationError") return assert.fail("Expected a child failure");
+      assert.equal(failure.operation, "delete-thread");
+      assert.lengthOf(attempts, 2);
+      const firstThreadId = attempts[0] ?? assert.fail("The first child was not attempted");
+      const failedThreadId = attempts[1] ?? assert.fail("The second child was not attempted");
+      assert.notEqual(firstThreadId, failedThreadId);
+      assert.isTrue(Option.isSome(yield* service.getById(projectId)));
+      assert.isNotNull((yield* projections.getThreadProjection(firstThreadId)).thread.deletedAt);
+      assert.isNull((yield* projections.getThreadProjection(failedThreadId)).thread.deletedAt);
+
+      const readDeletions = sql<{
+        readonly sequence: number;
+        readonly stream_id: string;
+        readonly command_id: string;
+        readonly event_type: string;
+      }>`
+        SELECT sequence, stream_id, command_id, event_type
+        FROM orchestration_events
+        WHERE event_type IN ('thread.deleted', 'project.deleted')
+          AND stream_id IN (${threadIds[0]}, ${threadIds[1]}, ${projectId})
+        ORDER BY sequence ASC
+      `;
+      const readCleanup = sql<{
+        readonly effect_id: string;
+        readonly thread_id: string;
+        readonly command_id: string;
+        readonly effect_type: string;
+      }>`
+        SELECT effect_id, thread_id, command_id, effect_type
+        FROM orchestration_v2_effect_outbox
+        WHERE thread_id IN (${threadIds[0]}, ${threadIds[1]})
+        ORDER BY effect_id ASC
+      `;
+      const partialEvents = yield* readDeletions;
+      const partialCleanup = yield* readCleanup;
+      assert.lengthOf(partialEvents, 1);
+      assert.equal(partialEvents[0]?.stream_id, firstThreadId);
+      assert.equal(partialEvents[0]?.event_type, "thread.deleted");
+      assert.deepEqual(
+        partialCleanup.map((effect) => [effect.thread_id, effect.effect_type]),
+        [[firstThreadId, "terminal.cleanup"]],
+      );
+
+      const deletedProject = yield* service.delete(input);
+      assert.isNotNull(deletedProject.deletedAt);
+      assert.isTrue(Option.isNone(yield* service.getById(projectId)));
+      assert.deepEqual(attempts, [firstThreadId, failedThreadId, failedThreadId]);
+      for (const threadId of threadIds) {
+        assert.isNotNull((yield* projections.getThreadProjection(threadId)).thread.deletedAt);
+      }
+      const finalEvents = yield* readDeletions;
+      assert.deepEqual(
+        finalEvents.map((event) => [event.stream_id, event.event_type]),
+        [
+          [firstThreadId, "thread.deleted"],
+          [failedThreadId, "thread.deleted"],
+          [projectId, "project.deleted"],
+        ],
+      );
+      assert.deepEqual(finalEvents[0], partialEvents[0]);
+      assert.equal(finalEvents[2]?.command_id, commandId);
+      const finalCleanup = yield* readCleanup;
+      assert.lengthOf(finalCleanup, 2);
+      assert.deepEqual(
+        finalCleanup.filter((effect) => effect.thread_id === firstThreadId),
+        partialCleanup,
+      );
+      for (const threadId of threadIds) {
+        const expectedCommandId = `${commandId}:delete-thread:${threadId}`;
+        assert.deepEqual(
+          finalCleanup.filter((effect) => effect.thread_id === threadId),
+          [
+            {
+              effect_id: `effect:${expectedCommandId}:terminal.cleanup`,
+              thread_id: threadId,
+              command_id: expectedCommandId,
+              effect_type: "terminal.cleanup",
+            },
+          ],
+        );
+      }
+    }).pipe(Effect.provide(layerServices));
+  }).pipe(Effect.provide(layerDatabase)),
+);
+
+it.effect(
+  "hydrates a migrated transcript before deleting its project and cleaning attachments",
+  () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("project:legacy-deletion");
+      const threadId = ThreadId.make("thread:legacy-deletion");
+      const commandId = CommandId.make("command:legacy-project-delete");
+      yield* seedProject(projectId);
+      yield* sql`
+      INSERT INTO projection_threads (
+        thread_id, project_id, title, model_selection_json,
+        runtime_mode, interaction_mode, branch, worktree_path, latest_turn_id,
+        created_at, updated_at, archived_at, deleted_at
+      ) VALUES (
+        ${threadId}, ${projectId}, 'Legacy thread', '{"instanceId":"codex","model":"gpt-5.4"}',
+        'full-access', 'default', NULL, NULL, NULL,
+        '2026-01-01T00:00:00.000Z', '2026-01-04T00:00:00.000Z', NULL, NULL
+      )
+    `;
+      yield* sql`
+      INSERT INTO projection_thread_messages (
+        message_id, thread_id, turn_id, role, text, attachments_json,
+        is_streaming, created_at, updated_at
+      ) VALUES
+        (
+          'message:legacy-delete:1', ${threadId}, NULL, 'user', 'First question with screenshot',
+          '[{"type":"image","id":"legacy_screenshot","name":"screenshot.png","mimeType":"image/png","sizeBytes":128}]',
+          0, '2026-01-01T01:00:00.000Z', '2026-01-01T01:00:00.000Z'
+        ),
+        (
+          'message:legacy-delete:2', ${threadId}, NULL, 'assistant', 'First answer', '[]',
+          0, '2026-01-02T01:00:00.000Z', '2026-01-02T01:00:00.000Z'
+        ),
+        (
+          'message:legacy-delete:3', ${threadId}, NULL, 'user', 'Follow-up question', '[]',
+          0, '2026-01-03T01:00:00.000Z', '2026-01-03T01:00:00.000Z'
+        ),
+        (
+          'message:legacy-delete:4', ${threadId}, NULL, 'assistant', 'Follow-up answer', '[]',
+          0, '2026-01-04T01:00:00.000Z', '2026-01-04T01:00:00.000Z'
+        )
+    `;
+      yield* TestClock.setTime(Date.parse("2026-09-04T12:00:00.000Z"));
+
+      yield* Effect.gen(function* () {
+        const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+        const maintenance = yield* ProjectionReplay.ProjectionReplay;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const service = yield* ProjectService.make;
+        assert.deepEqual(yield* importer.reconcileShells, {
+          importedThreadCount: 1,
+          importedMessageCount: 2,
+        });
+        assert.equal(yield* importer.pendingThreadCount, 1);
+        assert.isTrue((yield* maintenance.rebuild).valid);
+        const shellProjection = yield* projections.getThreadProjection(threadId);
+        assert.deepEqual(
+          shellProjection.messages.map((message) => message.id),
+          ["message:legacy-delete:3", "message:legacy-delete:4"],
+        );
+        assert.deepEqual(
+          shellProjection.messages.flatMap((message) => message.attachments),
+          [],
+        );
+
+        const deletedProject = yield* service.delete({ commandId, projectId, force: true });
+        assert.isNotNull(deletedProject.deletedAt);
+        assert.isTrue(Option.isNone(yield* service.getById(projectId)));
+        const projection = yield* projections.getThreadProjection(threadId);
+        assert.isNotNull(projection.thread.deletedAt);
+        assert.lengthOf(projection.messages, 4);
+        assert.equal(yield* importer.pendingThreadCount, 0);
+        const rows = yield* sql<{
+          readonly v2_deleted_at: string | null;
+          readonly project_deleted_at: string | null;
+        }>`
+        SELECT v2.deleted_at AS v2_deleted_at,
+          project.deleted_at AS project_deleted_at
+        FROM orchestration_v2_projection_threads AS v2
+        JOIN projection_projects AS project ON project.project_id = v2.project_id
+        WHERE v2.thread_id = ${threadId}
+      `;
+        assert.lengthOf(rows, 1);
+        assert.isNotNull(rows[0]?.v2_deleted_at);
+        assert.isNotNull(rows[0]?.project_deleted_at);
+        const legacyEvents = yield* sql`
+          SELECT sequence FROM orchestration_events
+          WHERE application_event_version = 1 AND stream_id = ${threadId}
+        `;
+        assert.deepEqual(legacyEvents, []);
+
+        const cleanup = yield* sql<{
+          readonly command_id: string;
+          readonly payload_json: string;
+          readonly status: string;
+        }>`
+        SELECT command_id, payload_json, status
+        FROM orchestration_v2_effect_outbox
+        WHERE thread_id = ${threadId} AND effect_type = 'attachment.cleanup'
+      `;
+        assert.lengthOf(cleanup, 1);
+        assert.equal(cleanup[0]?.command_id, `${commandId}:delete-thread:${threadId}`);
+        assert.equal(cleanup[0]?.status, "pending");
+        const request = yield* decodeEffectRequest(cleanup[0]?.payload_json);
+        assert.deepEqual(request, {
+          type: "attachment.cleanup",
+          attachmentIds: ["legacy_screenshot"],
+        });
+      }).pipe(Effect.provide(layerServices));
+    }).pipe(Effect.provide(layerDatabase)),
+);
+
+it.effect("rejects a child deletion command ID already accepted for an unrelated thread", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const projectId = ProjectId.make("project:receipt-collision");
+    const otherProjectId = ProjectId.make("project:unrelated-receipt");
+    const threadId = ThreadId.make("thread:receipt-collision");
+    const otherThreadId = ThreadId.make("thread:unrelated-receipt");
+    const commandId = CommandId.make("command:collision-project-delete");
+    yield* seedProject(projectId);
+    yield* seedProject(otherProjectId);
+
+    yield* Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const service = yield* ProjectService.make;
+      yield* eventSink.write({ events: [nativeThreadCreated(projectId, threadId)] });
+      const accepted = yield* eventSink.commitCommand({
+        commandId: CommandId.make(`${commandId}:delete-thread:${threadId}`),
+        commandType: "thread.create",
+        threadId: otherThreadId,
+        acceptedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+        events: [nativeThreadCreated(otherProjectId, otherThreadId)],
+        effects: [],
+      });
+      assert.equal(accepted.receipt.status, "accepted");
+
+      const failure = yield* service
+        .delete({ commandId, projectId, force: true })
+        .pipe(Effect.flip);
+      assert.instanceOf(failure, ProjectService.ProjectOperationError);
+      if (failure._tag !== "ProjectOperationError") return assert.fail("Expected a child failure");
+      assert.equal(failure.operation, "delete-thread");
+      assert.isTrue(Option.isSome(yield* service.getById(projectId)));
+      assert.isNull((yield* projections.getThreadProjection(threadId)).thread.deletedAt);
+      assert.isNull((yield* projections.getThreadProjection(otherThreadId)).thread.deletedAt);
+      const deletions = yield* sql`
+        SELECT sequence FROM orchestration_events
+        WHERE event_type IN ('thread.deleted', 'project.deleted')
+          AND stream_id IN (${threadId}, ${otherThreadId}, ${projectId})
+      `;
+      assert.deepEqual(deletions, []);
+      const cleanup = yield* sql`
+        SELECT effect_id FROM orchestration_v2_effect_outbox
+        WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(cleanup, []);
+    }).pipe(Effect.provide(layerServices));
+  }).pipe(Effect.provide(layerDatabase)),
+);
+
+it.effect("deletes a project without force once its imported threads were deleted in V2", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const projectId = ProjectId.make("project:imported-emptied");
+    const threadId = ThreadId.make("thread:imported-emptied");
+    yield* seedProject(projectId);
+    yield* sql`
+      INSERT INTO projection_threads (
+        thread_id, project_id, title, model_selection_json,
+        runtime_mode, interaction_mode, branch, worktree_path, latest_turn_id,
+        created_at, updated_at, archived_at, deleted_at
+      ) VALUES (
+        ${threadId}, ${projectId}, 'Imported thread', '{"instanceId":"codex","model":"gpt-5.4"}',
+        'full-access', 'default', NULL, NULL, NULL,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL, NULL
+      )
+    `;
+    yield* TestClock.setTime(Date.parse("2026-09-04T12:00:00.000Z"));
+
+    yield* Effect.gen(function* () {
+      const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const service = yield* ProjectService.make;
+      yield* importer.reconcileShells;
+      const early = yield* service
+        .delete({ commandId: CommandId.make("command:emptied:early"), projectId })
+        .pipe(Effect.flip);
+      assert.equal(early._tag, "ProjectNotEmptyError");
+
+      yield* importer.ensureTranscript(threadId);
+      const command = {
+        type: "thread.delete" as const,
+        commandId: CommandId.make("command:emptied:thread-delete"),
+        threadId,
+      };
+      const now = yield* DateTime.now;
+      const plan = yield* planThreadDeletion({
+        command,
+        projection: yield* projections.getThreadRecords(threadId, [
+          "runs",
+          "attempts",
+          "nodes",
+          "runtimeRequests",
+          "subagents",
+          "providerSessions",
+        ]),
+        attachmentIds: [],
+        now,
+        idAllocator,
+      });
+      yield* eventSink.commitCommand({
+        commandId: command.commandId,
+        commandType: command.type,
+        threadId,
+        acceptedAt: now,
+        events: plan.events,
+        effects: plan.effects,
+      });
+      const legacy = yield* sql<{ readonly deleted_at: string | null }>`
+        SELECT deleted_at FROM projection_threads WHERE thread_id = ${threadId}
+      `;
+      assert.deepEqual(legacy, [{ deleted_at: null }]);
+
+      const deleted = yield* service.delete({
+        commandId: CommandId.make("command:emptied:project-delete"),
+        projectId,
+      });
+      assert.isNotNull(deleted.deletedAt);
+      assert.isTrue(Option.isNone(yield* service.getById(projectId)));
+    }).pipe(Effect.provide(layerServices));
+  }).pipe(Effect.provide(layerDatabase)),
+);
+
+it.effect(
+  "clears a deleted project's settings overrides so a machine-disabled instance cannot stay alive",
+  () =>
+    Effect.gen(function* () {
+      const projectId = ProjectId.make("project:overrides-cleanup");
+      const instanceId = ProviderInstanceId.make("codex_work");
+      yield* seedProject(projectId);
+
+      yield* Effect.gen(function* () {
+        const service = yield* ProjectService.make;
+        const serverSettings = yield* ServerSettings.ServerSettingsService;
+        yield* serverSettings.updateSettings({
+          projectSettingsOverrides: {
+            [projectId]: { providerInstances: { [instanceId]: { enabled: true } } },
+          },
+        });
+
+        yield* service.delete({
+          commandId: CommandId.make("command:overrides-cleanup:project-delete"),
+          projectId,
+        });
+
+        const settingsAfterDelete = yield* serverSettings.getSettings;
+        assert.isUndefined(settingsAfterDelete.projectSettingsOverrides[projectId]);
+      }).pipe(Effect.provide(layerServices));
+    }).pipe(Effect.provide(layerDatabase)),
+);
+
+/** Builds the service over a temp data folder and home. Removing anything outside the temp folder dies. */
+const withFolderService = <A, E, R>(
+  body: (layout: {
+    readonly service: ProjectService.ProjectService["Service"];
+    readonly tmp: string;
+    readonly baseDir: string;
+    readonly home: string;
+    readonly serverCwd: string;
+  }) => Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const tmp = yield* fileSystem.realPath(
+      yield* fileSystem.makeTempDirectoryScoped({ prefix: "project-folder-deletion-" }),
+    );
+    const baseDir = path.join(tmp, "apps", "codenine");
+    const home = path.join(tmp, "users", "me");
+    const serverCwd = path.join(tmp, "codenine-source", "apps", "server");
+    yield* fileSystem.makeDirectory(home, { recursive: true });
+    yield* fileSystem.makeDirectory(serverCwd, { recursive: true });
+    const guarded: FileSystem.FileSystem = {
+      ...fileSystem,
+      remove: (target, options) => {
+        const relative = path.relative(tmp, path.resolve(target));
+        return relative.startsWith("..") || path.isAbsolute(relative)
+          ? Effect.die(new Error(`Removed ${target} outside the test folder.`))
+          : fileSystem.remove(target, options);
+      },
+    };
+    const service = yield* ProjectService.make.pipe(
+      Effect.provide(ServerConfig.layerTest(serverCwd, baseDir)),
+      Effect.provideService(FileSystem.FileSystem, guarded),
+    );
+    return yield* body({ service, tmp, baseDir, home, serverCwd }).pipe(
+      Effect.provideService(HostProcess.HomeDirectory, home),
+    );
+  }).pipe(Effect.scoped);
+const layerFolderTest = layerServices.pipe(Layer.provideMerge(layerDatabase));
+
+it.effect("deletes a project's folder and Codenine worktrees only when asked", () =>
+  withFolderService(({ service, tmp, baseDir }) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const withNotes = Effect.fn("ProjectDeletionTest.withNotes")(function* (folder: string) {
+        yield* fileSystem.makeDirectory(folder, { recursive: true });
+        yield* fileSystem.writeFileString(path.join(folder, "notes.txt"), "uncommitted");
+      });
+      const kept = ProjectId.make("project:folder-kept");
+      const doomed = ProjectId.make("project:folder-doomed");
+      const created = ProjectId.make("project:folder-created");
+      const missing = ProjectId.make("project:folder-missing");
+      const roots = new Map([
+        [kept, path.join(tmp, "kept")],
+        [doomed, path.join(tmp, "doomed")],
+        [created, path.join(baseDir, "projects", "created")],
+        [missing, path.join(tmp, "missing")],
+      ]);
+      const managedWorktree = path.join(baseDir, "worktrees", "doomed", "feature");
+      const ownWorktree = path.join(tmp, "own-worktree");
+      for (const folder of [
+        roots.get(kept)!,
+        roots.get(doomed)!,
+        roots.get(created)!,
+        managedWorktree,
+        ownWorktree,
+      ]) {
+        yield* withNotes(folder);
+      }
+      for (const [projectId, root] of roots) yield* seedProject(projectId, root);
+      yield* eventSink.write({
+        events: [
+          nativeThreadCreated(doomed, ThreadId.make("thread:doomed-managed"), managedWorktree),
+          nativeThreadCreated(doomed, ThreadId.make("thread:doomed-own"), ownWorktree),
+        ],
+      });
+
+      yield* service.delete({
+        commandId: CommandId.make("command:folder-kept"),
+        projectId: kept,
+      });
+      assert.isTrue(yield* fileSystem.exists(path.join(roots.get(kept)!, "notes.txt")));
+
+      for (const projectId of [doomed, created, missing]) {
+        const deleted = yield* service.delete({
+          commandId: CommandId.make(`command:${projectId}`),
+          projectId,
+          force: true,
+          deleteFolder: true,
+        });
+        assert.isNotNull(deleted.deletedAt);
+        assert.isFalse(yield* fileSystem.exists(roots.get(projectId)!));
+      }
+      assert.isFalse(yield* fileSystem.exists(managedWorktree));
+      assert.isTrue(yield* fileSystem.exists(path.join(ownWorktree, "notes.txt")));
+    }),
+  ).pipe(Effect.provide(layerFolderTest)),
+);
+
+it.effect("refuses to delete a protected folder before touching the project", () =>
+  withFolderService(({ service, tmp, baseDir, home, serverCwd }) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const parent = path.join(tmp, "parent");
+      const target = path.join(tmp, "target");
+      yield* fileSystem.makeDirectory(path.join(parent, "child"), { recursive: true });
+      yield* fileSystem.makeDirectory(path.join(baseDir, "scratch"));
+      yield* fileSystem.makeDirectory(target);
+      yield* fileSystem.symlink(target, path.join(tmp, "link"));
+      yield* seedProject(ProjectId.make("project:refusal-child"), path.join(parent, "child"));
+      const cases = [
+        ["/", "it is the root of the file system"],
+        [home, "it is the home folder"],
+        [path.dirname(home), "it contains the home folder"],
+        [baseDir, "it is Codenine's data folder"],
+        [path.dirname(baseDir), "it contains Codenine's data folder"],
+        [serverCwd, "Codenine itself is running from it"],
+        [path.dirname(path.dirname(serverCwd)), "Codenine itself is running from it"],
+        // The guarded file system dies before it could remove this real source folder.
+        [import.meta.dirname, "Codenine itself is running from it"],
+        [path.join(baseDir, "worktrees"), "it holds Codenine's worktrees"],
+        [path.join(baseDir, "scratch"), "is not a project folder Codenine created"],
+        [path.join(baseDir, "userdata"), "is not a project folder Codenine created"],
+        [parent, `it contains the project "Deletion test" at ${path.join(parent, "child")}`],
+        [path.join(tmp, "link"), "it is a symbolic link"],
+      ] as const;
+      for (const [index, [root, reason]] of cases.entries()) {
+        const projectId = ProjectId.make(`project:refusal-${index}`);
+        const threadId = ThreadId.make(`thread:refusal-${index}`);
+        yield* seedProject(projectId, root);
+        yield* eventSink.write({ events: [nativeThreadCreated(projectId, threadId)] });
+        const failure = yield* service
+          .delete({
+            commandId: CommandId.make(`command:refusal-${index}`),
+            projectId,
+            force: true,
+            deleteFolder: true,
+          })
+          .pipe(Effect.flip);
+        assert.instanceOf(failure, ProjectService.ProjectFolderDeleteError);
+        assert.include(failure.message, reason);
+        assert.isTrue(Option.isSome(yield* service.getById(projectId)), root);
+        assert.isNull((yield* projections.getThreadProjection(threadId)).thread.deletedAt);
+        assert.isTrue(yield* fileSystem.exists(root), root);
+      }
+    }),
+  ).pipe(Effect.provide(layerFolderTest)),
+);

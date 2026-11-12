@@ -1,0 +1,234 @@
+import { assert, describe, it } from "@effect/vitest";
+import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@codenine/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
+import * as ServerConfig from "../config.ts";
+import * as ModelManifest from "./ModelManifest.ts";
+import * as ProviderRegistry from "./ProviderRegistry.ts";
+import * as ProviderLatestVersions from "@codenine/provider-core/server/ProviderLatestVersions";
+import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
+import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
+import type { ProviderInstance } from "@codenine/provider-core/server/driver";
+import { makeManualOnlyProviderMaintenanceCapabilities } from "@codenine/provider-core/server/maintenanceResolver";
+import * as Schema from "effect/Schema";
+import {
+  applyProviderCompatibility,
+  ProviderCompatibilityPolicy,
+  resolveProviderCompatibility,
+} from "./providerCompatibility.ts";
+
+const driver = ProviderDriverKind.make("codex");
+const policy: ProviderCompatibilityPolicy = {
+  driver,
+  codenineRange: ">=0.0.0",
+  recommendedVersion: "2.0.0",
+  recommendedRange: ">=2.0.0 <3.0.0",
+  ranges: [
+    { range: "<1.0.0", status: "broken" },
+    { range: ">=1.0.0 <1.5.0", status: "unsupported" },
+    { range: ">=1.5.0 <2.0.0", status: "graceful" },
+    { range: ">=2.0.0 <3.0.0", status: "supported" },
+  ],
+};
+const provider: ServerProvider = {
+  driver,
+  instanceId: ProviderInstanceId.make("codex-work"),
+  enabled: true,
+  installed: true,
+  version: "0.9.0",
+  status: "error",
+  message: "Authentication failed",
+  checkedAt: "2026-09-22T00:00:00Z",
+  auth: { status: "unauthenticated" },
+  models: [],
+  skills: [],
+  slashCommands: [],
+};
+
+describe("provider compatibility", () => {
+  it("classifies boundaries and treats unlisted versions and release tags as unknown", () => {
+    for (const [version, expected] of [
+      ["0.9.9", "broken"],
+      ["1.0.0", "unsupported"],
+      ["1.5.0", "graceful"],
+      ["2.0.0", "supported"],
+      ["v2.0.0", "supported"],
+      ["3.0.0", "unknown"],
+      ["2.0.0-beta.1", "unknown"],
+      ["agy_acp_server_20260818_01_RC01", "unknown"],
+      [null, "unknown"],
+    ] as const) {
+      assert.strictEqual(resolveProviderCompatibility([policy], driver, version)?.status, expected);
+    }
+  });
+
+  it("applies policies only within their Codenine version range", () => {
+    const scopedPolicy = { ...policy, codenineRange: ">=0.0.42 <0.1.0" };
+    for (const version of ["0.0.42", "0.0.45"]) {
+      assert.strictEqual(
+        resolveProviderCompatibility([scopedPolicy], driver, "0.9.0", version)?.status,
+        "broken",
+      );
+    }
+    for (const version of ["0.0.41", "0.1.0"]) {
+      assert.isUndefined(resolveProviderCompatibility([scopedPolicy], driver, "0.9.0", version));
+    }
+  });
+
+  it("relaxes remote policy without losing probe errors, and falls back when a policy is omitted", () => {
+    const broken = applyProviderCompatibility(provider, [], [policy]);
+    assert.strictEqual(broken.compatibilityAdvisory?.status, "broken");
+    const relaxed = { ...policy, ranges: [{ range: ">=0.0.0", status: "supported" as const }] };
+    const supported = applyProviderCompatibility(broken, [relaxed], [policy]);
+    assert.strictEqual(supported.compatibilityAdvisory?.status, "supported");
+    assert.strictEqual(supported.status, "error");
+    assert.strictEqual(supported.message, "Authentication failed");
+    assert.strictEqual(
+      applyProviderCompatibility(supported, [{ ...policy, codenineRange: "<0.0.0" }], [policy])
+        .compatibilityAdvisory?.status,
+      "broken",
+    );
+    const removed = applyProviderCompatibility(supported, [], []);
+    assert.isUndefined(removed.compatibilityAdvisory);
+    assert.strictEqual(removed.status, "error");
+    assert.strictEqual(removed.message, "Authentication failed");
+    assert.isUndefined(
+      applyProviderCompatibility({ ...broken, enabled: false }, [], [policy]).compatibilityAdvisory,
+    );
+    assert.isUndefined(
+      applyProviderCompatibility({ ...broken, installed: false }, [], [policy])
+        .compatibilityAdvisory,
+    );
+  });
+
+  it("rejects invalid ranges and recommendations outside the first supported match", () => {
+    const decode = Schema.decodeUnknownSync(ProviderCompatibilityPolicy);
+    assert.doesNotThrow(() => decode(policy));
+    const prefixed = decode({
+      ...policy,
+      codenineRange: ">=v0.0.42 <v0.1",
+      recommendedRange: "^v2",
+      ranges: [{ range: ">=v2.0 <v3", status: "supported" }],
+    });
+    assert.strictEqual(
+      resolveProviderCompatibility([prefixed], driver, "2.0.0", "0.0.45")?.status,
+      "supported",
+    );
+    assert.strictEqual(
+      resolveProviderCompatibility([prefixed], driver, "3.0.0", "0.0.45")?.status,
+      "unknown",
+    );
+    for (const invalid of [
+      { ...policy, codenineRange: "*" },
+      { ...policy, recommendedVersion: "3.0.0" },
+      { ...policy, ranges: [{ range: ">=2.0.0 garbage", status: "supported" }] },
+      { ...policy, recommendedVersion: "2.0.0; echo unsafe" },
+      { ...policy, ranges: [{ range: ">=0.0.0", status: "broken" }, ...policy.ranges] },
+    ])
+      assert.throws(() => decode(invalid));
+  });
+});
+
+it.effect("a remote policy refresh preserves a newer health result on the registry stream", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    const health = yield* Ref.make<ServerProvider>({
+      ...provider,
+      status: "ready" as ServerProvider["status"],
+      message: "Healthy",
+    });
+    const manifest = yield* Ref.make<ModelManifest.ModelManifestData>({
+      version: 1,
+      currentModels: {},
+      compatibility: [policy],
+    });
+    const instance: ProviderInstance = {
+      instanceId: provider.instanceId,
+      driverKind: driver,
+      enabled: true,
+      displayName: undefined,
+      continuationIdentity: { driverKind: driver, continuationKey: "test-codex" },
+      snapshot: {
+        getSnapshot: Ref.get(health),
+        refresh: Ref.get(health),
+        streamChanges: Stream.empty,
+        applyUsageLimits: () => Effect.void,
+        resolveMaintenance: () =>
+          Effect.succeed(
+            makeManualOnlyProviderMaintenanceCapabilities({ provider: driver, packageName: null }),
+          ),
+      },
+      orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+      textGeneration: {} as ProviderInstance["textGeneration"],
+    };
+    const refresh = Deferred.succeed(started, undefined).pipe(
+      Effect.andThen(Deferred.await(release)),
+      Effect.andThen(
+        Ref.updateAndGet(manifest, (current) => ({
+          ...current,
+          compatibility: [
+            { ...policy, ranges: [{ range: ">=0.0.0", status: "supported" as const }] },
+          ],
+        })),
+      ),
+    );
+    const layerDependencies = Layer.mergeAll(
+      ProviderLatestVersions.layer,
+      Layer.succeed(ModelManifest.ModelManifest, {
+        current: Ref.get(manifest),
+        refresh,
+        forceRefresh: refresh,
+        refreshOnDemand: refresh,
+        refreshInBackground: Effect.void,
+      }),
+      Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
+        getInstance: (id) => Effect.succeed(id === instance.instanceId ? instance : undefined),
+        listInstances: Effect.succeed([instance]),
+        listUnavailable: Effect.succeed([]),
+        streamChanges: Stream.empty,
+        subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
+      }),
+      ServerConfig.layerTest(process.cwd(), { prefix: "compatibility-registry-test" }).pipe(
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const registry = yield* ProviderRegistry.ProviderRegistry;
+      yield* Deferred.await(started);
+      assert.strictEqual(
+        (yield* registry.getProviders)[0]?.compatibilityAdvisory?.status,
+        "broken",
+      );
+      yield* Ref.set(health, provider);
+      const latestHealth = yield* registry.refreshInstance(provider.instanceId);
+      assert.strictEqual(latestHealth[0]?.message, "Authentication failed");
+      const supported = yield* Stream.toPull(
+        registry.streamChanges.pipe(
+          Stream.filter((snapshots) => snapshots[0]?.compatibilityAdvisory?.status === "supported"),
+        ),
+      );
+      const subscribed = yield* supported.pipe(Effect.forkScoped({ startImmediately: true }));
+      yield* Deferred.succeed(release, undefined);
+      const updated = (yield* Fiber.join(subscribed))[0]?.[0];
+      assert.strictEqual(updated?.compatibilityAdvisory?.status, "supported");
+      assert.strictEqual(updated?.status, "error");
+      assert.strictEqual(updated?.message, "Authentication failed");
+    }).pipe(
+      Effect.provide(
+        ProviderRegistry.layer.pipe(
+          Layer.provide(layerDependencies),
+          Layer.provide(
+            Layer.mock(ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator)({}),
+          ),
+        ),
+      ),
+    );
+  }).pipe(Effect.scoped),
+);

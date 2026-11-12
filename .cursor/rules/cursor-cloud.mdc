@@ -1,0 +1,27 @@
+---
+description: Run notes for Cursor agents working on Codenine
+alwaysApply: true
+---
+
+# Cursor instructions
+
+`AGENTS.md` holds the working rules for this repository. These notes repeat only what an agent
+needs before it can run anything.
+
+## Toolchain
+
+`vp` (Vite+) is the package manager and task runner: `vp i`, `vp run dev`, `vp test run <files>`,
+`vp lint <files>`, `vp run --filter <pkg> typecheck`. It provides the Node version pinned in
+`package.json` (Node 26). Run `vp run check:changed` before pushing; do not run the repo-wide
+suites.
+
+## Running the web app
+
+- `vp run dev` from the repository root starts the server and the web app. Read the real ports and
+  the pairing URL from the `[dev-runner]` output, since occupied ports shift.
+- Open the printed pairing URL in the browser. The bare origin does not sign in a new browser.
+- Never set `VITE_HTTP_URL` or `VITE_WS_URL`. Dev is single-origin and Vite proxies the backend.
+- In a worktree, state lives in that worktree's gitignored `.codenine`. Never start a server
+  against `~/.codenine/userdata`.
+- Providers are external CLIs (`codex`, `claude`) found on `PATH`. Without one installed the UI
+  loads but no agent can run.

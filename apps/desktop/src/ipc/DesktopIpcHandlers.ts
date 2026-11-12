@@ -1,0 +1,135 @@
+import * as Effect from "effect/Effect";
+
+import { receiveProviderAuthCallback, cancelProviderAuthCallback } from "./methods/providerAuth.ts";
+import * as DesktopIpc from "./DesktopIpc.ts";
+import { installNotificationBadge } from "./methods/notificationBadge.ts";
+import { getClientSettings, setClientSettings } from "./methods/clientSettings.ts";
+import { getConnectionCatalog, setConnectionCatalog } from "./methods/connectionCatalog.ts";
+import {
+  getHostEnvironmentId,
+  getLocalEnvironmentEnabled,
+  setLocalEnvironmentEnabled,
+} from "./methods/localEnvironment.ts";
+import {
+  getAdvertisedEndpoints,
+  getServerExposureState,
+  setServerExposureMode,
+  setTailscaleServeEnabled,
+} from "./methods/serverExposure.ts";
+import {
+  bootstrapSshBearerSession,
+  disconnectSshEnvironment,
+  discoverSshHosts,
+  ensureSshEnvironment,
+  fetchSshEnvironmentDescriptor,
+  fetchSshSessionState,
+  resolveSshHost,
+  resolveSshPasswordPrompt,
+} from "./methods/sshEnvironment.ts";
+import {
+  checkForUpdate,
+  downloadUpdate,
+  getUpdateState,
+  installUpdate,
+  setUpdateChannel,
+} from "./methods/updates.ts";
+import {
+  getAppBranding,
+  getLocalEnvironmentBootstraps,
+  getLocalEnvironmentBearerToken,
+  installRelayTelemetryEnabled,
+  getSystemLocale,
+  getPreferredSystemLanguages,
+  getWindowFullscreenState,
+  openExternal,
+  readMedia,
+  pasteAsText,
+  probeRemoteEditors,
+  revealWindow,
+  pickFolder,
+  pickProjectFavicon,
+  pickThemeFiles,
+  setTheme,
+  showContextMenu,
+} from "./methods/window.ts";
+import * as AppActivationIpc from "./methods/appActivation.ts";
+import * as WebLinksIpc from "./methods/webLinks.ts";
+import {
+  completeLegacyLocalStorage,
+  takeLegacyLocalStorage,
+} from "./methods/legacyLocalStorage.ts";
+import { getWslState, setWslBackendEnabled, setWslDistro, setWslOnly } from "./methods/wsl.ts";
+import {
+  getCliCommandState,
+  installCliCommand,
+  uninstallCliCommand,
+  addCliCommandToPath,
+} from "./methods/cliCommand.ts";
+
+export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers")(function* () {
+  const ipc = yield* DesktopIpc.DesktopIpc;
+  yield* installNotificationBadge();
+
+  yield* ipc.handle(AppActivationIpc.setReady);
+  yield* ipc.handle(AppActivationIpc.complete);
+  yield* ipc.handle(WebLinksIpc.setReady);
+
+  yield* ipc.handleSync(takeLegacyLocalStorage);
+  yield* ipc.handle(completeLegacyLocalStorage);
+  yield* ipc.handleSync(getAppBranding);
+  yield* installRelayTelemetryEnabled();
+  yield* ipc.handleSync(getSystemLocale);
+  yield* ipc.handleSync(getPreferredSystemLanguages);
+  yield* ipc.handleSync(getWindowFullscreenState);
+  yield* ipc.handleSync(getLocalEnvironmentBootstraps);
+  yield* ipc.handleSync(getLocalEnvironmentEnabled);
+  yield* ipc.handle(setLocalEnvironmentEnabled);
+  yield* ipc.handle(getHostEnvironmentId);
+  yield* ipc.handle(getLocalEnvironmentBearerToken);
+
+  yield* ipc.handle(getClientSettings);
+  yield* ipc.handle(setClientSettings);
+  yield* ipc.handle(getConnectionCatalog);
+  yield* ipc.handle(setConnectionCatalog);
+
+  yield* ipc.handle(discoverSshHosts);
+  yield* ipc.handle(resolveSshHost);
+  yield* ipc.handle(ensureSshEnvironment);
+  yield* ipc.handle(disconnectSshEnvironment);
+  yield* ipc.handle(fetchSshEnvironmentDescriptor);
+  yield* ipc.handle(bootstrapSshBearerSession);
+  yield* ipc.handle(fetchSshSessionState);
+  yield* ipc.handle(resolveSshPasswordPrompt);
+
+  yield* ipc.handle(getServerExposureState);
+  yield* ipc.handle(setServerExposureMode);
+  yield* ipc.handle(setTailscaleServeEnabled);
+  yield* ipc.handle(getAdvertisedEndpoints);
+
+  yield* ipc.handle(getWslState);
+  yield* ipc.handle(setWslBackendEnabled);
+  yield* ipc.handle(setWslDistro);
+  yield* ipc.handle(setWslOnly);
+
+  yield* ipc.handle(pickFolder);
+  yield* ipc.handle(pickProjectFavicon);
+  yield* ipc.handle(pickThemeFiles);
+  yield* ipc.handle(setTheme);
+  yield* ipc.handle(showContextMenu);
+  yield* ipc.handle(openExternal);
+  yield* ipc.handle(readMedia);
+  yield* ipc.handle(receiveProviderAuthCallback);
+  yield* ipc.handle(cancelProviderAuthCallback);
+  yield* ipc.handle(pasteAsText);
+  yield* ipc.handle(revealWindow);
+  yield* ipc.handle(probeRemoteEditors);
+  yield* ipc.handle(getUpdateState);
+  yield* ipc.handle(setUpdateChannel);
+  yield* ipc.handle(downloadUpdate);
+  yield* ipc.handle(installUpdate);
+  yield* ipc.handle(checkForUpdate);
+  yield* ipc.handle(getCliCommandState);
+  yield* ipc.handle(installCliCommand);
+  yield* ipc.handle(uninstallCliCommand);
+  yield* ipc.handle(addCliCommandToPath);
+});

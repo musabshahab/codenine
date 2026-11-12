@@ -1,0 +1,176 @@
+import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS, type WsRpcGroup } from "@codenine/contracts";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as References from "effect/References";
+import type * as RpcGroup from "effect/rpc/RpcGroup";
+import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
+
+import { rpcRequestDuration, rpcRequestsTotal, withMetrics } from "./Metrics.ts";
+
+type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
+
+// Trace queries and dashboards depend on these labels, including deviations from method prefixes.
+const RPC_AGGREGATES = {
+  [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: "orchestrationV2",
+  [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.forceStopThread]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getTurnItem]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getTurnDiff]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getFullThreadDiff]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.searchThreads]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.searchThread]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.searchThreadStream]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getArchivedShellSnapshot]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getThreadFamily]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getThreadTitles]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getThreadLinkMetadata]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getWorktreeThreadIds]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getOlderSettledThreads]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: "orchestrationV2",
+  [ORCHESTRATION_V2_WS_METHODS.launchThread]: "orchestration",
+  [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: "orchestrationV2",
+  [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: "orchestrationV2",
+  [ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]: "orchestrationV2",
+  [ORCHESTRATION_V2_WS_METHODS.subscribePromptSuggestion]: "orchestrationV2",
+  [WS_METHODS.projectsMutate]: "orchestration",
+  [WS_METHODS.serverProbe]: "server",
+  [WS_METHODS.serverGetConfig]: "server",
+  [WS_METHODS.serverGetNpmRelease]: "server",
+  [WS_METHODS.serverRefreshProviders]: "server",
+  [WS_METHODS.serverUpdateProvider]: "server",
+  [WS_METHODS.providerAuthStart]: "provider",
+  [WS_METHODS.providerConsumeResetCredit]: "provider",
+  [WS_METHODS.providerAuthComplete]: "provider",
+  [WS_METHODS.chatGptReconnectProfile]: "provider",
+  [WS_METHODS.chatGptImportProfile]: "provider",
+  [WS_METHODS.chatGptHandoffSubscribe]: "provider",
+  [WS_METHODS.providerAuthRespond]: "provider",
+  [WS_METHODS.providerAuthCancel]: "provider",
+  [WS_METHODS.providerAuthRemoveMethod]: "provider",
+  [WS_METHODS.providerAuthLogout]: "provider",
+  [WS_METHODS.providerAuthSubscribe]: "provider",
+  [WS_METHODS.providerInstallStart]: "provider",
+  [WS_METHODS.providerInstallCancel]: "provider",
+  [WS_METHODS.providerInstallSubscribe]: "provider",
+  [WS_METHODS.providerInstallRemove]: "provider",
+  [WS_METHODS.serverUpdateServer]: "server",
+  [WS_METHODS.serverUpdateServerWithProgress]: "server",
+  [WS_METHODS.serverCommitDesktopUpdate]: "server",
+  [WS_METHODS.serverUpsertKeybinding]: "server",
+  [WS_METHODS.serverRemoveKeybinding]: "server",
+  [WS_METHODS.serverRunStorageCleanup]: "server",
+  [WS_METHODS.serverGetStorageCleanupReport]: "server",
+  [WS_METHODS.serverGetDatabaseStorage]: "server",
+  [WS_METHODS.serverReclaimDatabaseSpace]: "server",
+  [WS_METHODS.serverUpdateSettings]: "server",
+  [WS_METHODS.serverDiscoverSourceControl]: "server",
+  [WS_METHODS.serverGetTraceDiagnostics]: "server",
+  [WS_METHODS.serverGetHostResources]: "server",
+  [WS_METHODS.serverCheckOtlpEndpoint]: "server",
+  [WS_METHODS.serverListTextGeneratorModels]: "server",
+  [WS_METHODS.serverGetUsageSummary]: "server",
+  [WS_METHODS.serverRefreshUsageRates]: "server",
+  [WS_METHODS.serverReportClientActivity]: "server",
+  [WS_METHODS.secretsAnswerRequest]: "secrets",
+  [WS_METHODS.cloudGetRelayClientStatus]: "cloud",
+  [WS_METHODS.cloudInstallRelayClient]: "cloud",
+  [WS_METHODS.pullRequestsSummary]: "pull-requests",
+  [WS_METHODS.pullRequestsRouting]: "pull-requests",
+  [WS_METHODS.pullRequestsRoutingIdentity]: "pull-requests",
+  [WS_METHODS.pullRequestsLinkedThreads]: "pull-requests",
+  [WS_METHODS.pullRequestsReportState]: "pull-requests",
+  [WS_METHODS.pullRequestsSubscribeRefreshes]: "pull-requests",
+  [WS_METHODS.sourceControlLookupRepository]: "source-control",
+  [WS_METHODS.sourceControlCloneRepository]: "source-control",
+  [WS_METHODS.sourceControlPublishRepository]: "source-control",
+  [WS_METHODS.sourceControlSignInStart]: "source-control",
+  [WS_METHODS.sourceControlSignInWait]: "source-control",
+  [WS_METHODS.sourceControlSignInCancel]: "source-control",
+  [WS_METHODS.sourceControlAppAccess]: "source-control",
+  [WS_METHODS.projectCloneStart]: "source-control",
+  [WS_METHODS.projectCloneCancel]: "source-control",
+  [WS_METHODS.projectCloneRetry]: "source-control",
+  [WS_METHODS.subscribeProjectClones]: "source-control",
+  [WS_METHODS.projectsListEntries]: "workspace",
+  [WS_METHODS.projectsListIgnoredFiles]: "workspace",
+  [WS_METHODS.projectsReadFile]: "workspace",
+  [WS_METHODS.projectsSearchContents]: "workspace",
+  [WS_METHODS.projectsSearchEntries]: "workspace",
+  [WS_METHODS.projectsWriteFile]: "workspace",
+  [WS_METHODS.projectsEnsureScratch]: "orchestration",
+  [WS_METHODS.projectsCreateNew]: "orchestration",
+  [WS_METHODS.projectsCreateFromThread]: "orchestration",
+  [WS_METHODS.shellOpenInEditor]: "workspace",
+  [WS_METHODS.filesystemBrowse]: "workspace",
+  [WS_METHODS.filesystemGetMetadata]: "workspace",
+  [WS_METHODS.assetsCreateUrl]: "workspace",
+  [WS_METHODS.assetsPersistChatAttachments]: "orchestration",
+  [WS_METHODS.attachmentsCreateUploadUrl]: "workspace",
+  [WS_METHODS.attachmentsDelete]: "workspace",
+  [WS_METHODS.providerUploadFeedback]: "provider",
+  [WS_METHODS.subscribeVcsStatus]: "vcs",
+  [WS_METHODS.subscribeVcsBranch]: "vcs",
+  [WS_METHODS.vcsRefreshBranch]: "vcs",
+  [WS_METHODS.subscribeWorktreeSetup]: "vcs",
+  [WS_METHODS.worktreeSetupCancel]: "vcs",
+  [WS_METHODS.vcsRefreshStatus]: "vcs",
+  [WS_METHODS.vcsPull]: "git",
+  [WS_METHODS.gitRunStackedAction]: "vcs",
+  [WS_METHODS.gitResolvePullRequest]: "git",
+  [WS_METHODS.gitPreparePullRequestThread]: "git",
+  [WS_METHODS.vcsListRefs]: "vcs",
+  [WS_METHODS.vcsCreateWorktree]: "vcs",
+  [WS_METHODS.vcsRemoveWorktree]: "vcs",
+  [WS_METHODS.vcsCreateRef]: "vcs",
+  [WS_METHODS.vcsSwitchRef]: "vcs",
+  [WS_METHODS.vcsInit]: "vcs",
+  [WS_METHODS.reviewGetBranchCommits]: "review",
+  [WS_METHODS.reviewGetDiffPreview]: "review",
+  [WS_METHODS.reviewGetDiffFileContents]: "review",
+  [WS_METHODS.terminalOpen]: "terminal",
+  [WS_METHODS.terminalAttach]: "terminal",
+  [WS_METHODS.terminalObserve]: "terminal",
+  [WS_METHODS.terminalWrite]: "terminal",
+  [WS_METHODS.terminalResize]: "terminal",
+  [WS_METHODS.terminalClear]: "terminal",
+  [WS_METHODS.terminalClose]: "terminal",
+  [WS_METHODS.subscribeTerminalMetadata]: "terminal",
+  [WS_METHODS.subscribeServerConfig]: "server",
+  [WS_METHODS.subscribeServerLifecycle]: "server",
+  [WS_METHODS.subscribeAuthAccess]: "auth",
+} as const satisfies Readonly<Record<WsRpcMethod, string>>;
+
+const RPC_SPAN_PREFIX = "ws.rpc";
+const DEFAULT_RPC_SPAN_ATTRIBUTES = {
+  "rpc.transport": "websocket",
+  "rpc.system": "effect-rpc",
+} as const;
+const RPC_METHODS_WITH_TRACING_DISABLED: ReadonlySet<string> = new Set([
+  WS_METHODS.serverGetTraceDiagnostics,
+]);
+
+/** Add after RpcScopeAuthorization to wrap authorization and record rejected calls. */
+export class RpcInstrumentation extends RpcMiddleware.Service<RpcInstrumentation>()(
+  "codenine/server/RpcInstrumentation",
+) {}
+
+export const rpcInstrumentationLayer = Layer.succeed(RpcInstrumentation)((effect, { rpc }) => {
+  const method = rpc._tag;
+  const measured = effect.pipe(
+    withMetrics({ counter: rpcRequestsTotal, timer: rpcRequestDuration, attributes: { method } }),
+  );
+
+  if (RPC_METHODS_WITH_TRACING_DISABLED.has(method)) {
+    return measured.pipe(Effect.provideService(References.TracerEnabled, false));
+  }
+  return measured.pipe(
+    Effect.withSpan(`${RPC_SPAN_PREFIX}.${method}`, {
+      attributes: {
+        ...DEFAULT_RPC_SPAN_ATTRIBUTES,
+        "rpc.method": method,
+        "rpc.aggregate": RPC_AGGREGATES[method as WsRpcMethod],
+      },
+    }),
+  );
+});
