@@ -99,6 +99,7 @@ function nextHiddenModelsForBulkToggle(
 interface ProviderModelsSectionProps {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind | null;
+  readonly customModelPlaceholder?: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly customModels: ReadonlyArray<CustomModelDefinition>;
   readonly canManageCustomModels: boolean;
@@ -119,6 +120,7 @@ interface ProviderModelsSectionProps {
 export function ProviderModelsSection({
   instanceId,
   driverKind,
+  customModelPlaceholder,
   models,
   customModels,
   canManageCustomModels,
@@ -417,7 +419,10 @@ export function ProviderModelsSection({
               event.preventDefault();
               handleAdd();
             }}
-            placeholder={driverKind ? CUSTOM_MODEL_PLACEHOLDER_BY_KIND[driverKind] : "model-slug"}
+            placeholder={
+              customModelPlaceholder ??
+              (driverKind ? CUSTOM_MODEL_PLACEHOLDER_BY_KIND[driverKind] : "model-slug")
+            }
             spellCheck={false}
           />
           <div className="flex shrink-0 gap-2">

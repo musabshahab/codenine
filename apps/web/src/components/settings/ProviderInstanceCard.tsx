@@ -33,10 +33,11 @@ import {
   readCustomModelEntries,
   toCustomModelSetting,
 } from "@codenine/shared/model";
+import { isOpenRouterProvider } from "@codenine/shared/openRouter";
 import { cn } from "../../lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useStableCallback } from "../../hooks/useStableCallback";
-import { normalizeProviderAccentColor } from "../../providerInstances";
+import { normalizeProviderAccentColor, providerInstanceIconKind } from "../../providerInstances";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -72,6 +73,16 @@ import {
 } from "./providerStatus";
 
 const ENVIRONMENT_VARIABLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+const OPENROUTER_ENVIRONMENT_FIELDS: ReadonlyArray<ProviderEnvironmentField> = [
+  {
+    name: "ANTHROPIC_AUTH_TOKEN",
+    label: "OpenRouter API key",
+    description: "From openrouter.ai/keys. Stored as a secret.",
+    placeholder: "sk-or-…",
+    sensitive: true,
+  },
+];
 
 function ProviderStatusDiagnostic({
   detail,
@@ -831,7 +842,10 @@ export function ProviderInstanceCard({
         : (rest as ProviderInstanceConfig),
     );
   };
-  const environmentFields = driverOption?.environmentFields ?? [];
+  const openRouter = liveProvider !== undefined && isOpenRouterProvider(liveProvider);
+  const environmentFields = openRouter
+    ? OPENROUTER_ENVIRONMENT_FIELDS
+    : (driverOption?.environmentFields ?? []);
   const environmentFieldNames = new Set(environmentFields.map((field) => field.name));
   const genericEnvironment = providerEnvironmentWithoutNames(
     instance.environment,
@@ -860,7 +874,7 @@ export function ProviderInstanceCard({
 
   const titleIconNode = (
     <ProviderInstanceIcon
-      driverKind={driverKind ?? instance.driver}
+      driverKind={liveProvider ? providerInstanceIconKind(liveProvider) : instance.driver}
       displayName={displayName}
       accentColor={accentColor}
       showBadge={Boolean(accentColor)}
@@ -1278,12 +1292,28 @@ export function ProviderInstanceCard({
             <p className="mb-3 text-xs text-muted-foreground">
               Model preferences and custom models are saved on the selected environment and shared
               across connected devices.
+              {openRouter ? (
+                <>
+                  {" "}
+                  Add any model from{" "}
+                  <a
+                    href="https://openrouter.ai/models"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2 hover:text-foreground"
+                  >
+                    openrouter.ai/models
+                  </a>{" "}
+                  by its ID, such as <code>anthropic/claude-sonnet-5.5</code>.
+                </>
+              ) : null}
             </p>
             <ProviderModelsSection
               canManageCustomModels={!readOnly}
               canWritePreferences={canWriteSettings}
               instanceId={instanceId}
               driverKind={driverKind}
+              customModelPlaceholder={openRouter ? "anthropic/claude-sonnet-5.5" : undefined}
               models={modelsForDisplay}
               customModels={customModels}
               hiddenModels={hiddenModels}
