@@ -64,20 +64,25 @@ export function providerAccentForegroundColor(accentColor: string) {
 export function shouldShowInstanceBadge(
   entry: {
     readonly driverKind: ProviderDriverKind;
+    /** The logo the instance shows, when it differs from its driver's. */
+    readonly iconKind?: ProviderDriverKind | undefined;
     readonly accentColor?: string | undefined;
     readonly acpRegistryAgentId?: string | undefined;
     readonly enabled: boolean;
   },
   entries: Iterable<{
     readonly driverKind: ProviderDriverKind;
+    readonly iconKind?: ProviderDriverKind | undefined;
     readonly acpRegistryAgentId?: string | undefined;
     readonly enabled: boolean;
   }>,
 ): boolean {
   if (normalizeProviderAccentColor(entry.accentColor)) return true;
+  // The badge tells apart instances that show the same logo.
+  const logo = entry.iconKind ?? entry.driverKind;
   let sharedProviderCount = 0;
   for (const candidate of entries) {
-    if (candidate.driverKind !== entry.driverKind) continue;
+    if ((candidate.iconKind ?? candidate.driverKind) !== logo) continue;
     // Historical threads still need to distinguish accounts that are all disabled.
     if (entry.enabled && !candidate.enabled) continue;
     if (

@@ -286,6 +286,7 @@ function sameSidebarProviderEntries(
     if (
       other === undefined ||
       other.driverKind !== entry.driverKind ||
+      other.iconKind !== entry.iconKind ||
       other.enabled !== entry.enabled ||
       other.displayName !== entry.displayName ||
       other.accentColor !== entry.accentColor ||

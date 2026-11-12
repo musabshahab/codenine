@@ -9,6 +9,7 @@ import {
 } from "./providerInstanceDisplay.ts";
 
 const codex = ProviderDriverKind.make("codex");
+const claude = ProviderDriverKind.make("claudeAgent");
 const acpRegistry = ProviderDriverKind.make("acpRegistry");
 
 describe("providerInstanceInitials", () => {
@@ -50,6 +51,17 @@ describe("shouldShowInstanceBadge", () => {
     const devin = { driverKind: acpRegistry, acpRegistryAgentId: "devin", enabled: true };
     expect(shouldShowInstanceBadge(mistral, [mistral, devin])).toBe(false);
     expect(shouldShowInstanceBadge(devin, [mistral, devin])).toBe(false);
+  });
+
+  it("hides badges for instances of one driver that show different logos", () => {
+    const claudeLogin = { driverKind: claude, iconKind: claude, enabled: true };
+    const openRouter = {
+      driverKind: claude,
+      iconKind: ProviderDriverKind.make("openrouter"),
+      enabled: true,
+    };
+    expect(shouldShowInstanceBadge(claudeLogin, [claudeLogin, openRouter])).toBe(false);
+    expect(shouldShowInstanceBadge(openRouter, [claudeLogin, openRouter])).toBe(false);
   });
 
   it("distinguishes registry instances whose agent identity is unavailable", () => {

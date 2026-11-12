@@ -73,6 +73,7 @@ type ModelPickerItem = {
   badge?: "new";
   instanceId: ProviderInstanceId;
   driverKind: ProviderDriverKind;
+  iconKind: ProviderDriverKind;
   instanceDisplayName: string;
   instanceAccentColor?: string | undefined;
   continuationGroupKey?: string | undefined;
@@ -526,6 +527,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           ...(model.isUnavailable ? { isUnavailable: true } : {}),
           instanceId,
           driverKind: entry.driverKind,
+          iconKind: entry.iconKind,
           instanceDisplayName: entry.displayName,
           ...(entry.accentColor ? { instanceAccentColor: entry.accentColor } : {}),
           ...(entry.continuationGroupKey
@@ -996,7 +998,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                     name={model.name}
                     subProvider={model.subProvider}
                     instanceId={model.instanceId}
-                    driverKind={model.driverKind}
+                    iconKind={model.iconKind}
                     providerDisplayName={model.instanceDisplayName}
                     providerAccentColor={model.instanceAccentColor}
                     isFavorite={favoritesSet.has(providerModelKey(model.instanceId, model.slug))}

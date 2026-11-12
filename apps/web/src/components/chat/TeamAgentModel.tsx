@@ -132,7 +132,7 @@ export function TeamModelLabel(props: { catalog: TeamModelCatalog; selection: Mo
     <span className="inline-flex min-w-0 items-center gap-1">
       {entry ? (
         <ProviderInstanceIcon
-          driverKind={entry.driverKind}
+          driverKind={entry.iconKind}
           displayName={entry.displayName}
           accentColor={entry.accentColor}
           className="size-3.5"

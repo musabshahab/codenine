@@ -14,6 +14,7 @@ import {
   type TextGeneratorKind,
   type TextGeneratorModel,
 } from "@codenine/contracts";
+import { isOpenRouterBaseUrl } from "@codenine/shared/openRouter";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -71,14 +72,12 @@ export function textGeneratorDisplayName(config: TextGeneratorConfig): string {
  */
 export function textGeneratorBrand(config: Pick<TextGeneratorConfig, "kind" | "baseUrl">) {
   if (config.kind === "anthropic") return ProviderDriverKind.make("anthropic");
+  if (isOpenRouterBaseUrl(config.baseUrl)) return ProviderDriverKind.make("openrouter");
   let url: URL | null = null;
   try {
     url = new URL(config.baseUrl);
   } catch {}
   const host = url?.hostname ?? "";
-  if (host === "openrouter.ai" || host.endsWith(".openrouter.ai")) {
-    return ProviderDriverKind.make("openrouter");
-  }
   if (host === "api.openai.com") return ProviderDriverKind.make("openai");
   if (url?.port === "11434" || host.includes("ollama")) return ProviderDriverKind.make("ollama");
   return ProviderDriverKind.make("openaiCompatible");

@@ -13,7 +13,7 @@ import { getDisplayModelName } from "./providerIconUtils";
 interface ModelMentionPresentation {
   readonly label: string;
   readonly providerLabel: string;
-  readonly driverKind: ProviderDriverKind;
+  readonly iconKind: ProviderDriverKind;
   readonly providerDisplayName: string;
 }
 
@@ -21,7 +21,7 @@ function presentationsEqual(left: ModelMentionPresentation, right: ModelMentionP
   return (
     left.label === right.label &&
     left.providerLabel === right.providerLabel &&
-    left.driverKind === right.driverKind &&
+    left.iconKind === right.iconKind &&
     left.providerDisplayName === right.providerDisplayName
   );
 }
@@ -40,7 +40,7 @@ const modelMentionPresentationAtom = Atom.family((key: string) =>
     const next: ModelMentionPresentation = {
       label: getDisplayModelName(option),
       providerLabel: option.subProvider ?? entry.displayName,
-      driverKind: entry.driverKind,
+      iconKind: entry.iconKind,
       providerDisplayName: entry.displayName,
     };
     const previous = Option.getOrNull(get.self<ModelMentionPresentation | null>());
@@ -70,8 +70,8 @@ export const modelMentionKeysAtom = Atom.family((environmentId: string) =>
   }).pipe(Atom.withLabel("model-mention-keys")),
 );
 
-function logoAccent(driverKind: ProviderDriverKind): string | undefined {
-  const color = providerLogoColor(driverKind);
+function logoAccent(iconKind: ProviderDriverKind): string | undefined {
+  const color = providerLogoColor(iconKind);
   return (color && contextChipAccentWithHueOf("model", color)) || undefined;
 }
 
@@ -87,14 +87,14 @@ export function ModelMentionChip(props: {
     ),
   );
   if (!presentation) return props.source;
-  const accent = logoAccent(presentation.driverKind);
+  const accent = logoAccent(presentation.iconKind);
   return (
     <ContextChipPopover
       kind="neutral"
       accent={accent}
       icon={
         <ProviderInstanceIcon
-          driverKind={presentation.driverKind}
+          driverKind={presentation.iconKind}
           displayName={presentation.providerDisplayName}
           className="z-auto"
           iconClassName="size-[1em]"

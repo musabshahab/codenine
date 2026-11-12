@@ -5,7 +5,7 @@ import {
   resolveProjectProviderInstanceEnabled,
   type ModelSelection,
   type ProjectId,
-  type ProviderDriverKind,
+  ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
   type ServerProviderModel,
@@ -17,6 +17,7 @@ import {
   resolveProviderInstanceDisplayName,
   shouldShowInstanceBadge,
 } from "@codenine/client-runtime/state/provider-instance-display";
+import { isOpenRouterProvider } from "@codenine/shared/openRouter";
 
 export { normalizeProviderAccentColor, shouldShowInstanceBadge };
 
@@ -29,6 +30,8 @@ export const NO_PROVIDER_MODEL_SELECTION: ModelSelection = {
 export interface ProviderInstanceEntry {
   readonly instanceId: ProviderInstanceId;
   readonly driverKind: ProviderDriverKind;
+  /** What ProviderInstanceIcon draws. Display only: every decision goes by `driverKind`. */
+  readonly iconKind: ProviderDriverKind;
   readonly displayName: string;
   readonly accentColor?: string | undefined;
   readonly continuationGroupKey?: string | undefined;
@@ -50,6 +53,15 @@ export function isProviderInstancePickerVisible(entry: ProviderInstanceEntry): b
   return entry.enabled;
 }
 
+const OPENROUTER_ICON_KIND = ProviderDriverKind.make("openrouter");
+
+/** A Claude instance that runs on OpenRouter shows OpenRouter's logo. */
+export function providerInstanceIconKind(
+  provider: Pick<ServerProvider, "driver" | "auth">,
+): ProviderDriverKind {
+  return isOpenRouterProvider(provider) ? OPENROUTER_ICON_KIND : provider.driver;
+}
+
 export function deriveProviderInstanceEntries(
   providers: ReadonlyArray<ServerProvider>,
 ): ReadonlyArray<ProviderInstanceEntry> {
@@ -61,6 +73,7 @@ export function deriveProviderInstanceEntries(
     return {
       instanceId,
       driverKind,
+      iconKind: providerInstanceIconKind(snapshot),
       displayName: resolveProviderInstanceDisplayName(snapshot),
       accentColor: normalizeProviderAccentColor(snapshot.accentColor),
       continuationGroupKey: snapshot.continuation?.groupKey,

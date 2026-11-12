@@ -17,7 +17,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
   name: string;
   subProvider?: string | undefined;
   instanceId: ProviderInstanceId;
-  driverKind: ProviderDriverKind;
+  iconKind: ProviderDriverKind;
   providerDisplayName: string;
   providerAccentColor?: string | undefined;
   isFavorite: boolean;
@@ -53,7 +53,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
     >
       {/* One row shape in every tab: the logo names the provider, so Favorites needs no second line. */}
       <ProviderInstanceIcon
-        driverKind={props.driverKind}
+        driverKind={props.iconKind}
         displayName={props.providerDisplayName}
         accentColor={props.providerAccentColor}
         showBadge={props.showInstanceBadge}

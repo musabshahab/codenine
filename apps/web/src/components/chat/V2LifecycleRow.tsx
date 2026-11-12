@@ -270,10 +270,10 @@ export function EnvironmentSubagentAvatar({
   const providersAtom = serverEnvironment.providersValueAtom(environmentId);
   const entries = (providers: ReadonlyArray<ServerProvider> | null | undefined) =>
     deriveProviderInstanceEntries(providers ?? []);
-  const providerDriver = useAtomValue(
+  const providerIconKind = useAtomValue(
     providersAtom,
     (providers) =>
-      providers?.find((provider) => provider.instanceId === providerInstanceId)?.driver,
+      entries(providers).find((entry) => entry.instanceId === providerInstanceId)?.iconKind,
   );
   const displayName = useAtomValue(
     providersAtom,
@@ -293,7 +293,7 @@ export function EnvironmentSubagentAvatar({
   return (
     <SubagentAvatar
       {...props}
-      driver={providerDriver ?? driver}
+      driver={providerIconKind ?? driver}
       displayName={displayName}
       accentColor={accentColor}
       showBadge={showBadge}
@@ -651,7 +651,7 @@ function HandoffEndpoint(props: {
         ? model
         : (entry?.displayName ?? props.instanceId);
   const labelColor = providerTextColor(
-    entry?.driverKind ?? ProviderDriverKind.make(props.instanceId),
+    entry?.iconKind ?? ProviderDriverKind.make(props.instanceId),
   );
   return (
     <Tooltip>
@@ -662,7 +662,7 @@ function HandoffEndpoint(props: {
             className="inline-flex min-w-0 items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           >
             <ProviderInstanceIcon
-              driverKind={entry?.driverKind ?? ProviderDriverKind.make(props.instanceId)}
+              driverKind={entry?.iconKind ?? ProviderDriverKind.make(props.instanceId)}
               displayName={entry?.displayName ?? props.instanceId}
               accentColor={entry?.accentColor}
               showBadge={showBadge}

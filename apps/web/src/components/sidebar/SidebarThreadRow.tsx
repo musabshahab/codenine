@@ -130,7 +130,7 @@ import { SidebarTeamTasks, SidebarTeamToggle } from "./SidebarTeamTasks";
 // environment's map, and every memoized row, stable across them.
 export type SidebarProviderEntry = Pick<
   ProviderInstanceEntry,
-  "instanceId" | "driverKind" | "enabled" | "displayName" | "accentColor" | "models"
+  "instanceId" | "driverKind" | "iconKind" | "enabled" | "displayName" | "accentColor" | "models"
 >;
 function compactSidebarTimeLabel(label: string): string {
   if (label === "just now") return "now";
@@ -192,7 +192,7 @@ function SidebarProviderStack(props: {
   );
   const current = (
     <ProviderInstanceIcon
-      driverKind={currentEntry.driverKind}
+      driverKind={currentEntry.iconKind}
       displayName={currentEntry.displayName}
       accentColor={currentEntry.accentColor}
       showBadge={showInstanceBadge}
@@ -211,7 +211,7 @@ function SidebarProviderStack(props: {
         return (
           <ProviderInstanceIcon
             key={instanceId}
-            driverKind={entry.driverKind}
+            driverKind={entry.iconKind}
             displayName={entry.displayName}
             iconClassName="size-3 opacity-35 grayscale"
           />
@@ -254,7 +254,7 @@ function SidebarThreadTooltip({
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
 }) {
-  const driverKind = providerEntry?.driverKind ?? null;
+  const iconKind = providerEntry?.iconKind ?? null;
   const previousProviderNames = thread.providerInstanceHistory
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
@@ -300,10 +300,10 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
-        {driverKind ? (
+        {iconKind ? (
           <div className="flex min-w-0 items-center gap-2">
             <ProviderInstanceIcon
-              driverKind={driverKind}
+              driverKind={iconKind}
               displayName={
                 providerEntry?.displayName ?? thread.runtime?.providerName ?? modelInstanceId
               }

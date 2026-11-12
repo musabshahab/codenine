@@ -33,7 +33,7 @@ export function matchComposerModelItems(input: {
     type: "model",
     instanceId: entry.instanceId,
     model: option.slug,
-    driverKind: entry.driverKind,
+    iconKind: entry.iconKind,
     providerDisplayName: entry.displayName,
     label: getDisplayModelName(option),
     description: option.subProvider ?? entry.displayName,

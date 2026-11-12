@@ -96,7 +96,7 @@ export type ComposerCommandItem =
       type: "model";
       instanceId: ProviderInstanceId;
       model: string;
-      driverKind: ProviderDriverKind;
+      iconKind: ProviderDriverKind;
       providerDisplayName: string;
       label: string;
       description: string;
@@ -235,7 +235,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       ) : null}
       {props.item.type === "model" ? (
         <ProviderInstanceIcon
-          driverKind={props.item.driverKind}
+          driverKind={props.item.iconKind}
           displayName={props.item.providerDisplayName}
           className="size-4 shrink-0"
           iconClassName="size-4"

@@ -50,6 +50,7 @@ import {
   watchSetupTerminalOutput,
 } from "../../onboarding/providerReadiness.logic";
 import { agentSetupState, turnedOnInstance } from "../../onboarding/welcomePage.logic";
+import { providerInstanceIconKind } from "../../providerInstances";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { serverEnvironment } from "../../state/server";
 import {
@@ -304,7 +305,9 @@ export function AgentSetupCard({
     >
       <div className="flex min-h-8 items-center gap-3">
         <ProviderInstanceIcon
-          driverKind={ProviderDriverKind.make(driver)}
+          driverKind={
+            provider ? providerInstanceIconKind(provider) : ProviderDriverKind.make(driver)
+          }
           displayName={name}
           iconClassName="size-[18px]"
         />
