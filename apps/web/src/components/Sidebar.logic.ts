@@ -610,6 +610,34 @@ export function filterSidebarV2VisibleThreads<
   );
 }
 
+/**
+ * The thread a switch to a sidebar mode reopens: of the threads that mode lists, the one visited
+ * last, else the one updated last.
+ */
+export function resolveSidebarModeReturnThread<
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "updatedAt">,
+>(input: {
+  readonly threads: readonly T[];
+  readonly inMode: (thread: T) => boolean;
+  readonly visitedAt: (thread: T) => string | null | undefined;
+}): T | null {
+  let best: T | null = null;
+  let bestVisited = -1;
+  let bestUpdated = -1;
+  for (const thread of input.threads) {
+    if (thread.archivedAt !== null || !isListedThreadLineage(thread.lineage)) continue;
+    if (!input.inMode(thread)) continue;
+    const visited = firstValidTimestampMs(input.visitedAt(thread));
+    const updated = firstValidTimestampMs(thread.updatedAt);
+    if (visited > bestVisited || (visited === bestVisited && updated > bestUpdated)) {
+      best = thread;
+      bestVisited = visited;
+      bestUpdated = updated;
+    }
+  }
+  return best;
+}
+
 export function buildBulkTitleRegenerationContextMenuItem(input: {
   supportedCount: number;
   actionableCount: number;

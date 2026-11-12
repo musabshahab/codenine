@@ -33,6 +33,7 @@ import {
   resolveSidebarDropVerb,
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
+  resolveSidebarModeReturnThread,
   sidebarFolderExpansionKeys,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@codenine/client-runtime/environment";
@@ -1594,6 +1595,32 @@ describe("groupSidebarThreadsByProject", () => {
       { projectKey: "codenine", threads: ["a", "b"] },
       { projectKey: "fleet", threads: [] },
     ]);
+  });
+});
+
+describe("resolveSidebarModeReturnThread", () => {
+  it("reopens the mode's thread visited last, else the one updated last", () => {
+    const threads = [
+      makeThread({ id: ThreadId.make("project-thread"), updatedAt: "2026-03-09T15:00:00.000Z" }),
+      makeThread({ id: ThreadId.make("chat-visited"), updatedAt: "2026-03-09T09:00:00.000Z" }),
+      makeThread({ id: ThreadId.make("chat-newest"), updatedAt: "2026-03-09T14:00:00.000Z" }),
+      makeThread({
+        id: ThreadId.make("chat-archived"),
+        archivedAt: "2026-03-09T16:00:00.000Z",
+        updatedAt: "2026-03-09T16:00:00.000Z",
+      }),
+    ];
+    const isChat = (thread: Thread) => thread.id.startsWith("chat-");
+    const reopen = (visitedAt: (thread: Thread) => string | null) =>
+      resolveSidebarModeReturnThread({ threads, inMode: isChat, visitedAt })?.id ?? null;
+
+    expect(
+      reopen((thread) => (thread.id === "chat-visited" ? "2026-03-09T12:00:00.000Z" : null)),
+    ).toBe("chat-visited");
+    expect(reopen(() => null)).toBe("chat-newest");
+    expect(
+      resolveSidebarModeReturnThread({ threads, inMode: () => false, visitedAt: () => null }),
+    ).toBeNull();
   });
 });
 

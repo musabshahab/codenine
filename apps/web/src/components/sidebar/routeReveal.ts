@@ -9,6 +9,8 @@ import { filterSidebarV2VisibleThreads } from "../Sidebar.logic";
 export interface SidebarRouteReveal {
   observedKey: string | null;
   pendingKey: string | null;
+  /** The route whose sidebar mode was applied, so each navigation switches the mode once. */
+  modeKey?: string | null;
 }
 
 export function pendingSidebarRouteReveal(
@@ -25,6 +27,17 @@ export function pendingSidebarRouteReveal(
 
 export function completeSidebarRouteReveal(reveal: SidebarRouteReveal): void {
   reveal.pendingKey = null;
+}
+
+export function sidebarRouteModeApplied(
+  reveal: SidebarRouteReveal,
+  routeKey: string | null,
+): boolean {
+  return reveal.modeKey === routeKey;
+}
+
+export function applySidebarRouteMode(reveal: SidebarRouteReveal, routeKey: string | null): void {
+  reveal.modeKey = routeKey;
 }
 
 // Each route change and each mount scroll to the open thread once. Render records

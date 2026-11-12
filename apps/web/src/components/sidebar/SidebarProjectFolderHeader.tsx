@@ -1,7 +1,13 @@
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import { scopedThreadKey, scopeThreadRef } from "@codenine/client-runtime/environment";
-import { ChevronDownIcon, SquarePenIcon } from "lucide-react";
-import { memo } from "react";
+import {
+  ChevronDownIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  HistoryIcon,
+  SquarePenIcon,
+} from "lucide-react";
+import { memo, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -13,29 +19,28 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SidebarAttentionDot } from "./SidebarTeamTasks";
 
 /** The folder's sidebar tree row; its thread rows name it as their parent. */
-export function sidebarFolderRowId(projectKey: string) {
-  return `folder:${projectKey}`;
+export function sidebarFolderRowId(folderKey: string) {
+  return `folder:${folderKey}`;
 }
 
 /**
- * A project folder in the sidebar grouped by project. It reads like a shelf header: a trailing
- * count and chevron, with the count and a status dot only while it is closed, so a
- * closed folder still says when a hidden thread needs you.
+ * A folder in the sidebar. It reads like a shelf header: a trailing count and chevron, with the
+ * count and a status dot only while it is closed, so a closed folder still says when a hidden
+ * thread needs you.
  */
-export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHeader(props: {
-  group: SidebarProjectSnapshot;
+function SidebarFolderHeaderRow(props: {
+  testId: string;
+  rowId: string;
+  icon: ReactNode;
+  label: string;
+  newChatLabel: string;
   collapsed: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
-  onToggle: (group: SidebarProjectSnapshot) => void;
-  onNewThread: (group: SidebarProjectSnapshot) => void;
-  onContextMenu: (group: SidebarProjectSnapshot, position: { x: number; y: number }) => void;
+  onToggle: () => void;
+  onNewChat: () => void;
+  onContextMenu: ((position: { x: number; y: number }) => void) | null;
 }) {
-  const { group, collapsed, hiddenThreads } = props;
-  const rowId = sidebarFolderRowId(group.projectKey);
-  const label = group.isScratch ? "Chats without a project" : group.displayName;
-  const newChatLabel = group.isScratch
-    ? "New chat without a project"
-    : `New chat in ${group.displayName}`;
+  const { rowId, collapsed, hiddenThreads, newChatLabel } = props;
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const dot = collapsed
     ? resolveSidebarFolderDot(
@@ -52,23 +57,24 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
     : null;
   return (
     <li
-      data-testid="sidebar-project-folder"
+      data-testid={props.testId}
       className="group/project-folder relative mt-2 list-none first:mt-0"
     >
       <button
         type="button"
         data-sidebar-row={rowId}
         aria-expanded={!collapsed}
-        onClick={() => props.onToggle(group)}
+        onClick={props.onToggle}
         onContextMenu={(event) => {
+          if (props.onContextMenu === null) return;
           event.preventDefault();
-          props.onContextMenu(group, { x: event.clientX, y: event.clientY });
+          props.onContextMenu({ x: event.clientX, y: event.clientY });
         }}
         className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <ProjectFavicon project={group} className="size-4 shrink-0" />
+        {props.icon}
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
-          {label}
+          {props.label}
         </span>
         {dot ? <SidebarAttentionDot attention={dot} /> : null}
         {collapsed && hiddenThreads.length > 0 ? (
@@ -94,7 +100,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
                 size="icon-xs"
                 variant="ghost-muted"
                 aria-label={newChatLabel}
-                onClick={() => props.onNewThread(group)}
+                onClick={props.onNewChat}
               />
             }
           >
@@ -104,5 +110,69 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
         </Tooltip>
       </span>
     </li>
+  );
+}
+
+/** A project folder in the sidebar grouped by project. */
+export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHeader(props: {
+  group: SidebarProjectSnapshot;
+  collapsed: boolean;
+  hiddenThreads: readonly EnvironmentThreadShell[];
+  onToggle: (group: SidebarProjectSnapshot) => void;
+  onNewThread: (group: SidebarProjectSnapshot) => void;
+  onContextMenu: (group: SidebarProjectSnapshot, position: { x: number; y: number }) => void;
+}) {
+  const { group } = props;
+  return (
+    <SidebarFolderHeaderRow
+      testId="sidebar-project-folder"
+      rowId={sidebarFolderRowId(group.projectKey)}
+      icon={<ProjectFavicon project={group} className="size-4 shrink-0" />}
+      label={group.isScratch ? "Chats without a project" : group.displayName}
+      newChatLabel={
+        group.isScratch ? "New chat without a project" : `New chat in ${group.displayName}`
+      }
+      collapsed={props.collapsed}
+      hiddenThreads={props.hiddenThreads}
+      onToggle={() => props.onToggle(group)}
+      onNewChat={() => props.onNewThread(group)}
+      onContextMenu={(position) => props.onContextMenu(group, position)}
+    />
+  );
+});
+
+/** A folder of chats without a project; `name` is null for the chats in no folder. */
+export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(props: {
+  folderKey: string;
+  name: string | null;
+  collapsed: boolean;
+  hiddenThreads: readonly EnvironmentThreadShell[];
+  onToggle: (folderKey: string) => void;
+  onNewChat: (name: string | null) => void;
+  onContextMenu: ((name: string, position: { x: number; y: number }) => void) | null;
+}) {
+  const { name, onContextMenu } = props;
+  const FolderGlyph = props.collapsed ? FolderIcon : FolderOpenIcon;
+  return (
+    <SidebarFolderHeaderRow
+      testId="sidebar-chat-folder"
+      rowId={sidebarFolderRowId(props.folderKey)}
+      icon={
+        name === null ? (
+          <HistoryIcon aria-hidden className="size-4 shrink-0 text-(--sidebar-icon-color)" />
+        ) : (
+          <FolderGlyph aria-hidden className="size-4 shrink-0 text-(--sidebar-icon-color)" />
+        )
+      }
+      label={name ?? "Recent"}
+      newChatLabel={name === null ? "New chat" : `New chat in ${name}`}
+      collapsed={props.collapsed}
+      hiddenThreads={props.hiddenThreads}
+      onToggle={() => props.onToggle(props.folderKey)}
+      onNewChat={() => props.onNewChat(name)}
+      onContextMenu={
+        name === null || onContextMenu === null ? null : (position) => onContextMenu(name, position)
+      }
+    />
   );
 });
