@@ -1,13 +1,16 @@
 import {
+  defaultInstanceIdForDriver,
   isProviderAvailable,
   type ProviderInstanceConfig,
+  ProviderDriverKind,
   type ProviderInstanceId,
   resolveProjectProviderInstanceEnabled,
   type ServerProvider,
   type ServerSettings,
 } from "@codenine/contracts";
 
-import { getOnboardingProviderState } from "./providerReadiness.logic";
+import { readCodexSetupMode } from "../components/settings/CodexSetupSection.logic";
+import { type AgentSetupDriver, getOnboardingProviderState } from "./providerReadiness.logic";
 
 type ComputerSettings = Pick<ServerSettings, "providerInstances" | "projectSettingsOverrides">;
 
@@ -79,76 +82,46 @@ export function turnedOnInstance(instance: ProviderInstanceConfig): ProviderInst
   };
 }
 
-/** A CLI the server knows is too old or otherwise broken for Codenine; Settings updates it. */
-export function isBrokenVersion(provider: ServerProvider) {
-  return provider.installed && provider.compatibilityAdvisory?.status === "broken";
-}
-
 /**
- * What "Use existing CLI" does next for Codex: wait for the CLI's own check, open its terminal,
- * or stop. Only the ChatGPT sign-in runtime reports `setup.canAuthenticate`.
+ * A card's state. After a switch from ChatGPT sign-in to the CLI, the old runtime's status stays
+ * until Codex is checked again; only that runtime reports `setup.canAuthenticate`.
  */
-export function cliTerminalStep(
-  provider: ServerProvider,
+export function agentSetupState(
+  provider: ServerProvider | undefined,
   settings: ComputerSettings | null | undefined,
 ) {
-  if (provider.setup?.canAuthenticate === true) return "wait";
-  const state = welcomeAgentState(provider, settings);
-  if (state === "checking") return "wait";
-  // A broken version is updated from its row, and an installed, signed-in CLI needs no terminal.
-  if (isBrokenVersion(provider)) return "done";
-  if (provider.installed && provider.auth.status === "authenticated") return "done";
-  // The terminal shows the command first, so it also helps a CLI whose check failed.
-  const fixable =
-    state === "install" ||
-    state === "signIn" ||
-    (state === "attention" && isProviderAvailable(provider));
-  return fixable ? "open" : "done";
-}
-
-/**
- * Whether Codex's row opens its setup card, which offers ChatGPT sign-in or the CLI. A signed-in
- * or broken Codex gets its plain row action instead, since the card has nothing left for it.
- */
-export function codexNeedsSetup(
-  provider: ServerProvider,
-  settings: ComputerSettings | null | undefined,
-) {
+  if (provider === undefined) return "checking";
   if (
-    provider.driver !== "codex" ||
-    provider.auth.status === "authenticated" ||
-    isBrokenVersion(provider)
+    provider.driver === "codex" &&
+    provider.setup?.canAuthenticate === true &&
+    readCodexSetupMode(settings?.providerInstances[provider.instanceId]?.config) === "existing"
   ) {
-    return false;
+    return "checking";
   }
-  const state = welcomeAgentState(provider, settings);
-  return (
-    state === "install" ||
-    state === "signIn" ||
-    (state === "attention" && isProviderAvailable(provider))
-  );
+  return welcomeAgentState(provider, settings);
 }
 
 /**
- * The Codex instance the setup card shows, or null when the card is closed. A rebuild briefly
- * drops an instance from the list, so the card keeps its last status meanwhile instead of
- * unmounting and losing a sign-in in progress.
+ * The instance a fixed card shows: a ready one of its driver, so a signed-in second account is
+ * not hidden behind a signed-out default, else the default.
  */
-export function codexCardProvider(input: {
-  readonly providers: ReadonlyArray<ServerProvider> | null | undefined;
-  readonly instanceId: ProviderInstanceId | null;
-  readonly last: ServerProvider | null;
-  readonly settings: ComputerSettings | null | undefined;
-}) {
-  if (input.instanceId === null) return null;
-  const provider =
-    input.providers?.find((candidate) => candidate.instanceId === input.instanceId) ??
-    (input.last?.instanceId === input.instanceId ? input.last : undefined);
-  if (provider === undefined) return null;
-  const open =
-    codexNeedsSetup(provider, input.settings) ||
-    welcomeAgentState(provider, input.settings) === "checking";
-  return open ? provider : null;
+export function welcomeCardInstanceId(
+  providers: ReadonlyArray<ServerProvider> | null | undefined,
+  driver: AgentSetupDriver,
+  settings: ComputerSettings | null | undefined,
+): ProviderInstanceId {
+  const ready = providers?.find(
+    (provider) => provider.driver === driver && welcomeAgentState(provider, settings) === "ready",
+  );
+  return ready?.instanceId ?? defaultInstanceIdForDriver(ProviderDriverKind.make(driver));
+}
+
+/** Continue names the agent it leaves out when only one of the two cards is ready. */
+export function welcomeContinueWithout(
+  cards: ReadonlyArray<{ readonly name: string; readonly ready: boolean }>,
+): string | null {
+  const missing = cards.filter((card) => !card.ready);
+  return missing.length === 1 && cards.length - missing.length === 1 ? missing[0]!.name : null;
 }
 
 export type WelcomeStep = "agents" | "project";

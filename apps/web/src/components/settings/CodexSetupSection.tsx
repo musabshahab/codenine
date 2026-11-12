@@ -45,8 +45,6 @@ import { OpenAI } from "../Icons";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingsRow } from "./settingsLayout";
 import { AddCodexAccountDialog } from "./AddCodexAccountDialog";
-import { getOnboardingProviderState } from "../../onboarding/providerReadiness.logic";
-import { getProviderSummary } from "./providerStatus";
 import {
   settleAuthorizationPage,
   settleHandoffAuthorizationPage,
@@ -93,8 +91,6 @@ interface CodexSetupSectionProps {
   readonly mode: "managed" | "existing";
   readonly enabled: boolean;
   readonly readOnly?: boolean;
-  // Onboarding's "Use existing CLI" opens a terminal, which this session may not be allowed.
-  readonly existingCliDisabled?: boolean;
   readonly presentation?: "settings" | "onboarding";
   readonly onModeChange: (mode: "managed" | "existing") => void;
   readonly autoStart?: boolean;
@@ -104,108 +100,35 @@ interface CodexSetupSectionProps {
 }
 
 export function CodexSetupSection(props: CodexSetupSectionProps) {
-  const [requested, setRequested] = useState(false);
-  const existingState = getOnboardingProviderState(props.provider);
-  const existingReady = props.enabled && existingState === "ready";
-  const existingAuthenticated = props.provider?.auth.status === "authenticated";
-  const existingChecking = existingState === "checking";
-  const existingSummary = getProviderSummary(props.provider);
-  const content =
-    props.mode === "existing" && props.presentation === "onboarding" ? (
+  if (props.mode === "existing") return null;
+  if (!props.provider?.setup?.canAuthenticate) {
+    return props.presentation === "onboarding" ? (
       <CodexWelcomeCard
         title={props.displayName || props.provider?.displayName || "Codex"}
-        description={
-          existingReady ? (
-            props.provider?.auth.email?.trim() ? (
-              <>
-                Signed in as{" "}
-                <RedactedSensitiveText
-                  value={props.provider.auth.email.trim()}
-                  ariaLabel="Toggle account email visibility"
-                  revealTooltip="Click to reveal email"
-                  hideTooltip="Click to hide email"
-                  className="break-all"
-                />
-                .
-              </>
-            ) : (
-              "Connected with your Codex CLI."
-            )
-          ) : existingChecking ? (
-            "Checking your Codex CLI..."
-          ) : props.provider?.installed ? (
-            existingSummary.headline
-          ) : (
-            "Code with your ChatGPT subscription."
-          )
-        }
+        description={<CodexSignInDescription />}
         control={
-          existingReady ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
-              <CheckIcon className="size-3.5" />
-              Ready
-            </span>
-          ) : existingChecking ? (
-            <span className="text-xs text-muted-foreground">Checking...</span>
-          ) : existingAuthenticated ? (
-            <span className="text-xs text-muted-foreground">{existingSummary.headline}</span>
-          ) : (
-            <ChatGptConnectionButton
-              size="sm"
-              disabled={props.readOnly}
-              onClick={() => {
-                setRequested(true);
-                props.onModeChange("managed");
-              }}
-            >
-              Continue with ChatGPT
-            </ChatGptConnectionButton>
-          )
+          <Button size="sm" variant="outline" className="min-w-44" disabled>
+            Open sign-in page
+          </Button>
         }
         secondaryControl={
-          !existingAuthenticated && !existingReady && !existingChecking ? (
-            <Button
-              size="sm"
-              variant="ghost-muted"
-              disabled={props.existingCliDisabled}
-              onClick={() => props.onModeChange("existing")}
-            >
-              Use existing CLI
-            </Button>
-          ) : null
+          <Button size="sm" variant="ghost-muted" disabled>
+            Cancel
+          </Button>
         }
       />
-    ) : props.mode === "existing" ? null : !props.provider?.setup?.canAuthenticate ? (
-      props.presentation === "onboarding" ? (
-        <CodexWelcomeCard
-          title={props.displayName || props.provider?.displayName || "Codex"}
-          description={<CodexSignInDescription />}
-          control={
-            <Button size="sm" variant="outline" className="min-w-44" disabled>
-              Open sign-in page
-            </Button>
-          }
-          secondaryControl={
-            <Button size="sm" variant="ghost-muted" disabled>
-              Cancel
-            </Button>
-          }
-        />
-      ) : (
-        <SettingsRow title="ChatGPT account" description="Preparing sign-in." />
-      )
     ) : (
-      <ManagedCodexSetup
-        key={`${props.environmentId}:${props.instanceId}`}
-        {...props}
-        autoStart={requested || props.autoStart === true}
-        onAutoStartConsumed={() => {
-          setRequested(false);
-          props.onAutoStartConsumed?.();
-        }}
-      />
+      <SettingsRow title="ChatGPT account" description="Preparing sign-in." />
     );
-  return content;
+  }
+  return (
+    <ManagedCodexSetup
+      key={`${props.environmentId}:${props.instanceId}`}
+      {...props}
+      autoStart={props.autoStart === true}
+      onAutoStartConsumed={() => props.onAutoStartConsumed?.()}
+    />
+  );
 }
 
 export function AddManagedCodexAccountDialog({
@@ -255,7 +178,6 @@ function ManagedCodexSetup({
   autoStart,
   onAutoStartConsumed,
   allowExistingCli = true,
-  existingCliDisabled,
   presentation,
   displayName,
   onSignInCancelled,
@@ -902,15 +824,6 @@ function ManagedCodexSetup({
                 onClick={() => void setup("chatgpt-change-account")}
               >
                 Use a different account
-              </Button>
-            ) : !authActive && !authenticated && allowExistingCli ? (
-              <Button
-                size="sm"
-                variant="ghost-muted"
-                disabled={readOnly || busy || existingCliDisabled}
-                onClick={() => onModeChange("existing")}
-              >
-                Use existing CLI
               </Button>
             ) : null
           }

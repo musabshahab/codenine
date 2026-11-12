@@ -1,58 +1,43 @@
 import { useAtomValue } from "@effect/atom-react";
-import type {
-  EnvironmentId,
-  ProjectId,
-  ProviderInstanceId,
-  ServerConfig,
-  ServerProvider,
-} from "@codenine/contracts";
-import { scopeProjectRef, scopeThreadRef } from "@codenine/client-runtime/environment";
+import type { EnvironmentId, ProjectId, ServerProvider } from "@codenine/contracts";
+import { scopeProjectRef } from "@codenine/client-runtime/environment";
 import { resolveProviderInstanceDisplayName as agentName } from "@codenine/client-runtime/state/provider-instance-display";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@codenine/client-runtime/state/runtime";
-import { AuthProvidersManageScope, AuthTerminalOperateScope, ThreadId } from "@codenine/contracts";
+import { AuthProvidersManageScope } from "@codenine/contracts";
 import { Link, useBlocker } from "@tanstack/react-router";
-import * as Schema from "effect/Schema";
 import { CheckIcon, ChevronDownIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { openCommandPalette } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
-import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useScratchProject } from "../../hooks/useScratchProject";
 import { usePersistEnvironmentProviderInstanceMutation } from "../../hooks/useSettings";
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
 import { completeOnboarding } from "../../onboarding/firstRun";
 import {
-  resolveOnboardingProviderInstallCommand,
-  resolveOnboardingProviderLoginCommand,
+  type AgentSetupDriver,
+  isAgentSetupDriver,
+  isBrokenVersion,
 } from "../../onboarding/providerReadiness.logic";
 import {
-  cliTerminalStep,
-  codexCardProvider,
-  codexNeedsSetup,
   groupWelcomeAgents,
-  isBrokenVersion,
   turnedOnInstance,
+  welcomeCardInstanceId,
+  welcomeContinueWithout,
   type WelcomeProjectSource,
   type WelcomeStep,
   welcomeAgentState,
 } from "../../onboarding/welcomePage.logic";
-import { randomUUID } from "../../lib/utils";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
-import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
-import { terminalEnvironment } from "../../state/terminal";
+import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { getProviderSummary } from "../settings/providerStatus";
 import { useDesktopCliCommand } from "../settings/CliCommandSettingsRow";
-import { CodexSetupSection } from "../settings/CodexSetupSection";
-import { readCodexSetupMode } from "../settings/CodexSetupSection.logic";
-import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -60,9 +45,9 @@ import { SidebarInset } from "../ui/sidebar";
 import { toastManager } from "../ui/toast";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { cn } from "../../lib/utils";
+import { AgentSetupCard, agentSetupName } from "./AgentSetupCard";
+import AgentSetupDialog from "./AgentSetupDialog";
 import { WelcomeProjectStep, WelcomeSteps } from "./WelcomeProjectStep";
-
-const AGENT_ONBOARDING_THREAD_ID = ThreadId.make("onboarding-agent-setup");
 
 /** Opens the page setup ends on. False sends the user to the app's home instead. */
 export type WelcomeLanding = () => Promise<boolean>;
@@ -83,6 +68,7 @@ export function WelcomePage({
   const label = environment?.label ?? "this computer";
   const welcomeAgents = useWelcomeAgents(environmentId);
   const agentReady = welcomeAgents.readyCount > 0;
+  const continueWithout = welcomeContinueWithout(welcomeAgents.cards);
   const [step, setStep] = useState<WelcomeStep>("agents");
   const handleNewThread = useNewThreadHandler();
   const { scratchEnvironmentId, openScratchProject } = useScratchProject();
@@ -194,19 +180,20 @@ export function WelcomePage({
             {step === "agents" ? (
               <>
                 <div className="mt-8 border-t border-border/60">
-                  <AgentsSection
-                    environmentId={environmentId}
-                    label={label}
-                    isPrimary={isPrimary}
-                  />
+                  <AgentsSection environmentId={environmentId} isPrimary={isPrimary} />
                 </div>
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-                  {agentReady ? (
-                    <span />
-                  ) : (
+                  {!agentReady ? (
                     <Button variant="ghost-muted" onClick={() => setStep("project")}>
                       Continue without an agent
                     </Button>
+                  ) : continueWithout !== null ? (
+                    <p className="min-w-0 max-w-md flex-1 text-xs text-muted-foreground">
+                      Teams that mix Claude and Codex need both. You can set up {continueWithout}{" "}
+                      later in Settings → Providers.
+                    </p>
+                  ) : (
+                    <span />
                   )}
                   <div className="flex items-center gap-3">
                     {agentReady ? null : (
@@ -215,7 +202,9 @@ export function WelcomePage({
                       </span>
                     )}
                     <Button disabled={!agentReady} onClick={() => setStep("project")}>
-                      Continue
+                      {continueWithout !== null
+                        ? `Continue without ${continueWithout}`
+                        : "Continue"}
                     </Button>
                   </div>
                 </div>
@@ -272,129 +261,61 @@ function RowIcon({ children }: { readonly children: ReactNode }) {
   );
 }
 
-const INSTALLABLE_DRIVERS = ["codex", "claudeAgent"] as const;
-type OnboardingAgentDriver = (typeof INSTALLABLE_DRIVERS)[number];
-const isInstallableDriver = (driver: string): driver is OnboardingAgentDriver =>
-  (INSTALLABLE_DRIVERS as ReadonlyArray<string>).includes(driver);
+const CARD_DRIVERS = ["claudeAgent", "codex"] as const;
 
-interface AgentTerminalSession {
-  readonly environmentId: EnvironmentId;
-  readonly driver: OnboardingAgentDriver;
-  readonly providerInstanceId: ServerProvider["instanceId"];
-  readonly cwd: string;
-  readonly command: string;
-  readonly keybindings: ServerConfig["keybindings"];
-}
-
-// Shared by the page (to enable Start) and the agents section, so both agree on what is ready.
+// Shared by the page (to enable Continue) and the agents section, so both agree on what is ready.
 function useWelcomeAgents(environmentId: EnvironmentId) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const settings = serverConfig?.settings;
+  const cards = CARD_DRIVERS.map((driver) => {
+    const instanceId = welcomeCardInstanceId(providers, driver, settings);
+    const provider = providers?.find((candidate) => candidate.instanceId === instanceId);
+    return {
+      driver,
+      instanceId,
+      name: agentSetupName(driver, instanceId, provider),
+      ready: provider !== undefined && welcomeAgentState(provider, settings) === "ready",
+    };
+  });
   return {
-    providers,
     serverConfig,
-    ...groupWelcomeAgents(providers, serverConfig?.settings, agentName),
+    cards,
+    ...groupWelcomeAgents(providers, settings, agentName),
   };
 }
 
-// The setup card opens below a long list, so bring it into view once.
-const revealOnMount = (node: HTMLElement | null) => node?.scrollIntoView({ block: "nearest" });
-
 function AgentsSection({
   environmentId,
-  label,
   isPrimary,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly label: string;
   readonly isPrimary: boolean;
-  // The project scan only reads agents that are on, so turning one on can find more history.
 }) {
-  const { providers, serverConfig, checking, found, available } = useWelcomeAgents(environmentId);
+  const { serverConfig, cards, found, available } = useWelcomeAgents(environmentId);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
-  const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
-  const [terminalSession, setTerminalSession] = useState<AgentTerminalSession | null>(null);
-  const [moreOpen, setMoreOpen] = useState<boolean | null>(null);
-  const [codexSetupId, setCodexSetupId] = useState<ProviderInstanceId | null>(null);
-  const [cliTerminalFor, setCliTerminalFor] = useState<ProviderInstanceId | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  // A second Claude or Codex account opens the same card in a dialog.
+  const [setupFor, setSetupFor] = useState<{
+    readonly driver: AgentSetupDriver;
+    readonly instanceId: ServerProvider["instanceId"];
+  } | null>(null);
 
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- asks the environment to refresh its provider list when the environment changes
   useEffect(() => {
     void refreshProviders({ environmentId, input: {} });
   }, [environmentId, refreshProviders]);
 
-  // Opened once the finished checks find nothing, since adding an agent is then the task. A first
-  // status can be wrong, so this waits for the checks, and a later check never closes it.
-  if (moreOpen === null && !checking && found.length === 0) setMoreOpen(true);
-  const showMore = moreOpen ?? false;
+  // The two cards always show; other agents keep their rows.
+  const isCard = (provider: ServerProvider) =>
+    cards.some((card) => card.instanceId === provider.instanceId);
+  const otherFound = found.filter((provider) => !isCard(provider));
+  const otherAvailable = available.filter((provider) => !isCard(provider));
   const stateOf = (provider: ServerProvider) => welcomeAgentState(provider, serverConfig?.settings);
-  const needsInstallOrSignIn = (provider: ServerProvider) => {
-    const state = stateOf(provider);
-    return (
-      isInstallableDriver(provider.driver) &&
-      !isBrokenVersion(provider) &&
-      (state === "install" || state === "signIn")
-    );
-  };
-  // Codex's card also offers ChatGPT sign-in, which still works when the CLI check failed.
-  // Codex setup stays mounted by instance while its status changes, so a sign-in that starts
-  // after an install is not lost when the agent moves between groups or briefly leaves the list.
-  const [lastCodex, setLastCodex] = useState<ServerProvider | null>(null);
-  const listedCodex =
-    codexSetupId === null
-      ? undefined
-      : providers?.find((provider) => provider.instanceId === codexSetupId);
-  if (listedCodex !== undefined && listedCodex !== lastCodex) setLastCodex(listedCodex);
-  const codexSetupProvider = codexCardProvider({
-    providers,
-    instanceId: codexSetupId,
-    last: lastCodex,
-    settings: serverConfig?.settings,
-  });
-  // Once the card closes, a later status change does not reopen it and move the page.
-  if (listedCodex !== undefined && codexSetupProvider === null) setCodexSetupId(null);
-
-  const openTerminal = (provider: ServerProvider) => {
-    if (
-      !isInstallableDriver(provider.driver) ||
-      serverConfig === null ||
-      !readEnvironmentScope(environmentId, AuthTerminalOperateScope)
-    )
-      return;
-    setTerminalSession({
-      environmentId,
-      driver: provider.driver,
-      providerInstanceId: provider.instanceId,
-      cwd: serverConfig.cwd,
-      command: provider.installed
-        ? resolveOnboardingProviderLoginCommand(
-            provider,
-            serverConfig.settings,
-            serverConfig.environment.platform.os,
-          )
-        : resolveOnboardingProviderInstallCommand(
-            provider.driver,
-            serverConfig.environment.platform.os,
-          ),
-      keybindings: serverConfig.keybindings,
-    });
-  };
-
-  // "Use existing CLI" opens the CLI's terminal once Codex has checked the CLI.
-  const cliProvider =
-    cliTerminalFor === null
-      ? undefined
-      : providers?.find((provider) => provider.instanceId === cliTerminalFor);
-  const cliStep =
-    cliProvider === undefined ? "done" : cliTerminalStep(cliProvider, serverConfig?.settings);
-  if (cliProvider !== undefined && cliStep !== "wait") {
-    setCliTerminalFor(null);
-    if (cliStep === "open") openTerminal(cliProvider);
-  }
 
   const turnOn = async (provider: ServerProvider) => {
     if (serverConfig === null) return;
@@ -454,32 +375,18 @@ function AgentsSection({
     }
     // Settings updates a broken CLI the way it was installed, including a custom binary path.
     if (isBrokenVersion(provider)) return settingsAction("Update");
-    if (serverConfig !== null && codexNeedsSetup(provider, serverConfig.settings)) {
-      const open = codexSetupId === provider.instanceId;
+    const { driver } = provider;
+    if (isAgentSetupDriver(driver) && (state === "install" || state === "signIn")) {
       return (
         <Button
           size="xs"
           variant="outline"
           aria-label={`Set up: ${name}`}
-          aria-expanded={open}
-          onClick={() => setCodexSetupId(open ? null : provider.instanceId)}
+          onClick={() => setSetupFor({ driver, instanceId: provider.instanceId })}
         >
+          <TerminalIcon className="size-3.5" />
           Set up
         </Button>
-      );
-    }
-    if (needsInstallOrSignIn(provider)) {
-      return (
-        <TerminalAction
-          name={name}
-          signIn={state === "signIn"}
-          disabled={
-            terminalSession?.providerInstanceId === provider.instanceId ||
-            serverConfig === null ||
-            !canOperateTerminal
-          }
-          onClick={() => openTerminal(provider)}
-        />
       );
     }
     return settingsAction(
@@ -487,92 +394,71 @@ function AgentsSection({
     );
   };
 
-  const notes = [
-    !canOperateTerminal &&
-    [...found, ...available].some(
-      (provider) =>
-        needsInstallOrSignIn(provider) || codexNeedsSetup(provider, serverConfig?.settings),
-    )
-      ? "This connection cannot control terminals."
-      : null,
+  const cannotTurnOn =
     !canManageProviders &&
-    [...found, ...available].some(
-      (provider) =>
-        stateOf(provider) === "disabled" || codexNeedsSetup(provider, serverConfig?.settings),
-    )
-      ? "This connection cannot manage agents."
-      : null,
-  ].filter((note) => note !== null);
+    [...otherFound, ...otherAvailable].some((provider) => stateOf(provider) === "disabled");
 
   return (
     <WelcomeSection title="Agents">
-      {found.map((provider) => (
-        <AgentRow
-          key={provider.instanceId}
-          provider={provider}
-          state={stateOf(provider)}
-          action={actionFor(provider)}
-        />
-      ))}
-      {checking && found.length === 0 ? (
-        <p className="text-sm leading-10 text-muted-foreground">Checking {label}…</p>
-      ) : null}
-      {notes.map((note) => (
-        <p key={note} className="pl-8 text-xs text-muted-foreground">
-          {note}
-        </p>
-      ))}
-      <Collapsible open={showMore} onOpenChange={setMoreOpen}>
-        <CollapsibleTrigger className="group flex min-h-10 w-full items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-          <RowIcon>
-            <PlusIcon className="size-4" />
-          </RowIcon>
-          <span
-            className={cn(
-              "text-sm group-hover:text-foreground",
-              found.length > 0 ? "text-muted-foreground" : "text-foreground",
-            )}
-          >
-            {found.length > 0 ? "Add more agents" : "Set up an agent"}
-          </span>
-          {showMore ? null : <AgentLogoStack providers={available} />}
-          <ChevronDownIcon className="ml-auto size-4 text-muted-foreground group-data-panel-open:rotate-180" />
-        </CollapsibleTrigger>
-        <CollapsiblePanel>
-          <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
-            {available.map((provider) => (
-              <AgentRow
-                key={provider.instanceId}
-                provider={provider}
-                state={stateOf(provider)}
-                compact
-                action={actionFor(provider)}
-              />
-            ))}
-          </div>
-        </CollapsiblePanel>
-      </Collapsible>
-      {codexSetupProvider !== null && serverConfig !== null ? (
-        <div key={codexSetupProvider.instanceId} ref={revealOnMount} className="mt-2">
-          <OnboardingCodexSetup
+      <div className="flex flex-col gap-3 py-1">
+        {cards.map((card) => (
+          <AgentSetupCard
+            key={card.instanceId}
             environmentId={environmentId}
-            provider={codexSetupProvider}
-            serverConfig={serverConfig}
-            onUseCliChange={(useCli) =>
-              setCliTerminalFor(useCli ? codexSetupProvider.instanceId : null)
-            }
+            driver={card.driver}
+            instanceId={card.instanceId}
           />
+        ))}
+      </div>
+      {otherFound.length > 0 ? (
+        <div className="mt-2">
+          {otherFound.map((provider) => (
+            <AgentRow
+              key={provider.instanceId}
+              provider={provider}
+              state={stateOf(provider)}
+              action={actionFor(provider)}
+            />
+          ))}
         </div>
       ) : null}
+      {cannotTurnOn ? (
+        <p className="pl-8 text-xs text-muted-foreground">This connection cannot manage agents.</p>
+      ) : null}
+      {otherAvailable.length > 0 ? (
+        <Collapsible open={moreOpen} onOpenChange={setMoreOpen}>
+          <CollapsibleTrigger className="group mt-1 flex min-h-10 w-full items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+            <RowIcon>
+              <PlusIcon className="size-4" />
+            </RowIcon>
+            <span className="text-sm text-muted-foreground group-hover:text-foreground">
+              Add more agents
+            </span>
+            {moreOpen ? null : <AgentLogoStack providers={otherAvailable} />}
+            <ChevronDownIcon className="ml-auto size-4 text-muted-foreground group-data-panel-open:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsiblePanel>
+            <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+              {otherAvailable.map((provider) => (
+                <AgentRow
+                  key={provider.instanceId}
+                  provider={provider}
+                  state={stateOf(provider)}
+                  compact
+                  action={actionFor(provider)}
+                />
+              ))}
+            </div>
+          </CollapsiblePanel>
+        </Collapsible>
+      ) : null}
       {isPrimary ? <CliPathSetup /> : null}
-      {terminalSession !== null ? (
-        <AgentInstallTerminal
-          key={`${terminalSession.environmentId}:${terminalSession.providerInstanceId}:${terminalSession.driver}`}
-          session={terminalSession}
-          onClose={() => {
-            setTerminalSession(null);
-            void refreshProviders({ environmentId, input: {} });
-          }}
+      {setupFor !== null ? (
+        <AgentSetupDialog
+          environmentId={environmentId}
+          driver={setupFor.driver}
+          instanceId={setupFor.instanceId}
+          onClose={() => setSetupFor(null)}
         />
       ) : null}
     </WelcomeSection>
@@ -596,96 +482,6 @@ function AgentLogoStack({ providers }: { readonly providers: ReadonlyArray<Serve
   );
 }
 
-// The ChatGPT card and the CLI card stay one card, so either choice can be undone here.
-function OnboardingCodexSetup({
-  environmentId,
-  provider,
-  serverConfig,
-  onUseCliChange,
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly provider: ServerProvider;
-  readonly serverConfig: ServerConfig;
-  // True asks for the CLI's install or sign-in terminal once Codex has checked the CLI.
-  readonly onUseCliChange: (useCli: boolean) => void;
-}) {
-  const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
-  const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
-  const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
-  const instanceId = provider.instanceId;
-  const instance = serverConfig.settings.providerInstances[instanceId] ?? {
-    driver: provider.driver,
-    config: {},
-  };
-  const config =
-    instance.config !== null && typeof instance.config === "object" ? instance.config : {};
-  const mode = readCodexSetupMode(config);
-  const changeMode = (setupMode: "managed" | "existing") => {
-    // "Use existing CLI" also opens a terminal to install or sign in to the CLI.
-    onUseCliChange(setupMode === "existing");
-    const unchanged = mode === setupMode && provider.enabled;
-    if (unchanged || !readEnvironmentScope(environmentId, AuthProvidersManageScope)) return;
-    // One-instance upsert keeps a provider another client added in the meantime.
-    void persistProviderInstance({
-      operation: "upsert",
-      instanceId,
-      instance: { ...instance, enabled: true, config: { ...config, enabled: true, setupMode } },
-    }).then((result) => {
-      if (result._tag === "Failure") {
-        onUseCliChange(false);
-        if (!isAtomCommandInterrupted(result)) {
-          const cause = squashAtomCommandFailure(result);
-          toastManager.add({
-            type: "error",
-            title: "Could not save Codex setup",
-            ...(cause instanceof Error ? { description: cause.message } : {}),
-          });
-        }
-      }
-    });
-  };
-  return (
-    <CodexSetupSection
-      presentation="onboarding"
-      environmentId={environmentId}
-      instanceId={instanceId}
-      provider={provider}
-      mode={mode}
-      enabled={provider.enabled}
-      readOnly={!canManageProviders}
-      existingCliDisabled={!canOperateTerminal}
-      displayName={agentName(provider)}
-      onModeChange={changeMode}
-    />
-  );
-}
-
-function TerminalAction({
-  name,
-  signIn,
-  disabled,
-  onClick,
-}: {
-  readonly name: string;
-  readonly signIn: boolean;
-  readonly disabled: boolean;
-  readonly onClick: () => void;
-}) {
-  const label = signIn ? "Sign in" : "Install";
-  return (
-    <Button
-      size="xs"
-      variant="outline"
-      aria-label={`${label}: ${name}`}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <TerminalIcon className="size-3.5" />
-      {label}
-    </Button>
-  );
-}
-
 function AgentRow({
   provider,
   state,
@@ -699,13 +495,13 @@ function AgentRow({
   readonly compact?: boolean;
 }) {
   const name = agentName(provider);
-  // Claude Code and Codex tiles show Install or Set up; other agents that are on say why not.
+  // Claude Code and Codex rows show Set up; other agents that are on say why not.
   const brokenMessage = isBrokenVersion(provider)
     ? (provider.compatibilityAdvisory?.message ?? null)
     : null;
   const detail =
     state === "install"
-      ? isInstallableDriver(provider.driver)
+      ? isAgentSetupDriver(provider.driver)
         ? null
         : "Not installed"
       : compact || state === "ready" || state === "checking"
@@ -746,167 +542,6 @@ function AgentRow({
         ) : (
           action
         )}
-      </div>
-    </div>
-  );
-}
-
-function AgentInstallTerminal({
-  session,
-  onClose,
-}: {
-  readonly session: AgentTerminalSession;
-  readonly onClose: () => void;
-}) {
-  const { command, cwd, driver, environmentId, keybindings, providerInstanceId } = session;
-  const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
-  const [advancedTypography] = useLocalStorage(
-    TYPOGRAPHY_ADVANCED_STORAGE_KEY,
-    false,
-    Schema.Boolean,
-  );
-  const openTerminal = useAtomCommand(terminalEnvironment.open, { reportFailure: false });
-  const writeTerminal = useAtomCommand(terminalEnvironment.write, { reportFailure: false });
-  const closeTerminal = useAtomCommand(terminalEnvironment.close, { reportFailure: false });
-  const setupQueueRef = useRef(Promise.resolve());
-  const setupGenerationRef = useRef(0);
-  const activeSetupGenerationRef = useRef<number | null>(null);
-  const [terminalId] = useState(() => `onboarding-${driver}-${randomUUID()}`);
-  const threadRef = scopeThreadRef(environmentId, AGENT_ONBOARDING_THREAD_ID);
-  const [setupAttempt, setSetupAttempt] = useState(0);
-  const [setupState, setSetupState] = useState<
-    "preparing" | "ready" | "openFailed" | "writeFailed"
-  >("preparing");
-  const terminalReady = setupState === "ready" || setupState === "writeFailed";
-
-  // StrictMode can finish a cancelled open after replacement setup; it must not close or pre-type into that
-  // session.
-  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- opens the setup PTY, types the command into it, and closes it on cleanup
-  useEffect(() => {
-    const generation = setupGenerationRef.current + 1;
-    setupGenerationRef.current = generation;
-    activeSetupGenerationRef.current = generation;
-    // oxlint-disable-next-line react/set-state-in-effect -- A retry or a new command reopens the terminal, which shows as preparing until the open settles.
-    setSetupState("preparing");
-
-    setupQueueRef.current = setupQueueRef.current.then(async () => {
-      if (activeSetupGenerationRef.current !== generation) return;
-      if (!readEnvironmentScope(environmentId, AuthTerminalOperateScope)) {
-        setSetupState("openFailed");
-        return;
-      }
-      const opened = await openTerminal({
-        environmentId,
-        input: {
-          threadId: AGENT_ONBOARDING_THREAD_ID,
-          terminalId,
-          cwd,
-          providerInstanceId,
-        },
-      });
-      if (opened._tag !== "Success") {
-        if (activeSetupGenerationRef.current === generation) setSetupState("openFailed");
-        return;
-      }
-
-      if (activeSetupGenerationRef.current !== generation) return;
-      if (!readEnvironmentScope(environmentId, AuthTerminalOperateScope)) {
-        setSetupState("writeFailed");
-        return;
-      }
-
-      const wrote = await writeTerminal({
-        environmentId,
-        input: { threadId: AGENT_ONBOARDING_THREAD_ID, terminalId, data: command },
-      });
-      if (activeSetupGenerationRef.current !== generation) return;
-      setSetupState(wrote._tag === "Success" ? "ready" : "writeFailed");
-    });
-
-    // Revocation leaves the PTY running; close only while terminal access remains.
-    return () => {
-      if (activeSetupGenerationRef.current === generation) {
-        activeSetupGenerationRef.current = null;
-      }
-      setupQueueRef.current = setupQueueRef.current.then(async () => {
-        if (!readEnvironmentScope(environmentId, AuthTerminalOperateScope)) return;
-        await closeTerminal({
-          environmentId,
-          input: { threadId: AGENT_ONBOARDING_THREAD_ID, terminalId, deleteHistory: true },
-        });
-      });
-    };
-  }, [
-    closeTerminal,
-    command,
-    cwd,
-    environmentId,
-    openTerminal,
-    providerInstanceId,
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry bumps setupAttempt to open the terminal again.
-    setupAttempt,
-    terminalId,
-    writeTerminal,
-  ]);
-
-  return (
-    <div
-      data-thread-terminal-drawer
-      className="mt-4 overflow-hidden rounded-lg border border-border/70 bg-background text-foreground"
-    >
-      <div className="flex items-center justify-between border-b border-border/60 bg-background/60 px-3 py-1.5">
-        <span className="text-2xs font-medium text-muted-foreground">
-          {!canOperateTerminal ? (
-            "This connection cannot control terminals."
-          ) : setupState === "writeFailed" ? (
-            <>
-              Run <code className="rounded bg-muted px-1 font-mono">{command}</code> in this
-              terminal.
-            </>
-          ) : setupState === "ready" ? (
-            "Review the command, then press Enter to run it."
-          ) : setupState === "openFailed" ? (
-            "Could not open the setup terminal."
-          ) : (
-            "Preparing command..."
-          )}
-        </span>
-        <div className="flex items-center gap-1">
-          {setupState === "openFailed" ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={!canOperateTerminal}
-              onClick={() => {
-                if (readEnvironmentScope(environmentId, AuthTerminalOperateScope)) {
-                  setSetupAttempt((value) => value + 1);
-                }
-              }}
-            >
-              Retry
-            </Button>
-          ) : null}
-          <Button size="xs" variant="ghost-muted" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </div>
-      <div className="h-64">
-        {terminalReady ? (
-          <TerminalViewport
-            threadRef={threadRef}
-            threadId={AGENT_ONBOARDING_THREAD_ID}
-            terminalId={terminalId}
-            terminalLabel={`Install ${driver}`}
-            cwd={cwd}
-            providerInstanceId={providerInstanceId}
-            advancedTypography={advancedTypography}
-            onSessionExited={onClose}
-            autoFocus
-            visible
-            keybindings={keybindings}
-          />
-        ) : null}
       </div>
     </div>
   );
