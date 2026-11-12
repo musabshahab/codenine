@@ -143,6 +143,60 @@ export function parseRateTable(document: unknown): RateTable {
   return table;
 }
 
+// OpenRouter quotes USD per token as decimal strings; routers such as openrouter/auto quote -1.
+function openRouterPrice(value: unknown): number | null {
+  const price = typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+  return Number.isFinite(price) && price >= 0 ? price : null;
+}
+
+/**
+ * Reads OpenRouter's model catalog (`GET /api/v1/models`). Responses can name a model by its
+ * canonical slug, which may carry a date its ID omits, so slugs price too unless an ID claims them.
+ */
+export function parseOpenRouterRateTable(document: unknown): RateTable {
+  const table = new Map<string, ModelRate>();
+  const models =
+    typeof document === "object" && document !== null
+      ? (document as Record<string, unknown>)["data"]
+      : undefined;
+  if (!Array.isArray(models)) return table;
+
+  const slugs = new Map<string, ModelRate>();
+  for (const model of models) {
+    if (typeof model !== "object" || model === null) continue;
+    const { id, canonical_slug: slug, pricing } = model as Record<string, unknown>;
+    if (typeof id !== "string" || typeof pricing !== "object" || pricing === null) continue;
+    const prices = pricing as Record<string, unknown>;
+    const input = openRouterPrice(prices["prompt"]);
+    const output = openRouterPrice(prices["completion"]);
+    const key = normalizeRateKey(id);
+    if (input === null || output === null || key.length === 0) continue;
+    const rate: ModelRate = {
+      inputCostPerToken: input,
+      outputCostPerToken: output,
+      cacheReadCostPerToken: openRouterPrice(prices["input_cache_read"]) ?? input,
+      cacheCreationCostPerToken: openRouterPrice(prices["input_cache_write"]) ?? input,
+      fast: null,
+      ultrafast: null,
+    };
+    table.set(key, rate);
+    if (typeof slug !== "string" || slug.trim() === "") continue;
+    // A variant such as :free has its own price but shares the paid model's slug.
+    const variant = key.indexOf(":");
+    const alias = normalizeRateKey(slug) + (variant === -1 ? "" : key.slice(variant));
+    if (!slugs.has(alias)) slugs.set(alias, rate);
+  }
+  for (const [alias, rate] of slugs) {
+    if (!table.has(alias)) table.set(alias, rate);
+  }
+  return table;
+}
+
+/** Every model `preferred` prices takes that price; the rest keep `fallback`'s. */
+export function preferRates(preferred: RateTable, fallback: RateTable): RateTable {
+  return preferred.size === 0 ? fallback : new Map([...fallback, ...preferred]);
+}
+
 function sameTokenRates(a: TokenRates | null, b: TokenRates | null): boolean {
   if (a === null || b === null) return a === b;
   return (

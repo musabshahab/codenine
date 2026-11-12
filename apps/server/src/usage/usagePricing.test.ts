@@ -5,7 +5,9 @@ import {
   cacheSavingsUsd,
   createOverrideRateTable,
   lookupRate,
+  parseOpenRouterRateTable,
   parseRateTable,
+  preferRates,
   priceUsage,
 } from "./usagePricing.ts";
 
@@ -264,5 +266,96 @@ describe("usage pricing", () => {
     });
 
     expect(lookupRate(table, "example-model")).toBeNull();
+  });
+
+  it("reads OpenRouter's catalog prices by model ID and canonical slug", () => {
+    const table = parseOpenRouterRateTable({
+      data: [
+        { id: "Z-AI/GLM-5.3-Flash", pricing: { prompt: "0.0000004", completion: "0.0000016" } },
+        {
+          id: "anthropic/claude-haiku-5.5",
+          pricing: {
+            prompt: "0.000001",
+            completion: "0.000005",
+            input_cache_read: "0.0000001",
+            input_cache_write: "0.00000125",
+          },
+        },
+        {
+          id: "deepseek/deepseek-v4.1-flash",
+          canonical_slug: "deepseek/deepseek-v4.1-flash-1017",
+          pricing: { prompt: "0.0000002", completion: "0.0000008" },
+        },
+        {
+          id: "nvidia/nemotron-3.5-lightning:free",
+          canonical_slug: "nvidia/nemotron-3.5-lightning-0915",
+          pricing: { prompt: "0", completion: "0" },
+        },
+        {
+          id: "nvidia/nemotron-3.5-lightning",
+          canonical_slug: "nvidia/nemotron-3.5-lightning-0915",
+          pricing: { prompt: "0.0000001", completion: "0.0000004" },
+        },
+        { id: "openrouter/auto", pricing: { prompt: "-1", completion: "-1" } },
+        { id: "example/no-completion", pricing: { prompt: "0.000001" } },
+        { id: "example/blank-price", pricing: { prompt: "", completion: "0.000001" } },
+        { id: "example/word-price", pricing: { prompt: "free", completion: "0.000001" } },
+        { id: "example/no-pricing" },
+      ],
+    });
+    const rates = (input: number, output: number, cacheRead = input, cacheWrite = input) => ({
+      inputCostPerToken: input,
+      outputCostPerToken: output,
+      cacheReadCostPerToken: cacheRead,
+      cacheCreationCostPerToken: cacheWrite,
+      fast: null,
+      ultrafast: null,
+    });
+
+    for (const [model, expected] of [
+      ["z-ai/glm-5.3-flash", rates(4e-7, 1.6e-6)],
+      ["anthropic/claude-haiku-5.5", rates(1e-6, 5e-6, 1e-7, 1.25e-6)],
+      ["deepseek/deepseek-v4.1-flash", rates(2e-7, 8e-7)],
+      ["deepseek/deepseek-v4.1-flash-1017", rates(2e-7, 8e-7)],
+      ["nvidia/nemotron-3.5-lightning:free", rates(0, 0)],
+      ["nvidia/nemotron-3.5-lightning-0915:free", rates(0, 0)],
+      ["nvidia/nemotron-3.5-lightning-0915", rates(1e-7, 4e-7)],
+      ["openrouter/auto", null],
+      ["example/no-completion", null],
+      ["example/blank-price", null],
+      ["example/word-price", null],
+      ["example/no-pricing", null],
+    ] as const) {
+      expect(lookupRate(table, model), model).toEqual(expected);
+    }
+  });
+
+  it("prices an OpenRouter model at OpenRouter's price ahead of LiteLLM's, after custom prices", () => {
+    const table = preferRates(
+      parseOpenRouterRateTable({
+        data: [
+          {
+            id: "deepseek/deepseek-v4.1-flash",
+            pricing: { prompt: "0.000001", completion: "0.000002" },
+          },
+        ],
+      }),
+      parseRateTable({ "deepseek/deepseek-v4.1-flash": rate(5e-6), "claude-fable-5": rate(1e-6) }),
+    );
+    const overrides = createOverrideRateTable({
+      "deepseek/deepseek-v4.1-flash": {
+        inputCostPerMillionTokens: 3,
+        outputCostPerMillionTokens: 6,
+      },
+    });
+
+    expect(priceUsage(table, record("deepseek/deepseek-v4.1-flash"))).toMatchObject({
+      costUsd: expect.closeTo(5),
+      costSource: "modelPriced",
+    });
+    expect(priceUsage(table, record("claude-fable-5")).costUsd).toBeCloseTo(8);
+    expect(
+      priceUsage(table, record("deepseek/deepseek-v4.1-flash"), overrides).costUsd,
+    ).toBeCloseTo(15);
   });
 });

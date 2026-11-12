@@ -1873,47 +1873,60 @@ describe("UsageService", () => {
   );
 
   it.live.each(["network", "http", "invalidJson", "empty"] as const)(
-    "recovers pricing through the GitHub API after a %s failure",
+    "recovers pricing through the GitHub API after a %s failure, and asks OpenRouter only for its instances",
     (failure) =>
       Effect.gen(function* () {
         const { transcript, settings, home } = yield* setup;
-        yield* Effect.promise(() => NodeFSP.writeFile(transcript, claudeLine(1, 5)));
+        const openRouterModel = "z-ai/glm-5.3-flash";
+        yield* Effect.promise(() =>
+          NodeFSP.writeFile(transcript, claudeLine(1, 5) + claudeLine(2, 5, openRouterModel)),
+        );
         const requests: HttpClientRequest.HttpClientRequest[] = [];
         const ratesDocument = {
           "claude-fable-5": { input_cost_per_token: 1e-5, output_cost_per_token: 5e-5 },
         };
-        const serviceLayer = layerService({
-          prefix: `usage-service-rates-fallback-${failure}-test`,
-          home,
-          settings,
-          onRatesFetch: (request) => requests.push(request),
-          ratesResponse: (request) => {
-            if (request.url.startsWith("https://api.github.com/")) {
-              return Effect.succeed(Response.json(ratesDocument));
-            }
-            if (failure === "network") {
-              return Effect.fail(
-                new HttpClientError.HttpClientError({
-                  reason: new HttpClientError.TransportError({
-                    request,
-                    cause: new Error("getaddrinfo ENOTFOUND raw.githubusercontent.com"),
+        const openRouterDocument = {
+          data: [{ id: openRouterModel, pricing: { prompt: "0.000001", completion: "0.000004" } }],
+        };
+        const bucket = (summary: UsageSummary, model: string) =>
+          summary.buckets.find((candidate) => candidate.model === model);
+        const serviceLayer = (serviceSettings: Parameters<typeof layerService>[0]["settings"]) =>
+          layerService({
+            prefix: `usage-service-rates-fallback-${failure}-test`,
+            home,
+            settings: serviceSettings,
+            onRatesFetch: (request) => requests.push(request),
+            ratesResponse: (request) => {
+              if (request.url.startsWith("https://openrouter.ai/")) {
+                return Effect.succeed(Response.json(openRouterDocument));
+              }
+              if (request.url.startsWith("https://api.github.com/")) {
+                return Effect.succeed(Response.json(ratesDocument));
+              }
+              if (failure === "network") {
+                return Effect.fail(
+                  new HttpClientError.HttpClientError({
+                    reason: new HttpClientError.TransportError({
+                      request,
+                      cause: new Error("getaddrinfo ENOTFOUND raw.githubusercontent.com"),
+                    }),
                   }),
-                }),
+                );
+              }
+              return Effect.succeed(
+                failure === "invalidJson"
+                  ? new Response("not JSON")
+                  : Response.json({}, { status: failure === "http" ? 503 : 200 }),
               );
-            }
-            return Effect.succeed(
-              failure === "invalidJson"
-                ? new Response("not JSON")
-                : Response.json({}, { status: failure === "http" ? 503 : 200 }),
-            );
-          },
-        });
-        const service = yield* UsageService.make.pipe(Effect.provide(serviceLayer));
+            },
+          });
+        const service = yield* UsageService.make.pipe(Effect.provide(serviceLayer(settings)));
 
         const summary = yield* service.readSummary(WINDOW);
         assert.strictEqual(summary.pricing.status, "fresh");
         assert.strictEqual(summary.pricing.knownModels, 1);
-        assert.closeTo(summary.buckets[0]?.costUsd ?? -1, 0.00035, 1e-12);
+        assert.closeTo(bucket(summary, "claude-fable-5")?.costUsd ?? -1, 0.00035, 1e-12);
+        assert.strictEqual(bucket(summary, openRouterModel)?.costSource, "unpriced");
         assert.deepStrictEqual(
           requests.map((request) => request.url),
           [
@@ -1923,11 +1936,40 @@ describe("UsageService", () => {
         );
         assert.strictEqual(requests[1]?.headers.accept, "application/vnd.github.raw+json");
 
-        const restarted = yield* UsageService.make.pipe(Effect.provide(serviceLayer));
+        const restarted = yield* UsageService.make.pipe(Effect.provide(serviceLayer(settings)));
         const cached = yield* restarted.readSummary(WINDOW);
         assert.strictEqual(cached.pricing.status, "cached");
         assert.deepStrictEqual(cached.buckets, summary.buckets);
         assert.strictEqual(requests.length, 2);
+
+        // OpenRouter shares the default Claude home, as one added from Settings does.
+        const withOpenRouter = serviceLayer({
+          ...settings,
+          providerInstances: {
+            ...settings.providerInstances,
+            [ProviderInstanceId.make("openrouter")]: {
+              driver: ProviderDriverKind.make("claudeAgent"),
+              config: { homePath: NodePath.join(home, "claude") },
+              environment: [
+                {
+                  name: "ANTHROPIC_BASE_URL",
+                  value: "https://openrouter.ai/api",
+                  sensitive: false,
+                },
+              ],
+            },
+          },
+        });
+        for (const status of ["fetched", "cached"]) {
+          const openRouter = yield* UsageService.make.pipe(Effect.provide(withOpenRouter));
+          const priced = yield* openRouter.readSummary(WINDOW);
+          assert.closeTo(bucket(priced, openRouterModel)?.costUsd ?? -1, 0.00003, 1e-12, status);
+          assert.strictEqual(priced.pricing.knownModels, 2);
+          assert.deepStrictEqual(
+            requests.slice(2).map((request) => request.url),
+            ["https://openrouter.ai/api/v1/models"],
+          );
+        }
       }).pipe(Effect.scoped),
   );
 
