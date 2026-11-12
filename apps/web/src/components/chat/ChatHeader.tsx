@@ -47,7 +47,7 @@ import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { useThreadProjectGroup } from "../pages/threadPlace";
 import { ThreadKindIcon } from "../ThreadKindIcon";
-import { resolveThreadKind } from "../threadKind.logic";
+import { resolveAgentThreadKind } from "../threadKind.logic";
 import { TeamAgentHeaderLine } from "./TeamAgentThread";
 import { useClientSettings } from "../../hooks/useSettings";
 
@@ -376,7 +376,9 @@ export const ChatHeader = memo(function ChatHeader({
         >
           {activeProject ? (
             <>
-              <WorkspaceBreadcrumbItem className="shrink">
+              <WorkspaceBreadcrumbItem
+                className={cn("shrink", isChat && "hidden @md/header-actions:flex")}
+              >
                 {isChat ? (
                   <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
                     {chatFolder === null ? null : (
@@ -406,7 +408,7 @@ export const ChatHeader = memo(function ChatHeader({
                       }
                     >
                       <ProjectFavicon project={activeProject} className="size-4" />
-                      <WorkspaceBreadcrumbText className="max-w-40">
+                      <WorkspaceBreadcrumbText className="hidden max-w-40 @3xl/header-actions:block">
                         {activeProjectName}
                       </WorkspaceBreadcrumbText>
                     </TooltipTrigger>
@@ -414,7 +416,9 @@ export const ChatHeader = memo(function ChatHeader({
                   </Tooltip>
                 )}
               </WorkspaceBreadcrumbItem>
-              <WorkspaceBreadcrumbSeparator />
+              <WorkspaceBreadcrumbSeparator
+                {...(isChat ? { className: "hidden @md/header-actions:flex" } : {})}
+              />
             </>
           ) : null}
           {parentThreadLink ? (
@@ -450,7 +454,9 @@ export const ChatHeader = memo(function ChatHeader({
             </>
           ) : null}
           <WorkspaceBreadcrumbItem current className="min-w-10 flex-1 gap-2">
-            {threadShell === null ? null : <ThreadKindIcon kind={resolveThreadKind(threadShell)} />}
+            {threadShell === null ? null : (
+              <ThreadKindIcon kind={resolveAgentThreadKind(threadShell, teamAgent)} />
+            )}
             {renamingTitle !== null ? (
               <input
                 autoFocus
@@ -516,11 +522,13 @@ export const ChatHeader = memo(function ChatHeader({
               </Tooltip>
             )}
             {isChat && threadShell !== null && renamingTitle === null ? (
-              <ChatPinToggle
-                threadRef={activeThreadRef}
-                pinned={threadShell.pinnedAt != null}
-                disabled={!canOperateThread}
-              />
+              <span className="hidden @md/header-actions:flex">
+                <ChatPinToggle
+                  threadRef={activeThreadRef}
+                  pinned={threadShell.pinnedAt != null}
+                  disabled={!canOperateThread}
+                />
+              </span>
             ) : null}
           </WorkspaceBreadcrumbItem>
         </WorkspaceBreadcrumb>
@@ -540,19 +548,21 @@ export const ChatHeader = memo(function ChatHeader({
         className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
       >
         {movesChat ? (
-          <Button
-            size="xs"
-            variant="outline"
-            aria-haspopup="menu"
-            aria-label={
-              chatFolder === null ? "Move to folder" : `Move to folder, now in ${chatFolder}`
-            }
-            onClick={openFolderMenu}
-          >
-            <FolderInputIcon aria-hidden />
-            <span className="hidden @md/header-actions:inline">Move to folder</span>
-            <ChevronDownIcon aria-hidden className="hidden @md/header-actions:block" />
-          </Button>
+          <span className="hidden @md/header-actions:flex">
+            <Button
+              size="xs"
+              variant="outline"
+              aria-haspopup="menu"
+              aria-label={
+                chatFolder === null ? "Move to folder" : `Move to folder, now in ${chatFolder}`
+              }
+              onClick={openFolderMenu}
+            >
+              <FolderInputIcon aria-hidden />
+              Move to folder
+              <ChevronDownIcon aria-hidden />
+            </Button>
+          </span>
         ) : null}
         {tools}
         {isServerThread ? (

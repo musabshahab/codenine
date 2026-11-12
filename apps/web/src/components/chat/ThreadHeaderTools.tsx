@@ -136,50 +136,53 @@ export function ThreadHeaderTools(props: {
         </span>
       )}
       <ThreadDetailsToolToggle {...props.details} />
-      {props.terminal === null ? null : (
-        <HeaderToolToggle
-          label="Terminal"
-          tooltip={`Terminal${shortcutSuffix(props.terminal.shortcutLabel)}`}
-          pressed={props.terminal.open}
-          onToggle={props.terminal.onToggle}
-        >
-          <TerminalIcon />
-        </HeaderToolToggle>
-      )}
-      {changes === null ? null : (
-        <HeaderToolToggle
-          label={
-            hasChanges
-              ? `Changes: ${totals.insertions} added, ${totals.deletions} removed`
-              : "Changes"
-          }
-          tooltip={`Changes${shortcutSuffix(changes.shortcutLabel)}`}
-          pressed={changes.open}
-          onToggle={changes.onToggle}
-        >
-          <DiffIcon />
-          {hasChanges ? (
-            <span className="hidden gap-1.5 font-mono text-xs tabular-nums @xl/header-actions:flex">
-              <span className="text-diff-addition-foreground">
-                +{formatDiffCount(totals.insertions)}
+      {/* A phone-width header keeps its title; these panels open from the right panel too. */}
+      <span className="hidden items-center gap-0.5 @md/header-actions:flex">
+        {props.terminal === null ? null : (
+          <HeaderToolToggle
+            label="Terminal"
+            tooltip={`Terminal${shortcutSuffix(props.terminal.shortcutLabel)}`}
+            pressed={props.terminal.open}
+            onToggle={props.terminal.onToggle}
+          >
+            <TerminalIcon />
+          </HeaderToolToggle>
+        )}
+        {changes === null ? null : (
+          <HeaderToolToggle
+            label={
+              hasChanges
+                ? `Changes: ${totals.insertions} added, ${totals.deletions} removed`
+                : "Changes"
+            }
+            tooltip={`Changes${shortcutSuffix(changes.shortcutLabel)}`}
+            pressed={changes.open}
+            onToggle={changes.onToggle}
+          >
+            <DiffIcon />
+            {hasChanges ? (
+              <span className="hidden gap-1.5 font-mono text-xs tabular-nums @3xl/header-actions:flex">
+                <span className="text-diff-addition-foreground">
+                  +{formatDiffCount(totals.insertions)}
+                </span>
+                <span className="text-diff-deletion-foreground">
+                  −{formatDiffCount(totals.deletions)}
+                </span>
               </span>
-              <span className="text-diff-deletion-foreground">
-                −{formatDiffCount(totals.deletions)}
-              </span>
-            </span>
-          ) : null}
-        </HeaderToolToggle>
-      )}
-      {props.files === null ? null : (
-        <HeaderToolToggle
-          label="Files"
-          tooltip="Files"
-          pressed={props.files.open}
-          onToggle={props.files.onToggle}
-        >
-          <FolderIcon />
-        </HeaderToolToggle>
-      )}
+            ) : null}
+          </HeaderToolToggle>
+        )}
+        {props.files === null ? null : (
+          <HeaderToolToggle
+            label="Files"
+            tooltip="Files"
+            pressed={props.files.open}
+            onToggle={props.files.onToggle}
+          >
+            <FolderIcon />
+          </HeaderToolToggle>
+        )}
+      </span>
     </>
   );
 }

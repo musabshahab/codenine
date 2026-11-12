@@ -1,4 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
+import { CheckIcon, RotateCcwIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import { sourceControlClients } from "@codenine/client-runtime/source-control-clients";
 import {
@@ -41,7 +43,8 @@ export function ThreadNextStep(props: {
       return <TeamPlanStep leadRef={leadRef} teamTask={null} onOpenTask={props.onOpenTask} />;
     }
     const watching = summary.status === "running" || summary.status === "failed";
-    if (watching && summary.failed > 0) {
+    // Mirrors canRetryTeamTask: a failed or cancelled task can run again while the team is open.
+    if (watching && summary.failed + summary.cancelled > 0) {
       return (
         <TeamPlanStep leadRef={leadRef} teamTask={props.teamTask} onOpenTask={props.onOpenTask} />
       );
@@ -79,11 +82,15 @@ function TeamRunningPill(props: { progress: string | null; onOpenTask: () => voi
   return (
     <button
       type="button"
+      aria-label={props.progress === null ? "Running" : `Running, ${props.progress}`}
       onClick={props.onOpenTask}
       className="flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-primary/16 px-2.5 text-xs font-medium whitespace-nowrap text-foreground outline-none transition-colors hover:bg-primary/24 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <span aria-hidden className="size-1.5 rounded-full bg-primary" />
-      {props.progress === null ? "Running" : `Running · ${props.progress}`}
+      Running
+      {props.progress === null ? null : (
+        <span className="hidden @3xl/header-actions:inline">· {props.progress}</span>
+      )}
     </button>
   );
 }
@@ -110,6 +117,7 @@ function TeamPlanStepButton(props: {
     return (
       <Button
         size="xs"
+        aria-label="Approve team"
         disabled={actions.pending !== null}
         onClick={() => {
           // The Task tab shows why a team cannot start yet, and any error approving it.
@@ -117,7 +125,8 @@ function TeamPlanStepButton(props: {
           void actions.approve().then((approved) => approved || onOpenTask());
         }}
       >
-        {actions.pending === "approve" ? "Approving…" : "Approve team"}
+        <CheckIcon aria-hidden />
+        <NarrowHidden>{actions.pending === "approve" ? "Approving…" : "Approve team"}</NarrowHidden>
       </Button>
     );
   }
@@ -138,13 +147,17 @@ function TeamPlanStepButton(props: {
   return (
     <Button
       size="xs"
+      aria-label={`Retry ${agent}`}
       disabled={actions.pending !== null}
       onClick={() => {
         if (!actions.canOperate) return onOpenTask();
         void actions.retry(task).then((retried) => retried || onOpenTask());
       }}
     >
-      {actions.pending === `retry:${task.id}` ? "Retrying…" : `Retry ${agent}`}
+      <RotateCcwIcon aria-hidden />
+      <NarrowHidden>
+        {actions.pending === `retry:${task.id}` ? "Retrying…" : `Retry ${agent}`}
+      </NarrowHidden>
     </Button>
   );
 }
@@ -159,11 +172,17 @@ function ViewPullRequest(props: { threadRef: ScopedThreadRef; url: string; numbe
     <Button
       size="xs"
       variant="outline"
+      aria-label={`View ${shortLabel} #${props.number}`}
       render={<a href={props.url} target="_blank" rel="noreferrer" />}
       onClick={(event) => openPrLink(event, props.url)}
     >
       <PullRequestGlyph.pullRequest aria-hidden />
-      View {shortLabel} #{props.number}
+      <NarrowHidden>View {shortLabel}</NarrowHidden>#{props.number}
     </Button>
   );
+}
+
+/** Text a phone-width header drops, leaving the button's icon. */
+function NarrowHidden(props: { children: ReactNode }) {
+  return <span className="hidden @md/header-actions:inline">{props.children}</span>;
 }

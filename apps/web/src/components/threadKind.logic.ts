@@ -1,5 +1,6 @@
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import { resolveSidebarThreadStatus } from "@codenine/client-runtime/state/thread-inbox";
+import type { TeamAgentHeader } from "@codenine/client-runtime/team";
 
 export type ThreadKind = "chat" | "running" | "approval" | "question" | "failed" | "done" | "pr";
 
@@ -38,4 +39,16 @@ export function resolveThreadKind(thread: ThreadKindInput): ThreadKind {
   if (status === "working" || status === "preparing") return "running";
   if (status === "failed") return "failed";
   return hasOpenPullRequest ? "pr" : "chat";
+}
+
+/** A team agent's thread reads as its task: done, failed, or cancelled once it stops. */
+export function resolveAgentThreadKind(
+  thread: ThreadKindInput,
+  agent: Pick<TeamAgentHeader, "taskStatus"> | null,
+): ThreadKind {
+  const kind = resolveThreadKind(thread);
+  if (kind !== "chat" || agent === null) return kind;
+  if (agent.taskStatus === "completed") return "done";
+  if (agent.taskStatus === "failed" || agent.taskStatus === "cancelled") return "failed";
+  return kind;
 }

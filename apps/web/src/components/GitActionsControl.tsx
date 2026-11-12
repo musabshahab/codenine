@@ -1516,12 +1516,15 @@ export default function GitActionsControl({
               render={
                 <Button
                   size="xs"
+                  aria-label={`Create ${changeRequestTerminology.shortLabel}`}
                   onClick={() => void runGitActionWithToast({ action: pullRequestAction })}
                 />
               }
             >
               <PullRequestGlyph.pullRequest aria-hidden />
-              Create {changeRequestTerminology.shortLabel}
+              <span className="hidden @md/header-actions:inline">
+                Create {changeRequestTerminology.shortLabel}
+              </span>
             </TooltipTrigger>
             <TooltipPopup side="bottom">
               {pullRequestAction === "commit_push_pr"

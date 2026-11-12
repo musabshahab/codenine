@@ -504,6 +504,8 @@ export interface TeamAgentHeader {
   readonly modelSelection: ModelSelection | null;
   /** The task's status, or "Retried" once a retry replaced this thread's attempt. */
   readonly status: string;
+  /** Null once a retry replaced this thread's attempt. */
+  readonly taskStatus: TeamTaskDisplayStatus | null;
 }
 
 export function teamAgentHeader(
@@ -517,6 +519,7 @@ export function teamAgentHeader(
     position: `Agent ${found.position} of ${found.total}`,
     modelSelection: found.agent?.modelSelection ?? null,
     status: found.superseded ? "Retried" : teamTaskStatus(plan, found.task).label,
+    taskStatus: found.superseded ? null : teamTaskStatus(plan, found.task).status,
   };
 }
 

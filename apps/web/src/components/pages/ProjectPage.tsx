@@ -5,14 +5,16 @@ import {
   MessageCirclePlusIcon,
   MonitorIcon,
   SettingsIcon,
-  TerminalIcon,
   UsersIcon,
 } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 
+import { resolveProjectScripts } from "@codenine/shared/projectScripts";
+
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useSidebarProjectGroups } from "../../hooks/useSidebarProjectGroups";
 import { openWorkThreads, useTeamTasks } from "../../hooks/useWorkLists";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -21,6 +23,7 @@ import { useEnvironmentIdentities } from "../../state/environments";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatElapsedDurationLabel } from "../../timestampFormat";
 import { ProjectFavicon } from "../ProjectFavicon";
+import { ScriptIcon } from "../projectScriptEditor";
 import { ThreadKindIcon } from "../ThreadKindIcon";
 import { resolveThreadKind } from "../threadKind.logic";
 import { Button } from "../ui/button";
@@ -58,6 +61,8 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
   const environments = useEnvironmentIdentities();
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}Z`);
+  // Saved commands live in settings, the same source the thread header's command button reads.
+  const scripts = resolveProjectScripts(useEnvironmentSettings(group.environmentId), group);
   const memberKeys = new Set(
     group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
   );
@@ -143,19 +148,26 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           </dd>
           <dt className="text-muted-foreground">Commands</dt>
           <dd className="flex flex-wrap gap-2">
-            {group.scripts.length === 0 ? (
+            {scripts.length === 0 ? (
               <span className="text-xs text-muted-foreground">
                 None yet. Add them in project settings.
               </span>
             ) : (
-              group.scripts.map((script) => (
+              scripts.map((script) => (
                 <Tooltip key={script.id}>
                   <TooltipTrigger
                     render={
                       <span className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs text-foreground" />
                     }
                   >
-                    <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <ScriptIcon
+                      icon={script.icon}
+                      className={
+                        script.icon === "play"
+                          ? "size-3 shrink-0 fill-current text-success-foreground"
+                          : "size-3.5 shrink-0 text-muted-foreground"
+                      }
+                    />
                     {script.name}
                   </TooltipTrigger>
                   <TooltipPopup side="top">

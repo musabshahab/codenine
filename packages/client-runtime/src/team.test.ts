@@ -410,13 +410,13 @@ describe("teamAgentHeader", () => {
   const ref = { planId: TeamPlanId.make("plan-1"), taskId: TeamTaskId.make("b"), attempt: 1 };
 
   it.each([
-    ["running", "pending", 1, "Waiting"],
-    ["failed", "pending", 1, "Not started"],
-    ["running", "completed", 1, "Done"],
-    ["running", "pending", 2, "Retried"],
+    ["running", "pending", 1, "Waiting", "pending"],
+    ["failed", "pending", 1, "Not started", "not_started"],
+    ["running", "completed", 1, "Done", "completed"],
+    ["running", "pending", 2, "Retried", null],
   ] as const)(
     "in a %s plan, a %s task on attempt %i reads %s",
-    (planStatus, status, attempt, label) => {
+    (planStatus, status, attempt, label, taskStatus) => {
       const current = plan({
         status: planStatus,
         tasks: [task("a", "builder"), { ...task("b", "reviewer", ["a"]), status, attempt }],
@@ -426,6 +426,7 @@ describe("teamAgentHeader", () => {
         position: "Agent 2 of 2",
         modelSelection: { instanceId: codex, model: "gpt-strong" },
         status: label,
+        taskStatus,
       });
     },
   );

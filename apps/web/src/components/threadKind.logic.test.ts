@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { resolveThreadKind } from "./threadKind.logic";
+import { resolveAgentThreadKind, resolveThreadKind } from "./threadKind.logic";
 
 type KindInput = Parameters<typeof resolveThreadKind>[0];
 
@@ -51,5 +51,17 @@ describe("resolveThreadKind", () => {
     ],
   ] as const)("shows %s as %s", (_name, thread, kind) => {
     expect(resolveThreadKind(thread as KindInput)).toBe(kind);
+  });
+});
+
+describe("resolveAgentThreadKind", () => {
+  it.each([
+    ["a finished agent", idle, "completed", "done"],
+    ["a cancelled agent", idle, "cancelled", "failed"],
+    ["an agent at work", { ...idle, runtime: { status: "running" } }, "running", "running"],
+    ["an agent asking for approval", { ...idle, hasPendingApprovals: true }, "failed", "approval"],
+    ["a replaced attempt", idle, null, "chat"],
+  ] as const)("shows %s as %s", (_name, thread, taskStatus, kind) => {
+    expect(resolveAgentThreadKind(thread as KindInput, { taskStatus })).toBe(kind);
   });
 });

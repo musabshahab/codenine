@@ -44,8 +44,11 @@ export function useCompletedThreads(visibleCount: number, expanded: boolean) {
     visibleCount,
   });
   const visible = filterSidebarV2VisibleThreads(threads, null);
+  // A team agent's thread stays under its task, so the page lists the task, not each agent.
   const settled = sortSettledThreads(
-    visible.filter((thread) => thread.settledOverride === "settled"),
+    visible.filter(
+      (thread) => thread.settledOverride === "settled" && thread.source.teamTask === undefined,
+    ),
   );
   const listed = settled.filter(shelf.isListed);
   useOlderSettledShelfGrowth(shelf, listed);

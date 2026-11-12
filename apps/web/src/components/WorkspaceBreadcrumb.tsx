@@ -59,14 +59,14 @@ export function WorkspaceBreadcrumbItem({
 
 export function WorkspaceBreadcrumbSeparator({
   className,
-  children = <ChevronRightIcon className="size-3.5" />,
+  children,
 }: {
   readonly className?: string;
   readonly children?: ReactNode;
 }) {
   return (
     <li aria-hidden="true" className={cn("flex shrink-0 items-center text-icon-muted", className)}>
-      {children}
+      {children ?? <ChevronRightIcon className="size-3.5" />}
     </li>
   );
 }
