@@ -95,8 +95,9 @@ setting removes it from `settings.json`.
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
 or Claude accounts across your enabled environments and hubs you read one number per window rather than a
 list. Each window card shows how much of the pool is used and a bar with one segment per account,
-kept in the same column across windows. Bars fill as quota is used, and the line on a bar marks
-even pace for the time that has passed. Accounts are ordered by their next 5-hour refill, soonest
+kept in the same column across windows. Bars fill as quota is used. The arrow beside the percentage
+shows your pace: pointing up when you are using quota faster than the window is passing, down
+when slower. Accounts are ordered by their next 5-hour refill, soonest
 first. For an account with no weekly quota left, this is when its session becomes usable again.
 The first available window is used when no account reports a 5-hour limit. A gap means the
 account does not report that window. When the provider reports reset times, the card also says

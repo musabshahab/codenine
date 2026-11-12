@@ -15,14 +15,12 @@ import {
   formatResetsIn,
   type LimitPace,
   paceOf,
-  paceUsedPercent,
   windowUsedPercent,
 } from "@codenine/shared/usageLimits";
 import { GaugeIcon, TrendingDownIcon, TrendingUpIcon } from "lucide-react";
-import { Fragment, useLayoutEffect, useState } from "react";
+import { Fragment, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
-import { observeResize } from "../../lib/observeResize";
 import { environmentPresentations } from "../../state/presentation";
 import { useEnvironmentScope, readEnvironmentScope } from "../../state/session";
 import { serverEnvironment } from "../../state/server";
@@ -75,44 +73,6 @@ export function PaceIcon({ pace }: { readonly pace: LimitPace }) {
   );
 }
 
-// The tick sits in a transparent gap cut from the bar, clamped so it stays inside at 0% and 100%.
-// The gap is a clip-path slot rather than a mask: a mask composites its layer and re-antialiases
-// the bar's rounded ends, and the polygon reaches 1px past the box so only the slot edges clip.
-function paceMarkStyles(evenPace: number | null) {
-  if (evenPace === null) return null;
-  const at = `clamp(3px, ${evenPace}%, calc(100% - 3px))`;
-  const [left, right] = [`calc(${at} - 3px)`, `calc(${at} + 3px)`];
-  const [near, far] = ["-1px", "calc(100% + 1px)"];
-  return {
-    tick: { left: at },
-    gap: {
-      clipPath: `polygon(${near} ${near}, ${left} ${near}, ${left} ${far}, ${right} ${far}, ${right} ${near}, ${far} ${near}, ${far} ${far}, ${near} ${far})`,
-    },
-    // For a track painted on an element that also draws focus rings, which a clip would cut.
-    gappedTrack: {
-      backgroundColor: "transparent",
-      backgroundImage: `linear-gradient(to right, var(--color-muted) ${left}, transparent ${left}, transparent ${right}, var(--color-muted) ${right})`,
-    },
-  };
-}
-
-/**
- * Pace mark styles for the bar given the returned ref. Below 6px there is no room for the gap
- * and tick, so the bar draws neither, as the mobile bars do.
- */
-export function usePaceMark(evenPace: number | null) {
-  const [bar, setBar] = useState<HTMLElement | null>(null);
-  const [roomy, setRoomy] = useState(false);
-  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- measures the bar DOM width before paint and remeasures through a ResizeObserver
-  useLayoutEffect(() => {
-    if (!bar) return;
-    const measure = () => setRoomy(bar.getBoundingClientRect().width >= 6);
-    measure();
-    return observeResize(bar, measure);
-  }, [bar]);
-  return [setBar, roomy ? paceMarkStyles(evenPace) : null] as const;
-}
-
 function WindowBar({
   color,
   window,
@@ -124,22 +84,20 @@ function WindowBar({
 }) {
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
   const used = windowUsedPercent(window);
-  const evenPace = paceUsedPercent(window, now);
-  const [barRef, paceMark] = usePaceMark(evenPace);
+  const pace = paceOf(window, now);
   const resetsIn = formatResetsIn(window, now);
   const resetsAt = window.resetsAt
     ? formatUpcomingTimestamp(window.resetsAt, timestampFormat, now)
     : null;
-  const summary = `${window.label}: ${used}% used${
-    evenPace === null ? "" : `, ${evenPace}% of the window passed`
-  }${resetsIn ? `, ${resetsIn}` : ""}`;
+  const summary = [`${window.label}: ${used}% used`, pace ? PACE[pace].label : null, resetsIn]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <div
-            ref={barRef}
             role="img"
             aria-label={summary}
             tabIndex={0}
@@ -147,32 +105,18 @@ function WindowBar({
           />
         }
       >
-        {/* Clip both layers so the gap exposes even a translucent composer surface. */}
-        <div className="absolute inset-0" style={paceMark?.gap}>
-          <div className="absolute inset-x-0 inset-y-1.5 rounded-full bg-muted" />
-          {used > 0 ? (
-            <div
-              className="absolute inset-y-1.5 left-0 rounded-full"
-              style={{ width: `${used}%`, backgroundColor: color }}
-            />
-          ) : null}
-        </div>
-        {paceMark ? (
-          <span
-            aria-hidden
-            className="absolute inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
-            style={paceMark.tick}
+        <div className="absolute inset-x-0 inset-y-1.5 rounded-full bg-muted" />
+        {used > 0 ? (
+          <div
+            className="absolute inset-y-1.5 left-0 rounded-full"
+            style={{ width: `${used}%`, backgroundColor: color }}
           />
         ) : null}
       </TooltipTrigger>
       <TooltipPopup side="top">
         <div className="flex flex-col gap-0.5">
-          <span className="text-foreground">
-            {used}% used{evenPace !== null ? ` · ${evenPace}% of the window passed` : ""}
-          </span>
-          {evenPace !== null ? (
-            <span className="text-muted-foreground">The line is where even spending would be.</span>
-          ) : null}
+          <span className="text-foreground">{used}% used</span>
+          {pace ? <span className="text-muted-foreground">{PACE[pace].label}</span> : null}
           {resetsAt ? (
             <span className="text-muted-foreground">
               Resets {resetsAt}
