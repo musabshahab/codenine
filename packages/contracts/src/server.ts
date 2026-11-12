@@ -507,6 +507,8 @@ export const ServerConfig = Schema.Struct({
   secretRequestReferences: Schema.optionalKey(Schema.Boolean),
   scratchWorkspaceRoot: Schema.optionalKey(TrimmedNonEmptyString),
   newProjectsRoot: Schema.optionalKey(TrimmedNonEmptyString),
+  /** The server user's home directory; absent from older servers. */
+  homeDirectory: Schema.optionalKey(TrimmedNonEmptyString),
   /**
    * The latest stall long enough to notice, sent only for a few minutes after
    * it. A client that reconnects reads it to say why the host stopped

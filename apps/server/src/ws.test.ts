@@ -71,6 +71,7 @@ import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
+import * as HostProcess from "@codenine/shared/HostProcess";
 import * as RelayClient from "@codenine/shared/relayClient";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
@@ -898,6 +899,7 @@ it.effect.each([
           scratchRoot: Effect.succeedNone,
           namedProjectsRoot: process.cwd(),
         }),
+        Layer.succeed(HostProcess.HomeDirectory, "/home/config-test"),
         Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
         Layer.mock(ServerEnvironment.ServerEnvironment)({
           getDescriptor: Effect.succeed({
@@ -981,6 +983,7 @@ it.effect.each([
       );
       assert.isFalse(snapshot.config.settings.defaultAutoPull);
       assert.deepEqual(snapshot.config.keybindings, initialKeybindings);
+      assert.equal(snapshot.config.homeDirectory, "/home/config-test");
       const duringAck = yield* keybindings.upsertKeybindingRule({
         key: "mod+alt+y",
         command: "terminal.toggle",
