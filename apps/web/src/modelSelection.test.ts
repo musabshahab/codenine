@@ -241,6 +241,15 @@ describe("instance-scoped model selection", () => {
         (option) => option.slug,
       ),
     ).toContain("openai/gpt-5.5");
+    // An instance the server marks as OpenRouter names its models the way their makers do.
+    const [marked] = deriveProviderInstanceEntries([
+      { ...providers[1]!, auth: { status: "authenticated", type: "openrouter" } },
+    ]);
+    expect(
+      getAppModelOptionsForInstance(settingsWithProviderInstances(), marked!).find(
+        (option) => option.slug === "openai/gpt-5.5",
+      ),
+    ).toMatchObject({ name: "GPT-5.5", shortName: "GPT-5.5", subProvider: "OpenAI" });
   });
 
   it("preserves a custom slug that collides with a provider alias", () => {

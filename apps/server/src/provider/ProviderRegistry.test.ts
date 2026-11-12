@@ -2778,8 +2778,11 @@ it.layer(
         assert.strictEqual(snapshot.displayName, "OpenRouter");
         // Neither Claude's catalog nor the models Claude Code discovered through the gateway.
         assert.deepStrictEqual(
-          snapshot.models.map((model) => model.slug),
-          ["anthropic/claude-sonnet-5.5", "z-ai/glm-5.3"],
+          snapshot.models.map((model) => [model.slug, model.name, model.subProvider]),
+          [
+            ["anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5", "Anthropic"],
+            ["z-ai/glm-5.3", "GLM-5.3", "Z.ai"],
+          ],
         );
         assert.deepStrictEqual(
           snapshot.usageLimits,

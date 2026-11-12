@@ -17,6 +17,7 @@ import {
 } from "@codenine/shared/model";
 import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { type ClientSettings, UnifiedSettings } from "@codenine/contracts/settings";
+import { isOpenRouterProvider, openRouterModelName } from "@codenine/shared/openRouter";
 import { resolveModelPreferences } from "@codenine/shared/serverSettings";
 import * as Arr from "effect/Array";
 import * as Equal from "effect/Equal";
@@ -192,16 +193,18 @@ export function getAppModelOptionsForInstance(
   );
 
   const customModels = readInstanceCustomModels(settings, entry.instanceId);
+  const openRouter = isOpenRouterProvider(entry.snapshot);
   for (const custom of normalizeCustomModelEntries(customModels, builtInModelSlugs)) {
     if (seen.has(custom.slug)) {
       continue;
     }
 
     seen.add(custom.slug);
-    const shortName = resolveModelShortName(custom, entry.driverKind);
+    const shown = (openRouter && openRouterModelName(custom)) || { name: custom.name };
+    const shortName = resolveModelShortName(shown, entry.driverKind);
     options.push({
       slug: custom.slug,
-      name: custom.name,
+      ...shown,
       isCustom: true,
       ...(shortName ? { shortName } : {}),
     });

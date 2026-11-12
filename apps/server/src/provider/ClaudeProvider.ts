@@ -23,6 +23,7 @@ import {
   isOpenRouterBaseUrl,
   OPENROUTER_ACTIVITY_URL,
   OPENROUTER_AUTH_TYPE,
+  openRouterModelName,
 } from "@codenine/shared/openRouter";
 import { resolveSpawnCommand } from "@codenine/shared/shell";
 import {
@@ -98,7 +99,11 @@ function claudeInstanceModels(
   builtInModels: ReadonlyArray<ServerProviderModel>,
   customModels: ClaudeSettings["customModels"],
 ): ReadonlyArray<ServerProviderModel> {
-  return claudeProviderModels(openRouter ? [] : builtInModels, customModels);
+  if (!openRouter) return claudeProviderModels(builtInModels, customModels);
+  return claudeProviderModels([], customModels).map((model) => {
+    const shown = openRouterModelName(model);
+    return shown === null ? model : { ...model, ...shown };
+  });
 }
 
 function openRouterUsageLimits(checkedAt: string): ServerProviderUsageLimits {

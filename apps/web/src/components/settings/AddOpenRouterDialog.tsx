@@ -5,6 +5,7 @@ import {
   type ProviderDriverKind,
   type ProviderInstanceId,
 } from "@codenine/contracts";
+import { openRouterModelName } from "@codenine/shared/openRouter";
 import { useId, useState } from "react";
 
 import {
@@ -144,7 +145,12 @@ export function AddOpenRouterDialog({
                       disabled={isSaving}
                       onCheckedChange={(checked) => toggleModel(model, checked)}
                     />
-                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{model}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {openRouterModelName({ slug: model, name: model })?.name ?? model}
+                    </span>
+                    <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                      {model}
+                    </span>
                   </label>
                 ))}
               </div>
