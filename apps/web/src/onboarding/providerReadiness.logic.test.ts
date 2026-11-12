@@ -499,6 +499,18 @@ describe("setup terminal", () => {
     expect(output(typed, `${PASTE_OFF}\r\nNot found\r\n${PASTE_ON}$ `).command).toBe("finished");
   });
 
+  it("follows a command by its prompt in a shell without a line editor", () => {
+    const typed = followSetupTerminalCommand(
+      output(INITIAL_SETUP_TERMINAL_WATCH, "PS C:\\Users\\me> ", "irm https://x | iex"),
+    );
+    expect(typed.command).toBe("waiting");
+    const running = output(typed, "\r\n");
+    expect(running.command).toBe("running");
+    const progress = output(running, "Downloading 40%\r\n");
+    expect(progress.command).toBe("running");
+    expect(output(progress, "Done.\r\nPS C:\\Users\\me> ").command).toBe("finished");
+  });
+
   it("finishes a long command when the server sees its process end", () => {
     const typed = followSetupTerminalCommand(output(INITIAL_SETUP_TERMINAL_WATCH, `${PASTE_ON}$ `));
     const running = watchSetupTerminalBusy(output(typed, `${PASTE_OFF}\r\n`), true);

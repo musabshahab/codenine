@@ -342,14 +342,25 @@ export function watchSetupTerminalOutput(
   const on = text.lastIndexOf(BRACKETED_PASTE_ON);
   const off = text.lastIndexOf(BRACKETED_PASTE_OFF);
   const lineEditor = on === off ? watch.lineEditor : on > off ? "reading" : "running";
-  const tookLine = off >= 0 && off + BRACKETED_PASTE_OFF.length > freshFrom;
+  // Without a line editor, Enter shows as the line ending.
+  const tookLine =
+    lineEditor === null
+      ? data.includes("\n")
+      : off >= 0 && off + BRACKETED_PASTE_OFF.length > freshFrom;
+  const line = lastLine(text);
   let { command } = watch;
   if (command === "waiting" && tookLine) command = "running";
-  // A command shorter than one subprocess check only shows as the prompt coming back.
-  if (command === "running" && !watch.sawBusy && !watch.busy && lineEditor === "reading") {
+  // A command shorter than one subprocess check, or one the shell runs itself (PowerShell's
+  // installers), only shows as the prompt coming back.
+  if (
+    command === "running" &&
+    !watch.sawBusy &&
+    !watch.busy &&
+    (lineEditor === null ? showsPrompt(line) : lineEditor === "reading")
+  ) {
     command = "finished";
   }
-  return { ...watch, line: lastLine(text), lineEditor, command };
+  return { ...watch, line, lineEditor, command };
 }
 
 export function watchSetupTerminalBusy(
@@ -382,8 +393,11 @@ export function stopFollowingSetupTerminal(watch: SetupTerminalWatch): SetupTerm
  * over the prompt.
  */
 export function isSetupShellReady(watch: SetupTerminalWatch): boolean {
-  if (watch.lineEditor !== null) return watch.lineEditor === "reading";
-  const visible = stripTerminalControl(watch.line);
+  return watch.lineEditor !== null ? watch.lineEditor === "reading" : showsPrompt(watch.line);
+}
+
+function showsPrompt(rawLine: string): boolean {
+  const visible = stripTerminalControl(rawLine);
   const line = visible.slice(visible.lastIndexOf("\r") + 1).trimEnd();
   // zsh pads a lone `%` before its prompt; a real prompt has more to it.
   return line.length >= 2 && PROMPT_END.test(line);
