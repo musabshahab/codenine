@@ -215,6 +215,7 @@ import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
   useComposerDraftStore,
+  useComposerTeamRequested,
   DraftId,
 } from "../composerDraftStore";
 import { type TerminalContextDraft } from "../lib/terminalContext";
@@ -251,7 +252,8 @@ import {
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
-import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
+import { DraftHeroHeadline, DraftProjectPicker } from "./chat/DraftHeroHeadline";
+import { DraftRecentChats } from "./chat/DraftRecentChats";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
   BranchRestoreConfirmHost,
@@ -2649,7 +2651,17 @@ export default function ChatView(props: ChatViewProps) {
   const teamOffered =
     canOperateThread &&
     activeThread !== undefined &&
-    teamToggleAvailable({ lineage: activeThread.lineage, inTeam: threadTeamInfo !== null });
+    teamToggleAvailable({
+      lineage: activeThread.lineage,
+      inTeam: threadTeamInfo !== null,
+      inProject: !activeProjectIsScratch,
+    });
+  const draftTeamRequested = useComposerTeamRequested(composerDraftTarget);
+  const draftHeroKind = activeProjectIsScratch
+    ? "chat"
+    : teamOffered && draftTeamRequested
+      ? "team"
+      : "project";
   // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
   const sideChatsOffered =
     !embedded &&
@@ -3203,7 +3215,9 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadEnvironmentId={activeThread.environmentId}
               activeThreadId={activeThread.id}
               isServerThread={isServerThread}
-              activeThreadTitle={activeThread.title}
+              activeThreadTitle={
+                !isServerThread && draftHeroKind === "team" ? "New task" : activeThread.title
+              }
               activeProject={activeProject ?? null}
               parentThreadLink={headerParentThreadLink}
               teamAgent={teamAgentThread?.header ?? null}
@@ -3407,11 +3421,7 @@ export default function ChatView(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        <DraftHeroHeadline
-                          draftId={draftId}
-                          activeProjectRef={activeProjectRef}
-                          activeProjectTitle={activeProject?.title ?? null}
-                        />
+                        <DraftHeroHeadline kind={draftHeroKind} />
                       </div>
                     </div>
                   ) : null}
@@ -3516,6 +3526,26 @@ export default function ChatView(props: ChatViewProps) {
                                 sideChatAvailable={sideChat.available}
                                 sideChatDisabledReason={sideChatDisabledReason}
                                 teamOffered={teamOffered}
+                                projectPicker={
+                                  isDraftHeroState &&
+                                  isLocalDraftThread &&
+                                  !activeProjectIsScratch ? (
+                                    <DraftProjectPicker
+                                      draftId={draftId}
+                                      activeProjectRef={activeProjectRef}
+                                      activeProjectTitle={activeProject?.title ?? null}
+                                    />
+                                  ) : null
+                                }
+                                heroPlaceholder={
+                                  !isDraftHeroState
+                                    ? null
+                                    : draftHeroKind === "chat"
+                                      ? "Ask anything. Chats here are not tied to a project."
+                                      : draftHeroKind === "team"
+                                        ? "Describe the task. A lead agent will propose a team for you to approve."
+                                        : "Ask anything about this project."
+                                }
                                 onFreshSession={
                                   freshSessionCommandAvailable ? armFreshSessionStable : undefined
                                 }
@@ -3682,13 +3712,16 @@ export default function ChatView(props: ChatViewProps) {
                           {composerBannerItems.length > 0 ? (
                             <ComposerBannerStack items={composerBannerItems} detached />
                           ) : null}
-                          <ComposerTeamNote target={composerDraftTarget} offered={teamOffered} />
-                          <DraftHeroExamples
-                            target={composerDraftTarget}
-                            hasProject={activeProject !== null && !activeProjectIsScratch}
-                            teamOffered={teamOffered}
-                            composerRef={composerRef}
-                          />
+                          {activeProjectIsScratch ? (
+                            <DraftRecentChats />
+                          ) : (
+                            <DraftHeroExamples
+                              target={composerDraftTarget}
+                              hasProject={activeProject !== null}
+                              teamOffered={teamOffered}
+                              composerRef={composerRef}
+                            />
+                          )}
                         </div>
                       ) : (
                         <ComposerTeamNote

@@ -7,8 +7,11 @@ import type { OrchestrationV2AppThreadLineage } from "@codenine/contracts";
 export function teamToggleAvailable(input: {
   readonly lineage: Pick<OrchestrationV2AppThreadLineage, "relationshipToParent" | "sideChat">;
   readonly inTeam: boolean;
+  /** A team works in a project's folder; a chat in Chats has none. */
+  readonly inProject: boolean;
 }): boolean {
   return (
+    input.inProject &&
     !input.inTeam &&
     input.lineage.relationshipToParent !== "subagent" &&
     input.lineage.sideChat !== true

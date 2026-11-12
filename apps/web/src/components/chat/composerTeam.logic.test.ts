@@ -3,15 +3,21 @@ import { describe, expect, it } from "vite-plus/test";
 import { draftHeroExamples, sendsTeamRequest, teamToggleAvailable } from "./composerTeam.logic";
 
 describe("teamToggleAvailable", () => {
+  const top = { parent: null, sideChat: false, inTeam: false, inProject: true } as const;
   it.each([
-    { name: "a draft or top-level thread", parent: null, sideChat: false, inTeam: false, on: true },
-    { name: "a fork", parent: "fork", sideChat: false, inTeam: false, on: true },
-    { name: "a subagent", parent: "subagent", sideChat: false, inTeam: false, on: false },
-    { name: "a side chat", parent: "fork", sideChat: true, inTeam: false, on: false },
-    { name: "a lead or team agent", parent: null, sideChat: false, inTeam: true, on: false },
-  ] as const)("offers Team on $name: $on", ({ parent, sideChat, inTeam, on }) => {
+    { name: "a draft or top-level thread", ...top, on: true },
+    { name: "a fork", ...top, parent: "fork", on: true },
+    { name: "a subagent", ...top, parent: "subagent", on: false },
+    { name: "a side chat", ...top, parent: "fork", sideChat: true, on: false },
+    { name: "a lead or team agent", ...top, inTeam: true, on: false },
+    { name: "a chat without a project", ...top, inProject: false, on: false },
+  ] as const)("offers Team on $name: $on", ({ parent, sideChat, inTeam, inProject, on }) => {
     expect(
-      teamToggleAvailable({ lineage: { relationshipToParent: parent, sideChat }, inTeam }),
+      teamToggleAvailable({
+        lineage: { relationshipToParent: parent, sideChat },
+        inTeam,
+        inProject,
+      }),
     ).toBe(on);
   });
 });

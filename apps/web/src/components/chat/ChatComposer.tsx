@@ -353,6 +353,10 @@ export interface ChatComposerProps {
   sideChatDisabledReason?: string | null;
   /** Shows the Team toggle: a draft or top-level thread without a team. */
   teamOffered: boolean;
+  /** On a start screen: the chip that picks the project, beside Team. */
+  projectPicker?: React.ReactNode;
+  /** On a start screen: what to type, which depends on Chats, a project, or a team. */
+  heroPlaceholder?: string | null;
   /** Arms a fresh session for the next message; absent where `/clear` is unavailable. */
   onFreshSession?: (() => void) | undefined;
   environmentUnavailable: {
@@ -3228,10 +3232,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             ? "Choose an option above"
                             : "Type your own answer, or leave this blank to use the selected option"
                           : projectSelectionRequired
-                            ? "Choose a project above to start a thread"
+                            ? "Choose a project to start"
                             : showProviderUnavailable
                               ? "Set up an agent to send a message"
-                              : (offeredPromptSuggestion ?? DEFAULT_COMPOSER_PLACEHOLDER)
+                              : (offeredPromptSuggestion ??
+                                props.heroPlaceholder ??
+                                DEFAULT_COMPOSER_PLACEHOLDER)
                     }
                     placeholderSuffix={
                       offeredPromptSuggestion !== null ? (
@@ -3289,9 +3295,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   showMobilePendingAnswerActions && "hidden sm:flex",
                 )}
               >
-                {composerAttachButton || composerTeamToggle ? (
-                  <div className="me-2 flex shrink-0 items-center gap-1">
+                {composerAttachButton || props.projectPicker || composerTeamToggle ? (
+                  <div className="me-2 flex min-w-0 shrink items-center gap-1">
                     {composerAttachButton}
+                    {props.projectPicker}
                     {composerTeamToggle}
                   </div>
                 ) : null}
