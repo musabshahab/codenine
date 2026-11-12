@@ -8,6 +8,7 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@codenine/contracts";
+import { isOpenRouterProvider } from "@codenine/shared/openRouter";
 
 import { readCodexSetupMode } from "../components/settings/CodexSetupSection.logic";
 import { type AgentSetupDriver, getOnboardingProviderState } from "./providerReadiness.logic";
@@ -103,7 +104,7 @@ export function agentSetupState(
 
 /**
  * The instance a fixed card shows: a ready one of its driver, so a signed-in second account is
- * not hidden behind a signed-out default, else the default.
+ * not hidden behind a signed-out default, else the default. OpenRouter is listed as its own agent.
  */
 export function welcomeCardInstanceId(
   providers: ReadonlyArray<ServerProvider> | null | undefined,
@@ -111,15 +112,23 @@ export function welcomeCardInstanceId(
   settings: ComputerSettings | null | undefined,
 ): ProviderInstanceId {
   const ready = providers?.find(
-    (provider) => provider.driver === driver && welcomeAgentState(provider, settings) === "ready",
+    (provider) =>
+      provider.driver === driver &&
+      !isOpenRouterProvider(provider) &&
+      welcomeAgentState(provider, settings) === "ready",
   );
   return ready?.instanceId ?? defaultInstanceIdForDriver(ProviderDriverKind.make(driver));
 }
 
-/** Continue names the agent it leaves out when only one of the two cards is ready. */
+/**
+ * Continue names the agent it leaves out when only one of the two cards is ready. A ready
+ * OpenRouter agent runs on Claude Code and reaches both vendors' models, so it leaves out neither.
+ */
 export function welcomeContinueWithout(
   cards: ReadonlyArray<{ readonly name: string; readonly ready: boolean }>,
+  openRouterReady: boolean,
 ): string | null {
+  if (openRouterReady) return null;
   const missing = cards.filter((card) => !card.ready);
   return missing.length === 1 && cards.length - missing.length === 1 ? missing[0]!.name : null;
 }

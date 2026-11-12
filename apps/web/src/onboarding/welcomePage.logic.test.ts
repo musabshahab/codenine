@@ -152,6 +152,17 @@ describe("agent cards", () => {
         undefined,
       ),
     ).toBe("claudeAgent");
+    // OpenRouter runs on Claude Code but is its own agent, never the Claude Code card.
+    expect(
+      welcomeCardInstanceId(
+        [
+          claude("claudeAgent", signedOut),
+          claude("openrouter", { auth: { status: "authenticated", type: "openrouter" } }),
+        ],
+        "claudeAgent",
+        undefined,
+      ),
+    ).toBe("claudeAgent");
   });
 
   it("checks Codex again after a switch from ChatGPT sign-in to its CLI", () => {
@@ -177,10 +188,12 @@ describe("agent cards", () => {
       { name: "Claude Code", ready: claude },
       { name: "Codex", ready: codex },
     ];
-    expect(welcomeContinueWithout(cards(true, false))).toBe("Codex");
-    expect(welcomeContinueWithout(cards(false, true))).toBe("Claude Code");
-    expect(welcomeContinueWithout(cards(true, true))).toBeNull();
-    expect(welcomeContinueWithout(cards(false, false))).toBeNull();
+    expect(welcomeContinueWithout(cards(true, false), false)).toBe("Codex");
+    expect(welcomeContinueWithout(cards(false, true), false)).toBe("Claude Code");
+    expect(welcomeContinueWithout(cards(true, true), false)).toBeNull();
+    expect(welcomeContinueWithout(cards(false, false), false)).toBeNull();
+    // A ready OpenRouter agent reaches both vendors' models.
+    expect(welcomeContinueWithout(cards(false, true), true)).toBeNull();
   });
 });
 

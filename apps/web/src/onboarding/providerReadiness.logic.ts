@@ -8,6 +8,7 @@ import {
   type ServerSettings,
 } from "@codenine/contracts";
 import { isLoopbackHost } from "@codenine/shared/loopbackHost";
+import { isOpenRouterProvider } from "@codenine/shared/openRouter";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -245,6 +246,8 @@ export function agentSetupAction(
     case "signIn":
     case "attention":
       if (isBrokenVersion(provider)) return "update";
+      // OpenRouter signs in with the API key in its Settings, not with `claude auth login`.
+      if (isOpenRouterProvider(provider)) return "details";
       // A check that failed without an account still gets the sign-in command.
       return state === "signIn" ||
         (isProviderAvailable(provider) &&

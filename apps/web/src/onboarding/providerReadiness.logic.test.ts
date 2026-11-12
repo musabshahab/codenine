@@ -358,6 +358,21 @@ describe("agent card", () => {
         codex({ driver: ProviderDriverKind.make("cursor"), auth: { status: "unauthenticated" } }),
       ),
     ).toBe(false);
+    // OpenRouter's key is fixed in Settings; only a missing Claude Code installs from a terminal.
+    const openRouter = (overrides: Partial<ServerProvider>) =>
+      codex({ driver: ProviderDriverKind.make("claudeAgent"), ...overrides });
+    expect(
+      canSetUpInTerminal(openRouter({ auth: { status: "unauthenticated", type: "openrouter" } })),
+    ).toBe(false);
+    expect(
+      canSetUpInTerminal(
+        openRouter({
+          installed: false,
+          status: "error",
+          auth: { status: "unknown", type: "openrouter" },
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("types the next step's command once a command finishes", () => {

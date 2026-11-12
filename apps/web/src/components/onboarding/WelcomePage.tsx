@@ -7,6 +7,7 @@ import {
   squashAtomCommandFailure,
 } from "@codenine/client-runtime/state/runtime";
 import { AuthProvidersManageScope } from "@codenine/contracts";
+import { isOpenRouterProvider } from "@codenine/shared/openRouter";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { CheckIcon, ChevronDownIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -37,10 +38,12 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { providerInstanceIconKind } from "../../providerInstances";
+import { AddOpenRouterDialog } from "../settings/AddOpenRouterDialog";
 import { getProviderSummary } from "../settings/providerStatus";
 import { useDesktopCliCommand } from "../settings/CliCommandSettingsRow";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { SidebarInset } from "../ui/sidebar";
 import { toastManager } from "../ui/toast";
@@ -69,7 +72,10 @@ export function WelcomePage({
   const label = environment?.label ?? "this computer";
   const welcomeAgents = useWelcomeAgents(environmentId);
   const agentReady = welcomeAgents.readyCount > 0;
-  const continueWithout = welcomeContinueWithout(welcomeAgents.cards);
+  const continueWithout = welcomeContinueWithout(
+    welcomeAgents.cards,
+    welcomeAgents.openRouterReady,
+  );
   const [step, setStep] = useState<WelcomeStep>("agents");
   const handleNewThread = useNewThreadHandler();
   const { scratchEnvironmentId, openScratchProject } = useScratchProject();
@@ -181,7 +187,11 @@ export function WelcomePage({
             {step === "agents" ? (
               <>
                 <div className="mt-8 border-t border-border/60">
-                  <AgentsSection environmentId={environmentId} isPrimary={isPrimary} />
+                  <AgentsSection
+                    environmentId={environmentId}
+                    environmentLabel={label}
+                    isPrimary={isPrimary}
+                  />
                 </div>
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
                   {!agentReady ? (
@@ -280,15 +290,22 @@ function useWelcomeAgents(environmentId: EnvironmentId) {
   return {
     serverConfig,
     cards,
+    openRouterReady:
+      providers?.some(
+        (provider) =>
+          isOpenRouterProvider(provider) && welcomeAgentState(provider, settings) === "ready",
+      ) ?? false,
     ...groupWelcomeAgents(providers, settings, agentName),
   };
 }
 
 function AgentsSection({
   environmentId,
+  environmentLabel,
   isPrimary,
 }: {
   readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string;
   readonly isPrimary: boolean;
 }) {
   const { serverConfig, cards, found, available } = useWelcomeAgents(environmentId);
@@ -298,6 +315,7 @@ function AgentsSection({
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [addingOpenRouter, setAddingOpenRouter] = useState(false);
   // A second Claude or Codex account opens the same card in a dialog.
   const [setupFor, setSetupFor] = useState<{
     readonly driver: AgentSetupDriver;
@@ -375,7 +393,9 @@ function AgentsSection({
     // Settings updates a broken CLI the way it was installed, including a custom binary path.
     if (isBrokenVersion(provider)) return settingsAction("Update");
     const { driver } = provider;
-    if (isAgentSetupDriver(driver) && (state === "install" || state === "signIn")) {
+    // An OpenRouter agent signs in with the API key in its Settings.
+    const signIn = state === "signIn" && !isOpenRouterProvider(provider);
+    if (isAgentSetupDriver(driver) && (state === "install" || signIn)) {
       return (
         <Button
           size="xs"
@@ -389,7 +409,7 @@ function AgentsSection({
       );
     }
     return settingsAction(
-      state === "signIn" ? "Sign in" : state === "attention" ? "Details" : "Set up",
+      signIn ? "Sign in" : state === "attention" || state === "signIn" ? "Details" : "Set up",
     );
   };
 
@@ -409,6 +429,13 @@ function AgentsSection({
           />
         ))}
       </div>
+      {canManageProviders && ![...found, ...available].some(isOpenRouterProvider) ? (
+        <div className="pb-1 text-xs">
+          <InlineButton tone="muted" onClick={() => setAddingOpenRouter(true)}>
+            Have an OpenRouter API key? Use it instead of signing in
+          </InlineButton>
+        </div>
+      ) : null}
       {otherFound.length > 0 ? (
         <div className="mt-2">
           {otherFound.map((provider) => (
@@ -459,6 +486,13 @@ function AgentsSection({
           onClose={() => setSetupFor(null)}
         />
       ) : null}
+      {addingOpenRouter ? (
+        <AddOpenRouterDialog
+          environmentId={environmentId}
+          environmentLabel={environmentLabel}
+          onClose={() => setAddingOpenRouter(false)}
+        />
+      ) : null}
     </WelcomeSection>
   );
 }
@@ -471,7 +505,7 @@ function AgentLogoStack({ providers }: { readonly providers: ReadonlyArray<Serve
       {providers.slice(0, 6).map((provider) => (
         <ProviderInstanceIcon
           key={provider.instanceId}
-          driverKind={provider.driver}
+          driverKind={providerInstanceIconKind(provider)}
           displayName={agentName(provider)}
           iconClassName="size-3.5"
         />
@@ -514,7 +548,7 @@ function AgentRow({
     <div className={cn("flex items-center gap-3", compact ? "min-h-9" : "min-h-10 py-1")}>
       <RowIcon>
         <ProviderInstanceIcon
-          driverKind={provider.driver}
+          driverKind={providerInstanceIconKind(provider)}
           displayName={name}
           iconClassName={compact ? "size-4" : "size-[18px]"}
         />

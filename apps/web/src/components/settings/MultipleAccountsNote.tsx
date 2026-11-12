@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { codenineDocsUrl, type EnvironmentId, type ProviderDriverKind } from "@codenine/contracts";
+import { isOpenRouterProvider } from "@codenine/shared/openRouter";
 import { InfoIcon } from "lucide-react";
 
 import { serverEnvironment } from "../../state/server";
@@ -27,7 +28,11 @@ export function MultipleAccountsNote({
   const hasSignedInAccount =
     providerName !== undefined &&
     providers?.some(
-      (provider) => provider.driver === driver && provider.auth.status === "authenticated",
+      (provider) =>
+        provider.driver === driver &&
+        // An OpenRouter key is not a Claude account.
+        !isOpenRouterProvider(provider) &&
+        provider.auth.status === "authenticated",
     );
   if (!hasSignedInAccount) return null;
   return (

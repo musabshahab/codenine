@@ -46,15 +46,22 @@ import {
   type WizardNavigation,
 } from "./AddProviderInstanceDialog.logic";
 import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps";
+import { AddOpenRouterDialog } from "./AddOpenRouterDialog";
 import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
 import { MultipleAccountsNote } from "./MultipleAccountsNote";
 
 const INSTANCE_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 const DEFAULT_DRIVER_OPTION = providerClients.definitions[0]!;
-const FEATURED_DRIVER_OPTIONS = providerClients.definitions.filter(
-  (option) => option.featured !== false,
-);
+// Not a driver: a Claude instance pointed at OpenRouter, which its own dialog sets up.
+const OPENROUTER_OPTION = {
+  driverKind: ProviderDriverKind.make("openrouter"),
+  label: "OpenRouter",
+};
+const FEATURED_DRIVER_OPTIONS = [
+  ...providerClients.definitions.filter((option) => option.featured !== false),
+  OPENROUTER_OPTION,
+];
 const MORE_DRIVER_OPTIONS = providerClients.definitions.filter(
   (option) => option.featured === false,
 );
@@ -75,7 +82,9 @@ function ProviderOptionGrid({
   onValueChange,
   ...labelProps
 }: {
-  readonly options: ReadonlyArray<ProviderClientDefinition>;
+  readonly options: ReadonlyArray<
+    Pick<ProviderClientDefinition, "driverKind" | "label" | "badgeLabel">
+  >;
   readonly value: ProviderDriverKind;
   readonly onValueChange: (value: string) => void;
   readonly "aria-label"?: string;
@@ -143,6 +152,7 @@ export function AddProviderInstanceDialog({
 
   const [wizardStep, setWizardStep] = useState(0);
   const [addingChatGptAccount, setAddingChatGptAccount] = useState(false);
+  const [addingOpenRouter, setAddingOpenRouter] = useState(false);
   const featuredDriverOptions = FEATURED_DRIVER_OPTIONS;
   const moreDriverOptions = MORE_DRIVER_OPTIONS;
   const [driver, setDriver] = useState<ProviderDriverKind>(
@@ -164,6 +174,7 @@ export function AddProviderInstanceDialog({
     ...Object.keys(settings.providerInstances ?? {}),
   ]);
 
+  const openRouterChosen = driver === OPENROUTER_OPTION.driverKind;
   const driverOption = providerClients.get(driver) ?? DEFAULT_DRIVER_OPTION;
   const defaultIdentity: ProviderIdentityDraft = {
     label: driverOption.label,
@@ -275,6 +286,17 @@ export function AddProviderInstanceDialog({
     onOpenChange(false);
   };
 
+  if (addingOpenRouter) {
+    return (
+      <AddOpenRouterDialog
+        environmentId={environmentId}
+        environmentLabel={environmentLabel}
+        onClose={() => onOpenChange(false)}
+        onCreated={onCreated}
+      />
+    );
+  }
+
   if (addingChatGptAccount) {
     return (
       <AddManagedCodexAccountDialog
@@ -296,7 +318,7 @@ export function AddProviderInstanceDialog({
             currentStep={wizardStep}
             summaries={wizardStepSummaries}
             instanceIdError={instanceIdError}
-            disabled={isSaving}
+            disabled={isSaving || openRouterChosen}
             onNavigation={applyWizardNavigation}
           />
         </WizardHeader>
@@ -452,6 +474,10 @@ export function AddProviderInstanceDialog({
                 </Button>
                 <ChatGptConnectionButton size="sm" onClick={() => setAddingChatGptAccount(true)} />
               </>
+            ) : wizardStep === 0 && openRouterChosen ? (
+              <Button size="sm" onClick={() => setAddingOpenRouter(true)}>
+                Next
+              </Button>
             ) : wizardStep < 2 ? (
               <Button size="sm" onClick={() => navigateToStep(wizardStep + 1)}>
                 Next

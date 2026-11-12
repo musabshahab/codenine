@@ -2,6 +2,9 @@ import type { ServerProvider } from "@codenine/contracts";
 
 import { normalizeHostname } from "./hostClassification.ts";
 
+/** OpenRouter's Anthropic-compatible API, which Claude Code runs against with any OpenRouter model. */
+export const OPENROUTER_ANTHROPIC_BASE_URL = "https://openrouter.ai/api";
+
 export const OPENROUTER_AUTH_TYPE = "openrouter";
 
 export const OPENROUTER_ACTIVITY_URL = "https://openrouter.ai/activity";
