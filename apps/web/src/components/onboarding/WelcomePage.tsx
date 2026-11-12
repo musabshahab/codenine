@@ -19,6 +19,7 @@ import { usePersistEnvironmentProviderInstanceMutation } from "../../hooks/useSe
 import { workspaceAreaProps } from "../../lib/workspaceFocus";
 import { completeOnboarding } from "../../onboarding/firstRun";
 import {
+  AGENT_SETUP_DRIVERS,
   type AgentSetupDriver,
   isAgentSetupDriver,
   isBrokenVersion,
@@ -261,14 +262,12 @@ function RowIcon({ children }: { readonly children: ReactNode }) {
   );
 }
 
-const CARD_DRIVERS = ["claudeAgent", "codex"] as const;
-
 // Shared by the page (to enable Continue) and the agents section, so both agree on what is ready.
 function useWelcomeAgents(environmentId: EnvironmentId) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const settings = serverConfig?.settings;
-  const cards = CARD_DRIVERS.map((driver) => {
+  const cards = AGENT_SETUP_DRIVERS.map((driver) => {
     const instanceId = welcomeCardInstanceId(providers, driver, settings);
     const provider = providers?.find((candidate) => candidate.instanceId === instanceId);
     return {
@@ -456,8 +455,7 @@ function AgentsSection({
       {setupFor !== null ? (
         <AgentSetupDialog
           environmentId={environmentId}
-          driver={setupFor.driver}
-          instanceId={setupFor.instanceId}
+          agent={setupFor}
           onClose={() => setSetupFor(null)}
         />
       ) : null}

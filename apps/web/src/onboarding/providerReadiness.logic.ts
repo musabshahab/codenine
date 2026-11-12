@@ -71,6 +71,12 @@ const NATIVE_INSTALL_COMMANDS = {
 /** The agents Codenine sets up from a terminal: their own CLIs, installed and signed in. */
 export type AgentSetupDriver = keyof typeof NATIVE_INSTALL_COMMANDS;
 
+/** The agents the Welcome page and the setup dialog always show, in order. */
+export const AGENT_SETUP_DRIVERS = [
+  "claudeAgent",
+  "codex",
+] as const satisfies ReadonlyArray<AgentSetupDriver>;
+
 export const isAgentSetupDriver = (driver: string): driver is AgentSetupDriver =>
   Object.hasOwn(NATIVE_INSTALL_COMMANDS, driver);
 

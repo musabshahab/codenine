@@ -112,8 +112,7 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
       <Suspense fallback={null}>
         <AgentSetupDialog
           environmentId={environmentId}
-          driver={setupFor.driver}
-          instanceId={setupFor.instanceId}
+          agent={setupFor}
           onClose={() => setSetupFor(null)}
         />
       </Suspense>

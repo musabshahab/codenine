@@ -66,6 +66,8 @@ export function ComposerControlsBar(props: {
   showProviderUnavailable: boolean;
   providerSetupInstanceId: ProviderInstanceId | undefined;
   onOpenProviderSetup: ChatComposerProps["onOpenProviderSetup"];
+  /** Opens the Claude Code and Codex setup cards when no provider can take a message. */
+  onOpenAgentSetup: () => void;
   providerCatalogPending: boolean;
   isSendBusy: boolean;
   multipleModelsEnabled: boolean;
@@ -110,6 +112,7 @@ export function ComposerControlsBar(props: {
     showProviderUnavailable,
     providerSetupInstanceId,
     onOpenProviderSetup,
+    onOpenAgentSetup,
     providerCatalogPending,
     isSendBusy,
     multipleModelsEnabled,
@@ -246,17 +249,18 @@ export function ComposerControlsBar(props: {
   return showProviderUnavailable ? (
     <ComposerControl
       type="button"
-      disabled={!providerSetupInstanceId}
       onClick={() => {
         if (providerSetupInstanceId) {
           onOpenProviderSetup(providerSetupInstanceId);
+        } else {
+          onOpenAgentSetup();
         }
       }}
       data-chat-provider-unavailable="true"
       className="shrink-0"
     >
       <CircleAlertIcon className="size-4" />
-      {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
+      {providerSetupInstanceId ? "Open provider settings" : "Set up agents"}
     </ComposerControl>
   ) : (
     <>

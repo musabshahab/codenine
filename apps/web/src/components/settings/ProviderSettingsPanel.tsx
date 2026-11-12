@@ -1223,8 +1223,7 @@ function ProviderInstanceRow({
       {setupOpen && setupDriver !== null ? (
         <AgentSetupDialog
           environmentId={environmentId}
-          driver={setupDriver}
-          instanceId={instanceId}
+          agent={{ driver: setupDriver, instanceId }}
           onClose={() => setSetupOpen(false)}
         />
       ) : null}

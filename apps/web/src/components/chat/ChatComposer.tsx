@@ -449,6 +449,8 @@ export interface ChatComposerProps {
     options?: { focusComposer?: boolean },
   ) => void;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
+  /** Opens the Claude Code and Codex setup cards when no provider can take a message. */
+  onOpenAgentSetup: () => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
 
@@ -539,6 +541,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onChangeActivePendingUserInputCustomAnswer,
     onProviderModelSelect,
     onOpenProviderSetup,
+    onOpenAgentSetup,
     getModelDisabledReason,
     handleRuntimeModeChange,
     focusComposer,
@@ -2200,6 +2203,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       showProviderUnavailable={showProviderUnavailable}
       providerSetupInstanceId={providerSetupInstanceId}
       onOpenProviderSetup={onOpenProviderSetup}
+      onOpenAgentSetup={onOpenAgentSetup}
       providerCatalogPending={providerCatalogPending}
       isSendBusy={isSendBusy}
       multipleModelsEnabled={routeKind === "draft" && supportsMultipleModels}
@@ -3062,7 +3066,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   aria-label="Expand composer"
                 >
                   {prompt.trim() ||
-                    (showProviderUnavailable ? "Enable a provider in Settings" : "Ask anything...")}
+                    (showProviderUnavailable ? "Set up an agent" : "Ask anything...")}
                 </button>
                 {collapsedComposerImagePreviews}
                 <button
@@ -3226,7 +3230,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           : projectSelectionRequired
                             ? "Choose a project above to start a thread"
                             : showProviderUnavailable
-                              ? "Enable a provider in Settings to send a message"
+                              ? "Set up an agent to send a message"
                               : (offeredPromptSuggestion ?? DEFAULT_COMPOSER_PLACEHOLDER)
                     }
                     placeholderSuffix={

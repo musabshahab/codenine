@@ -119,7 +119,16 @@ import { resolveProjectSettings } from "@codenine/shared/projectSettings";
 import { resolveThreadReferenceCopyTarget } from "@codenine/client-runtime/thread-reference";
 import { resolveTerminalSessionLabel } from "@codenine/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
-import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type SetStateAction,
+  lazy,
+  Suspense,
+  use,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
 import { WorkspaceMutationIdContext } from "./chat/ChatMarkdownMedia";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -391,7 +400,11 @@ type ChatViewProps =
 
 const DismissedFallbackWindowSchema = Schema.NullOr(Schema.String);
 
+const AgentSetupDialog = lazy(() => import("./onboarding/AgentSetupDialog"));
+
 export default function ChatView(props: ChatViewProps) {
+  const [agentSetupOpen, setAgentSetupOpen] = useState(false);
+  const openAgentSetup = useStableCallback(() => setAgentSetupOpen(true));
   const {
     environmentId,
     threadId,
@@ -3190,6 +3203,14 @@ export default function ChatView(props: ChatViewProps) {
               setThreadError={setThreadError}
               setThreadErrorBannerDismissTick={setThreadErrorBannerDismissTick}
             />
+            {agentSetupOpen ? (
+              <Suspense fallback={null}>
+                <AgentSetupDialog
+                  environmentId={activeThread.environmentId}
+                  onClose={() => setAgentSetupOpen(false)}
+                />
+              </Suspense>
+            ) : null}
             <div
               {...conversationArea}
               className="relative flex min-h-0 flex-1 flex-col bg-background"
@@ -3519,6 +3540,7 @@ export default function ChatView(props: ChatViewProps) {
                                 }
                                 onProviderModelSelect={onProviderModelSelectStable}
                                 onOpenProviderSetup={openProviderSetupStable}
+                                onOpenAgentSetup={openAgentSetup}
                                 getModelDisabledReason={getModelDisabledReason}
                                 handleRuntimeModeChange={handleRuntimeModeChangeStable}
                                 focusComposer={focusComposerStable}
