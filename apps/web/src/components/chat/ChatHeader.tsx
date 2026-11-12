@@ -11,7 +11,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@codenine/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, FolderIcon, MessageCircleIcon, PinIcon } from "lucide-react";
 import {
   memo,
   useEffect,
@@ -24,6 +24,11 @@ import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
+import { readChatFolderNames, useChatFolders } from "~/hooks/useChatFolders";
+import { useThreadActions } from "~/hooks/useThreadActions";
+import { useQuietThreadShell } from "../../state/entities";
+import { buildChatFolderMenuItems, resolveThreadFolderChoice } from "../threadActionMenu.logic";
+import { Button } from "../ui/button";
 import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -78,6 +83,45 @@ function resolveRenameCommit(input: {
   return { action: "commit", title: trimmed };
 }
 
+/** Pins a chat to the top of Chats, like Linear's star beside a title. */
+function ChatPinToggle(props: { threadRef: ScopedThreadRef; pinned: boolean; disabled: boolean }) {
+  const { pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { threadRef, pinned } = props;
+  const label = pinned ? "Unpin chat" : "Pin chat";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost-muted"
+            aria-label={label}
+            aria-pressed={pinned}
+            disabled={props.disabled}
+            onClick={() => {
+              void (pinned ? confirmAndUnpinThread(threadRef) : pinThread(threadRef)).then(
+                (result) => {
+                  if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+                  const error = squashAtomCommandFailure(result);
+                  toastManager.add({
+                    type: "error",
+                    title: pinned ? "Failed to unpin chat" : "Failed to pin chat",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                  });
+                },
+              );
+            }}
+          />
+        }
+      >
+        <PinIcon aria-hidden fill={pinned ? "currentColor" : "none"} />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 // Delay the input-swallowing native menu through the double-click rename interval.
 const TITLE_MENU_OPEN_DELAY_MS = 500;
 export const ChatHeader = memo(function ChatHeader({
@@ -101,14 +145,18 @@ export const ChatHeader = memo(function ChatHeader({
   threadPanelPopoverHandle,
   onToggleThreadPanel,
 }: ChatHeaderProps) {
-  const activeProjectName = activeProject?.isScratch ? "No project" : activeProject?.title;
+  const isChat = activeProject?.isScratch === true;
+  const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
+  const chatShell = useQuietThreadShell(isChat && isServerThread ? activeThreadRef : null);
+  const chatFolder = chatShell?.folder ?? null;
+  // A chat names its folder where a thread names its project.
+  const activeProjectName = isChat ? (chatFolder ?? "Chats") : activeProject?.title;
   // A team agent's crumb names the agent; its title, the task it runs, stays in the tooltip.
   const crumbTitle = teamAgent?.label ?? activeThreadTitle;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const interfaceFont = useClientSettings((settings) => settings.fontFamilySans);
   const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
   const [collapseParentTitle, setCollapseParentTitle] = useState(false);
-  const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
   const canOperateThread = useEnvironmentScope(
     activeThreadEnvironmentId,
     AuthOrchestrationOperateScope,
@@ -286,6 +334,24 @@ export const ChatHeader = memo(function ChatHeader({
     }
     openMenu({ x: event.clientX, y: event.clientY });
   };
+  const chatFolders = useChatFolders();
+  const openFolderMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    const api = readLocalApi();
+    if (!api) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const names = readChatFolderNames();
+    void api.contextMenu
+      .show(buildChatFolderMenuItems({ names, current: chatFolder }), {
+        x: rect.left,
+        y: rect.bottom + 4,
+      })
+      .then((action) => {
+        const choice = action === null ? null : resolveThreadFolderChoice(action, names);
+        if (choice === "new") void chatFolders.moveToNewFolder(activeThreadRef);
+        else if (choice !== null) void chatFolders.moveToFolder(activeThreadRef, choice.folder);
+      });
+  };
+  const movesChat = isChat && isServerThread && canOperateThread;
   const handleRenameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter") {
@@ -317,18 +383,33 @@ export const ChatHeader = memo(function ChatHeader({
                   render={
                     <button
                       type="button"
-                      aria-label={`New chat in ${activeProjectName}`}
-                      onClick={onNewThreadInProject}
+                      aria-label={
+                        movesChat
+                          ? `Move to folder, now in ${activeProjectName}`
+                          : `New chat in ${activeProjectName}`
+                      }
+                      aria-haspopup={movesChat ? "menu" : undefined}
+                      onClick={movesChat ? openFolderMenu : onNewThreadInProject}
                       className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                     />
                   }
                 >
-                  <ProjectFavicon project={activeProject} className="size-3.5" />
+                  {isChat ? (
+                    chatFolder === null ? (
+                      <MessageCircleIcon aria-hidden className="size-3.5 shrink-0" />
+                    ) : (
+                      <FolderIcon aria-hidden className="size-3.5 shrink-0" />
+                    )
+                  ) : (
+                    <ProjectFavicon project={activeProject} className="size-3.5" />
+                  )}
                   <WorkspaceBreadcrumbText className="max-w-40">
                     {activeProjectName}
                   </WorkspaceBreadcrumbText>
                 </TooltipTrigger>
-                <TooltipPopup side="top">New chat in {activeProjectName}</TooltipPopup>
+                <TooltipPopup side="top">
+                  {movesChat ? "Move to folder" : `New chat in ${activeProjectName}`}
+                </TooltipPopup>
               </Tooltip>
             </WorkspaceBreadcrumbItem>
             <WorkspaceBreadcrumbSeparator>
@@ -435,6 +516,13 @@ export const ChatHeader = memo(function ChatHeader({
               <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
             </Tooltip>
           )}
+          {isChat && chatShell !== null && renamingTitle === null ? (
+            <ChatPinToggle
+              threadRef={activeThreadRef}
+              pinned={chatShell.pinnedAt != null}
+              disabled={!canOperateThread}
+            />
+          ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
       {isServerThread ? (

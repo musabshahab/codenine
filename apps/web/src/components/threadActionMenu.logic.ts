@@ -101,6 +101,24 @@ export interface ThreadActionMenuState {
   } | null;
 }
 
+/** A chat's folders with its own checked, a new one, and the way out of its folder. */
+export function buildChatFolderMenuItems(folders: {
+  readonly names: readonly string[];
+  readonly current: string | null;
+}): Array<ContextMenuItem<`folder:${string}`>> {
+  return [
+    ...folders.names.map((name, index) => ({
+      id: `folder:${index}` as const,
+      label: name,
+      checked: name === folders.current,
+    })),
+    { id: "folder:new", label: "New folder…", separatorBefore: folders.names.length > 0 },
+    ...(folders.current === null
+      ? []
+      : [{ id: "folder:none" as const, label: "Remove from folder" }]),
+  ];
+}
+
 /** The chat folder a clicked menu entry moves the chat to, "new" to name one first, or null. */
 export function resolveThreadFolderChoice(
   id: ThreadActionMenuId,
@@ -157,21 +175,7 @@ export function buildThreadActionMenuItems(
             id: "move-to-folder" as const,
             label: "Move to folder",
             icon: "folder",
-            children: [
-              ...state.chatFolders.names.map((name, index) => ({
-                id: `folder:${index}` as const,
-                label: name,
-                checked: name === state.chatFolders?.current,
-              })),
-              {
-                id: "folder:new" as const,
-                label: "New folder…",
-                separatorBefore: state.chatFolders.names.length > 0,
-              },
-              ...(state.chatFolders.current === null
-                ? []
-                : [{ id: "folder:none" as const, label: "Remove from folder" }]),
-            ],
+            children: buildChatFolderMenuItems(state.chatFolders),
           },
         ]
       : []),
