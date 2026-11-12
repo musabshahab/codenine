@@ -3684,10 +3684,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           scratchMachineLabel: scratchMachineLabelFor(thread),
                           project:
                             projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null,
-                          projectDisplayName:
-                            projectDisplayNameByKey.get(
-                              `${thread.environmentId}:${thread.projectId}`,
-                            ) ?? null,
+                          // A chat has no project to name, so its row names its folder.
+                          projectDisplayName: isChatThread(thread)
+                            ? (thread.folder ?? null)
+                            : (projectDisplayNameByKey.get(
+                                `${thread.environmentId}:${thread.projectId}`,
+                              ) ?? null),
                           providerEntryByInstanceId:
                             providerEntriesByEnvironment.get(thread.environmentId) ??
                             EMPTY_PROVIDER_ENTRIES,
