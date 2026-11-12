@@ -50,16 +50,23 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Projects and Chats
+
+The switch under the search box picks what the sidebar lists: **Projects** shows the threads in
+your projects, and **Chats** shows the chats without a project. Opening a thread switches to the
+list that holds it. Switching yourself reopens the thread you last opened in that list, or starts a
+new chat when Chats is empty. Search, **New chat**, and the **Done** shelf follow the list you are
+on, and each device remembers the last one.
+
 ## Group chats by project
 
-By default, the sidebar groups chats by project. From the top it shows:
+In **Projects**, the sidebar groups chats by project by default. From the top it shows:
 
 - **Needs you**: every thread waiting for an approval or an answer, a team waiting for your
   approval, and a team that failed, across projects. An entry leaves once you act on it, mark the
   thread done, or snooze it. This section is hidden while you search.
 - Your unsent drafts, then **Pinned** threads.
-- A folder for each project, pinned projects first. Threads without a project are in **Chats
-  without a project**.
+- A folder for each project, pinned projects first.
 - **Snoozed** and **Done**.
 
 A project with no active threads has no folder unless it is pinned or you pick it in the project
@@ -71,10 +78,23 @@ project. You can drag a thread onto the composer to mention it, but not within t
 To show each thread on two lines, with its branch, pull request, and agent under the title, turn on
 **Settings → Labs → Two-line chat rows**.
 
-For one list without folders, turn off **Settings → General → Sidebar → Group chats by project**.
-The single list has no **Needs you** section; instead you can drag threads between sections and
-reorder them, and [working threads fold away](#fold-working-threads-beta). Each device keeps its
-own choice.
+For one list without project folders, turn off **Settings → General → Sidebar → Group chats by
+project**. The single list has no **Needs you** section; instead you can drag threads between
+sections and reorder them, and [working threads fold away](#fold-working-threads-beta). Each device
+keeps its own choice.
+
+## Organize chats into folders
+
+In **Chats**, pinned chats come first, then your folders, then **Recent** for the chats in no
+folder, then **Snoozed** and **Done**. To make a folder, use the **New folder** button at the top
+of the sidebar, or choose **Move to folder → New folder…** from a chat's menu. To move a chat,
+choose **Move to folder** from its menu, or click the folder name at the top of the chat. To pin a
+chat, use the pin beside its title.
+
+Right-click a folder to rename or delete it. Deleting a folder keeps its chats and moves them to
+Recent. A chat in a folder is never marked done automatically; mark it done yourself to move it to
+**Done**. Folders follow your chats to every device, but a folder with no chats in it shows only on
+the device you made it on. Turning a chat into a project takes it out of its folder.
 
 ## Pin and reorder threads
 
