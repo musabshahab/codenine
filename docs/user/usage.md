@@ -9,6 +9,9 @@ when the terminal is not focused. Customize `usage.open` in
 **Usage** combines Codex and Claude Code history
 from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost, split by token type and by speed. These estimates are not your subscription bill.
+While an [OpenRouter](./providers-claude.md#use-openrouter) instance is enabled, OpenRouter models
+are estimated from their token counts at OpenRouter's published prices; OpenRouter's activity page
+shows what it billed.
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
 split, such as a provider-reported cost for a model without public rates, shows as **Other**.
 Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.

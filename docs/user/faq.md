@@ -49,7 +49,7 @@ show its pooled limits under Usage. [Connect a hub](./usage.md#connect-a-cliprox
 ## Can I use an API key or OpenRouter instead of a subscription?
 
 Yes. Add another provider instance in Settings and give it its own keys and endpoint. Your
-subscription setup stays untouched. [OpenRouter](./providers-claude.md#openrouter) ·
+subscription setup stays untouched. [OpenRouter](./providers-claude.md#use-openrouter) ·
 [Provider instances](./install.md#providers)
 
 ## Does Codenine support local models?

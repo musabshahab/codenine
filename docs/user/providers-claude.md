@@ -121,10 +121,11 @@ The instance lists only the models you add. To add one, copy its ID, such as
 **Add custom model** in the instance's **Models** section. These models have fewer effort,
 thinking, and context controls than Claude's own.
 
-OpenRouter has no subscription limits; **Usage > Limits** links to OpenRouter's activity page,
-which shows what each request cost. **Usage** estimates cost from each model's public price, so it
-can differ from OpenRouter's bill, and a model it has no price for shows as unpriced. Set a price
-for it under [Model prices](./usage.md#set-custom-model-prices).
+OpenRouter has no subscription limits; **Usage > Limits** links to OpenRouter's activity page
+instead. While an OpenRouter instance is enabled, **Usage** prices OpenRouter models at
+OpenRouter's published prices. That cost is an estimate from token counts; the activity page shows
+what OpenRouter billed. To use your own price for a model, set it under
+[Model prices](./usage.md#set-custom-model-prices).
 
 ## Other routers
 
