@@ -37,9 +37,11 @@ event type or table. Two things follow:
   than its server keeps the thread and loses only the plan.
 
 Thread lists read shells, and every client receives every shell change, so a lead's shell carries
-`teamSummary` (the plan's status and task counts), never the plan. Lists, Needs you and the Team
-strip read only `teamSummary`. An agent thread's header and the Task tab read the plan from the
-lead's thread detail, so viewing an agent thread keeps the lead's thread stream open too. Anything
+`teamSummary` (the plan's status and task counts), never the plan. Lists, the Inbox and Tasks pages,
+and the Team strip read only `teamSummary`. An agent thread's header and the Task tab read the plan
+from the lead's thread detail, so viewing an agent thread keeps the lead's thread stream open too;
+the header's Approve and Retry read it only while the summary says the team needs one. They share
+the Task tab's unsaved edits, so approving from the header starts the team the tab shows. Anything
 shown for many threads at once stays on the summary.
 
 Only the server may set `teamTask`: a thread with it reports its result into the lead's plan, so a

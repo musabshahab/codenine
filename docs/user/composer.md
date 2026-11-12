@@ -254,7 +254,8 @@ Turn on **Team**, next to the attach button, to have the agent plan a
 [team](./thread-sidebar.md#run-a-team) for your message instead of starting the work. The sent
 message shows **Team requested**. Team turns off once the message is sent or you reload, and it
 does not apply to a message that starts with a `/` command. It is not offered in a thread that
-already leads a team or works for one, nor in subagent threads and side chats. To toggle it from
+already leads a team or works for one, in subagent threads and side chats, or in a chat without a
+project, since a team works in a project's folder. To toggle it from
 the keyboard, bind **Composer: Toggle Team** in **Settings → Keybindings**.
 
 A new chat in a project suggests a few example prompts under the composer. Choosing one fills in

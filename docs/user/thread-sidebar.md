@@ -5,9 +5,11 @@ need a separate branch and working directory.
 
 ## Start a thread
 
-**New chat** opens the project picker when you have more than one
+The **New** button at the top of the sidebar starts a chat, a task with a team, a project, or a
+chat folder. **New chat** opens the project picker when you have more than one
 open project. Archived projects don't count. **Shift-click** to start in
-the current project, or use a project's own **New chat** button. A new thread carries
+the current project, or use a project's own **New chat** button. A new chat in a project shows its
+project beside **Team** in the composer; pick another there before you send. A new thread carries
 your model and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
 the worktree you used last, choose **Previous worktree** in the workspace menu.
@@ -17,12 +19,11 @@ if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start without a project
 
-A thread does not need a project. To start one without a project, click **or
-start without a project** under a new thread's heading, pick **No project** from
-the project menu in that heading or from **New chat in...** in the command
-palette, or press `mod+alt+n`. It starts on your current machine; before sending, pick another machine
-from the machine menu to move it there. To move a draft into a project, pick the
-project in the heading.
+A chat does not need a project. To start one, switch the sidebar to **Chats** and choose **New
+chat**, pick **No project** from **New chat in...** in the command palette, or press `mod+alt+n`.
+It starts on your current machine; before sending, pick another machine from the machine menu in
+**Details** to move it there. A chat without a project cannot ask for a team, since a team works in
+a project's folder.
 
 Each thread without a project works in its own folder under `~/.codenine/scratch` (the
 `scratch` folder of your Codenine data directory), named after its date, the first words
@@ -52,48 +53,54 @@ and worktree while you stay in the new thread composer. This requires a Git proj
 
 ## Projects and Chats
 
-The switch under the search box picks what the sidebar lists: **Projects** shows the threads in
-your projects, and **Chats** shows the chats without a project. Opening a thread switches to the
-list that holds it. Switching yourself reopens the thread you last opened in that list, or starts a
-new chat when Chats is empty. Search, **New chat**, and the **Done** shelf follow the list you are
-on, and each device remembers the last one.
+The switch under **Inbox** and **Tasks** picks what the sidebar lists: **Projects** shows your
+projects with their tasks and chats, and **Chats** shows the chats without a project. Opening a
+thread switches to the list that holds it. Switching yourself reopens the thread you last opened in
+that list, or starts a new chat when Chats is empty. **New chat** follows the list you are on, and
+each device remembers the last one. Search, the magnifier at the top, finds threads in both lists.
+
+**Inbox** lists everything waiting on you, across projects and chats: approvals, questions, teams
+waiting for your approval, and teams that failed. An entry leaves once you act on it, mark the
+thread done, or snooze it. **Tasks** lists every task a team works on, grouped by whether it needs
+you, is running, or is done.
+
+Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
+sidebar, where **Restore** brings one back. An agent's thread is not listed there; open it from its
+task.
 
 ## Group chats by project
 
-In **Projects**, the sidebar groups chats by project by default. From the top it shows:
+In **Projects**, the sidebar groups chats by project by default: your unsent drafts and **Pinned**
+threads, then a folder for each project, pinned projects first, then **Snoozed**. Each row's icon
+shows where the thread stands: running, waiting for you, failed, done, or with an open pull request.
 
-- **Needs you**: every thread waiting for an approval or an answer, a team waiting for your
-  approval, and a team that failed, across projects. An entry leaves once you act on it, mark the
-  thread done, or snooze it. This section is hidden while you search.
-- Your unsent drafts, then **Pinned** threads.
-- A folder for each project, pinned projects first.
-- **Snoozed** and **Done**.
-
-A project with no active threads has no folder unless it is pinned or you pick it in the project
-filter. An archived project's folder comes last and shows only while it has active threads. Click a
-folder to open or close it. A closed folder shows how many threads it holds, and a dot when one of
-them needs you. Use a folder's **New chat** button, or right-click it, to start a thread in that
-project. You can drag a thread onto the composer to mention it, but not within the sidebar.
+A project with no active threads has no folder unless it is pinned or you pick it in the filter
+beside the project count. An archived project's folder comes last and shows only while it has active
+threads. Click a project's arrow to open or close it; a closed one shows how many threads it holds,
+and a dot when one of them needs you. Click its name to open the project's page, with its folder,
+machines, and commands, its open tasks and chats, and buttons to start either. Use a project's **New
+chat** button, or right-click it, to start a thread in that project. You can drag a thread onto the
+composer to mention it, but not within the sidebar.
 
 To show each thread on two lines, with its branch, pull request, and agent under the title, turn on
 **Settings → Labs → Two-line chat rows**.
 
 For one list without project folders, turn off **Settings → General → Sidebar → Group chats by
-project**. The single list has no **Needs you** section; instead you can drag threads between
-sections and reorder them, and [working threads fold away](#fold-working-threads-beta). Each device
-keeps its own choice.
+project**. The single list keeps finished threads on its own **Done** shelf, you can drag threads
+between sections and reorder them, and [working threads fold away](#fold-working-threads-beta).
+Each device keeps its own choice.
 
 ## Organize chats into folders
 
 In **Chats**, pinned chats come first, then your folders, then **Recent** for the chats in no
-folder, then **Snoozed** and **Done**. To make a folder, use the **New folder** button at the top
-of the sidebar, or choose **Move to folder → New folder…** from a chat's menu. To move a chat,
-choose **Move to folder** from its menu, or click the folder name at the top of the chat. To pin a
-chat, use the pin beside its title.
+folder, then **Snoozed**. To make a folder, use the **+** beside **Folders**, **New → New chat
+folder**, or **Move to folder → New folder…** from a chat's menu. To move a chat, use **Move to
+folder** at the top of the chat or in its menu. To pin a chat, use the pin beside its title. A new
+chat in Chats lists your recent chats under the composer.
 
 Right-click a folder to rename or delete it. Deleting a folder keeps its chats and moves them to
 Recent. A chat in a folder is never marked done automatically; mark it done yourself to move it to
-**Done**. Folders follow your chats to every device, but a folder with no chats in it shows only on
+**Completed & archived**. Folders follow your chats to every device, but a folder with no chats in it shows only on
 the device you made it on. Turning a chat into a project takes it out of its folder.
 
 ## Pin and reorder threads
@@ -297,10 +304,17 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
+The top of a project's thread holds its tools: the project's main command, such as **Dev**, with
+its other commands in the menu beside it; **Details**; **Terminal**; **Changes**, with the lines
+added and removed; **Files**; and **More**, the thread's menu. At its end, one button offers the
+next step: **Approve team**, **Retry** an agent that failed, the team's progress while it runs,
+**View PR**, or **Create PR** once the work is ready. On your default branch, Create PR first offers
+to move the changes to a new branch. On a narrow window some tools step aside; they stay in the
+right panel and the thread's menu.
+
 The thread details card, with the machine, editor, project commands, branch, Git actions and
-changes, stays closed until you open it. Click the line under the thread title, which shows the
-branch, its line changes and the machine, or press `mod+shift+b`. Each thread remembers whether
-you left its card open.
+changes, stays closed until you open it with **Details** or `mod+shift+b`. Each thread remembers
+whether you left its card open.
 
 To choose what the thread details card shows, right-click the card or open
 **Settings → Appearance → Thread details**. Hidden rows keep their keyboard
@@ -316,7 +330,8 @@ for example "propose a team for this: one agent writes the code, one tests it, o
 agent you asked, the lead, plans the team and starts nothing. The plan opens in the **Task** tab of
 the right panel.
 
-Nothing runs until you approve. In the Task tab you can change an agent's model or effort, add an
+Nothing runs until you approve, from the Task tab or with **Approve team** at the top of the
+lead's thread. In the Task tab you can change an agent's model or effort, add an
 agent, remove one that has no tasks, move a task to another agent, remove a task, and edit a task's
 brief. Your edits apply once you choose **Save** or **Approve and start**. If the team changes while
 you edit, for example because the lead proposed a new one, the tab shows the new team and tells you
@@ -337,10 +352,11 @@ from earlier agents. Its header links back to the lead and shows the agent's pla
 model, and its status. A message you send there goes to that agent only; to change the plan, ask
 the lead. When an agent needs an approval or an answer, the lead's thread shows that too.
 
-In the sidebar, the lead's row shows a team icon and where the team stands: **Review**,
-**Running 1/3**, **Done**, **Failed 1**, or **Cancelled**. The agents' threads appear under it,
-and the team count on that row shows or hides them. A team waiting for your approval, or one that
-failed, also appears under [**Needs you**](#group-chats-by-project). When the team finishes or is
+In the sidebar, the lead's row shows where the team stands: waiting for your approval, running,
+done, or failed, and in the single list as **Review**, **Running 1/3**, **Done**, **Failed 1**, or
+**Cancelled**. The agents' threads appear under it, and the team count on that row shows or hides
+them. A team waiting for your approval, or one that failed, also appears in the
+[**Inbox**](#projects-and-chats), and every team is on the **Tasks** page. When the team finishes or is
 cancelled, the agents' threads are marked done for you. After a failure they stay, so you can read
 and retry them. The lead is never marked done for you.
 
