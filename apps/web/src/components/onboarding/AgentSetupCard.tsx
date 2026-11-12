@@ -501,6 +501,8 @@ function AgentSetupTerminal({
   const activeSetupGenerationRef = useRef<number | null>(null);
   const watchRef = useRef(INITIAL_SETUP_TERMINAL_WATCH);
   const pendingStepRef = useRef<AgentTerminalStep | null>(null);
+  // Typing before the viewport's size reaches the PTY makes the shell redraw a wrapped line.
+  const gridAppliedRef = useRef(false);
   const typedStepRef = useRef(firstStep);
   const [terminalId] = useState(() => `onboarding-${driver}-${randomUUID()}`);
   const threadRef = scopeThreadRef(environmentId, AGENT_SETUP_THREAD_ID);
@@ -541,7 +543,7 @@ function AgentSetupTerminal({
 
   // A command typed before the prompt is read by startup scripts or drawn over the prompt.
   const typeWhenReady = (step: AgentTerminalStep) => {
-    if (isSetupShellReady(watchRef.current)) {
+    if (gridAppliedRef.current && isSetupShellReady(watchRef.current)) {
       void typeCommand(step);
       return;
     }
@@ -576,7 +578,7 @@ function AgentSetupTerminal({
     const watch = watchRef.current;
     const pending = pendingStepRef.current;
     if (pending !== null) {
-      if (isSetupShellReady(watch)) void typeCommand(pending);
+      if (gridAppliedRef.current && isSetupShellReady(watch)) void typeCommand(pending);
       return;
     }
     if (watch.command === "running") {
@@ -590,6 +592,11 @@ function AgentSetupTerminal({
       void checkAfterCommand(typedStepRef.current);
     }
   });
+  const handleGridApplied = () => {
+    gridAppliedRef.current = true;
+    const pending = pendingStepRef.current;
+    if (pending !== null && isSetupShellReady(watchRef.current)) void typeCommand(pending);
+  };
   const startFirstStep = useEffectEvent(() => {
     watchRef.current = INITIAL_SETUP_TERMINAL_WATCH;
     typeWhenReady(firstStep);
@@ -601,6 +608,7 @@ function AgentSetupTerminal({
     const generation = setupGenerationRef.current + 1;
     setupGenerationRef.current = generation;
     activeSetupGenerationRef.current = generation;
+    gridAppliedRef.current = false;
     // oxlint-disable-next-line react/set-state-in-effect -- A retry reopens the terminal, which shows as opening until the open settles.
     setPhase({ kind: "opening" });
 
@@ -724,6 +732,7 @@ function AgentSetupTerminal({
             providerInstanceId={instanceId}
             advancedTypography={advancedTypography}
             onSessionExited={onClose}
+            onGridApplied={handleGridApplied}
             autoFocus
             visible
             keybindings={keybindings}

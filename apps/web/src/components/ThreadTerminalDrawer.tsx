@@ -476,6 +476,8 @@ interface TerminalViewportProps {
   runtimeEnv?: Record<string, string>;
   providerInstanceId?: ProviderInstanceId;
   onSessionExited: () => void;
+  /** Called each time the server has applied this viewport's grid size to the PTY. */
+  onGridApplied?: () => void;
   onAddTerminalContext?: (selection: TerminalContextSelection) => void;
   /** Focuses the viewport when it mounts; otherwise focus arrives through `focusTerminal`. */
   autoFocus?: boolean;
@@ -512,6 +514,7 @@ function TerminalSessionViewport({
   runtimeEnv,
   providerInstanceId,
   onSessionExited,
+  onGridApplied,
   onAddTerminalContext,
   autoFocus = false,
   visible,
@@ -628,14 +631,15 @@ function TerminalSessionViewport({
       input: { threadId, terminalId, data },
     }),
   );
-  const resizeTerminal = useEffectEvent((cols: number, rows: number) => {
+  const resizeTerminal = useEffectEvent(async (cols: number, rows: number) => {
     if (writableSessionGeneration(readTerminalSession(), hasTerminalWriteAccess()) === null) {
       return;
     }
-    return runTerminalResize({
+    const result = await runTerminalResize({
       environmentId,
       input: { threadId, terminalId, cols, rows },
     });
+    if (result._tag === "Success") onGridApplied?.();
   });
   const outputCursorRef = useRef<TerminalOutputCursor>(INITIAL_TERMINAL_OUTPUT_CURSOR);
   const synchronizedStatusRef = useRef<TerminalSessionState["status"]>("closed");
