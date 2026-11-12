@@ -117,10 +117,11 @@ Codenine works with Codex and Claude Code. Open **Settings → Providers**, sele
 and enable the provider you want. Installation, login, and configuration belong to that
 environment's machine, even when you connect from another computer.
 
-| Provider | Install and authenticate                                                                                                                                  |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex    | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
-| Claude   | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
+| Provider   | Install and authenticate                                                                                                                                          |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex      | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`.         |
+| Claude     | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                                      |
+| OpenRouter | Install [Claude Code](https://claude.com/product/claude-code), then add OpenRouter with your API key. See [Use OpenRouter](./providers-claude.md#use-openrouter). |
 
 Provider CLIs must be on the server's `PATH`. If Codenine cannot find one, set its **Binary path**
 in provider settings, especially when using a version manager. Codex connected through ChatGPT

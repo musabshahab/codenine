@@ -39,6 +39,11 @@ code it shows. Claude Code also shows a link and asks you to paste a code back.
 For Codex, **Use ChatGPT sign-in instead** signs in with your ChatGPT account and
 lets Codenine install and manage Codex. **Use the Codex CLI instead** goes back.
 
+Below the cards, **Have an OpenRouter API key? Use it instead of signing in** adds
+OpenRouter, which runs models from many providers through Claude Code with your
+OpenRouter key. It then shows as its own agent. See
+[Use OpenRouter](./providers-claude.md#use-openrouter).
+
 Other agents are under **Add more agents**. The same card opens later from
 **Set up** on a chat's notice that Claude or Codex isn't ready, and from
 **Set up** in **Settings → Providers** for one that is missing or signed out.
@@ -52,7 +57,8 @@ terminal process can use them.
 
 **Continue** waits for one ready agent. When only one of Claude Code and Codex is
 ready, it reads **Continue without** the other: teams that mix Claude and Codex
-need both, and you can set up the other later in **Settings → Providers**.
+need both, and you can set up the other later in **Settings → Providers**. A ready
+OpenRouter agent reaches both vendors' models, so Continue then names neither.
 Select **Continue without an agent** to go on without one.
 
 ## Project

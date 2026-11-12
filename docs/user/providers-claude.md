@@ -100,32 +100,31 @@ To show Claude task lists, add
 **Environment** section in **Settings > Providers**. Each update shows as a Tasks
 row in the thread; open it to see every step.
 
-## OpenRouter
+## Use OpenRouter
 
-Create a Claude instance with its own config directory, such as
-`~/.claude_openrouter`, and keep **Binary path** set to `claude`. In that instance's
-**Environment variables**, use:
+With an [OpenRouter](https://openrouter.ai) API key, agents and team agents can run on models
+from Anthropic, OpenAI, Google, DeepSeek, and others without a Claude or Codex sign-in. OpenRouter
+runs through Claude Code, so Claude Code must be installed on the environment's machine, but you
+do not sign in to it.
 
-| Variable               | Value                                     |
-| ---------------------- | ----------------------------------------- |
-| `ANTHROPIC_BASE_URL`   | `https://openrouter.ai/api`               |
-| `ANTHROPIC_AUTH_TOKEN` | Your OpenRouter API key, marked Sensitive |
-| `ANTHROPIC_API_KEY`    | An explicitly empty value                 |
+1. Create a key at [openrouter.ai/keys](https://openrouter.ai/keys).
+2. In **Settings > Providers**, select **Add provider**, choose **OpenRouter**, and select
+   **Next**. On the Welcome page, select **Have an OpenRouter API key?** instead.
+3. Paste the key, keep the starter models you want, and select **Add OpenRouter**.
 
-If that Claude config directory has a cached Anthropic login, run `/logout` in a
-Claude Code session using that directory before starting the router setup. Cached
-login credentials can conflict with the router token.
+Codenine stores the key as a secret and checks it with OpenRouter. If OpenRouter rejects it, open
+the OpenRouter instance in **Settings > Providers** and replace **OpenRouter API key**. When the key
+has a spending limit, the instance's status shows how much is left.
 
-Select the model you want in Codenine. For an OpenRouter model outside the built-in
-list, open that Claude instance in **Settings > Providers** and add its full model
-ID with **Add custom model**. Then select it in the chat model picker.
-`ANTHROPIC_DEFAULT_*_MODEL` variables map Claude Code aliases such as `sonnet`; they
-do not replace the explicit model ID selected in Codenine. Custom models may have
-fewer effort, thinking, or context controls than built-in models.
+The instance lists only the models you add. To add one, copy its ID, such as
+`anthropic/claude-sonnet-5.5`, from [openrouter.ai/models](https://openrouter.ai/models) and use
+**Add custom model** in the instance's **Models** section. These models have fewer effort,
+thinking, and context controls than Claude's own.
 
-Verify the model used in OpenRouter's activity dashboard. For current compatibility
-requirements, use the
-[OpenRouter Claude Code guide](https://openrouter.ai/docs/cookbook/coding-agents/claude-code-integration).
+OpenRouter has no subscription limits; **Usage > Limits** links to OpenRouter's activity page,
+which shows what each request cost. **Usage** estimates cost from each model's public price, so it
+can differ from OpenRouter's bill, and a model it has no price for shows as unpriced. Set a price
+for it under [Model prices](./usage.md#set-custom-model-prices).
 
 ## Other routers
 

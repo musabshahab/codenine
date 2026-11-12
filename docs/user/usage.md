@@ -131,7 +131,8 @@ context use against the model's limit. A tick on the bar marks where the provide
 automatically, when it reports that point.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
-using a proxy through `ANTHROPIC_AUTH_TOKEN`.
+using a proxy through `ANTHROPIC_AUTH_TOKEN`. [OpenRouter](./providers-claude.md#use-openrouter)
+has none; Limits links to its activity page instead.
 
 ## Connect a CLIProxyAPI hub
 

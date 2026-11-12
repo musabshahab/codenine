@@ -9,6 +9,17 @@ A driver kind identifies an integration; an instance identifies one configuratio
 lifecycle. Route work by instance, so two accounts using the same driver do not share mutable
 session or catalog state. For a new driver, start with [adding a provider](./adding-a-provider.md).
 
+## OpenRouter is a Claude instance, not a driver
+
+OpenRouter serves an Anthropic-compatible API, so an OpenRouter instance is a Claude instance whose
+resolved `ANTHROPIC_BASE_URL` is OpenRouter, and sessions, MCP tools, permissions and team routing
+stay the Claude adapter's. Only the server can resolve that URL: it can come from the server's
+environment or Claude's settings. So the [Claude status check](../../apps/server/src/provider/ClaudeProvider.ts)
+gives every snapshot of such an instance the `openrouter` auth type, and clients detect it with
+[`isOpenRouterProvider`](../../packages/shared/src/openRouter.ts). Clients use it for what they
+show and offer, such as the logo, model names, and sending a rejected key to Settings instead of
+`claude auth login`; routing and model selection still go by the `claudeAgent` driver.
+
 ## Setup must not happen as a health-check side effect
 
 Opening a provider session can start MCP servers, run hooks, or launch a login browser. Background
