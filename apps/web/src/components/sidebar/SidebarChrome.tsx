@@ -13,7 +13,6 @@ import {
 } from "../../navigationHistory";
 import { primaryServerKeybindingsAtom } from "../../state/server";
 import { cn } from "../../lib/utils";
-import { CodenineWordmark } from "../CodenineWordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
   resolveSidebarStageBackdropVariant,
@@ -39,8 +38,11 @@ import { observeResize } from "~/lib/observeResize";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
+  actions,
 }: {
   isElectron: boolean;
+  /** Buttons at the end of the brand row, such as search and New. */
+  actions?: ReactNode;
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
@@ -86,6 +88,11 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           </div>
         ) : null}
       </div>
+      {actions ? (
+        <div className="relative z-10 flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 });
@@ -176,8 +183,14 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
 
 function SidebarBrandMark() {
   return (
-    <span className="inline-flex min-w-0 items-baseline text-sm font-medium tracking-tight">
-      <CodenineWordmark aria-label="Codenine" className="h-[1cap] w-auto shrink-0" />
+    <span className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold tracking-tight">
+      <span
+        aria-hidden
+        className="flex size-5.5 shrink-0 items-center justify-center rounded-md bg-primary text-2xs font-bold text-primary-foreground"
+      >
+        C9
+      </span>
+      Codenine
     </span>
   );
 }

@@ -1246,6 +1246,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(codenine
   }
 }
 
+/* On wide screens the main view is a rounded panel set inside the sidebar's frame. Unlayered, so it
+   overrides the routes' full-height utilities. */
+@media (width >= 48rem) {
+  [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"]) {
+    background-color: var(--sidebar);
+  }
+  [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"]) [data-slot="sidebar-container"] {
+    border-right-width: 0;
+  }
+  [data-slot="sidebar-wrapper"]:has(> [data-slot="sidebar"]) > [data-slot="sidebar-inset"] {
+    height: calc(100dvh - 1rem);
+    max-height: calc(100dvh - 1rem);
+    margin: 0.5rem 0.5rem 0.5rem 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+  }
+  [data-slot="sidebar-wrapper"][data-sidebar-state="collapsed"] > [data-slot="sidebar-inset"] {
+    margin-left: 0.5rem;
+  }
+}
+
 /* Modified files get a muted blue so added and deleted files lead. Built from the info token,
    which themes do not override, so it stays blue in every theme. */
 :root {

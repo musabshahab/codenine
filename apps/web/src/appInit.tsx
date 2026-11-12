@@ -31,6 +31,7 @@ import { startHostEnvironmentLookup } from "./state/primaryEnvironment";
 import {
   getClientSettings,
   startModelPreferencesMigration,
+  startIdentificationDefaultMigration,
   subscribeClientSettings,
 } from "./hooks/useSettings";
 import { syncBrowserChromeTheme } from "./hooks/useTheme";
@@ -181,6 +182,7 @@ export function startAppServices(): AppRouter {
   startBrowserChromeThemeSync(router);
   startDefaultThemeAdoption();
   startModelPreferencesMigration();
+  startIdentificationDefaultMigration();
   installChatRouteCommands(router);
   installCommandPaletteCommands(router);
   registerOpenFavoriteEditorCommand();

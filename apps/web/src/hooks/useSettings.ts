@@ -373,6 +373,30 @@ export function startModelPreferencesMigration(): () => void {
   };
 }
 
+const IDENTIFICATION_DEFAULT_MARKER = "codenine:identification-default:v2";
+
+/**
+ * Settings saved while artwork was the default carry it as if chosen, so each install moves to
+ * the quieter pill once. A choice made after this stays.
+ */
+export function startIdentificationDefaultMigration(): () => void {
+  const migrate = () => {
+    if (clientSettingsHydrationStatus !== "ready") return;
+    try {
+      if (window.localStorage.getItem(IDENTIFICATION_DEFAULT_MARKER) !== null) return;
+      window.localStorage.setItem(IDENTIFICATION_DEFAULT_MARKER, "1");
+    } catch {
+      return;
+    }
+    if (getClientSettingsSnapshot().environmentIdentificationMode === "artwork") {
+      void persistClientSettingsPatch({ environmentIdentificationMode: "pill" });
+    }
+  };
+  const unsubscribe = subscribeClientSettingsHydration(migrate);
+  migrate();
+  return unsubscribe;
+}
+
 export function useMergedSettings<T = UnifiedSettings>(
   serverSettings: ServerSettings,
   selector?: (settings: UnifiedSettings) => T,

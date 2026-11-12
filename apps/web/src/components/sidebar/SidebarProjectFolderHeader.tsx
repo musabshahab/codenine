@@ -7,7 +7,7 @@ import {
   HistoryIcon,
   SquarePenIcon,
 } from "lucide-react";
-import { memo, type ReactNode } from "react";
+import { memo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -24,9 +24,9 @@ export function sidebarFolderRowId(folderKey: string) {
 }
 
 /**
- * A folder in the sidebar. It reads like a shelf header: a trailing count and chevron, with the
- * count and a status dot only while it is closed, so a closed folder still says when a hidden
- * thread needs you.
+ * A folder in the sidebar: a chevron that opens and closes it, then its icon and name, with its
+ * count and a status dot while it is closed, so a closed folder still says when a hidden thread
+ * needs you. With `onOpen`, the name opens the folder's own page and only the chevron toggles.
  */
 function SidebarFolderHeaderRow(props: {
   testId: string;
@@ -37,10 +37,11 @@ function SidebarFolderHeaderRow(props: {
   collapsed: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: () => void;
+  onOpen: (() => void) | null;
   onNewChat: (() => void) | null;
   onContextMenu: ((position: { x: number; y: number }) => void) | null;
 }) {
-  const { rowId, collapsed, hiddenThreads, newChatLabel } = props;
+  const { rowId, collapsed, hiddenThreads, newChatLabel, onOpen } = props;
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const dot = collapsed
     ? resolveSidebarFolderDot(
@@ -55,44 +56,69 @@ function SidebarFolderHeaderRow(props: {
         })),
       )
     : null;
+  const handleContextMenu = (event: ReactMouseEvent) => {
+    if (props.onContextMenu === null) return;
+    event.preventDefault();
+    props.onContextMenu({ x: event.clientX, y: event.clientY });
+  };
+  const name = (
+    <>
+      {props.icon}
+      <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
+        {props.label}
+      </span>
+      {dot ? <SidebarAttentionDot attention={dot} /> : null}
+      {collapsed && hiddenThreads.length > 0 ? (
+        <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground group-hover/project-folder:invisible pointer-coarse:invisible">
+          {hiddenThreads.length}
+        </span>
+      ) : null}
+    </>
+  );
   return (
     <li
       data-testid={props.testId}
-      className="group/project-folder relative mt-2 list-none first:mt-0"
+      className="group/project-folder relative mt-1 list-none first:mt-0"
     >
-      <button
-        type="button"
-        data-sidebar-row={rowId}
-        aria-expanded={!collapsed}
-        onClick={props.onToggle}
-        onContextMenu={(event) => {
-          if (props.onContextMenu === null) return;
-          event.preventDefault();
-          props.onContextMenu({ x: event.clientX, y: event.clientY });
-        }}
-        className="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-(--control-radius) px-(--sidebar-row-content-inset) text-left outline-none hover:bg-sidebar-row-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-      >
-        {props.icon}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
-          {props.label}
-        </span>
-        {dot ? <SidebarAttentionDot attention={dot} /> : null}
-        {collapsed && hiddenThreads.length > 0 ? (
-          <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground group-hover/project-folder:invisible pointer-coarse:invisible">
-            {hiddenThreads.length}
-          </span>
-        ) : null}
-        <ChevronDownIcon
-          aria-hidden
+      <div className="flex w-full items-center rounded-(--control-radius) hover:bg-sidebar-row-hover">
+        <button
+          type="button"
+          data-sidebar-row={rowId}
+          aria-expanded={!collapsed}
+          aria-label={onOpen ? `Show or hide ${props.label}` : undefined}
+          onClick={props.onToggle}
+          onContextMenu={handleContextMenu}
           className={cn(
-            "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
-            collapsed && "-rotate-90",
+            "flex h-8 cursor-pointer items-center rounded-(--control-radius) outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+            onOpen
+              ? "w-6 shrink-0 justify-center ps-1"
+              : "min-w-0 flex-1 gap-2 ps-1.5 pe-(--sidebar-row-content-inset) text-left",
           )}
-        />
-      </button>
-      {/* Sits over the count, which hides on hover, and left of the chevron. */}
+        >
+          <ChevronDownIcon
+            aria-hidden
+            className={cn(
+              "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
+              collapsed && "-rotate-90",
+            )}
+          />
+          {onOpen ? null : name}
+        </button>
+        {onOpen ? (
+          <button
+            type="button"
+            data-sidebar-action-for={rowId}
+            onClick={onOpen}
+            onContextMenu={handleContextMenu}
+            className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-(--control-radius) pe-(--sidebar-row-content-inset) text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            {name}
+          </button>
+        ) : null}
+      </div>
+      {/* Sits over the count, which hides on hover. */}
       {props.onNewChat === null ? null : (
-        <span className="absolute inset-y-0 right-6 flex items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
+        <span className="absolute inset-y-0 right-1.5 flex items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
           <Tooltip>
             <TooltipTrigger
               render={
@@ -121,6 +147,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
   collapsed: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: (group: SidebarProjectSnapshot) => void;
+  onOpen: (group: SidebarProjectSnapshot) => void;
   onNewThread: (group: SidebarProjectSnapshot) => void;
   onContextMenu: (group: SidebarProjectSnapshot, position: { x: number; y: number }) => void;
 }) {
@@ -137,6 +164,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
       collapsed={props.collapsed}
       hiddenThreads={props.hiddenThreads}
       onToggle={() => props.onToggle(group)}
+      onOpen={group.isScratch ? null : () => props.onOpen(group)}
       onNewChat={() => props.onNewThread(group)}
       onContextMenu={(position) => props.onContextMenu(group, position)}
     />
@@ -171,6 +199,7 @@ export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(pro
       collapsed={props.collapsed}
       hiddenThreads={props.hiddenThreads}
       onToggle={() => props.onToggle(props.folderKey)}
+      onOpen={null}
       // A new chat is a draft, which joins a folder only once it is sent and moved.
       onNewChat={name === null ? props.onNewChat : null}
       onContextMenu={

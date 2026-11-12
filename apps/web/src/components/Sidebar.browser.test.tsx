@@ -1,4 +1,5 @@
 import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId } from "@codenine/contracts";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -18,7 +19,7 @@ vi.mock("../commandPaletteBus", () => ({
   isCommandPaletteOpen: () => false,
 }));
 vi.mock("./sidebar/SidebarChrome", () => ({
-  SidebarChromeHeader: () => null,
+  SidebarChromeHeader: (props: { actions?: ReactNode }) => props.actions ?? null,
   SidebarChromeFooter: () => null,
 }));
 
@@ -72,7 +73,8 @@ describe("sidebar header new thread", () => {
       </SidebarProvider>,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "New chat", exact: true }), {
+    await userEvent.click(screen.getByRole("button", { name: "New", exact: true }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /^New chat(?! folder)/ }), {
       modifiers: scenario.shift ? ["Shift"] : [],
     });
 

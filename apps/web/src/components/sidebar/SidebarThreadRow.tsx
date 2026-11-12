@@ -76,6 +76,8 @@ import { vcsEnvironment, vcsBranchRevalidation } from "../../state/vcs";
 import { useEnvironmentQuery } from "../../state/query";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../../timestampFormat";
+import { ThreadKindIcon } from "../ThreadKindIcon";
+import { resolveThreadKind } from "../threadKind.logic";
 import type { SidebarThreadSummary } from "../../types";
 import type { EnvironmentProject } from "@codenine/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
@@ -535,8 +537,9 @@ type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a project folder;
   // "folder-multiline" adds the card's branch and PR line under it;
-  // "team" is a one-line team task row under its lead.
-  variant: "card" | "slim" | "folder" | "folder-multiline" | "team";
+  // "team" is a one-line team task row under its lead;
+  // "compact" is a one-line row outside any folder, such as a pinned chat.
+  variant: "card" | "slim" | "folder" | "folder-multiline" | "team" | "compact";
   navigationParent?: string | undefined;
   /** On a team lead: how many task rows it holds, which it draws below itself. */
   teamTaskCount: number;
@@ -1220,6 +1223,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     const multiline = variant === "folder-multiline";
     const inFolder = variant === "folder" || multiline;
     const teamTask = variant === "team";
+    const compact = variant === "compact";
+    // Folder and compact rows say their status with an icon, so their end shows the age.
+    const showsKindIcon = inFolder || compact;
     return (
       <li
         data-thread-item={threadKey}
@@ -1228,6 +1234,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_--spacing(9)]",
           metaLine !== null && multiline && "[contain-intrinsic-size:auto_--spacing(13.5)]",
+          // A guide line under the folder's chevron ties its rows to it.
+          inFolder &&
+            "relative ps-4 before:pointer-events-none before:absolute before:inset-y-0 before:start-4 before:w-px before:bg-sidebar-border",
           sortable?.isDragging && "relative z-20",
         )}
       >
@@ -1255,8 +1264,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   multiline
                     ? "flex flex-col justify-center px-2.5 py-1.5"
                     : "flex h-9 items-center gap-2.5 px-2.5",
-                  // Lines titles up with the folder name, past its chevron and icon.
-                  inFolder && "ps-9",
+                  showsKindIcon && !multiline && "h-8 gap-2",
                   teamTask && "h-8 gap-2 px-2",
                 )}
                 onClick={handleClick}
@@ -1269,11 +1277,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             {/* `contents` keeps one-line rows a single flex row. */}
             <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
               {accessibleTitle}
-              {inFolder && teamSummary !== null ? (
-                // Sits left of the title, which stays in line with the folder's other rows.
-                <TeamTaskIcon className="-ms-6" />
-              ) : null}
-              {inFolder || teamTask ? null : (
+              {showsKindIcon ? <ThreadKindIcon kind={resolveThreadKind(thread)} /> : null}
+              {showsKindIcon || teamTask ? null : (
                 <span
                   className={cn(
                     "flex shrink-0 items-center transition-opacity",
@@ -1345,8 +1350,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         />
                         <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
                       </Tooltip>
-                    ) : (inFolder || teamTask) && rowStatus ? (
-                      // Folder and team rows have no status line, so the status takes the time slot.
+                    ) : showsKindIcon ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs">
+                        {status === "limited" ? (
+                          <span className="font-medium text-warning-foreground">Limited</span>
+                        ) : (
+                          <>
+                            {isUnread ? (
+                              <span
+                                role="img"
+                                aria-label="New result"
+                                className="size-1.5 shrink-0 rounded-full bg-primary"
+                              />
+                            ) : null}
+                            <RelativeTimeLabel timestamp={resolveThreadActivityTimestamp(thread)} />
+                          </>
+                        )}
+                      </span>
+                    ) : teamTask && rowStatus ? (
+                      // Team rows have no status line, so the status takes the time slot.
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 text-xs font-medium",
