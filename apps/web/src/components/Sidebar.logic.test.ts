@@ -35,6 +35,8 @@ import {
   resolveSidebarFolderDot,
   resolveSidebarModeReturnThread,
   sidebarFolderExpansionKeys,
+  groupSidebarChatsByFolder,
+  resolveChatFolderNames,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@codenine/client-runtime/environment";
 import {
@@ -1595,6 +1597,36 @@ describe("groupSidebarThreadsByProject", () => {
       { projectKey: "codenine", threads: ["a", "b"] },
       { projectKey: "fleet", threads: [] },
     ]);
+  });
+});
+
+describe("chat folders", () => {
+  it("lists every folder in use or made here once, by name, and files chats under them", () => {
+    const chat = (id: string, folder: string | null, archivedAt: string | null = null) => ({
+      id,
+      folder,
+      archivedAt,
+    });
+    const chats = [
+      chat("a", "writing"),
+      chat("b", null),
+      chat("c", "Research"),
+      chat("d", "Research"),
+      chat("old", "Archive only", "2026-03-09T10:00:00.000Z"),
+    ];
+    const names = resolveChatFolderNames(chats, ["Ideas", "Research"]);
+    expect(names).toEqual(["Ideas", "Research", "writing"]);
+
+    const grouped = groupSidebarChatsByFolder(names, chats);
+    expect(grouped.folders.map((folder) => [folder.name, folder.threads.map((t) => t.id)])).toEqual(
+      [
+        ["Ideas", []],
+        ["Research", ["c", "d"]],
+        ["writing", ["a"]],
+      ],
+    );
+    // A chat in a folder missing from the list stays with the chats in no folder.
+    expect(grouped.rest.map((thread) => thread.id)).toEqual(["b", "old"]);
   });
 });
 

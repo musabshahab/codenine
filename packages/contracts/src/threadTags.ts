@@ -16,3 +16,12 @@ export type ThreadTag = typeof ThreadTag.Type;
 export const StoredThreadTags = Schema.Array(Schema.String).pipe(
   Schema.catchDecoding(() => Effect.succeedSome([])),
 );
+
+/** A chat folder's name, matched by exact spelling and case after trimming. */
+export const ThreadFolderName = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(64),
+  Schema.makeFilter((value) =>
+    /[\p{Cc}]/u.test(value) ? "A folder name must be a single line of text." : true,
+  ),
+);
+export type ThreadFolderName = typeof ThreadFolderName.Type;

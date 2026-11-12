@@ -932,6 +932,39 @@ export function groupSidebarThreadsByProject<
   return folders.filter((folder) => folder.threads.length > 0 || keepEmpty(folder.group));
 }
 
+/** Chat folder names: the ones this device made and the ones its chats use, sorted by name. */
+export function resolveChatFolderNames(
+  chats: ReadonlyArray<
+    Pick<SidebarThreadSummary, "archivedAt"> & { readonly folder?: string | null | undefined }
+  >,
+  localNames: readonly string[],
+): string[] {
+  const names = new Set(localNames);
+  for (const chat of chats) {
+    if (chat.archivedAt === null && chat.folder) names.add(chat.folder);
+  }
+  return [...names].toSorted((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: "base" }),
+  );
+}
+
+/** Chats in a folder for each of `names`, in that order, and the chats in none. */
+export function groupSidebarChatsByFolder<
+  TThread extends { readonly folder?: string | null | undefined },
+>(
+  names: readonly string[],
+  threads: readonly TThread[],
+): { readonly folders: Array<{ name: string; threads: TThread[] }>; readonly rest: TThread[] } {
+  const folders = names.map((name) => ({ name, threads: [] as TThread[] }));
+  const folderByName = new Map(folders.map((folder) => [folder.name, folder] as const));
+  const rest: TThread[] = [];
+  for (const thread of threads) {
+    const folder = thread.folder == null ? undefined : folderByName.get(thread.folder);
+    (folder?.threads ?? rest).push(thread);
+  }
+  return { folders, rest };
+}
+
 export type SidebarV2TopStatusKind =
   | "approval"
   | "done"

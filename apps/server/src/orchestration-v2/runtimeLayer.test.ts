@@ -2497,8 +2497,21 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
           step,
         );
       }
+      for (const [step, folder] of [
+        ["into", "Research"],
+        ["between", "Writing"],
+        ["out", null],
+      ] as const) {
+        yield* orchestrator.dispatch({
+          type: "thread.folder.set",
+          commandId: CommandId.make(`runtime-layer-lifecycle-folder-${step}`),
+          threadId,
+          folder,
+        });
+        assert.equal(shellOf(yield* orchestrator.getShellSnapshot()).folder ?? null, folder, step);
+      }
       const taggedShell = shellOf(yield* orchestrator.getShellSnapshot());
-      // Tags are not activity, so the thread keeps its place in thread lists.
+      // Tags and folders are not activity, so the thread keeps its place in thread lists.
       assert.equal(
         DateTime.toEpochMillis(taggedShell.updatedAt),
         DateTime.toEpochMillis(untaggedShell.updatedAt),

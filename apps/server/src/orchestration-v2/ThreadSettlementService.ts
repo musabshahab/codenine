@@ -149,7 +149,10 @@ export function isAutoSettlementCandidate(
   nowMs: number,
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
-  if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
+  // A chat filed in a folder stays there until the user marks it done.
+  if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null || thread.folder != null) {
+    return false;
+  }
   if (thread.pendingRuntimeRequest !== null) return false;
   if (thread.activityRunStatus != null) return false;
   if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return false;

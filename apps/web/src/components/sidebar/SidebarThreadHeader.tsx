@@ -16,6 +16,8 @@ export interface SidebarThreadHeaderProps {
   hasProjects: boolean;
   projectScope: ReactNode;
   onNewProject: () => void;
+  /** Shown instead of the project controls while the sidebar lists chats. */
+  onNewFolder: (() => void) | null;
   onNewThread: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
   newThreadShortcutLabel: string | null | undefined;
@@ -35,6 +37,7 @@ export function SidebarThreadHeader({
   hasProjects,
   projectScope,
   onNewProject,
+  onNewFolder,
   onNewThread,
   newThreadDisabled,
   newThreadShortcutLabel,
@@ -97,7 +100,11 @@ export function SidebarThreadHeader({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center">
-        {hasProjects ? (
+        {onNewFolder ? (
+          <SidebarHeaderIconButton label="New folder" onClick={onNewFolder}>
+            <FolderPlusIcon />
+          </SidebarHeaderIconButton>
+        ) : hasProjects ? (
           <>
             {projectScope}
             <SidebarHeaderIconButton label="New project" onClick={onNewProject}>

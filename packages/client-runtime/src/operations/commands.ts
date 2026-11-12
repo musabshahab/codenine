@@ -126,6 +126,11 @@ export interface VisitThreadInput extends ThreadCommandInput {
 
 export type MarkThreadUnreadInput = ThreadCommandInput;
 
+export interface SetThreadFolderInput extends ThreadCommandInput {
+  /** The folder to move the thread into, or null to take it out of its folder. */
+  readonly folder: string | null;
+}
+
 export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly limitRecovery?: import("@codenine/contracts").OrchestrationV2LimitRecoveryUpdate | null;
   readonly title?: string;
@@ -562,6 +567,17 @@ export const markThreadUnread = Effect.fn("EnvironmentCommands.markThreadUnread"
     type: "thread.mark-unread",
     commandId: yield* allocateCommandId(input),
     threadId: input.threadId,
+  });
+});
+
+export const setThreadFolder = Effect.fn("EnvironmentCommands.setThreadFolder")(function* (
+  input: SetThreadFolderInput,
+) {
+  return yield* dispatch({
+    type: "thread.folder.set",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    folder: input.folder,
   });
 });
 

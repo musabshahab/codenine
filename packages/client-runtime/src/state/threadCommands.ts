@@ -44,6 +44,7 @@ import {
   reorderPinnedThread,
   reorderActiveThread,
   setThreadAutoSettle,
+  setThreadFolder,
   settleThread,
   snoozeThread,
   startThreadTurn,
@@ -205,6 +206,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     markUnread: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:mark-unread",
       execute: markThreadUnread,
+      scheduler,
+      concurrency,
+    }),
+    setFolder: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-folder",
+      execute: setThreadFolder,
       scheduler,
       concurrency,
     }),

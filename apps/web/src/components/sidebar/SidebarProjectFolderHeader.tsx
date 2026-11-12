@@ -37,7 +37,7 @@ function SidebarFolderHeaderRow(props: {
   collapsed: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: () => void;
-  onNewChat: () => void;
+  onNewChat: (() => void) | null;
   onContextMenu: ((position: { x: number; y: number }) => void) | null;
 }) {
   const { rowId, collapsed, hiddenThreads, newChatLabel } = props;
@@ -91,24 +91,26 @@ function SidebarFolderHeaderRow(props: {
         />
       </button>
       {/* Sits over the count, which hides on hover, and left of the chevron. */}
-      <span className="absolute inset-y-0 right-6 flex items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                data-sidebar-action-for={rowId}
-                size="icon-xs"
-                variant="ghost-muted"
-                aria-label={newChatLabel}
-                onClick={props.onNewChat}
-              />
-            }
-          >
-            <SquarePenIcon aria-hidden />
-          </TooltipTrigger>
-          <TooltipPopup>{newChatLabel}</TooltipPopup>
-        </Tooltip>
-      </span>
+      {props.onNewChat === null ? null : (
+        <span className="absolute inset-y-0 right-6 flex items-center opacity-0 focus-within:opacity-100 group-hover/project-folder:opacity-100 pointer-coarse:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  data-sidebar-action-for={rowId}
+                  size="icon-xs"
+                  variant="ghost-muted"
+                  aria-label={newChatLabel}
+                  onClick={props.onNewChat}
+                />
+              }
+            >
+              <SquarePenIcon aria-hidden />
+            </TooltipTrigger>
+            <TooltipPopup>{newChatLabel}</TooltipPopup>
+          </Tooltip>
+        </span>
+      )}
     </li>
   );
 }
@@ -148,7 +150,7 @@ export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(pro
   collapsed: boolean;
   hiddenThreads: readonly EnvironmentThreadShell[];
   onToggle: (folderKey: string) => void;
-  onNewChat: (name: string | null) => void;
+  onNewChat: () => void;
   onContextMenu: ((name: string, position: { x: number; y: number }) => void) | null;
 }) {
   const { name, onContextMenu } = props;
@@ -165,11 +167,12 @@ export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(pro
         )
       }
       label={name ?? "Recent"}
-      newChatLabel={name === null ? "New chat" : `New chat in ${name}`}
+      newChatLabel="New chat"
       collapsed={props.collapsed}
       hiddenThreads={props.hiddenThreads}
       onToggle={() => props.onToggle(props.folderKey)}
-      onNewChat={() => props.onNewChat(name)}
+      // A new chat is a draft, which joins a folder only once it is sent and moved.
+      onNewChat={name === null ? props.onNewChat : null}
       onContextMenu={
         name === null || onContextMenu === null ? null : (position) => onContextMenu(name, position)
       }

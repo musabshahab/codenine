@@ -21,6 +21,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     sidebarProjectScopeKeys: [],
     sidebarMode: "projects",
+    chatFolderNames: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -127,6 +128,7 @@ describe("parsePersistedState", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
       sidebarMode: "projects",
+      chatFolderNames: [],
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -232,6 +234,7 @@ describe("uiStateStore persistence", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
       sidebarMode: "projects",
+      chatFolderNames: [],
       sidebarProjectScopeKey: null,
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
@@ -248,7 +251,13 @@ describe("uiStateStore persistence", () => {
 
   it("restores the sidebar project scope and mode across reloads", () => {
     const keys = ["github.com/acme/codenine", "github.com/acme/uploadthing"];
-    persistState(makeUiState({ sidebarProjectScopeKeys: keys, sidebarMode: "chats" }));
+    persistState(
+      makeUiState({
+        sidebarProjectScopeKeys: keys,
+        sidebarMode: "chats",
+        chatFolderNames: ["Ideas"],
+      }),
+    );
 
     const persisted = JSON.parse(
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
@@ -256,6 +265,7 @@ describe("uiStateStore persistence", () => {
 
     expect(parsePersistedState(persisted).sidebarProjectScopeKeys).toEqual(keys);
     expect(parsePersistedState(persisted).sidebarMode).toBe("chats");
+    expect(parsePersistedState(persisted).chatFolderNames).toEqual(["Ideas"]);
   });
 
   it("keeps a single-project scope readable by older clients", () => {

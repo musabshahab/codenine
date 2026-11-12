@@ -28,6 +28,7 @@ export interface PersistedUiState {
   sidebarProjectScopeKey?: string | null;
   sidebarProjectScopeKeys?: string[];
   sidebarMode?: SidebarMode;
+  chatFolderNames?: string[];
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
@@ -40,6 +41,8 @@ export interface UiProjectState {
   projectOrder: string[];
   sidebarProjectScopeKeys: string[];
   sidebarMode: SidebarMode;
+  /** Chat folders made on this device, kept while no chat is in them. */
+  chatFolderNames: string[];
 }
 
 export interface UiThreadState {
@@ -58,6 +61,7 @@ const initialState: UiState = {
   projectOrder: [],
   sidebarProjectScopeKeys: [],
   sidebarMode: "projects",
+  chatFolderNames: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -149,6 +153,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
     ),
     sidebarMode: parsed.sidebarMode === "chats" ? "chats" : "projects",
+    chatFolderNames: sanitizeStringArray(parsed.chatFolderNames),
   };
 }
 
@@ -221,6 +226,7 @@ export function persistState(state: UiState): void {
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKeys: state.sidebarProjectScopeKeys,
         sidebarMode: state.sidebarMode,
+        chatFolderNames: state.chatFolderNames,
         // Older clients read only this field.
         sidebarProjectScopeKey:
           state.sidebarProjectScopeKeys.length === 1
@@ -421,6 +427,8 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setSidebarMode: (mode: SidebarMode) => void;
+  /** Adds `name`, or renames `from` to it; a null name removes `from`. */
+  setChatFolderName: (from: string | null, name: string | null) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -443,6 +451,16 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
   setSidebarMode: (mode) =>
     set((state) => (state.sidebarMode === mode ? state : { ...state, sidebarMode: mode })),
+  setChatFolderName: (from, name) =>
+    set((state) => ({
+      ...state,
+      chatFolderNames: [
+        ...new Set([
+          ...state.chatFolderNames.filter((folder) => folder !== from),
+          ...(name === null ? [] : [name]),
+        ]),
+      ],
+    })),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
