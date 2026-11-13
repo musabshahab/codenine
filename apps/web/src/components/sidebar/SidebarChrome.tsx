@@ -35,6 +35,7 @@ import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { observeResize } from "~/lib/observeResize";
+import { CodenineMark, CodenineName } from "../CodenineWordmark";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -117,7 +118,7 @@ export function SidebarBrandWidthProbe({
       ref={observeWidth}
     >
       <div className="ml-[var(--workspace-titlebar-content-left)] flex gap-1">
-        <span className="flex items-center gap-x-2">
+        <span className="flex items-center">
           <SidebarBrandMark />
         </span>
         {isElectron ? <div className="w-[calc(2*var(--workspace-titlebar-control-size))]" /> : null}
@@ -174,7 +175,7 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
       aria-label="Codenine home"
       className={cn(
         // A narrow sidebar wraps the name onto a hidden second line, keeping the mark.
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 min-w-0 shrink flex-wrap content-start items-center gap-x-2 overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset md:flex",
+        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 min-w-0 shrink flex-wrap content-start items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 focus-visible:ring-inset md:flex",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
@@ -187,13 +188,8 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
 function SidebarBrandMark() {
   return (
     <>
-      <span
-        aria-hidden
-        className="flex size-5.5 shrink-0 items-center justify-center rounded-md bg-primary text-2xs font-bold text-primary-foreground"
-      >
-        C9
-      </span>
-      <span className="text-sm leading-7 font-semibold tracking-tight">Codenine</span>
+      <CodenineMark aria-hidden className="my-1 h-5 w-auto shrink-0" />
+      <CodenineName aria-hidden className="my-1 h-5 w-auto shrink-0" />
     </>
   );
 }

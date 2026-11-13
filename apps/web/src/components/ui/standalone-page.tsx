@@ -22,9 +22,9 @@ export function StandalonePageHeader({
 }) {
   return (
     <>
-      <div className="flex items-baseline justify-between gap-3 text-muted-foreground">
+      <div className="flex items-center justify-between gap-3 text-muted-foreground">
         <CodenineWordmark
-          className="h-3.5 w-auto shrink-0 text-foreground"
+          className="h-6 w-auto shrink-0 text-foreground"
           role="img"
           aria-label="Codenine"
         />
