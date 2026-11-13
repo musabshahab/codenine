@@ -23,13 +23,16 @@ import {
   teamApproveCommands,
   teamAssignment,
   teamCommandFailure,
+  teamDraftChangeCount,
   teamDraftIssue,
   teamDraftOf,
-  teamHandoffs,
   teamResultHandoff,
   teamRetryCommand,
+  teamRunsInSequence,
   teamStatusText,
+  teamStepFlows,
   teamTaskOfThread,
+  teamTaskWaitsFor,
   threadTeam,
 } from "./team.ts";
 
@@ -109,12 +112,37 @@ describe("changeTeamDraft", () => {
       }) as const;
     const once = changeTeamDraft(draft, add("  Reviewer "));
     const twice = changeTeamDraft(once, add("reviewer!"));
-    const blank = changeTeamDraft(twice, add("???"));
+    const blank = changeTeamDraft(twice, { ...add("???"), assign: TeamTaskId.make("b") });
     expect(blank.agents.slice(2)).toMatchObject([
       { id: "reviewer-2", label: "Reviewer", role: "review", workspace: "worktree" },
       { id: "reviewer-3", label: "reviewer!" },
       { id: "agent" },
     ]);
+    expect(blank.tasks.map((candidate) => candidate.agentId)).toEqual([
+      "builder",
+      "agent",
+      "reviewer",
+    ]);
+  });
+
+  it("counts each choice a draft changed, once", () => {
+    const edited = [
+      {
+        type: "agent.model",
+        agentId: TeamAgentId.make("builder"),
+        modelSelection: { instanceId: codex, model: "gpt-strong" },
+      },
+      {
+        type: "agent.model",
+        agentId: TeamAgentId.make("builder"),
+        modelSelection: { instanceId: codex, model: "gpt-max" },
+      },
+      { type: "task.brief", taskId: TeamTaskId.make("b"), brief: "Do b well." },
+      { type: "task.remove", taskId: TeamTaskId.make("a") },
+    ] as const satisfies ReadonlyArray<Parameters<typeof changeTeamDraft>[1]>;
+    const next = edited.reduce<ReturnType<typeof teamDraftOf>>(changeTeamDraft, draft);
+    expect(teamDraftChangeCount(draft, draft)).toBe(0);
+    expect(teamDraftChangeCount(draft, next)).toBe(3);
   });
 });
 
@@ -290,48 +318,63 @@ describe("teamCommandFailure", () => {
   });
 });
 
-describe("teamHandoffs", () => {
-  const started = (base: TeamTask): TeamTask => ({ ...base, status: "running" });
-
-  it("says whose results a task starts from, in the tense of whether it started", () => {
-    const handoffs = teamHandoffs(
-      plan({
-        tasks: [
-          { ...task("a", "builder"), status: "completed" },
-          started(task("b", "tester", ["a"])),
-          task("c", "reviewer", ["b", "a"]),
-        ],
-        agents: [agent("builder"), agent("tester"), agent("reviewer")],
-      }),
-    );
-    expect([...handoffs]).toEqual([
-      ["b", "Result passed to tester"],
-      ["c", "Both results go to reviewer"],
+describe("teamStepFlows", () => {
+  it("says which results a step starts with, and which steps start with the same ones", () => {
+    const flows = teamStepFlows([
+      task("plan", "builder"),
+      task("build", "builder", ["plan"]),
+      task("test", "builder", ["build"]),
+      task("docs", "builder", ["build"]),
+      task("review", "builder", ["docs", "test", "docs"]),
+    ]);
+    expect([...flows]).toEqual([
+      ["build", "Starts with step 1's result"],
+      ["test", "Starts with step 2's result, alongside step 4"],
+      ["docs", "Starts with step 2's result, alongside step 3"],
+      ["review", "Starts with the results of steps 3 and 4"],
     ]);
   });
 
-  it("names the senders when they are not the tasks just above", () => {
-    const agents = [agent("builder"), agent("designer"), agent("tester"), agent("reviewer")];
-    const handoffs = teamHandoffs(
-      plan({
-        agents,
-        tasks: [
-          task("a", "builder"),
-          task("b", "designer"),
-          task("c", "tester"),
-          task("d", "reviewer", ["a"]),
-          task("e", "reviewer", ["a", "b", "c", "d"]),
-          task("f", "reviewer", ["a", "c"]),
-        ],
-      }),
-    );
-    expect(handoffs.get(TeamTaskId.make("d"))).toBe("Result from builder goes to reviewer");
-    expect(handoffs.get(TeamTaskId.make("e"))).toBe("All 4 results go to reviewer");
-    expect(handoffs.get(TeamTaskId.make("f"))).toBe(
-      "Results from builder and tester go to reviewer",
-    );
-    expect(handoffs.has(TeamTaskId.make("a"))).toBe(false);
+  it("pairs steps that start at once, and skips results from steps the plan no longer has", () => {
+    const flows = teamStepFlows([
+      task("a", "builder"),
+      task("b", "builder"),
+      task("c", "builder", ["a", "gone"]),
+    ]);
+    expect([...flows]).toEqual([
+      ["a", "Runs alongside step 2"],
+      ["b", "Runs alongside step 1"],
+      ["c", "Starts with step 1's result"],
+    ]);
   });
+});
+
+it.each([
+  ["a chain", [task("a", "x"), task("b", "x", ["a"]), task("c", "x", ["b"])], true],
+  [
+    "a step that waits through another",
+    [task("a", "x"), task("b", "x", ["a"]), task("c", "x", ["b", "a"])],
+    true,
+  ],
+  ["two steps after one", [task("a", "x"), task("b", "x", ["a"]), task("c", "x", ["a"])], false],
+  ["two first steps", [task("a", "x"), task("b", "x"), task("c", "x", ["a", "b"])], false],
+] as const)("teamRunsInSequence: %s is %s", (_name, tasks, expected) => {
+  expect(teamRunsInSequence(tasks)).toBe(expected);
+});
+
+it("names the failed steps a waiting step needs, while the plan can still run them", () => {
+  const tasks = [
+    { ...task("plan", "builder"), status: "completed" as const },
+    { ...task("test", "builder", ["plan"]), status: "failed" as const },
+    { ...task("docs", "builder", ["plan"]), status: "running" as const },
+    task("review", "builder", ["test", "docs"]),
+    task("ship", "builder", ["review"]),
+  ];
+  const ship = tasks[4]!;
+  expect(teamTaskWaitsFor(plan({ status: "running", tasks }), tasks[3]!)).toEqual([2]);
+  expect(teamTaskWaitsFor(plan({ status: "failed", tasks }), ship)).toEqual([2]);
+  expect(teamTaskWaitsFor(plan({ status: "cancelled", tasks }), ship)).toEqual([]);
+  expect(teamTaskWaitsFor(plan({ status: "running", tasks }), tasks[2]!)).toEqual([]);
 });
 
 describe("teamStatusText", () => {

@@ -139,8 +139,11 @@ export function useTeamPlanActions(leadRef: ScopedThreadRef, plan: TeamPlan) {
     error: ui.error,
     pending: ui.pending,
     busy: ui.pending !== null || !canOperate,
-    change: (next: TeamDraftChange) =>
-      patch(leadKey, { notice: null, error: null, edit: editTeamDraft(plan, ui.edit, next) }),
+    // Reads the store, not this render's edit, so several changes from one handler all apply.
+    change: (next: TeamDraftChange) => {
+      const current = useTeamPlanUiStore.getState().byLead[leadKey] ?? IDLE;
+      patch(leadKey, { notice: null, error: null, edit: editTeamDraft(plan, current.edit, next) });
+    },
     discard: () => patch(leadKey, { edit: null }),
     dismissNotice: () =>
       patch(leadKey, resolved.overtaken ? { notice: null, edit: null } : { notice: null }),

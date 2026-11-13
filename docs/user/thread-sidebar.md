@@ -331,16 +331,20 @@ agent you asked, the lead, plans the team and starts nothing. The plan opens in 
 the right panel.
 
 Nothing runs until you approve, from the Task tab or with **Approve team** at the top of the
-lead's thread. In the Task tab you can change an agent's model or effort, add an
-agent, remove one that has no tasks, move a task to another agent, remove a task, and edit a task's
-brief. Your edits apply once you choose **Save** or **Approve and start**. If the team changes while
-you edit, for example because the lead proposed a new one, the tab shows the new team and tells you
-your changes were not applied. **Cancel team** drops the plan.
+lead's thread. The Task tab lists the team's steps in order, each with its brief, the agent that
+runs it, and that agent's model. Choose a step's agent to give the step to another agent or to a new
+one, and its model to change the model or effort; **Use for all agents** puts the whole team on that
+model. **Edit team** adds an agent or removes one that has no steps. You can also edit a step's brief
+or remove the step. To add, reorder or split steps, ask the lead. Your edits apply once you choose
+**Save** or **Approve and start**. If the team changes while you edit, for example because the lead
+proposed a new one, the tab shows the new team and tells you your changes were not applied.
+**Cancel team** drops the plan.
 
-Each task runs in a thread of its own. A task starts once the tasks it follows are done, with at
-most two running at a time on each provider. The Task tab shows each agent's status, model, and
-result, which agent each result goes to, and a link to its thread. **View changes** opens the
-Changes tab. When the Task tab is out of sight, or the window is too narrow for the right panel, the
+Each step runs in a thread of its own. A step starts once the steps whose results it needs are
+done, with at most two running at a time on each provider. The Task tab shows each step's status,
+agent, model, and result, the steps it starts from, and a link to its thread. When a step fails,
+retry it on its own agent or on another one; the steps that need it wait until it passes.
+**View changes** opens the Changes tab. When the Task tab is out of sight, or the window is too narrow for the right panel, the
 **Team** line above the composer shows where the team stands and opens the tab. The right panel's
 **+** menu also has **Task**.
 

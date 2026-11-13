@@ -7,6 +7,7 @@ import type {
 } from "@codenine/contracts";
 import type { EffortDisplay } from "@codenine/contracts/settings";
 import { createModelSelection } from "@codenine/shared/model";
+import type { ReactNode } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getAppModelOptionsForInstance, type AppModelOption } from "../../modelSelection";
@@ -57,6 +58,10 @@ function modelName(catalog: TeamModelCatalog, selection: ModelSelection) {
   };
 }
 
+// Outlined like the agent button beside it, so a step's agent and model read as one pair of choices.
+const CHIP_TRIGGER =
+  "border-input bg-popover text-foreground/85 shadow-xs/5 hover:bg-accent/50 dark:bg-input/32 dark:text-foreground/85 dark:hover:bg-input/64";
+
 /** The composer's model picker with its effort column, writing to one team agent. */
 export function TeamModelPicker(props: {
   catalog: TeamModelCatalog;
@@ -64,6 +69,9 @@ export function TeamModelPicker(props: {
   label: string;
   disabled: boolean;
   onChange: (selection: ModelSelection) => void;
+  /** Under the list and the effort column, such as which steps the change reaches. */
+  footer?: ReactNode;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const { catalog, selection, onChange } = props;
   const entry = catalog.entries.find((candidate) => candidate.instanceId === selection.instanceId);
@@ -92,9 +100,12 @@ export function TeamModelPicker(props: {
       size="xs"
       disabled={props.disabled}
       triggerAriaLabel={props.label}
+      triggerClassName={CHIP_TRIGGER}
       triggerSuffix={effort.suffix}
       triggerDetail={effort.detail}
       effortColumn={<ComposerEffortColumn traits={traits} />}
+      footer={props.footer}
+      {...(props.onOpenChange === undefined ? {} : { onOpenChange: props.onOpenChange })}
       onInstanceModelChange={(instanceId, model) =>
         onChange(createModelSelection(instanceId, model))
       }
@@ -125,11 +136,17 @@ export function teamModelText(catalog: TeamModelCatalog, selection: ModelSelecti
   return { entry, name, effort };
 }
 
+/** "6 Astra · Extra high", or the model alone when it has no effort. */
+export function teamModelLine(catalog: TeamModelCatalog, selection: ModelSelection): string {
+  const { name, effort } = teamModelText(catalog, selection);
+  return effort ? `${name} · ${effort}` : name;
+}
+
 /** Provider, model and effort as text, for an agent the user can no longer change. */
 export function TeamModelLabel(props: { catalog: TeamModelCatalog; selection: ModelSelection }) {
-  const { entry, name, effort } = teamModelText(props.catalog, props.selection);
+  const { entry } = teamModelText(props.catalog, props.selection);
   return (
-    <span className="inline-flex min-w-0 items-center gap-1">
+    <span className="inline-flex min-w-0 items-center gap-1.5">
       {entry ? (
         <ProviderInstanceIcon
           driverKind={entry.iconKind}
@@ -139,7 +156,7 @@ export function TeamModelLabel(props: { catalog: TeamModelCatalog; selection: Mo
           iconClassName="size-3.5"
         />
       ) : null}
-      <span className="truncate">{effort ? `${name} ${effort}` : name}</span>
+      <span className="truncate">{teamModelLine(props.catalog, props.selection)}</span>
     </span>
   );
 }

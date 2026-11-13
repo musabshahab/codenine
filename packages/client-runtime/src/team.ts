@@ -14,6 +14,7 @@ import {
   type TeamPlanStatus,
   type TeamPlanSummary,
   type TeamTask,
+  type TeamTaskDraft,
   type TeamTaskId,
   type TeamTaskRef,
   type TeamTaskStatus,
@@ -62,13 +63,15 @@ export type TeamDraftChange =
       readonly role: TeamAgentRole;
       readonly modelSelection: ModelSelection;
       readonly workspace: TeamWorkspace;
+      /** A task to give the new agent, whose id only exists once it is added. */
+      readonly assign?: TeamTaskId;
     }
   | { readonly type: "agent.remove"; readonly agentId: TeamAgentId }
   | { readonly type: "task.assign"; readonly taskId: TeamTaskId; readonly agentId: TeamAgentId }
   | { readonly type: "task.remove"; readonly taskId: TeamTaskId }
   | { readonly type: "task.brief"; readonly taskId: TeamTaskId; readonly brief: string };
 
-export function teamAgentInUse(draft: TeamDraft, agentId: TeamAgentId): boolean {
+function teamAgentInUse(draft: TeamDraft, agentId: TeamAgentId): boolean {
   return draft.tasks.some((task) => task.agentId === agentId);
 }
 
@@ -96,20 +99,24 @@ export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): Team
           agent.id === change.agentId ? { ...agent, modelSelection: change.modelSelection } : agent,
         ),
       };
-    case "agent.add":
+    case "agent.add": {
+      const id = newTeamAgentId(change.label, draft.agents);
       return {
-        ...draft,
         agents: [
           ...draft.agents,
           {
-            id: newTeamAgentId(change.label, draft.agents),
+            id,
             label: change.label.trim(),
             role: change.role,
             modelSelection: change.modelSelection,
             workspace: change.workspace,
           },
         ],
+        tasks: draft.tasks.map((task) =>
+          task.id === change.assign ? { ...task, agentId: id } : task,
+        ),
       };
+    }
     case "agent.remove":
       return teamAgentInUse(draft, change.agentId)
         ? draft
@@ -138,6 +145,24 @@ export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): Team
         ),
       };
   }
+}
+
+/** How many choices the draft changed from `base`, for "2 unsaved changes". */
+export function teamDraftChangeCount(base: TeamDraft, draft: TeamDraft): number {
+  const agentsBefore = new Map(base.agents.map((agent) => [agent.id, agent]));
+  const agentsAfter = new Set(draft.agents.map((agent) => agent.id));
+  const tasksAfter = new Map(draft.tasks.map((task) => [task.id, task]));
+  let count = base.agents.filter((agent) => !agentsAfter.has(agent.id)).length;
+  for (const agent of draft.agents) {
+    const before = agentsBefore.get(agent.id);
+    if (before === undefined || !sameJson(before.modelSelection, agent.modelSelection)) count += 1;
+  }
+  for (const task of base.tasks) {
+    const after = tasksAfter.get(task.id);
+    if (after === undefined) count += 1;
+    else count += Number(after.agentId !== task.agentId) + Number(after.brief !== task.brief);
+  }
+  return count;
 }
 
 /** Local edits to a proposed plan. They stay on this client until saved or approved. */
@@ -409,41 +434,119 @@ function listLabels(labels: ReadonlyArray<string>): string {
     : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
 }
 
+/** Steps by their place in the plan, counted from 1: "step 2", "steps 1, 3 and 4". */
+export function teamStepList(positions: ReadonlyArray<number>): string {
+  return positions.length === 1
+    ? `step ${positions[0]}`
+    : `steps ${listLabels(positions.map(String))}`;
+}
+
+type TeamStepTask = Pick<TeamTaskDraft, "id" | "dependsOn">;
+
+/** The places of the tasks `task` depends on, in plan order. */
+function dependencyPositions(
+  positionById: ReadonlyMap<TeamTaskId, number>,
+  task: TeamStepTask,
+): ReadonlyArray<number> {
+  return [...new Set(task.dependsOn)]
+    .flatMap((id) => {
+      const position = positionById.get(id);
+      return position === undefined ? [] : [position];
+    })
+    .toSorted((a, b) => a - b);
+}
+
 /**
- * The line shown above each task that starts from other tasks' results, keyed by that task. It
- * names the senders unless they are the tasks just above it, which the list already shows.
+ * The line under each step that starts from other steps' results or at the same time as others,
+ * keyed by that step: "Starts with step 1's result, alongside step 3". Steps that wait for the
+ * same results become ready together, so each names the others.
  */
-export function teamHandoffs(
-  plan: Pick<TeamPlan, "agents" | "tasks">,
-): ReadonlyMap<TeamTaskId, string> {
-  const labelOf = (task: TeamTask) => agentLabelOf(plan, task);
-  const indexById = new Map(plan.tasks.map((task, index) => [task.id, index]));
-  const handoffs = new Map<TeamTaskId, string>();
-  for (const [index, task] of plan.tasks.entries()) {
-    const sources = [...new Set(task.dependsOn)]
-      .flatMap((id) => {
-        const source = indexById.get(id);
-        return source === undefined ? [] : [source];
-      })
-      .toSorted((a, b) => a - b);
-    if (sources.length === 0) continue;
-    const plural = sources.length > 1;
-    const verb = task.status !== "pending" ? "passed to" : plural ? "go to" : "goes to";
-    const receiver = labelOf(task);
-    const adjacent = sources.every((source, k) => source === index - sources.length + k);
-    if (adjacent) {
-      const subject = !plural
-        ? "Result"
-        : sources.length === 2
-          ? "Both results"
-          : `All ${sources.length} results`;
-      handoffs.set(task.id, `${subject} ${verb} ${receiver}`);
-      continue;
+export function teamStepFlows(tasks: ReadonlyArray<TeamStepTask>): ReadonlyMap<TeamTaskId, string> {
+  const positionById = new Map(tasks.map((task, index) => [task.id, index + 1]));
+  const waits = tasks.map((task) => dependencyPositions(positionById, task));
+  const keys = waits.map((positions) => positions.join(","));
+  const flows = new Map<TeamTaskId, string>();
+  for (const [index, task] of tasks.entries()) {
+    const after = waits[index] ?? [];
+    const alongside = tasks.flatMap((_, other) =>
+      other !== index && keys[other] === keys[index] ? [other + 1] : [],
+    );
+    const parts: Array<string> = [];
+    if (after.length === 1) parts.push(`Starts with step ${after[0]}'s result`);
+    if (after.length > 1) parts.push(`Starts with the results of ${teamStepList(after)}`);
+    if (alongside.length > 0) {
+      parts.push(
+        `${parts.length === 0 ? "Runs alongside" : "alongside"} ${teamStepList(alongside)}`,
+      );
     }
-    const senders = listLabels([...new Set(sources.map((source) => labelOf(plan.tasks[source]!)))]);
-    handoffs.set(task.id, `${plural ? "Results" : "Result"} from ${senders} ${verb} ${receiver}`);
+    if (parts.length > 0) flows.set(task.id, parts.join(", "));
   }
-  return handoffs;
+  return flows;
+}
+
+/** Whether every two steps wait for one another, directly or through others, so none overlap. */
+export function teamRunsInSequence(tasks: ReadonlyArray<TeamStepTask>): boolean {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const ancestors = new Map<TeamTaskId, ReadonlySet<TeamTaskId>>();
+  const ancestorsOf = (
+    id: TeamTaskId,
+    visiting: ReadonlySet<TeamTaskId>,
+  ): ReadonlySet<TeamTaskId> => {
+    const known = ancestors.get(id);
+    if (known !== undefined) return known;
+    const found = new Set<TeamTaskId>();
+    for (const dependency of byId.get(id)?.dependsOn ?? []) {
+      // A draft with a cycle is invalid and never runs; stop instead of recursing forever.
+      if (visiting.has(dependency) || !byId.has(dependency)) continue;
+      found.add(dependency);
+      for (const ancestor of ancestorsOf(dependency, new Set([...visiting, dependency]))) {
+        found.add(ancestor);
+      }
+    }
+    ancestors.set(id, found);
+    return found;
+  };
+  return tasks.every((task, index) =>
+    tasks
+      .slice(index + 1)
+      .every(
+        (later) =>
+          ancestorsOf(later.id, new Set([later.id])).has(task.id) ||
+          ancestorsOf(task.id, new Set([task.id])).has(later.id),
+      ),
+  );
+}
+
+/**
+ * The failed or cancelled steps a pending step needs, directly or through other steps, by their
+ * places in the plan. Empty unless the plan still runs or can run again after a retry.
+ */
+export function teamTaskWaitsFor(
+  plan: Pick<TeamPlan, "status" | "tasks">,
+  task: Pick<TeamTask, "status" | "dependsOn">,
+): ReadonlyArray<number> {
+  if (task.status !== "pending" || (plan.status !== "running" && plan.status !== "failed")) {
+    return [];
+  }
+  const indexById = new Map(plan.tasks.map((candidate, index) => [candidate.id, index]));
+  const blocking = new Set<number>();
+  const seen = new Set<TeamTaskId>();
+  const visit = (dependsOn: ReadonlyArray<TeamTaskId>) => {
+    for (const id of dependsOn) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const index = indexById.get(id);
+      const dependency = index === undefined ? undefined : plan.tasks[index];
+      if (index === undefined || dependency === undefined) continue;
+      if (dependency.status === "failed" || dependency.status === "cancelled") {
+        blocking.add(index + 1);
+      } else if (dependency.status === "pending") {
+        visit(dependency.dependsOn);
+      }
+    }
+  };
+  visit(task.dependsOn);
+  return [...blocking].toSorted((a, b) => a - b);
 }
 
 export interface TeamTaskOfThread {
