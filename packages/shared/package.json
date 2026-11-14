@@ -522,6 +522,10 @@
     "./cloneUrl": {
       "types": "./src/cloneUrl.ts",
       "import": "./src/cloneUrl.ts"
+    },
+    "./licence": {
+      "types": "./src/licence.ts",
+      "import": "./src/licence.ts"
     }
   },
   "scripts": {
