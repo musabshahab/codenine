@@ -18,6 +18,10 @@ export const Route = createFileRoute("/pair")({
     if (authGateState.status === "authenticated" || authGateState.status === "hosted-static") {
       throw redirect({ to: "/", replace: true });
     }
+    // A business build signs people in at its control server, never by pairing.
+    if (authGateState.status === "control-server") {
+      throw redirect({ to: "/admin/sign-in", replace: true });
+    }
     return {
       authGateState,
     };

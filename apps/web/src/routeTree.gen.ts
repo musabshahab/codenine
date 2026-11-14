@@ -14,8 +14,11 @@ import { Route as PairRouteImport } from './routes/pair'
 import { Route as ConnectAgentRouteImport } from './routes/connect-agent'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
+import { Route as AdminSignInRouteImport } from './routes/admin.sign-in'
+import { Route as AdminEnrolRouteImport } from './routes/admin.enrol'
 import { Route as ChatUsageRouteImport } from './routes/_chat.usage'
 import { Route as ChatTasksRouteImport } from './routes/_chat.tasks'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
@@ -72,6 +75,11 @@ const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -80,6 +88,16 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
 const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   id: '/projects/$projectKey',
   path: '/projects/$projectKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSignInRoute = AdminSignInRouteImport.update({
+  id: '/admin/sign-in',
+  path: '/admin/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminEnrolRoute = AdminEnrolRouteImport.update({
+  id: '/admin/enrol',
+  path: '/admin/enrol',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatUsageRoute = ChatUsageRouteImport.update({
@@ -255,7 +273,10 @@ export interface FileRoutesByFullPath {
   '/settings': typeof ChatSettingsRouteWithChildren
   '/tasks': typeof ChatTasksRoute
   '/usage': typeof ChatUsageRoute
+  '/admin/enrol': typeof AdminEnrolRoute
+  '/admin/sign-in': typeof AdminSignInRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
+  '/admin/': typeof AdminIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/project/$projectKey': typeof ChatProjectProjectKeyRoute
@@ -293,8 +314,11 @@ export interface FileRoutesByTo {
   '/settings': typeof ChatSettingsRouteWithChildren
   '/tasks': typeof ChatTasksRoute
   '/usage': typeof ChatUsageRoute
+  '/admin/enrol': typeof AdminEnrolRoute
+  '/admin/sign-in': typeof AdminSignInRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/': typeof ChatIndexRoute
+  '/admin': typeof AdminIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/project/$projectKey': typeof ChatProjectProjectKeyRoute
@@ -334,8 +358,11 @@ export interface FileRoutesById {
   '/_chat/settings': typeof ChatSettingsRouteWithChildren
   '/_chat/tasks': typeof ChatTasksRoute
   '/_chat/usage': typeof ChatUsageRoute
+  '/admin/enrol': typeof AdminEnrolRoute
+  '/admin/sign-in': typeof AdminSignInRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/_chat/': typeof ChatIndexRoute
+  '/admin/': typeof AdminIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/_chat/project/$projectKey': typeof ChatProjectProjectKeyRoute
@@ -376,7 +403,10 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/usage'
+    | '/admin/enrol'
+    | '/admin/sign-in'
     | '/projects/$projectKey'
+    | '/admin/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/project/$projectKey'
@@ -414,8 +444,11 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/usage'
+    | '/admin/enrol'
+    | '/admin/sign-in'
     | '/projects/$projectKey'
     | '/'
+    | '/admin'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
     | '/project/$projectKey'
@@ -454,8 +487,11 @@ export interface FileRouteTypes {
     | '/_chat/settings'
     | '/_chat/tasks'
     | '/_chat/usage'
+    | '/admin/enrol'
+    | '/admin/sign-in'
     | '/projects/$projectKey'
     | '/_chat/'
+    | '/admin/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
     | '/_chat/project/$projectKey'
@@ -489,7 +525,10 @@ export interface RootRouteChildren {
   ConnectAgentRoute: typeof ConnectAgentRoute
   PairRoute: typeof PairRoute
   WelcomeRoute: typeof WelcomeRoute
+  AdminEnrolRoute: typeof AdminEnrolRoute
+  AdminSignInRoute: typeof AdminSignInRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
+  AdminIndexRoute: typeof AdminIndexRoute
   ThreadsEnvironmentIdThreadIdRoute: typeof ThreadsEnvironmentIdThreadIdRoute
 }
 
@@ -530,6 +569,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat/': {
       id: '/_chat/'
       path: '/'
@@ -542,6 +588,20 @@ declare module '@tanstack/react-router' {
       path: '/projects/$projectKey'
       fullPath: '/projects/$projectKey'
       preLoaderRoute: typeof ProjectsProjectKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/sign-in': {
+      id: '/admin/sign-in'
+      path: '/admin/sign-in'
+      fullPath: '/admin/sign-in'
+      preLoaderRoute: typeof AdminSignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/enrol': {
+      id: '/admin/enrol'
+      path: '/admin/enrol'
+      fullPath: '/admin/enrol'
+      preLoaderRoute: typeof AdminEnrolRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat/usage': {
@@ -850,7 +910,10 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectAgentRoute: ConnectAgentRoute,
   PairRoute: PairRoute,
   WelcomeRoute: WelcomeRoute,
+  AdminEnrolRoute: AdminEnrolRoute,
+  AdminSignInRoute: AdminSignInRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
+  AdminIndexRoute: AdminIndexRoute,
   ThreadsEnvironmentIdThreadIdRoute: ThreadsEnvironmentIdThreadIdRoute,
 }
 export const routeTree = rootRouteImport

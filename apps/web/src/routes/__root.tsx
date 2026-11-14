@@ -5,6 +5,7 @@ import {
   Link,
   createRootRoute,
   type ErrorComponentProps,
+  redirect,
   useLocation,
   useNavigate,
   useRouter,
@@ -50,6 +51,8 @@ import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
+import { fetchControlMe } from "../business/control";
+import { isBusinessEdition } from "../env";
 import { useAtomValue } from "@effect/atom-react";
 import { primaryServerConfigAtom, primaryServerWelcomeAtom } from "../state/server";
 import { readProject } from "../state/entities";
@@ -70,6 +73,16 @@ export const Route = createRootRoute({
           status: "hosted-static",
         } as const,
       };
+    }
+
+    if (isBusinessEdition) {
+      // Admin pages talk only to the control server; everything else needs its session first.
+      if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
+        return { authGateState: { status: "control-server" } as const };
+      }
+      if ((await fetchControlMe()) === null) {
+        throw redirect({ to: "/admin/sign-in", replace: true });
+      }
     }
 
     const authGateState = await resolveInitialServerAuthGateState();
@@ -129,7 +142,12 @@ function RootRouteBranch() {
     authGateState.status === "hosted-static",
   );
 
-  if (pathname === "/pair" || pathname === "/connect" || pathname === "/connect-agent") {
+  if (
+    pathname === "/pair" ||
+    pathname === "/connect" ||
+    pathname === "/connect-agent" ||
+    authGateState.status === "control-server"
+  ) {
     return <Outlet />;
   }
 

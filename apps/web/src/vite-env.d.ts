@@ -16,6 +16,7 @@ interface ImportMetaEnv {
   readonly VITE_RELAY_OTLP_TRACES_TOKEN: string;
   readonly CODENINE_DESKTOP_UPDATE_REPOSITORY: string;
   readonly CODENINE_FEATURE_SECRETS: string;
+  readonly CODENINE_BUSINESS_EDITION: string;
   readonly APP_VERSION: string;
 }
 

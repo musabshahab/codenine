@@ -30,6 +30,7 @@ the terminal, worktrees, and pull requests.
 - [Codenine Connect troubleshooting](./user/codenine-connect-troubleshooting.md)
 - [Outside agents (MCP)](./user/outside-agents.md)
 - [Running in the background](./user/background-service.md)
+- [Running Codenine for a team](./user/business-installation.md)
 - [Updating Codenine](./user/updating.md)
 - [Threads from an older database](./user/thread-migration.md)
 - [Open source licenses](./user/open-source-licenses.md)
