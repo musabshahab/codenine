@@ -9,11 +9,15 @@ import {
   computeDpopJwkThumbprint,
   type DpopPublicJwk,
 } from "@codenine/shared/dpop";
+import type { WorkspaceTokenClaims } from "@codenine/contracts/workspaceToken";
+import { signWorkspaceToken } from "@codenine/shared/workspaceToken";
 import { expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
+import * as Jwk from "effect/jose/Jwk";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -860,6 +864,99 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
       }).pipe(
         Effect.provide(layerEnvironmentAuth({ desktopBootstrapToken: "desktop-bootstrap-token" })),
       ),
+    );
+
+    it.effect("accepts only its control server's tokens in managed mode", () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse("2026-12-10T12:00:00Z"));
+        const pair = yield* Jwk.generateKeyPair({ algorithm: "EdDSA" });
+        const privateKey = yield* Jwk.importPrivate(pair.privateKey, "EdDSA");
+        const publicKey = yield* Jwk.importPublic(pair.publicKey, "EdDSA").pipe(
+          Effect.flatMap((key) => Jwk.exportSpki(key, { format: "pem" })),
+        );
+        const now = Math.floor((yield* DateTime.now).epochMilliseconds / 1_000);
+        const sign = (overrides: Partial<WorkspaceTokenClaims> = {}) =>
+          signWorkspaceToken({
+            privateKey,
+            keyId: "wsk_test",
+            claims: {
+              iss: "inst_control",
+              aud: "workspace",
+              sub: "per_ada",
+              sid: "ses_1",
+              name: "Ada",
+              scopes: ["orchestration:read", "orchestration:operate"],
+              iat: now,
+              exp: now + 120,
+              jti: "tok_1",
+              ...overrides,
+            },
+          });
+        yield* Effect.gen(function* () {
+          const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+          const sessions = yield* SessionStore.SessionStore;
+          const refusal = (
+            request: Parameters<
+              EnvironmentAuth.EnvironmentAuth["Service"]["authenticateHttpRequest"]
+            >[0],
+          ) =>
+            serverAuth.authenticateHttpRequest(request).pipe(
+              Effect.flip,
+              Effect.map((error) => error._tag),
+            );
+
+          expect(
+            yield* serverAuth.authenticateHttpRequest(makeBearerRequest(yield* sign())),
+          ).toMatchObject({
+            sessionId: "managed:ses_1",
+            subject: "managed:per_ada",
+            method: "bearer-access-token",
+            scopes: ["orchestration:read", "orchestration:operate"],
+          });
+          const upgrade = {
+            method: "GET",
+            url: "/ws?wsTicket=ignored",
+            cookies: {},
+            headers: { authorization: `Bearer ${yield* sign()}` },
+          } as never;
+          expect((yield* serverAuth.authenticateWebSocketUpgrade(upgrade, "rpc")).subject).toBe(
+            "managed:per_ada",
+          );
+
+          expect(yield* refusal(makeBearerRequest(yield* sign({ aud: "another-workspace" })))).toBe(
+            "ServerAuthInvalidCredentialError",
+          );
+          expect(yield* refusal(makeBearerRequest(yield* sign({ exp: now - 120 })))).toBe(
+            "ServerAuthInvalidCredentialError",
+          );
+          const local = yield* serverAuth.issueSession();
+          expect(yield* refusal(makeBearerRequest(local.token))).toBe(
+            "ServerAuthInvalidCredentialError",
+          );
+          expect(yield* refusal(makeCookieRequest(sessions.cookieName, local.token))).toBe(
+            "ServerAuthMissingCredentialError",
+          );
+          const pairing = yield* serverAuth.issuePairingCredential({
+            scopes: ["orchestration:read"],
+          });
+          const exchange = yield* Effect.flip(
+            serverAuth.createBrowserSession(pairing.credential, requestMetadata),
+          );
+          expect(exchange._tag).toBe("ServerAuthInvalidCredentialError");
+        }).pipe(
+          Effect.provide(
+            layerEnvironmentAuth({
+              mode: "managed",
+              managed: {
+                issuer: "inst_control",
+                keyId: "wsk_test",
+                publicKey,
+                workspaceId: "workspace",
+              },
+            }),
+          ),
+        );
+      }),
     );
   },
 );

@@ -263,6 +263,51 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("needs the control server's key to run a managed workspace", () =>
+    Effect.gen(function* () {
+      const baseDir = yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "codenine-cli-managed-" })),
+      );
+      const flags = {
+        mode: Option.some("managed" as const),
+        port: Option.some(8788),
+        host: Option.none<string>(),
+        baseDir: Option.some(baseDir),
+        cwd: Option.none<string>(),
+        devUrl: Option.none<URL>(),
+        noBrowser: Option.none<boolean>(),
+        bootstrapFd: Option.none<number>(),
+        autoBootstrapProjectFromCwd: Option.none<boolean>(),
+        logWebSocketEvents: Option.none<boolean>(),
+        tailscaleServeEnabled: Option.none<boolean>(),
+        tailscaleServePort: Option.none<number>(),
+        lan: Option.none<boolean>(),
+      };
+      const resolveWith = (env: Record<string, string>) =>
+        resolveServerConfig(flags, Option.none()).pipe(
+          Effect.provide(
+            Layer.mergeAll(ConfigProvider.layer(ConfigProvider.fromEnv({ env })), NetService.layer),
+          ),
+        );
+
+      const managed = yield* resolveWith({
+        CODENINE_MANAGED_ISSUER: "inst_control",
+        CODENINE_MANAGED_KEY_ID: "wsk_1",
+        CODENINE_MANAGED_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----",
+      });
+      expect(managed.managed).toEqual({
+        issuer: "inst_control",
+        keyId: "wsk_1",
+        publicKey: "-----BEGIN PUBLIC KEY-----",
+        workspaceId: "workspace",
+      });
+      const missingKey = yield* Effect.flip(
+        resolveWith({ CODENINE_MANAGED_ISSUER: "inst_control", CODENINE_MANAGED_KEY_ID: "wsk_1" }),
+      );
+      expect(String(missingKey)).toContain("CODENINE_MANAGED_PUBLIC_KEY");
+    }),
+  );
+
   it.effect("does not expose an invalid reusable auth token", () =>
     Effect.gen(function* () {
       const secret = "short-secret";

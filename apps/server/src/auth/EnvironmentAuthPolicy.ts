@@ -32,17 +32,23 @@ export const make = Effect.gen(function* () {
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
   const policy = resolveServerAuthPolicy(config);
 
+  // A managed workspace takes no local sign-in: its control server vouches for each request.
   const bootstrapMethods: ServerAuthDescriptor["bootstrapMethods"] =
-    policy === "desktop-managed-local"
-      ? ["desktop-bootstrap"]
-      : config.mode === "desktop" && policy === "remote-reachable"
-        ? ["desktop-bootstrap", "one-time-token"]
-        : ["one-time-token"];
+    config.mode === "managed"
+      ? []
+      : policy === "desktop-managed-local"
+        ? ["desktop-bootstrap"]
+        : config.mode === "desktop" && policy === "remote-reachable"
+          ? ["desktop-bootstrap", "one-time-token"]
+          : ["one-time-token"];
 
   const descriptor: ServerAuthDescriptor = {
     policy,
     bootstrapMethods,
-    sessionMethods: ["browser-session-cookie", "bearer-access-token", "dpop-access-token"],
+    sessionMethods:
+      config.mode === "managed"
+        ? ["bearer-access-token"]
+        : ["browser-session-cookie", "bearer-access-token", "dpop-access-token"],
     serverUpdateScope: AuthEnvironmentMaintainScope,
     sessionCookieName: resolveSessionCookieName({
       mode: config.mode,

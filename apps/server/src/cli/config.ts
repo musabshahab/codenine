@@ -100,6 +100,36 @@ export const traceMaxFilesConfig = Config.Int("CODENINE_TRACE_MAX_FILES").pipe(
   Config.withDefault(10),
 );
 
+/**
+ * A managed workspace trusts only its control server, so it needs that
+ * server's ID and public key, and never takes a desktop bootstrap.
+ */
+const resolveManagedControl = (
+  env: {
+    readonly managedIssuer: string | undefined;
+    readonly managedKeyId: string | undefined;
+    readonly managedPublicKey: string | undefined;
+    readonly managedWorkspaceId: string;
+  },
+  bootstrap: unknown,
+) => {
+  if (bootstrap !== undefined) {
+    return Effect.fail(
+      new CliError.UserError({ cause: "Managed mode does not take a desktop bootstrap." }),
+    );
+  }
+  const { managedIssuer: issuer, managedKeyId: keyId, managedPublicKey: publicKey } = env;
+  if (issuer === undefined || keyId === undefined || publicKey === undefined) {
+    return Effect.fail(
+      new CliError.UserError({
+        cause:
+          "Managed mode needs CODENINE_MANAGED_ISSUER, CODENINE_MANAGED_KEY_ID and CODENINE_MANAGED_PUBLIC_KEY. Run `codenine-control workspace key` on the control server to get them.",
+      }),
+    );
+  }
+  return Effect.succeed({ issuer, keyId, publicKey, workspaceId: env.managedWorkspaceId });
+};
+
 const EnvServerConfig = Config.all({
   logLevel: Config.LogLevel("CODENINE_LOG_LEVEL").pipe(Config.withDefault("Info")),
   traceMinLevel: Config.LogLevel("CODENINE_TRACE_MIN_LEVEL").pipe(Config.withDefault("Info")),
@@ -138,6 +168,21 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.Port("CODENINE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.String("CODENINE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  managedIssuer: Config.String("CODENINE_MANAGED_ISSUER").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  managedKeyId: Config.String("CODENINE_MANAGED_KEY_ID").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  managedPublicKey: Config.String("CODENINE_MANAGED_PUBLIC_KEY").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  managedWorkspaceId: Config.String("CODENINE_MANAGED_WORKSPACE_ID").pipe(
+    Config.withDefault("workspace"),
+  ),
   codenineHome: Config.String("CODENINE_HOME").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -312,6 +357,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     ),
     () => "web",
   );
+  const managed = mode === "managed" ? yield* resolveManagedControl(env, bootstrap) : undefined;
 
   const port = yield* Option.match(
     resolveOptionPrecedence(
@@ -500,6 +546,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     ...(logs?.variable !== undefined ? { otlpLogsVariable: logs.variable } : {}),
     otelEnvironment: otel,
     mode,
+    ...(managed === undefined ? {} : { managed }),
     port,
     cwd,
     baseDir,

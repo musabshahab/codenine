@@ -28,8 +28,20 @@ const telemetryChannel: ReleaseChannel =
 
 export const DEFAULT_PORT = 3773;
 
-export const RuntimeMode = Schema.Literals(["web", "desktop"]);
+/** `managed`: a business workspace that only a control server signs people into. */
+export const RuntimeMode = Schema.Literals(["web", "desktop", "managed"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
+
+/** How a managed workspace checks the tokens its control server signs. */
+export interface ManagedControlConfig {
+  /** The control server's installation ID. */
+  readonly issuer: string;
+  readonly keyId: string;
+  /** The control server's Ed25519 public key, as PEM. */
+  readonly publicKey: string;
+  /** This workspace's ID, which tokens must name. */
+  readonly workspaceId: string;
+}
 
 export const StartupPresentation = Schema.Literals(["browser", "headless"]);
 export type StartupPresentation = typeof StartupPresentation.Type;
@@ -82,6 +94,8 @@ export class ServerConfig extends Context.Service<
     readonly otlpLogsVariable?: string;
     readonly otelEnvironment: OtelEnvironment.OtelEnvironment;
     readonly mode: RuntimeMode;
+    /** Set exactly when `mode` is `managed`. */
+    readonly managed?: ManagedControlConfig | undefined;
     readonly port: number;
     readonly host: string | undefined;
     /** Set when the host was defaulted to a private-network listener for the service. */
@@ -122,7 +136,8 @@ export const otlpResource = (
   attributes: {
     "service.namespace": "codenine",
     "service.runtime": "codenine-server",
-    "codenine.server.managed_by": config.mode === "desktop" ? "desktop" : "standalone",
+    "codenine.server.managed_by":
+      config.mode === "desktop" ? "desktop" : config.mode === "managed" ? "control" : "standalone",
     "service.instance.id": processServiceInstanceId(config.otelEnvironment.resourceAttributes),
     ...releaseResourceAttributes(telemetryChannel, config.otelEnvironment.resourceAttributes),
     "host.name": config.otelEnvironment.resourceAttributes["host.name"] || hostName,

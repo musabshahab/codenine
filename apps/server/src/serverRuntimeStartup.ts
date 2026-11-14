@@ -580,6 +580,11 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
 
     yield* forkParked(
       Effect.gen(function* () {
+        // No pairing link: a managed workspace admits people only through its control server.
+        if (serverConfig.mode === "managed") {
+          yield* Effect.logInfo("Managed workspace: people reach it through its control server.");
+          return;
+        }
         if (serverConfig.startupPresentation === "headless") {
           yield* Effect.logDebug("startup phase: headless access info");
           const accessInfo = yield* issueHeadlessServeAccessInfo();

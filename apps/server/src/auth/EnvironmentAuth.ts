@@ -41,6 +41,7 @@ import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
+import { makeManagedTokenVerifier } from "./ManagedAuth.ts";
 import { REUSABLE_DEV_SESSION_EXPIRES_AT, resolveReusableDevAuth } from "./ReusableDevAuth.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
 import { DESKTOP_RENDERER_ORIGINS } from "../httpCors.ts";
@@ -714,6 +715,16 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const devAuth = resolveReusableDevAuth(config);
+  if (config.mode === "managed" && config.managed === undefined) {
+    return yield* Effect.die("Managed mode needs the control server's ID and public key.");
+  }
+  // A managed workspace accepts only its control server's tokens: no cookies,
+  // local sessions, pairing or DPoP.
+  const managedTokens =
+    config.managed === undefined ? undefined : yield* makeManagedTokenVerifier(config.managed);
+  const refuseLocalCredential = new ServerAuthInvalidCredentialError({
+    diagnostic: "This workspace is managed by a control server. Sign in there.",
+  });
 
   const authenticateToken = (
     token: string,
@@ -769,6 +780,19 @@ export const make = Effect.gen(function* () {
   const authenticateRequest = (
     request: HttpServerRequest.HttpServerRequest,
   ): Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError> => {
+    if (managedTokens !== undefined) {
+      const token = parseBearerToken(request);
+      return token === null
+        ? Effect.fail(new ServerAuthMissingCredentialError({}))
+        : managedTokens(token).pipe(
+            Effect.mapError(
+              (error) =>
+                new ServerAuthInvalidCredentialError({
+                  diagnostic: `The control server's token was refused (${error.reason}).`,
+                }),
+            ),
+          );
+    }
     const dpopToken = parseDpopToken(request);
     const credential = resolveRequestCredential(request);
     if (!credential?.token) {
@@ -842,6 +866,9 @@ export const make = Effect.gen(function* () {
   const createBrowserSession: EnvironmentAuth["Service"]["createBrowserSession"] = Effect.fn(
     "EnvironmentAuth.createBrowserSession",
   )(function* (credential, requestMetadata, previousSessionToken) {
+    if (managedTokens !== undefined) {
+      return yield* refuseLocalCredential;
+    }
     if (devAuth?.matches(credential)) {
       return yield* sessions.verify(credential).pipe(
         mapSessionVerificationErrors,
@@ -920,6 +947,9 @@ export const make = Effect.gen(function* () {
     ResolvedBootstrapGrant,
     ServerAuthInvalidCredentialError | ServerAuthInternalError | ServerAuthScopeNotGrantedError
   > => {
+    if (managedTokens !== undefined) {
+      return Effect.fail(refuseLocalCredential);
+    }
     if (!devAuth?.matches(credential)) {
       return bootstrapCredentials
         .consume(credential, input)
@@ -1243,6 +1273,10 @@ export const make = Effect.gen(function* () {
 
   const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] =
     Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request, use) {
+      // The control server puts its token on the upgrade request; socket tickets are ignored.
+      if (managedTokens !== undefined) {
+        return yield* authenticateRequest(request);
+      }
       const url = requestUrl(request);
       if (Option.isSome(url)) {
         const query = yield* decodeWebSocketUpgradeQuery(

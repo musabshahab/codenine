@@ -84,5 +84,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         ),
       ),
     );
+
+    it.effect("offers no local sign-in for a managed workspace", () =>
+      Effect.gen(function* () {
+        const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+        const descriptor = yield* policy.getDescriptor();
+
+        expect(descriptor.bootstrapMethods).toEqual([]);
+        expect(descriptor.sessionMethods).toEqual(["bearer-access-token"]);
+      }).pipe(Effect.provide(layerEnvironmentAuthPolicy({ mode: "managed", host: "0.0.0.0" }))),
+    );
   },
 );

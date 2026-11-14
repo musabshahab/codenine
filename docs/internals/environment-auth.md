@@ -3,6 +3,9 @@
 The environment issues its own sessions and enforces their capabilities. Cloud
 identity and relay credentials belong to a separate trust boundary, described in
 [Codenine Connect](./codenine-connect.md). A relay token is never an environment login.
+A workspace in `managed` mode is the exception: it issues no sessions for people and
+accepts only tokens from its control server, as described in
+[Business edition](./business-edition.md).
 
 ## Authority survives transport changes
 

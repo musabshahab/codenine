@@ -2721,6 +2721,7 @@ export const layer = Layer.unwrap(
         }
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
+        const { mode } = yield* ServerConfig.ServerConfig;
         const session = yield* serverAuth.authenticateWebSocketUpgrade(request, "rpc").pipe(
           Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
             failEnvironmentAuthInvalid(
@@ -2789,13 +2790,16 @@ export const layer = Layer.unwrap(
           () =>
             Effect.raceFirst(
               framedRpcWebSocketHttpEffect,
-              sessions.awaitInvalidation(session.sessionId, session.proofKeyThumbprint).pipe(
-                Effect.as(HttpServerResponse.empty()),
-                Effect.catchTags({
-                  SessionCredentialVerificationError: (error) =>
-                    failEnvironmentInternal("internal_error", error),
-                }),
-              ),
+              // A managed session lives on the control server, which closes the socket when it ends.
+              mode === "managed"
+                ? Effect.never
+                : sessions.awaitInvalidation(session.sessionId, session.proofKeyThumbprint).pipe(
+                    Effect.as(HttpServerResponse.empty()),
+                    Effect.catchTags({
+                      SessionCredentialVerificationError: (error) =>
+                        failEnvironmentInternal("internal_error", error),
+                    }),
+                  ),
             ),
           () => sessions.markDisconnected(session.sessionId),
         );

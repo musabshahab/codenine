@@ -16,7 +16,7 @@ const SESSION_COOKIE_NAME = "codenine_session";
 
 /** Cookies span ports; use separate names for servers sharing a hostname. */
 export function resolveSessionCookieName(input: {
-  readonly mode: "web" | "desktop";
+  readonly mode: "web" | "desktop" | "managed";
   readonly port: number;
   readonly host: string | undefined;
   readonly instanceKey: string;
@@ -44,7 +44,7 @@ export function resolveSessionCookieName(input: {
 }
 
 export function resolveLegacySessionCookieName(input: {
-  readonly mode: "web" | "desktop";
+  readonly mode: "web" | "desktop" | "managed";
   readonly host: string | undefined;
   readonly development: boolean;
 }): string | undefined {

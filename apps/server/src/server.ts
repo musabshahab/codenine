@@ -597,6 +597,14 @@ const layerCommandReadiness = HttpRouter.middleware(
   { global: true },
 );
 
+/** A managed workspace serves only the API; its control server serves the web app. */
+const layerWebAppRoute = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    return config.mode === "managed" ? Layer.empty : ServerHttp.layerStaticAndDevRoute;
+  }),
+);
+
 const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
@@ -611,7 +619,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerOtlpTracesProxyRoute,
     ServerHttp.layerAssetRoute,
     ServerHttp.layerAttachmentUploadRoute,
-    ServerHttp.layerStaticAndDevRoute,
+    layerWebAppRoute,
     Ws.layer,
   ),
   McpHttpServer.layer.pipe(
