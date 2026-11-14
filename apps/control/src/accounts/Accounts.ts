@@ -1,0 +1,624 @@
+import {
+  ControlAccountError,
+  type ControlEnrolment,
+  type ControlPerson,
+  ControlSignInError,
+} from "@codenine/contracts/control";
+import { licenceAllowsWork } from "@codenine/shared/licence";
+import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Digest from "effect/crypto/Digest";
+import type * as Kdf from "effect/crypto/Kdf";
+import type * as Mac from "effect/crypto/Mac";
+import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import { Base64Url, Hex } from "effect/encoding";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+
+import { ControlDb } from "../db.ts";
+import { LicenceService } from "../licence/LicenceService.ts";
+import {
+  controlCredentials,
+  controlPeople,
+  controlRecoveryCodes,
+  controlTickets,
+} from "../persistence/schema.ts";
+import {
+  hashPassword,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  UNKNOWN_PERSON_HASH,
+  verifyPassword,
+} from "./passwords.ts";
+import { SecretBox } from "./SecretBox.ts";
+import { Sessions } from "./Sessions.ts";
+import { authenticatorUri, base32, matchTotp } from "./totp.ts";
+
+const INVITATION_DAYS = 7;
+const RESET_DAYS = 1;
+const SIGN_IN_TICKET_MINUTES = 5;
+const MAX_FAILED_ATTEMPTS = 10;
+const LOCKOUT_MINUTES = 15;
+const RECOVERY_CODE_COUNT = 10;
+const AUTHENTICATOR_ISSUER = "Codenine";
+
+export interface IssuedLink {
+  readonly person: ControlPerson;
+  /** Goes in the link's fragment, so it stays out of server logs. */
+  readonly token: string;
+}
+
+export class Accounts extends Context.Service<
+  Accounts,
+  {
+    /** For the operator, before anyone can sign in. Refused once an owner is active. */
+    readonly inviteOwner: (input: {
+      readonly email: string;
+      readonly displayName: string;
+    }) => Effect.Effect<IssuedLink, ControlAccountError>;
+    readonly invite: (input: {
+      readonly email: string;
+      readonly displayName: string;
+      readonly role: "admin" | "member";
+    }) => Effect.Effect<IssuedLink, ControlAccountError>;
+    readonly listPeople: Effect.Effect<ReadonlyArray<ControlPerson>>;
+    readonly deactivate: (personId: string) => Effect.Effect<void, ControlAccountError>;
+    readonly reactivate: (personId: string) => Effect.Effect<ControlPerson, ControlAccountError>;
+    /** Removes the person's password and authenticator; they set new ones from the link. */
+    readonly issueReset: (personId: string) => Effect.Effect<IssuedLink, ControlAccountError>;
+    readonly unlock: (personId: string) => Effect.Effect<void, ControlAccountError>;
+    readonly startEnrolment: (
+      token: string,
+    ) => Effect.Effect<ControlEnrolment, ControlAccountError>;
+    readonly finishEnrolment: (input: {
+      readonly token: string;
+      readonly password: string;
+      readonly code: string;
+    }) => Effect.Effect<
+      { readonly personId: string; readonly recoveryCodes: ReadonlyArray<string> },
+      ControlAccountError
+    >;
+    /** Checks the password and returns a ticket for the authenticator step. */
+    readonly signIn: (input: {
+      readonly email: string;
+      readonly password: string;
+    }) => Effect.Effect<{ readonly ticket: string }, ControlSignInError>;
+    /** Accepts an authenticator code or an unused recovery code. */
+    readonly completeSignIn: (input: {
+      readonly ticket: string;
+      readonly code: string;
+    }) => Effect.Effect<{ readonly personId: string }, ControlSignInError>;
+  }
+>()("@codenine/control/accounts/Accounts") {}
+
+/** Database failures are not something a caller can act on; they become defects. */
+const dieOnDatabaseError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(Effect.catchTags({ EffectDrizzleQueryError: Effect.die, SqlError: Effect.die }));
+
+const encoder = new TextEncoder();
+const isEmail = (email: string) => email.length <= 320 && /^[^\s@]+@[^\s@]+$/u.test(email);
+const normalizeRecoveryCode = (code: string) => code.toUpperCase().replace(/[^A-Z2-7]/gu, "");
+const totpContext = (personId: string) => `totp:${personId}`;
+
+export const make = Effect.gen(function* () {
+  const db = yield* ControlDb;
+  const box = yield* SecretBox;
+  const sessions = yield* Sessions;
+  const licence = yield* LicenceService;
+  const random = yield* SecureRandom.SecureRandom;
+  const digest = yield* Digest.Digest;
+  const crypto = yield* Effect.context<Kdf.Kdf | Mac.Mac | SecureRandom.SecureRandom>();
+
+  const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
+  const later = (parts: Partial<DateTime.DateTime.PartsForMath>) =>
+    DateTime.now.pipe(Effect.map((now) => DateTime.formatIso(now.pipe(DateTime.add(parts)))));
+  const hashToken = (token: string) => digest.digestHex(Digest.sha256, encoder.encode(token));
+  const sameEmail = (email: string) =>
+    eq(sql`lower(${controlPeople.email})`, email.trim().toLowerCase());
+
+  const peopleQuery = () =>
+    db
+      .select({
+        id: controlPeople.id,
+        email: controlPeople.email,
+        displayName: controlPeople.displayName,
+        role: controlPeople.role,
+        status: controlPeople.status,
+        canSignIn: sql<boolean>`${controlCredentials.personId} is not null`,
+        lockedUntil: controlCredentials.lockedUntil,
+        createdAt: controlPeople.createdAt,
+      })
+      .from(controlPeople)
+      .leftJoin(controlCredentials, eq(controlCredentials.personId, controlPeople.id));
+
+  const toPerson = (row: ControlPerson, now: string): ControlPerson => ({
+    ...row,
+    canSignIn: Boolean(row.canSignIn),
+    lockedUntil: row.lockedUntil !== null && row.lockedUntil > now ? row.lockedUntil : null,
+  });
+
+  const findPerson = Effect.fn("Accounts.findPerson")(function* (personId: string) {
+    const [row] = yield* peopleQuery().where(eq(controlPeople.id, personId));
+    if (row === undefined) {
+      return yield* new ControlAccountError({ reason: "not-found" });
+    }
+    return toPerson(row, yield* nowIso);
+  });
+
+  const requireFreeSeat = Effect.gen(function* () {
+    const { licence: applied } = yield* licence.overview;
+    if (
+      applied._tag !== "installed" ||
+      !licenceAllowsWork(applied.status) ||
+      applied.seatsUsed >= applied.seats
+    ) {
+      return yield* new ControlAccountError({ reason: "no-free-seat" });
+    }
+  });
+
+  /** Retires a person's open links, so only the newest one works. */
+  const retireTickets = Effect.fn("Accounts.retireTickets")(function* (
+    personId: string,
+    purposes: ReadonlyArray<"invitation" | "reset" | "sign-in">,
+  ) {
+    yield* db
+      .update(controlTickets)
+      .set({ usedAt: yield* nowIso })
+      .where(
+        and(
+          eq(controlTickets.personId, personId),
+          inArray(controlTickets.purpose, [...purposes]),
+          isNull(controlTickets.usedAt),
+        ),
+      );
+  });
+
+  const issueTicket = Effect.fn("Accounts.issueTicket")(function* (
+    personId: string,
+    purpose: "invitation" | "reset" | "sign-in",
+    expiresAt: string,
+  ) {
+    const token = Base64Url.encode(yield* random.randomBytes(32));
+    yield* db.insert(controlTickets).values({
+      tokenHash: yield* hashToken(token),
+      purpose,
+      personId,
+      createdAt: yield* nowIso,
+      expiresAt,
+    });
+    return token;
+  });
+
+  const openTicket = Effect.fn("Accounts.openTicket")(function* (
+    token: string,
+    purposes: ReadonlyArray<"invitation" | "reset" | "sign-in">,
+  ) {
+    const [ticket] = yield* db
+      .select()
+      .from(controlTickets)
+      .where(
+        and(
+          eq(controlTickets.tokenHash, yield* hashToken(token.trim())),
+          inArray(controlTickets.purpose, [...purposes]),
+          isNull(controlTickets.usedAt),
+          gt(controlTickets.expiresAt, yield* nowIso),
+        ),
+      );
+    return Option.fromNullishOr(ticket);
+  });
+
+  /** Marks a ticket used, unless another request already did. */
+  const claimTicket = Effect.fn("Accounts.claimTicket")(function* (tokenHash: string) {
+    const claimed = yield* db
+      .update(controlTickets)
+      .set({ usedAt: yield* nowIso })
+      .where(and(eq(controlTickets.tokenHash, tokenHash), isNull(controlTickets.usedAt)))
+      .returning({ tokenHash: controlTickets.tokenHash });
+    return claimed.length > 0;
+  });
+
+  const newPersonId = random.randomBytes(8).pipe(Effect.map((bytes) => `per_${Hex.encode(bytes)}`));
+
+  const inviteOwner = Effect.fn("Accounts.inviteOwner")(function* (input: {
+    readonly email: string;
+    readonly displayName: string;
+  }) {
+    const email = input.email.trim();
+    if (!isEmail(email)) {
+      return yield* new ControlAccountError({ reason: "invalid-email" });
+    }
+    const [activeOwner] = yield* db
+      .select({ id: controlPeople.id })
+      .from(controlPeople)
+      .where(and(eq(controlPeople.role, "owner"), eq(controlPeople.status, "active")))
+      .limit(1);
+    if (activeOwner !== undefined) {
+      return yield* new ControlAccountError({ reason: "owner-exists" });
+    }
+    const now = yield* nowIso;
+    const displayName = input.displayName.trim() || email;
+    const [existing] = yield* db
+      .select({ id: controlPeople.id })
+      .from(controlPeople)
+      .where(sameEmail(email));
+    const personId = existing?.id ?? (yield* newPersonId);
+    if (existing === undefined) {
+      yield* db.insert(controlPeople).values({
+        id: personId,
+        email,
+        displayName,
+        role: "owner",
+        status: "invited",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      yield* db
+        .update(controlPeople)
+        .set({ displayName, role: "owner", status: "invited", updatedAt: now })
+        .where(eq(controlPeople.id, personId));
+    }
+    yield* retireTickets(personId, ["invitation", "reset"]);
+    const token = yield* issueTicket(
+      personId,
+      "invitation",
+      yield* later({ days: INVITATION_DAYS }),
+    );
+    return { person: yield* findPerson(personId), token };
+  }, dieOnDatabaseError);
+
+  const invite = Effect.fn("Accounts.invite")(function* (input: {
+    readonly email: string;
+    readonly displayName: string;
+    readonly role: "admin" | "member";
+  }) {
+    const email = input.email.trim();
+    if (!isEmail(email)) {
+      return yield* new ControlAccountError({ reason: "invalid-email" });
+    }
+    const [taken] = yield* db
+      .select({ id: controlPeople.id })
+      .from(controlPeople)
+      .where(sameEmail(email));
+    if (taken !== undefined) {
+      return yield* new ControlAccountError({ reason: "email-taken" });
+    }
+    yield* requireFreeSeat;
+    const now = yield* nowIso;
+    const personId = yield* newPersonId;
+    yield* db.insert(controlPeople).values({
+      id: personId,
+      email,
+      displayName: input.displayName.trim() || email,
+      role: input.role,
+      status: "invited",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const token = yield* issueTicket(
+      personId,
+      "invitation",
+      yield* later({ days: INVITATION_DAYS }),
+    );
+    return { person: yield* findPerson(personId), token };
+  }, dieOnDatabaseError);
+
+  const listPeople = Effect.gen(function* () {
+    const now = yield* nowIso;
+    const rows = yield* peopleQuery().orderBy(asc(controlPeople.createdAt), asc(controlPeople.id));
+    return rows.map((row) => toPerson(row, now));
+  }).pipe(Effect.orDie, Effect.withSpan("Accounts.listPeople"));
+
+  const deactivate = Effect.fn("Accounts.deactivate")(function* (personId: string) {
+    const person = yield* findPerson(personId);
+    if (person.status === "deactivated") {
+      return;
+    }
+    if (person.role === "owner" && person.status === "active") {
+      const owners = yield* db
+        .select({ id: controlPeople.id })
+        .from(controlPeople)
+        .where(and(eq(controlPeople.role, "owner"), eq(controlPeople.status, "active")));
+      if (owners.length <= 1) {
+        return yield* new ControlAccountError({ reason: "last-owner" });
+      }
+    }
+    yield* db
+      .update(controlPeople)
+      .set({ status: "deactivated", updatedAt: yield* nowIso })
+      .where(eq(controlPeople.id, personId));
+    yield* retireTickets(personId, ["invitation", "reset", "sign-in"]);
+    yield* sessions.revokeAll(personId);
+  }, dieOnDatabaseError);
+
+  const reactivate = Effect.fn("Accounts.reactivate")(function* (personId: string) {
+    const person = yield* findPerson(personId);
+    if (person.status !== "deactivated") {
+      return person;
+    }
+    yield* requireFreeSeat;
+    yield* db
+      .update(controlPeople)
+      .set({ status: person.canSignIn ? "active" : "invited", updatedAt: yield* nowIso })
+      .where(eq(controlPeople.id, personId));
+    return yield* findPerson(personId);
+  }, dieOnDatabaseError);
+
+  const issueReset = Effect.fn("Accounts.issueReset")(function* (personId: string) {
+    const person = yield* findPerson(personId);
+    if (person.status === "deactivated") {
+      return yield* new ControlAccountError({ reason: "not-found" });
+    }
+    yield* db.delete(controlCredentials).where(eq(controlCredentials.personId, personId));
+    yield* db.delete(controlRecoveryCodes).where(eq(controlRecoveryCodes.personId, personId));
+    yield* retireTickets(personId, ["invitation", "reset", "sign-in"]);
+    yield* sessions.revokeAll(personId);
+    const purpose = person.status === "invited" ? "invitation" : "reset";
+    const token = yield* issueTicket(
+      personId,
+      purpose,
+      yield* later({ days: purpose === "invitation" ? INVITATION_DAYS : RESET_DAYS }),
+    );
+    return { person: yield* findPerson(personId), token };
+  }, dieOnDatabaseError);
+
+  const unlock = Effect.fn("Accounts.unlock")(function* (personId: string) {
+    yield* findPerson(personId);
+    yield* db
+      .update(controlCredentials)
+      .set({ failedAttempts: 0, lockedUntil: null })
+      .where(eq(controlCredentials.personId, personId));
+  }, dieOnDatabaseError);
+
+  const enrolmentTicket = Effect.fn("Accounts.enrolmentTicket")(function* (token: string) {
+    const ticket = yield* openTicket(token, ["invitation", "reset"]);
+    const person = Option.isSome(ticket)
+      ? yield* findPerson(ticket.value.personId).pipe(Effect.option)
+      : Option.none();
+    if (Option.isNone(ticket) || Option.isNone(person) || person.value.status === "deactivated") {
+      return yield* new ControlAccountError({ reason: "invalid-link" });
+    }
+    return { ticket: ticket.value, person: person.value };
+  });
+
+  const startEnrolment = Effect.fn("Accounts.startEnrolment")(function* (token: string) {
+    const { ticket, person } = yield* enrolmentTicket(token);
+    const secret = yield* random.randomBytes(20);
+    yield* db
+      .update(controlTickets)
+      .set({ pendingTotpSecret: yield* box.seal(secret, totpContext(person.id)) })
+      .where(eq(controlTickets.tokenHash, ticket.tokenHash));
+    return {
+      purpose: ticket.purpose === "reset" ? ("reset" as const) : ("invitation" as const),
+      email: person.email,
+      displayName: person.displayName,
+      authenticatorUri: authenticatorUri({
+        issuer: AUTHENTICATOR_ISSUER,
+        account: person.email,
+        secret,
+      }),
+      authenticatorSecret: base32(secret),
+    };
+  }, dieOnDatabaseError);
+
+  const finishEnrolment = Effect.fn("Accounts.finishEnrolment")(function* (input: {
+    readonly token: string;
+    readonly password: string;
+    readonly code: string;
+  }) {
+    if (
+      input.password.length < MIN_PASSWORD_LENGTH ||
+      input.password.length > MAX_PASSWORD_LENGTH
+    ) {
+      return yield* new ControlAccountError({ reason: "weak-password" });
+    }
+    const { ticket, person } = yield* enrolmentTicket(input.token);
+    const sealedSecret = ticket.pendingTotpSecret;
+    const secret =
+      sealedSecret === null
+        ? undefined
+        : yield* box
+            .open(sealedSecret, totpContext(person.id))
+            .pipe(Effect.option, Effect.map(Option.getOrUndefined));
+    if (sealedSecret === null || secret === undefined) {
+      return yield* new ControlAccountError({ reason: "invalid-link" });
+    }
+    const step = yield* matchTotp({
+      secret,
+      code: input.code.replace(/\s/gu, ""),
+      nowMs: yield* Clock.currentTimeMillis,
+      lastStep: 0,
+    }).pipe(Effect.provide(crypto));
+    if (Option.isNone(step)) {
+      return yield* new ControlAccountError({ reason: "wrong-code" });
+    }
+    const passwordHash = yield* hashPassword(input.password).pipe(Effect.provide(crypto));
+    const recoveryCodes: Array<string> = [];
+    for (let index = 0; index < RECOVERY_CODE_COUNT; index++) {
+      const code = base32(yield* random.randomBytes(7)).slice(0, 10);
+      recoveryCodes.push(`${code.slice(0, 5)}-${code.slice(5)}`);
+    }
+    const recoveryHashes = yield* Effect.forEach(recoveryCodes, (code) =>
+      hashToken(normalizeRecoveryCode(code)),
+    );
+    const now = yield* nowIso;
+    yield* db.transaction(() =>
+      Effect.gen(function* () {
+        if (!(yield* claimTicket(ticket.tokenHash))) {
+          return yield* new ControlAccountError({ reason: "invalid-link" });
+        }
+        const credentials = {
+          passwordHash,
+          totpSecret: sealedSecret,
+          totpLastStep: step.value,
+          failedAttempts: 0,
+          lockedUntil: null,
+          updatedAt: now,
+        };
+        yield* db
+          .insert(controlCredentials)
+          .values({ personId: person.id, ...credentials })
+          .onConflictDoUpdate({ target: controlCredentials.personId, set: credentials });
+        yield* db.delete(controlRecoveryCodes).where(eq(controlRecoveryCodes.personId, person.id));
+        yield* db
+          .insert(controlRecoveryCodes)
+          .values(recoveryHashes.map((codeHash) => ({ personId: person.id, codeHash })));
+        yield* retireTickets(person.id, ["invitation", "reset"]);
+        yield* db
+          .update(controlPeople)
+          .set({ status: "active", updatedAt: now })
+          .where(and(eq(controlPeople.id, person.id), eq(controlPeople.status, "invited")));
+      }),
+    );
+    return { personId: person.id, recoveryCodes };
+  }, dieOnDatabaseError);
+
+  const registerFailure = Effect.fn("Accounts.registerFailure")(function* (personId: string) {
+    const failures = sql`${controlCredentials.failedAttempts} + 1`;
+    const lockUntil = yield* later({ minutes: LOCKOUT_MINUTES });
+    yield* db
+      .update(controlCredentials)
+      .set({
+        failedAttempts: sql`case when ${failures} >= ${MAX_FAILED_ATTEMPTS} then 0 else ${failures} end`,
+        lockedUntil: sql`case when ${failures} >= ${MAX_FAILED_ATTEMPTS} then ${lockUntil} else ${controlCredentials.lockedUntil} end`,
+      })
+      .where(eq(controlCredentials.personId, personId));
+  });
+
+  const signIn = Effect.fn("Accounts.signIn")(function* (input: {
+    readonly email: string;
+    readonly password: string;
+  }) {
+    const [row] = yield* db
+      .select({
+        personId: controlPeople.id,
+        passwordHash: controlCredentials.passwordHash,
+        lockedUntil: controlCredentials.lockedUntil,
+      })
+      .from(controlPeople)
+      .innerJoin(controlCredentials, eq(controlCredentials.personId, controlPeople.id))
+      .where(and(sameEmail(input.email), eq(controlPeople.status, "active")));
+    if (row === undefined) {
+      yield* verifyPassword(input.password, UNKNOWN_PERSON_HASH).pipe(Effect.provide(crypto));
+      return yield* new ControlSignInError({ reason: "wrong-credentials" });
+    }
+    if (row.lockedUntil !== null && row.lockedUntil > (yield* nowIso)) {
+      return yield* new ControlSignInError({ reason: "locked", lockedUntil: row.lockedUntil });
+    }
+    if (!(yield* verifyPassword(input.password, row.passwordHash).pipe(Effect.provide(crypto)))) {
+      yield* registerFailure(row.personId);
+      return yield* new ControlSignInError({ reason: "wrong-credentials" });
+    }
+    const ticket = yield* issueTicket(
+      row.personId,
+      "sign-in",
+      yield* later({ minutes: SIGN_IN_TICKET_MINUTES }),
+    );
+    return { ticket };
+  }, dieOnDatabaseError);
+
+  const completeSignIn = Effect.fn("Accounts.completeSignIn")(function* (input: {
+    readonly ticket: string;
+    readonly code: string;
+  }) {
+    const ticket = yield* openTicket(input.ticket, ["sign-in"]);
+    const [credentials] = Option.isSome(ticket)
+      ? yield* db
+          .select({
+            personId: controlCredentials.personId,
+            totpSecret: controlCredentials.totpSecret,
+            totpLastStep: controlCredentials.totpLastStep,
+            lockedUntil: controlCredentials.lockedUntil,
+          })
+          .from(controlCredentials)
+          .innerJoin(controlPeople, eq(controlPeople.id, controlCredentials.personId))
+          .where(
+            and(
+              eq(controlCredentials.personId, ticket.value.personId),
+              eq(controlPeople.status, "active"),
+            ),
+          )
+      : [];
+    if (Option.isNone(ticket) || credentials === undefined) {
+      return yield* new ControlSignInError({ reason: "invalid-ticket" });
+    }
+    const now = yield* nowIso;
+    if (credentials.lockedUntil !== null && credentials.lockedUntil > now) {
+      return yield* new ControlSignInError({
+        reason: "locked",
+        lockedUntil: credentials.lockedUntil,
+      });
+    }
+    const personId = credentials.personId;
+    const code = input.code.replace(/\s/gu, "");
+    let accepted = false;
+    if (/^\d{6}$/u.test(code)) {
+      const secret = yield* box
+        .open(credentials.totpSecret, totpContext(personId))
+        .pipe(Effect.orDie);
+      const step = yield* matchTotp({
+        secret,
+        code,
+        nowMs: yield* Clock.currentTimeMillis,
+        lastStep: credentials.totpLastStep,
+      }).pipe(Effect.provide(crypto));
+      // Claiming the step in the update stops two requests using one code.
+      accepted =
+        Option.isSome(step) &&
+        (yield* db
+          .update(controlCredentials)
+          .set({ totpLastStep: step.value })
+          .where(
+            and(
+              eq(controlCredentials.personId, personId),
+              sql`${controlCredentials.totpLastStep} < ${step.value}`,
+            ),
+          )
+          .returning({ personId: controlCredentials.personId })).length > 0;
+    } else {
+      const used = yield* db
+        .update(controlRecoveryCodes)
+        .set({ usedAt: now })
+        .where(
+          and(
+            eq(controlRecoveryCodes.personId, personId),
+            eq(controlRecoveryCodes.codeHash, yield* hashToken(normalizeRecoveryCode(code))),
+            isNull(controlRecoveryCodes.usedAt),
+          ),
+        )
+        .returning({ personId: controlRecoveryCodes.personId });
+      accepted = used.length > 0;
+    }
+    if (!accepted) {
+      yield* registerFailure(personId);
+      return yield* new ControlSignInError({ reason: "wrong-code" });
+    }
+    if (!(yield* claimTicket(ticket.value.tokenHash))) {
+      return yield* new ControlSignInError({ reason: "invalid-ticket" });
+    }
+    yield* db
+      .update(controlCredentials)
+      .set({ failedAttempts: 0, lockedUntil: null })
+      .where(eq(controlCredentials.personId, personId));
+    return { personId };
+  }, dieOnDatabaseError);
+
+  return Accounts.of({
+    inviteOwner,
+    invite,
+    listPeople,
+    deactivate,
+    reactivate,
+    issueReset,
+    unlock,
+    startEnrolment,
+    finishEnrolment,
+    signIn,
+    completeSignIn,
+  });
+});
+
+export const layer = Layer.effect(Accounts, make);

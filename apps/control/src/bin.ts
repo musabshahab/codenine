@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import type { ControlLicenceOverview } from "@codenine/contracts/control";
+import { ControlAccountError, type ControlLicenceOverview } from "@codenine/contracts/control";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -9,8 +9,12 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import { Argument, Command } from "effect/cli";
+import { Argument, Command, Flag } from "effect/cli";
 
+import { Accounts } from "./accounts/Accounts.ts";
+import * as AccountsModule from "./accounts/Accounts.ts";
+import { SecretBox } from "./accounts/SecretBox.ts";
+import * as Sessions from "./accounts/Sessions.ts";
 import * as Db from "./db.ts";
 import * as ControlHttp from "./http/ControlHttp.ts";
 import { Installation } from "./installation/Installation.ts";
@@ -21,6 +25,21 @@ const layerControl = Licence.layer.pipe(
   Layer.provide(Licence.LicenceTrust.layer),
   Layer.provideMerge(Db.layer),
 );
+
+const layerAccounts = AccountsModule.layer.pipe(
+  Layer.provideMerge(Sessions.layer),
+  Layer.provide(SecretBox.layer),
+  Layer.provideMerge(layerControl),
+);
+
+/** Where people reach this installation; links in invitations point here. */
+const PublicUrl = Config.String("CODENINE_CONTROL_PUBLIC_URL").pipe(
+  Config.withDefault("http://127.0.0.1:3780"),
+  Config.map((url) => url.replace(/\/+$/u, "")),
+);
+
+/** The token rides in the fragment, which browsers never send to a server. */
+const enrolmentLink = (publicUrl: string, token: string) => `${publicUrl}/admin/enrol#${token}`;
 
 const ServeConfig = Config.all({
   host: Config.String("CODENINE_CONTROL_HOST").pipe(Config.withDefault("127.0.0.1")),
@@ -92,6 +111,52 @@ const showCommand = Command.make("show", {}, () =>
   ),
 ).pipe(Command.withDescription("Show the licence in use and this installation's ID."));
 
+const inviteOwnerCommand = Command.make(
+  "invite-owner",
+  {
+    email: Flag.String("email").pipe(Flag.withDescription("The owner's email address.")),
+    name: Flag.String("name").pipe(Flag.withDescription("The owner's name."), Flag.withDefault("")),
+  },
+  Effect.fnUntraced(function* ({ email, name }) {
+    const { person, token } = yield* (yield* Accounts).inviteOwner({ email, displayName: name });
+    yield* Console.log(
+      [
+        `${person.displayName} <${person.email}> is invited as the owner.`,
+        "Send them this link. It works once and expires in 7 days:",
+        "",
+        `  ${enrolmentLink(yield* PublicUrl, token)}`,
+      ].join("\n"),
+    );
+  }, Effect.provide(layerAccounts)),
+).pipe(Command.withDescription("Invite the first owner. Refused once an owner can sign in."));
+
+const resetCommand = Command.make(
+  "reset",
+  { email: Flag.String("email").pipe(Flag.withDescription("The person's email address.")) },
+  Effect.fnUntraced(function* ({ email }) {
+    const accounts = yield* Accounts;
+    const person = (yield* accounts.listPeople).find(
+      (candidate) => candidate.email.toLowerCase() === email.trim().toLowerCase(),
+    );
+    if (person === undefined) {
+      return yield* new ControlAccountError({ reason: "not-found" });
+    }
+    const { token } = yield* accounts.issueReset(person.id);
+    yield* Console.log(
+      [
+        `${person.displayName}'s password and authenticator are removed, and they are signed out everywhere.`,
+        `Send them this link to set new ones. It works once and expires in ${person.status === "invited" ? "7 days" : "24 hours"}:`,
+        "",
+        `  ${enrolmentLink(yield* PublicUrl, token)}`,
+      ].join("\n"),
+    );
+  }, Effect.provide(layerAccounts)),
+).pipe(
+  Command.withDescription(
+    "Remove someone's password and authenticator and print a link to set new ones.",
+  ),
+);
+
 const controlCommand = Command.make("codenine-control").pipe(
   Command.withDescription("The Codenine control server for business installations."),
   Command.withSubcommands([
@@ -100,12 +165,14 @@ const controlCommand = Command.make("codenine-control").pipe(
       Command.withDescription("Install and inspect licence keys."),
       Command.withSubcommands([installCommand, showCommand]),
     ),
+    Command.make("people").pipe(
+      Command.withDescription("Invite the first owner and recover locked-out people."),
+      Command.withSubcommands([inviteOwnerCommand, resetCommand]),
+    ),
   ]),
 );
 
 Command.run(controlCommand, { version: "0.0.0" }).pipe(
-  Effect.provide(
-    Layer.mergeAll(NodeServices.layer, NodeCrypto.layerSignature, NodeCrypto.layerSecureRandom),
-  ),
+  Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
   NodeRuntime.runMain,
 );

@@ -1,24 +1,38 @@
 # Codenine control server
 
 The control server is the front door of a self-hosted business installation. It keeps the
-company's records in PostgreSQL and checks the licence key. Later phases add sign-in, people and
-roles, and routing each person to their own workspace server.
+company's records in PostgreSQL, checks the licence key and holds local accounts: a password and
+an authenticator app for each person. Later phases add single sign-on, roles, and routing each
+person to their own workspace server.
 
 It answers its own routes under `/control`, so `/api` and `/ws` stay free to forward to a
 workspace server.
 
 ## Run it in development
 
-It needs a PostgreSQL database. Migrations run at start-up.
+It needs a PostgreSQL database and Node 26, whose `crypto.argon2` hashes passwords. Migrations
+run at start-up.
 
 ```bash
 export CODENINE_CONTROL_DATABASE_URL=postgres://user:password@127.0.0.1:5432/codenine_control
+export CODENINE_CONTROL_SECRET_KEY="$(openssl rand -base64 32)"
 node src/bin.ts serve
 ```
 
+`CODENINE_CONTROL_SECRET_KEY` seals authenticator secrets in the database; keep it out of the
+database and its backups. `CODENINE_CONTROL_PUBLIC_URL` (default `http://127.0.0.1:3780`) is
+where people reach the installation, and links in invitations point there.
 `CODENINE_CONTROL_HOST` (default `127.0.0.1`) and `CODENINE_CONTROL_PORT` (default `3780`) set
-where it listens. `node src/bin.ts licence show` prints the installation ID and the licence in
-use; `node src/bin.ts licence install <file>` installs a key.
+where it listens.
+
+The same command runs operator tasks against the database:
+
+- `licence show` prints the installation ID and the licence in use; `licence install <file>`
+  installs a key.
+- `people invite-owner --email <address> --name <name>` prints a set-up link for the first owner.
+- `people reset --email <address>` removes someone's password and authenticator, signs them out
+  everywhere and prints a link to set new ones, for an owner who has lost both their
+  authenticator and their recovery codes.
 
 ## Licence keys
 

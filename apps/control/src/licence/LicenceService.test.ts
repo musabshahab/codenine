@@ -1,48 +1,29 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { LicenceClaims } from "@codenine/contracts/licence";
-import { type LicenceSigningError, signLicence } from "@codenine/shared/licence";
+import type { LicenceSigningError } from "@codenine/shared/licence";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Jwk from "effect/jose/Jwk";
 import * as Layer from "effect/Layer";
-import * as Redacted from "effect/Redacted";
 import * as TestClock from "effect/testing/TestClock";
 
 import { ControlDb } from "../db.ts";
 import { Installation } from "../installation/Installation.ts";
 import { controlPeople } from "../persistence/schema.ts";
 import { layerControlTestDb } from "../testing/ControlTestDb.ts";
+import {
+  DEC_1_2026,
+  signTestLicence,
+  TEST_KEY_ID,
+  testClaims,
+  testKeyPair,
+} from "../testing/testLicence.ts";
 import * as Licence from "./LicenceService.ts";
 
 const DAY = 86_400;
-const DEC_1 = Date.parse("2026-12-01T00:00:00Z") / 1_000;
+const DEC_1 = DEC_1_2026;
 const at = (date: string) => TestClock.setTime(Date.parse(`${date}T12:00:00Z`));
-
-const claims = (overrides: Partial<LicenceClaims> = {}): LicenceClaims => ({
-  iss: "codenine",
-  sub: "lic_first",
-  customer: "Acme Ltd",
-  seats: 3,
-  editions: ["coding"],
-  features: [],
-  iat: DEC_1,
-  nbf: DEC_1,
-  exp: DEC_1 + 365 * DAY,
-  graceDays: 30,
-  ...overrides,
-});
-
-const keyPair = Effect.gen(function* () {
-  const pair = yield* Jwk.generateKeyPair({ algorithm: "EdDSA" });
-  const privateKey = yield* Jwk.importPrivate(pair.privateKey, "EdDSA").pipe(
-    Effect.flatMap((key) => Jwk.exportPkcs8(key, { format: "pem" })),
-  );
-  const publicKey = yield* Jwk.importPublic(pair.publicKey, "EdDSA").pipe(
-    Effect.flatMap((key) => Jwk.exportSpki(key, { format: "pem" })),
-  );
-  return { privateKey: Redacted.value(privateKey), publicKey };
-});
+const claims = testClaims;
 
 const withControl = <A, E, R>(
   body: (keys: {
@@ -54,17 +35,17 @@ const withControl = <A, E, R>(
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
-    const ours = yield* keyPair;
-    const theirs = yield* keyPair;
+    const ours = yield* testKeyPair;
+    const theirs = yield* testKeyPair;
     const sign = (licence: LicenceClaims, privateKey = ours.privateKey) =>
-      signLicence({ privateKey, keyId: "test-1", claims: licence }).pipe(
-        Effect.provide(NodeCrypto.layerSignature),
-      );
+      signTestLicence(licence, privateKey);
     return yield* body({ sign, otherPrivateKey: theirs.privateKey }).pipe(
       Effect.provide(
         Licence.layer.pipe(
           Layer.provideMerge(Installation.layer),
-          Layer.provide(Layer.succeed(Licence.LicenceTrust, new Map([["test-1", ours.publicKey]]))),
+          Layer.provide(
+            Layer.succeed(Licence.LicenceTrust, new Map([[TEST_KEY_ID, ours.publicKey]])),
+          ),
           Layer.provideMerge(layerControlTestDb),
         ),
       ),

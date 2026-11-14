@@ -1,0 +1,800 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4a81e966-8ba7-41b1-8e1a-7abd74371f98",
+  "prevIds": ["c7458c5d-bee5-4309-a3a4-b050f702aa6f"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_credentials"],
+      "writes": [
+        "s|tbl|public.control_credentials",
+        "n|tbl|public.control_credentials",
+        "e|tbl|public.control_credentials",
+        "n|rel|public.control_credentials",
+        "n|type|public.control_credentials",
+        "n|rel|public.control_credentials_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_recovery_codes"],
+      "writes": [
+        "s|tbl|public.control_recovery_codes",
+        "n|tbl|public.control_recovery_codes",
+        "e|tbl|public.control_recovery_codes",
+        "n|rel|public.control_recovery_codes",
+        "n|type|public.control_recovery_codes",
+        "n|rel|public.control_recovery_codes_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_sessions"],
+      "writes": [
+        "s|tbl|public.control_sessions",
+        "n|tbl|public.control_sessions",
+        "e|tbl|public.control_sessions",
+        "n|rel|public.control_sessions",
+        "n|type|public.control_sessions",
+        "n|rel|public.control_sessions_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_tickets"],
+      "writes": [
+        "s|tbl|public.control_tickets",
+        "n|tbl|public.control_tickets",
+        "e|tbl|public.control_tickets",
+        "n|rel|public.control_tickets",
+        "n|type|public.control_tickets",
+        "n|rel|public.control_tickets_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "control_sessions", "idx_control_sessions_token_hash"],
+      "writes": [
+        "s|idx|public.idx_control_sessions_token_hash",
+        "n|idx|public.idx_control_sessions_token_hash",
+        "e|idx|public.idx_control_sessions_token_hash",
+        "n|rel|public.idx_control_sessions_token_hash"
+      ],
+      "reads": [
+        "n|tbl|public.control_sessions",
+        "n|sch|public",
+        "n|col|public.control_sessions.token_hash"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "control_sessions", "idx_control_sessions_person"],
+      "writes": [
+        "s|idx|public.idx_control_sessions_person",
+        "n|idx|public.idx_control_sessions_person",
+        "e|idx|public.idx_control_sessions_person",
+        "n|rel|public.idx_control_sessions_person"
+      ],
+      "reads": [
+        "n|tbl|public.control_sessions",
+        "n|sch|public",
+        "n|col|public.control_sessions.person_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "control_tickets", "idx_control_tickets_person"],
+      "writes": [
+        "s|idx|public.idx_control_tickets_person",
+        "n|idx|public.idx_control_tickets_person",
+        "e|idx|public.idx_control_tickets_person",
+        "n|rel|public.idx_control_tickets_person"
+      ],
+      "reads": [
+        "n|tbl|public.control_tickets",
+        "n|sch|public",
+        "n|col|public.control_tickets.person_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_credentials"],
+      "writes": [
+        "s|fk|public.control_credentials.control_credentials_person_id_control_people_id_fkey",
+        "n|fk|public.control_credentials.control_credentials_person_id_control_people_id_fkey",
+        "e|fk|public.control_credentials.control_credentials_person_id_control_people_id_fkey",
+        "n|con|public.control_credentials.control_credentials_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_credentials",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_credentials.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_recovery_codes"],
+      "writes": [
+        "s|fk|public.control_recovery_codes.control_recovery_codes_person_id_control_people_id_fkey",
+        "n|fk|public.control_recovery_codes.control_recovery_codes_person_id_control_people_id_fkey",
+        "e|fk|public.control_recovery_codes.control_recovery_codes_person_id_control_people_id_fkey",
+        "n|con|public.control_recovery_codes.control_recovery_codes_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_recovery_codes",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_recovery_codes.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_sessions"],
+      "writes": [
+        "s|fk|public.control_sessions.control_sessions_person_id_control_people_id_fkey",
+        "n|fk|public.control_sessions.control_sessions_person_id_control_people_id_fkey",
+        "e|fk|public.control_sessions.control_sessions_person_id_control_people_id_fkey",
+        "n|con|public.control_sessions.control_sessions_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_sessions",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_sessions.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_tickets"],
+      "writes": [
+        "s|fk|public.control_tickets.control_tickets_person_id_control_people_id_fkey",
+        "n|fk|public.control_tickets.control_tickets_person_id_control_people_id_fkey",
+        "e|fk|public.control_tickets.control_tickets_person_id_control_people_id_fkey",
+        "n|con|public.control_tickets.control_tickets_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_tickets",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_tickets.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_credentials",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_recovery_codes",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_sessions",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_tickets",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "password_hash",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "totp_secret",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "totp_last_step",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "failed_attempts",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "locked_until",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "updated_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_recovery_codes",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_recovery_codes",
+        "name": "code_hash",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_recovery_codes",
+        "name": "used_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "token_hash",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "user_agent",
+        "type": "varchar(512)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "last_seen_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "expires_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "revoked_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "token_hash",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "purpose",
+        "type": "varchar(16)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "pending_totp_secret",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "expires_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "used_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "idx_control_sessions_token_hash",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "token_hash",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "idx_control_sessions_person",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "person_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "idx_control_tickets_person",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "person_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "control_credentials_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_recovery_codes",
+        "name": "control_recovery_codes_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "control_sessions_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "control_tickets_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_recovery_codes",
+        "name": "control_recovery_codes_pkey",
+        "columns": ["person_id", "code_hash"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_credentials",
+        "name": "control_credentials_pkey",
+        "columns": ["person_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "control_sessions_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "control_tickets_pkey",
+        "columns": ["token_hash"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}
