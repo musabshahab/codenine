@@ -74,7 +74,7 @@ when it starts.
 
 ## Manage people
 
-Owners and admins manage people on `/admin`:
+Owners and admins manage people under **Account**:
 
 - **Invite** someone to get a one-time link to send them. Each invited or active person takes a
   seat on the licence.
@@ -84,8 +84,9 @@ Owners and admins manage people on `/admin`:
 - **Unlock** someone after ten failed sign-in attempts; otherwise the lock lifts after 15
   minutes.
 
-Everyone can see where they are signed in on `/admin` and sign out of any browser, or
-everywhere at once.
+Everyone can open **Account** at the bottom of the sidebar to see where they are signed in and
+sign out of any browser, or everywhere at once. Owners and admins manage the licence and people
+from the same page.
 
 If the only owner is locked out, someone with access to the control server can run:
 

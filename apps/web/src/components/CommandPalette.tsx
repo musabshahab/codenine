@@ -57,6 +57,7 @@ import {
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
+  CircleUserRoundIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
@@ -106,6 +107,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
+import { isBusinessEdition } from "../env";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
@@ -1625,6 +1627,19 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/usage" });
     },
   });
+
+  if (isBusinessEdition) {
+    actionItems.push({
+      kind: "action",
+      value: "action:account",
+      searchTerms: ["account", "sign out", "sessions", "admin", "people", "invite", "licence"],
+      title: "Open account",
+      icon: <CircleUserRoundIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/admin" });
+      },
+    });
+  }
 
   for (const direction of [1, -1] as const) {
     const title = direction === 1 ? "Focus Next Workspace Area" : "Focus Previous Workspace Area";
