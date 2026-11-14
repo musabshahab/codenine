@@ -38,22 +38,21 @@ import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence
 import * as WorkspaceProxy from "./WorkspaceProxy.ts";
 import * as WorkspaceTokens from "./WorkspaceTokens.ts";
 
+const echo = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  return HttpServerResponse.jsonUnsafe({
+    method: request.method,
+    url: request.url,
+    authorization: request.headers["authorization"] ?? null,
+    cookie: request.headers["cookie"] ?? null,
+    body: request.method === "POST" ? yield* request.text : null,
+  });
+}).pipe(Effect.orDie);
+
 /** Stands in for a workspace server: it reports what reached it. */
 const fakeWorkspace = Layer.mergeAll(
-  HttpRouter.add(
-    "*",
-    "/api/echo",
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      return HttpServerResponse.jsonUnsafe({
-        method: request.method,
-        url: request.url,
-        authorization: request.headers["authorization"] ?? null,
-        cookie: request.headers["cookie"] ?? null,
-        body: request.method === "POST" ? yield* request.text : null,
-      });
-    }).pipe(Effect.orDie),
-  ),
+  HttpRouter.add("*", "/api/echo", echo),
+  HttpRouter.add("GET", "/.well-known/codenine/environment", echo),
   HttpRouter.add(
     "GET",
     "/ws",
@@ -193,6 +192,14 @@ describe("WorkspaceProxy", () => {
           expect(yield* scopesOf(echo.authorization ?? "")).toEqual(
             WorkspaceTokens.WORKSPACE_SCOPES,
           );
+
+          const descriptor = yield* call(`http://${host}/.well-known/codenine/environment`, {
+            cookie,
+          });
+          expect(yield* descriptor.echo).toMatchObject({
+            url: "/.well-known/codenine/environment",
+            cookie: null,
+          });
 
           const posted = yield* call(`http://${host}/api/echo`, {
             cookie,

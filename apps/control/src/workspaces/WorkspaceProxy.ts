@@ -117,32 +117,31 @@ export const layerHttpForwarding = HttpRouter.use((router) =>
     const authorize = yield* makeWorkspaceAuthorizer;
     const upstream = yield* WorkspaceUpstream;
     const client = yield* HttpClient.HttpClient;
-    yield* router.add(
-      "*",
-      "/api/*",
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const authorized = yield* authorize(request);
-        if (Option.isNone(authorized)) {
-          return signedOut;
-        }
-        const hasBody = request.method !== "GET" && request.method !== "HEAD";
-        const forwarded = HttpClientRequest.make(request.method as "GET")(
-          `${upstream.url}${request.url}`,
-        ).pipe(
-          HttpClientRequest.setHeaders({
-            ...keep(request.headers, REQUEST_HEADERS_DROPPED),
-            authorization: `Bearer ${authorized.value.token}`,
-          }),
-          hasBody ? HttpClientRequest.bodyStream(request.stream) : (self) => self,
-        );
-        const response = yield* client.execute(forwarded);
-        return HttpServerResponse.stream(response.stream, {
-          status: response.status,
-          headers: keep(response.headers, RESPONSE_HEADERS_DROPPED),
-        });
-      }).pipe(Effect.catchTags({ HttpClientError: () => Effect.succeed(unavailable) })),
-    );
+    const forwardRequest = Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const authorized = yield* authorize(request);
+      if (Option.isNone(authorized)) {
+        return signedOut;
+      }
+      const hasBody = request.method !== "GET" && request.method !== "HEAD";
+      const forwarded = HttpClientRequest.make(request.method as "GET")(
+        `${upstream.url}${request.url}`,
+      ).pipe(
+        HttpClientRequest.setHeaders({
+          ...keep(request.headers, REQUEST_HEADERS_DROPPED),
+          authorization: `Bearer ${authorized.value.token}`,
+        }),
+        hasBody ? HttpClientRequest.bodyStream(request.stream) : (self) => self,
+      );
+      const response = yield* client.execute(forwarded);
+      return HttpServerResponse.stream(response.stream, {
+        status: response.status,
+        headers: keep(response.headers, RESPONSE_HEADERS_DROPPED),
+      });
+    }).pipe(Effect.catchTags({ HttpClientError: () => Effect.succeed(unavailable) }));
+    yield* router.add("*", "/api/*", forwardRequest);
+    // The app reads the workspace's descriptor before it opens /ws.
+    yield* router.add("GET", "/.well-known/codenine/*", forwardRequest);
   }),
 );
 

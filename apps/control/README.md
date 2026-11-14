@@ -5,8 +5,8 @@ company's records in PostgreSQL, checks the licence key and holds local accounts
 an authenticator app for each person. Later phases add single sign-on, roles, and routing each
 person to their own workspace server.
 
-It answers its own routes under `/control`, so `/api` and `/ws` stay free to forward to a
-workspace server. The HTTP API is defined in
+It answers its own routes under `/control`, so `/api`, `/ws` and the workspace descriptor under
+`/.well-known/codenine` stay free to forward to a workspace server. The HTTP API is defined in
 [`packages/contracts/src/control.ts`](../../packages/contracts/src/control.ts). Sessions are
 HTTP-only cookies, and requests that change something must come from the public URL's origin.
 

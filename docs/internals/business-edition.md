@@ -27,9 +27,10 @@ checks key ID, signature, type, issuer, audience and time.
   explains, `terminal:operate` and `orchestration:operate` reach everything the workspace's
   user can. Separate people get separate workspaces; one shared workspace is for a team that
   already trusts each other.
-- **The workspace port is internal.** The control server forwards only `/api` and `/ws`. The
-  workspace still serves `/mcp` with its own sessions so its agent processes can reach their
-  tools, so the workspace must be reachable only from the control server.
+- **The workspace port is internal.** The control server forwards only `/api`, `/ws` and the
+  workspace descriptor under `/.well-known/codenine`, each with a token. The workspace still
+  serves `/mcp` with its own sessions so its agent processes can reach their tools, so the
+  workspace must be reachable only from the control server.
 - **The control server answers its own routes under `/control`**, so it never shadows a
   workspace route.
 
