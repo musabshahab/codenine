@@ -12,6 +12,7 @@ import {
 } from "@codenine/contracts/control";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { sql } from "drizzle-orm";
+import * as Config from "effect/Config";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -21,6 +22,7 @@ import * as HttpEffect from "effect/http/HttpEffect";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
+import * as HttpStaticServer from "effect/http/HttpStaticServer";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import { Accounts } from "../accounts/Accounts.ts";
@@ -280,6 +282,19 @@ export const layerRoutes = Layer.mergeAll(
     Layer.provide(layerSessionAuth),
   ),
   layerCrossSiteGuard,
+);
+
+/**
+ * Serves the built web app from `CODENINE_CONTROL_WEB_DIR`, falling back to
+ * `index.html` for app routes. Managed workspaces do not serve it.
+ */
+export const layerWebApp = Layer.unwrap(
+  Effect.gen(function* () {
+    const root = yield* Config.option(Config.String("CODENINE_CONTROL_WEB_DIR"));
+    return Option.isNone(root)
+      ? Layer.empty
+      : HttpStaticServer.layer({ root: root.value, spa: true });
+  }),
 );
 
 export const layerServer = <E, R>(

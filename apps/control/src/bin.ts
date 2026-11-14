@@ -71,7 +71,10 @@ const serveCommand = Command.make("serve", {}, () =>
     const { host, port } = yield* ServeConfig;
     return yield* Layer.launch(
       Layer.mergeAll(
-        ControlHttp.layerServer({ host, port }, WorkspaceProxy.layerForwarding),
+        ControlHttp.layerServer(
+          { host, port },
+          Layer.mergeAll(WorkspaceProxy.layerForwarding, ControlHttp.layerWebApp),
+        ),
         Licence.layerDailyCheck,
       ).pipe(
         Layer.provide(WorkspaceTokensModule.layer),
