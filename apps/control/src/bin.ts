@@ -15,6 +15,7 @@ import { Accounts } from "./accounts/Accounts.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
 import * as Sessions from "./accounts/Sessions.ts";
+import { ControlPublicUrl, enrolmentLink } from "./config.ts";
 import * as Db from "./db.ts";
 import * as ControlHttp from "./http/ControlHttp.ts";
 import { Installation } from "./installation/Installation.ts";
@@ -30,16 +31,8 @@ const layerAccounts = AccountsModule.layer.pipe(
   Layer.provideMerge(Sessions.layer),
   Layer.provide(SecretBox.layer),
   Layer.provideMerge(layerControl),
+  Layer.provideMerge(ControlPublicUrl.layer),
 );
-
-/** Where people reach this installation; links in invitations point here. */
-const PublicUrl = Config.String("CODENINE_CONTROL_PUBLIC_URL").pipe(
-  Config.withDefault("http://127.0.0.1:3780"),
-  Config.map((url) => url.replace(/\/+$/u, "")),
-);
-
-/** The token rides in the fragment, which browsers never send to a server. */
-const enrolmentLink = (publicUrl: string, token: string) => `${publicUrl}/admin/enrol#${token}`;
 
 const ServeConfig = Config.all({
   host: Config.String("CODENINE_CONTROL_HOST").pipe(Config.withDefault("127.0.0.1")),
@@ -74,7 +67,7 @@ const serveCommand = Command.make("serve", {}, () =>
     const { host, port } = yield* ServeConfig;
     return yield* Layer.launch(
       Layer.mergeAll(ControlHttp.layerServer({ host, port }), Licence.layerDailyCheck).pipe(
-        Layer.provide(layerControl),
+        Layer.provide(layerAccounts),
       ),
     );
   }),
@@ -124,7 +117,7 @@ const inviteOwnerCommand = Command.make(
         `${person.displayName} <${person.email}> is invited as the owner.`,
         "Send them this link. It works once and expires in 7 days:",
         "",
-        `  ${enrolmentLink(yield* PublicUrl, token)}`,
+        `  ${enrolmentLink((yield* ControlPublicUrl).origin, token)}`,
       ].join("\n"),
     );
   }, Effect.provide(layerAccounts)),
@@ -147,7 +140,7 @@ const resetCommand = Command.make(
         `${person.displayName}'s password and authenticator are removed, and they are signed out everywhere.`,
         `Send them this link to set new ones. It works once and expires in ${person.status === "invited" ? "7 days" : "24 hours"}:`,
         "",
-        `  ${enrolmentLink(yield* PublicUrl, token)}`,
+        `  ${enrolmentLink((yield* ControlPublicUrl).origin, token)}`,
       ].join("\n"),
     );
   }, Effect.provide(layerAccounts)),

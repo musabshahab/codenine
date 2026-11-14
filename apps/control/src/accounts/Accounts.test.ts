@@ -3,21 +3,18 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { LicenceClaims } from "@codenine/contracts/licence";
 import type { LicenceError, LicenceSigningError } from "@codenine/shared/licence";
 import { describe, expect, it } from "@effect/vitest";
-import * as Clock from "effect/Clock";
 import type * as Mac from "effect/crypto/Mac";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
-import { Installation } from "../installation/Installation.ts";
 import * as Licence from "../licence/LicenceService.ts";
-import { layerControlTestDb } from "../testing/ControlTestDb.ts";
-import { signTestLicence, TEST_KEY_ID, testClaims, testKeyPair } from "../testing/testLicence.ts";
+import { codeNow, fromBase32 } from "../testing/authenticator.ts";
+import { layerTestServices } from "../testing/layerTestServices.ts";
+import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
 import * as AccountsModule from "./Accounts.ts";
-import { SecretBox } from "./SecretBox.ts";
 import * as SessionsModule from "./Sessions.ts";
-import { totpCode, totpStep } from "./totp.ts";
 
 const { Accounts } = AccountsModule;
 const { Sessions } = SessionsModule;
@@ -40,40 +37,8 @@ const withAccounts = <A, E, R>(
         ),
         Effect.asVoid,
       );
-    return yield* body({ install }).pipe(
-      Effect.provide(
-        AccountsModule.layer.pipe(
-          Layer.provideMerge(SessionsModule.layer),
-          Layer.provideMerge(Licence.layer),
-          Layer.provideMerge(Installation.layer),
-          Layer.provide(
-            Layer.succeed(Licence.LicenceTrust, new Map([[TEST_KEY_ID, keys.publicKey]])),
-          ),
-          Layer.provide(Layer.effect(SecretBox, SecretBox.make(new Uint8Array(32).fill(7)))),
-          Layer.provideMerge(layerControlTestDb),
-        ),
-      ),
-    );
+    return yield* body({ install }).pipe(Effect.provide(layerTestServices(keys.publicKey)));
   }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
-
-const fromBase32 = (text: string) => {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = 0;
-  let value = 0;
-  const bytes: Array<number> = [];
-  for (const char of text) {
-    value = (value << 5) | alphabet.indexOf(char);
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 255);
-      bits -= 8;
-    }
-  }
-  return Uint8Array.from(bytes);
-};
-
-const codeNow = (secret: Uint8Array) =>
-  Clock.currentTimeMillis.pipe(Effect.flatMap((ms) => totpCode(secret, totpStep(ms))));
 
 /** Sets a password and authenticator from a link, as the person would. */
 const enrol = (token: string, password = PASSWORD) =>

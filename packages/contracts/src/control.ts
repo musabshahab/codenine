@@ -1,7 +1,9 @@
+import * as Context from "effect/Context";
 import * as Schema from "effect/Schema";
 import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiEndpoint from "effect/http-api/HttpApiEndpoint";
 import * as HttpApiGroup from "effect/http-api/HttpApiGroup";
+import * as HttpApiMiddleware from "effect/http-api/HttpApiMiddleware";
 import * as OpenApi from "effect/http-api/OpenApi";
 
 import { IsoDateTime, NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -150,6 +152,65 @@ export const ControlHealthResponse = Schema.Struct({
 });
 export type ControlHealthResponse = typeof ControlHealthResponse.Type;
 
+export const ControlOk = Schema.Struct({ ok: Schema.Literal(true) });
+
+/** The signed-in person. */
+export const ControlMe = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  email: TrimmedNonEmptyString,
+  displayName: TrimmedNonEmptyString,
+  role: ControlRole,
+});
+export type ControlMe = typeof ControlMe.Type;
+
+export const ControlSessionEntry = Schema.Struct({
+  ...ControlSession.fields,
+  /** The session making this request. */
+  current: Schema.Boolean,
+});
+export type ControlSessionEntry = typeof ControlSessionEntry.Type;
+
+/** A set-up link for an admin to pass on. It works once. */
+export const ControlIssuedLink = Schema.Struct({ person: ControlPerson, link: Schema.String });
+export type ControlIssuedLink = typeof ControlIssuedLink.Type;
+
+export class ControlSignedOutError extends Schema.TaggedError<ControlSignedOutError>()(
+  "ControlSignedOutError",
+  {},
+  { httpApiStatus: 401 },
+) {
+  override get message(): string {
+    return "Sign in to continue.";
+  }
+}
+
+export class ControlForbiddenError extends Schema.TaggedError<ControlForbiddenError>()(
+  "ControlForbiddenError",
+  {},
+  { httpApiStatus: 403 },
+) {
+  override get message(): string {
+    return "Only owners and admins can do this.";
+  }
+}
+
+export class ControlLicenceInstallError extends Schema.TaggedError<ControlLicenceInstallError>()(
+  "ControlLicenceInstallError",
+  { problem: LicenceProblem },
+  { httpApiStatus: 400 },
+) {}
+
+export class ControlPrincipal extends Context.Service<
+  ControlPrincipal,
+  { readonly sessionId: string; readonly person: ControlMe }
+>()("@codenine/contracts/control/ControlPrincipal") {}
+
+/** Reads the session cookie. */
+export class ControlSessionAuth extends HttpApiMiddleware.Service<
+  ControlSessionAuth,
+  { provides: ControlPrincipal }
+>()("ControlSessionAuth", { error: ControlSignedOutError }) {}
+
 /**
  * Everything the control server answers itself lives under `/control`, so
  * `/api` and `/ws` stay free to forward to a workspace server.
@@ -161,7 +222,96 @@ const ControlHealthGroup = HttpApiGroup.make("health").add(
   }).annotate(OpenApi.Summary, "Check the control server and its database"),
 );
 
+const ControlAccountGroup = HttpApiGroup.make("account").add(
+  HttpApiEndpoint.post("signIn", "/control/api/sign-in", {
+    payload: Schema.Struct({ email: Schema.String, password: Schema.String }),
+    success: Schema.Struct({ ticket: Schema.String }),
+    error: ControlSignInError,
+  }).annotate(OpenApi.Summary, "Check a password; the ticket goes to the code step"),
+  HttpApiEndpoint.post("completeSignIn", "/control/api/sign-in/code", {
+    payload: Schema.Struct({ ticket: Schema.String, code: Schema.String }),
+    success: ControlMe,
+    error: ControlSignInError,
+  }).annotate(OpenApi.Summary, "Check an authenticator or recovery code and start a session"),
+  HttpApiEndpoint.post("startEnrolment", "/control/api/enrolment/start", {
+    payload: Schema.Struct({ token: Schema.String }),
+    success: ControlEnrolment,
+    error: ControlAccountError,
+  }).annotate(OpenApi.Summary, "Open an invitation or reset link"),
+  HttpApiEndpoint.post("finishEnrolment", "/control/api/enrolment/finish", {
+    payload: Schema.Struct({ token: Schema.String, password: Schema.String, code: Schema.String }),
+    success: Schema.Struct({ me: ControlMe, recoveryCodes: Schema.Array(Schema.String) }),
+    error: ControlAccountError,
+  }).annotate(OpenApi.Summary, "Set a password and authenticator and start a session"),
+);
+
+const ControlMeGroup = HttpApiGroup.make("me")
+  .add(
+    HttpApiEndpoint.get("me", "/control/api/me", { success: ControlMe }),
+    HttpApiEndpoint.post("signOut", "/control/api/sign-out", { success: ControlOk }),
+    HttpApiEndpoint.get("sessions", "/control/api/me/sessions", {
+      success: Schema.Array(ControlSessionEntry),
+    }),
+    HttpApiEndpoint.delete("revokeSession", "/control/api/me/sessions/:sessionId", {
+      params: Schema.Struct({ sessionId: TrimmedNonEmptyString }),
+      success: ControlOk,
+    }),
+    HttpApiEndpoint.post("signOutEverywhere", "/control/api/me/sign-out-everywhere", {
+      success: ControlOk,
+    }),
+  )
+  .middleware(ControlSessionAuth);
+
+const PersonParams = Schema.Struct({ personId: TrimmedNonEmptyString });
+
+const ControlAdminGroup = HttpApiGroup.make("admin")
+  .add(
+    HttpApiEndpoint.get("licence", "/control/api/admin/licence", {
+      success: ControlLicenceOverview,
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.put("installLicence", "/control/api/admin/licence", {
+      payload: Schema.Struct({ token: Schema.String }),
+      success: ControlLicenceOverview,
+      error: [ControlForbiddenError, ControlLicenceInstallError],
+    }),
+    HttpApiEndpoint.get("people", "/control/api/admin/people", {
+      success: Schema.Array(ControlPerson),
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.post("invite", "/control/api/admin/people", {
+      payload: Schema.Struct({
+        email: Schema.String,
+        displayName: Schema.String,
+        role: Schema.Literals(["admin", "member"]),
+      }),
+      success: ControlIssuedLink,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.post("deactivate", "/control/api/admin/people/:personId/deactivate", {
+      params: PersonParams,
+      success: ControlOk,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.post("reactivate", "/control/api/admin/people/:personId/reactivate", {
+      params: PersonParams,
+      success: ControlPerson,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.post("reset", "/control/api/admin/people/:personId/reset", {
+      params: PersonParams,
+      success: ControlIssuedLink,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.post("unlock", "/control/api/admin/people/:personId/unlock", {
+      params: PersonParams,
+      success: ControlOk,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+  )
+  .middleware(ControlSessionAuth);
+
 export const ControlApi = HttpApi.make("ControlApi")
-  .add(ControlHealthGroup)
+  .add(ControlHealthGroup, ControlAccountGroup, ControlMeGroup, ControlAdminGroup)
   .annotate(OpenApi.Title, "Codenine Control API");
 export type ControlApi = typeof ControlApi;

@@ -6,7 +6,9 @@ an authenticator app for each person. Later phases add single sign-on, roles, an
 person to their own workspace server.
 
 It answers its own routes under `/control`, so `/api` and `/ws` stay free to forward to a
-workspace server.
+workspace server. The HTTP API is defined in
+[`packages/contracts/src/control.ts`](../../packages/contracts/src/control.ts). Sessions are
+HTTP-only cookies, and requests that change something must come from the public URL's origin.
 
 ## Run it in development
 
