@@ -119,3 +119,15 @@ export const controlSessions = pgTable(
     index("idx_control_sessions_person").on(table.personId),
   ],
 );
+
+/**
+ * Keys the control server signs workspace tokens with. The private key is
+ * sealed with the server's secret key; workspaces are configured with the
+ * public key.
+ */
+export const controlSigningKeys = pgTable("control_signing_keys", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  privateKey: text("private_key").notNull(),
+  publicKey: text("public_key").notNull(),
+  createdAt: varchar("created_at", { length: 64 }).notNull(),
+});

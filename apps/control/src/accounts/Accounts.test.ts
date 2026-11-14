@@ -246,6 +246,7 @@ describe("Accounts", () => {
         expect(yield* sessions.authenticate(first.token)).toEqual(
           Option.some({
             sessionId: first.session.id,
+            expiresAt: first.session.expiresAt,
             person: { id: personId, email: "ada@acme.test", displayName: "Ada", role: "owner" },
           }),
         );

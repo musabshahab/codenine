@@ -282,7 +282,10 @@ export const layerRoutes = Layer.mergeAll(
   layerCrossSiteGuard,
 );
 
-export const layerServer = (options: { readonly host: string; readonly port: number }) =>
-  HttpRouter.serve(layerRoutes).pipe(
+export const layerServer = <E, R>(
+  options: { readonly host: string; readonly port: number },
+  moreRoutes: Layer.Layer<never, E, R>,
+) =>
+  HttpRouter.serve(Layer.mergeAll(layerRoutes, moreRoutes)).pipe(
     Layer.provide(NodeHttpServer.layer(NodeHttp.createServer, options)),
   );

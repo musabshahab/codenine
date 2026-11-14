@@ -4,11 +4,13 @@ import { ControlAccountError, type ControlLicenceOverview } from "@codenine/cont
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { Accounts } from "./accounts/Accounts.ts";
@@ -20,6 +22,8 @@ import * as Db from "./db.ts";
 import * as ControlHttp from "./http/ControlHttp.ts";
 import { Installation } from "./installation/Installation.ts";
 import * as Licence from "./licence/LicenceService.ts";
+import * as WorkspaceProxy from "./workspaces/WorkspaceProxy.ts";
+import * as WorkspaceTokensModule from "./workspaces/WorkspaceTokens.ts";
 
 const layerControl = Licence.layer.pipe(
   Layer.provideMerge(Installation.layer),
@@ -29,7 +33,7 @@ const layerControl = Licence.layer.pipe(
 
 const layerAccounts = AccountsModule.layer.pipe(
   Layer.provideMerge(Sessions.layer),
-  Layer.provide(SecretBox.layer),
+  Layer.provideMerge(SecretBox.layer),
   Layer.provideMerge(layerControl),
   Layer.provideMerge(ControlPublicUrl.layer),
 );
@@ -66,8 +70,13 @@ const serveCommand = Command.make("serve", {}, () =>
   Effect.gen(function* () {
     const { host, port } = yield* ServeConfig;
     return yield* Layer.launch(
-      Layer.mergeAll(ControlHttp.layerServer({ host, port }), Licence.layerDailyCheck).pipe(
-        Layer.provide(layerAccounts),
+      Layer.mergeAll(
+        ControlHttp.layerServer({ host, port }, WorkspaceProxy.layerForwarding),
+        Licence.layerDailyCheck,
+      ).pipe(
+        Layer.provide(WorkspaceTokensModule.layer),
+        Layer.provide(Layer.mergeAll(FetchHttpClient.layer, NodeSocket.layerWebSocketConstructor)),
+        Layer.provideMerge(layerAccounts),
       ),
     );
   }),
@@ -150,6 +159,27 @@ const resetCommand = Command.make(
   ),
 );
 
+const workspaceKeyCommand = Command.make("key", {}, () =>
+  Effect.gen(function* () {
+    const { verifier } = yield* WorkspaceTokensModule.WorkspaceTokens;
+    yield* Console.log(
+      [
+        "Set these on each workspace server so it accepts people this control server signs in:",
+        "",
+        `CODENINE_MANAGED_ISSUER=${verifier.issuer}`,
+        `CODENINE_MANAGED_KEY_ID=${verifier.keyId}`,
+        `CODENINE_MANAGED_PUBLIC_KEY="${verifier.publicKey.trim().replaceAll("\n", "\\n")}"`,
+      ].join("\n"),
+    );
+  }).pipe(
+    Effect.provide(
+      WorkspaceTokensModule.layer.pipe(Layer.provide(SecretBox.layer), Layer.provide(layerControl)),
+    ),
+  ),
+).pipe(
+  Command.withDescription("Print what a workspace server needs to trust this control server."),
+);
+
 const controlCommand = Command.make("codenine-control").pipe(
   Command.withDescription("The Codenine control server for business installations."),
   Command.withSubcommands([
@@ -157,6 +187,10 @@ const controlCommand = Command.make("codenine-control").pipe(
     Command.make("licence").pipe(
       Command.withDescription("Install and inspect licence keys."),
       Command.withSubcommands([installCommand, showCommand]),
+    ),
+    Command.make("workspace").pipe(
+      Command.withDescription("Connect workspace servers to this control server."),
+      Command.withSubcommands([workspaceKeyCommand]),
     ),
     Command.make("people").pipe(
       Command.withDescription("Invite the first owner and recover locked-out people."),

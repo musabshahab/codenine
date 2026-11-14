@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import { Base64Url, Hex } from "effect/encoding";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 
 import { ControlDb } from "../db.ts";
 import { controlPeople, controlSessions } from "../persistence/schema.ts";
@@ -18,6 +19,7 @@ const TOUCH_AFTER_MINUTES = 5;
 
 export interface AuthenticatedSession {
   readonly sessionId: string;
+  readonly expiresAt: string;
   readonly person: {
     readonly id: string;
     readonly email: string;
@@ -41,6 +43,8 @@ export class Sessions extends Context.Service<
       readonly sessionId: string;
     }) => Effect.Effect<void>;
     readonly revokeAll: (personId: string) => Effect.Effect<void>;
+    /** Completes when the session is revoked or expires, for connections it keeps open. */
+    readonly awaitEnd: (session: AuthenticatedSession) => Effect.Effect<void>;
   }
 >()("@codenine/control/accounts/Sessions") {}
 
@@ -52,6 +56,11 @@ export const make = Effect.gen(function* () {
   const digest = yield* Digest.Digest;
 
   const hashToken = (token: string) => digest.digestHex(Digest.sha256, encoder.encode(token));
+  // Revocations within this server; a forwarded socket ends as soon as its session does.
+  const revocations = yield* PubSub.unbounded<{
+    readonly personId: string;
+    readonly sessionId?: string;
+  }>();
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
   const create = Effect.fn("Sessions.create")(function* (input: {
@@ -78,6 +87,7 @@ export const make = Effect.gen(function* () {
     const [row] = yield* db
       .select({
         sessionId: controlSessions.id,
+        expiresAt: controlSessions.expiresAt,
         lastSeenAt: controlSessions.lastSeenAt,
         id: controlPeople.id,
         email: controlPeople.email,
@@ -106,8 +116,8 @@ export const make = Effect.gen(function* () {
         .set({ lastSeenAt: DateTime.formatIso(now) })
         .where(eq(controlSessions.id, row.sessionId));
     }
-    const { sessionId, lastSeenAt: _lastSeenAt, ...person } = row;
-    return Option.some({ sessionId, person });
+    const { sessionId, expiresAt, lastSeenAt: _lastSeenAt, ...person } = row;
+    return Option.some({ sessionId, expiresAt, person });
   }, Effect.orDie);
 
   const list = Effect.fn("Sessions.list")(function* (personId: string) {
@@ -144,6 +154,7 @@ export const make = Effect.gen(function* () {
           isNull(controlSessions.revokedAt),
         ),
       );
+    yield* PubSub.publish(revocations, input);
   }, Effect.orDie);
 
   const revokeAll = Effect.fn("Sessions.revokeAll")(function* (personId: string) {
@@ -151,9 +162,49 @@ export const make = Effect.gen(function* () {
       .update(controlSessions)
       .set({ revokedAt: yield* nowIso })
       .where(and(eq(controlSessions.personId, personId), isNull(controlSessions.revokedAt)));
+    yield* PubSub.publish(revocations, { personId });
   }, Effect.orDie);
 
-  return Sessions.of({ create, authenticate, list, revoke, revokeAll });
+  const awaitEnd = Effect.fn("Sessions.awaitEnd")(
+    function* (session: AuthenticatedSession) {
+      const subscription = yield* PubSub.subscribe(revocations);
+      // Checked after subscribing, so a revocation in between is not missed.
+      const [current] = yield* db
+        .select({ id: controlSessions.id })
+        .from(controlSessions)
+        .where(and(eq(controlSessions.id, session.sessionId), isNull(controlSessions.revokedAt)));
+      if (current === undefined) {
+        return;
+      }
+      const revoked = Effect.gen(function* () {
+        while (true) {
+          const event = yield* PubSub.take(subscription);
+          if (
+            event.personId === session.person.id &&
+            (event.sessionId === undefined || event.sessionId === session.sessionId)
+          ) {
+            return;
+          }
+        }
+      });
+      const untilExpiry = DateTime.now.pipe(
+        Effect.flatMap((now) =>
+          Effect.sleep(
+            Math.max(
+              0,
+              DateTime.toEpochMillis(DateTime.makeUnsafe(session.expiresAt)) -
+                DateTime.toEpochMillis(now),
+            ),
+          ),
+        ),
+      );
+      yield* Effect.raceFirst(revoked, untilExpiry);
+    },
+    Effect.scoped,
+    Effect.orDie,
+  );
+
+  return Sessions.of({ create, authenticate, list, revoke, revokeAll, awaitEnd });
 });
 
 export const layer = Layer.effect(Sessions, make);

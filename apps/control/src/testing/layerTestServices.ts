@@ -18,7 +18,7 @@ export const layerTestServices = (licencePublicKey: string) =>
     Layer.provideMerge(Licence.layer),
     Layer.provideMerge(Installation.layer),
     Layer.provide(Layer.succeed(Licence.LicenceTrust, new Map([[TEST_KEY_ID, licencePublicKey]]))),
-    Layer.provide(Layer.effect(SecretBox, SecretBox.make(new Uint8Array(32).fill(7)))),
+    Layer.provideMerge(Layer.effect(SecretBox, SecretBox.make(new Uint8Array(32).fill(7)))),
     Layer.provideMerge(layerControlTestDb),
     Layer.provideMerge(Layer.effect(ControlPublicUrl, ControlPublicUrl.make(TEST_PUBLIC_URL))),
   );

@@ -1,0 +1,237 @@
+// @effect-diagnostics nodeBuiltinImport:off - both test servers listen on Node http.Servers.
+import * as NodeHttp from "node:http";
+
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import {
+  importWorkspacePublicKey,
+  verifyWorkspaceToken,
+  type WorkspaceTokenError,
+} from "@codenine/shared/workspaceToken";
+import type { AuthGrantScope } from "@codenine/contracts";
+import { describe, expect, it } from "@effect/vitest";
+import * as Arr from "effect/Array";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpRouter from "effect/http/HttpRouter";
+import * as HttpServer from "effect/http/HttpServer";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
+import * as Socket from "effect/socket/Socket";
+
+import { Sessions } from "../accounts/Sessions.ts";
+import { ControlDb } from "../db.ts";
+import { sessionCookieName } from "../http/ControlHttp.ts";
+import { LicenceService } from "../licence/LicenceService.ts";
+import { controlPeople } from "../persistence/schema.ts";
+import { layerTestServices } from "../testing/layerTestServices.ts";
+import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
+import * as WorkspaceProxy from "./WorkspaceProxy.ts";
+import * as WorkspaceTokens from "./WorkspaceTokens.ts";
+
+/** Stands in for a workspace server: it reports what reached it. */
+const fakeWorkspace = Layer.mergeAll(
+  HttpRouter.add(
+    "*",
+    "/api/echo",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      return HttpServerResponse.jsonUnsafe({
+        method: request.method,
+        url: request.url,
+        authorization: request.headers["authorization"] ?? null,
+        cookie: request.headers["cookie"] ?? null,
+        body: request.method === "POST" ? yield* request.text : null,
+      });
+    }).pipe(Effect.orDie),
+  ),
+  HttpRouter.add(
+    "GET",
+    "/ws",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const socket = yield* request.upgrade;
+      yield* Effect.gen(function* () {
+        const reader = yield* socket.reader;
+        const writer = yield* socket.writer;
+        yield* writer.write(`authorization ${request.headers["authorization"] ?? "none"}`);
+        return yield* Effect.forever(
+          Effect.flatMap(reader.pull, (chunks) =>
+            writer.writeAll(
+              Arr.map(chunks, (chunk) => (typeof chunk === "string" ? `echo ${chunk}` : chunk)),
+            ),
+          ),
+        );
+      }).pipe(Effect.scoped, Effect.ignore);
+      return HttpServerResponse.empty();
+    }).pipe(Effect.orDie),
+  ),
+);
+
+const EchoBody = Schema.Struct({
+  method: Schema.String,
+  url: Schema.String,
+  authorization: Schema.NullOr(Schema.String),
+  cookie: Schema.NullOr(Schema.String),
+  body: Schema.NullOr(Schema.String),
+});
+
+const listen = <E, R>(routes: Layer.Layer<never, E, R>) =>
+  Layer.build(
+    HttpRouter.serve(routes, { disableLogger: true, disableListenLog: true }).pipe(
+      Layer.provideMerge(
+        NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 0 }),
+      ),
+    ),
+  ).pipe(
+    Effect.map((context) => {
+      const { address } = Context.get(context, HttpServer.HttpServer);
+      return `127.0.0.1:${"port" in address ? address.port : 0}`;
+    }),
+  );
+
+/** A control server in front of a fake workspace, and a cookie for an active person. */
+const withProxy = <A, E, R>(
+  body: (proxy: {
+    readonly host: string;
+    readonly cookie: string;
+    readonly scopesOf: (
+      authorization: string,
+    ) => Effect.Effect<ReadonlyArray<AuthGrantScope>, WorkspaceTokenError>;
+  }) => Effect.Effect<A, E, R>,
+  options: { readonly licensed: boolean },
+) =>
+  Effect.gen(function* () {
+    const keys = yield* testKeyPair;
+    const workspaceHost = yield* listen(fakeWorkspace);
+    const services = WorkspaceTokens.layer.pipe(
+      Layer.provideMerge(
+        Layer.succeed(WorkspaceProxy.WorkspaceUpstream, {
+          url: `http://${workspaceHost}`,
+          workspaceId: "workspace",
+        }),
+      ),
+      Layer.provideMerge(layerTestServices(keys.publicKey)),
+      Layer.provideMerge(
+        Layer.mergeAll(FetchHttpClient.layer, NodeSocket.layerWebSocketConstructor),
+      ),
+    );
+    return yield* Effect.gen(function* () {
+      const nowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1_000);
+      if (options.licensed) {
+        const token = yield* signTestLicence(
+          testClaims({ nbf: nowSeconds - 86_400, exp: nowSeconds + 86_400 * 30 }),
+          keys.privateKey,
+        );
+        yield* (yield* LicenceService).install(token);
+      }
+      const now = DateTime.formatIso(yield* DateTime.now);
+      yield* (yield* ControlDb).insert(controlPeople).values({
+        id: "per_ada",
+        email: "ada@acme.test",
+        displayName: "Ada",
+        role: "member",
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const { token } = yield* (yield* Sessions).create({ personId: "per_ada", userAgent: null });
+      const host = yield* listen(
+        Layer.mergeAll(WorkspaceProxy.layerHttpForwarding, WorkspaceProxy.layerSocketForwarding),
+      );
+      const { verifier } = yield* WorkspaceTokens.WorkspaceTokens;
+      const publicKey = yield* importWorkspacePublicKey(verifier.publicKey);
+      const scopesOf = (authorization: string) =>
+        verifyWorkspaceToken({
+          token: authorization.replace(/^Bearer /u, ""),
+          publicKey,
+          keyId: verifier.keyId,
+          issuer: verifier.issuer,
+          audience: "workspace",
+          nowSeconds,
+        }).pipe(
+          Effect.map((claims) => claims.scopes),
+          Effect.provide(NodeCrypto.layerSignature),
+        );
+      return yield* body({ host, cookie: `${sessionCookieName(true)}=${token}`, scopesOf });
+    }).pipe(Effect.provide(services));
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
+
+const call = (url: string, options: { readonly cookie?: string; readonly body?: string } = {}) =>
+  Effect.gen(function* () {
+    const request = HttpClientRequest.make(options.body === undefined ? "GET" : "POST")(url).pipe(
+      HttpClientRequest.setHeaders(options.cookie === undefined ? {} : { cookie: options.cookie }),
+      options.body === undefined
+        ? (self) => self
+        : HttpClientRequest.bodyText(options.body, "text/plain"),
+    );
+    const response = yield* (yield* HttpClient.HttpClient).execute(request);
+    return {
+      status: response.status,
+      echo: response.json.pipe(Effect.flatMap(Schema.decodeUnknownEffect(EchoBody)), Effect.orDie),
+    };
+  }).pipe(Effect.provide(FetchHttpClient.layer), Effect.orDie);
+
+describe("WorkspaceProxy", () => {
+  it.live("forwards API requests with a workspace token instead of the control cookie", () =>
+    withProxy(
+      ({ host, cookie, scopesOf }) =>
+        Effect.gen(function* () {
+          const forwarded = yield* call(`http://${host}/api/echo?x=1`, { cookie });
+          expect(forwarded.status).toBe(200);
+          const echo = yield* forwarded.echo;
+          expect(echo).toMatchObject({ method: "GET", url: "/api/echo?x=1", cookie: null });
+          expect(yield* scopesOf(echo.authorization ?? "")).toEqual(
+            WorkspaceTokens.WORKSPACE_SCOPES,
+          );
+
+          const posted = yield* call(`http://${host}/api/echo`, {
+            cookie,
+            body: "hello workspace",
+          });
+          expect(yield* posted.echo).toMatchObject({ method: "POST", body: "hello workspace" });
+
+          expect((yield* call(`http://${host}/api/echo`)).status).toBe(401);
+        }),
+      { licensed: true },
+    ),
+  );
+
+  it.live(
+    "forwards a WebSocket both ways, read-only without a working licence, until sign-out",
+    () =>
+      withProxy(
+        ({ host, cookie, scopesOf }) =>
+          Effect.gen(function* () {
+            const socket = yield* Socket.makeWebSocket(`ws://${host}/ws`, { headers: { cookie } });
+            const reader = yield* socket.reader;
+            const writer = yield* socket.writer;
+            const next = reader.pull.pipe(Effect.map((chunks) => String(chunks[0])));
+
+            const greeting = yield* next;
+            expect(greeting).toMatch(/^authorization Bearer /u);
+            expect(yield* scopesOf(greeting.replace(/^authorization /u, ""))).toEqual(
+              WorkspaceTokens.READ_ONLY_WORKSPACE_SCOPES,
+            );
+            yield* writer.write("ping");
+            expect(yield* next).toBe("echo ping");
+
+            yield* (yield* Sessions).revokeAll("per_ada");
+            expect((yield* Effect.flip(reader.pull))._tag).toBe("SocketError");
+
+            const anonymous = yield* Socket.makeWebSocket(`ws://${host}/ws`);
+            expect((yield* Effect.flip(anonymous.reader))._tag).toBe("SocketError");
+          }).pipe(Effect.scoped, Effect.provide(NodeSocket.layerWebSocketConstructor)),
+        { licensed: false },
+      ),
+  );
+});

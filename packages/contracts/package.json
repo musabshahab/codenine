@@ -23,6 +23,10 @@
       "types": "./src/control.ts",
       "import": "./src/control.ts"
     },
+    "./workspaceToken": {
+      "types": "./src/workspaceToken.ts",
+      "import": "./src/workspaceToken.ts"
+    },
     "./licence": {
       "types": "./src/licence.ts",
       "import": "./src/licence.ts"

@@ -523,6 +523,10 @@
       "types": "./src/cloneUrl.ts",
       "import": "./src/cloneUrl.ts"
     },
+    "./workspaceToken": {
+      "types": "./src/workspaceToken.ts",
+      "import": "./src/workspaceToken.ts"
+    },
     "./licence": {
       "types": "./src/licence.ts",
       "import": "./src/licence.ts"
