@@ -177,6 +177,7 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - `apps/server` - WebSocket, orchestration, providers, checkpointing. Effect-heavy: read [Effect services](docs/internals/effect-services.md) before adding server code, and `.repos/effect/LLMS.md` for the Effect library itself.
 - `apps/web` - React/Vite UI. `apps/desktop` wraps it in Electron.
+- `apps/control` - the control server for self-hosted business installations: PostgreSQL through Drizzle, licence keys. See its README.
 - `packages/contracts` - Effect/Schema contracts plus small derived helpers. No heavy runtime logic.
 - `packages/shared` - shared runtime utils, subpath exports, no barrel.
 - `packages/client-runtime` - client connection and state logic, kept out of the React app.

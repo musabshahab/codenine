@@ -35,6 +35,17 @@ export const LicenceClaims = Schema.Struct({
 });
 export type LicenceClaims = typeof LicenceClaims.Type;
 
+/** Why a licence key cannot be trusted. */
+export const LicenceProblem = Schema.Literals([
+  "malformed",
+  "unknown-key",
+  "invalid-signature",
+  "wrong-type",
+  "invalid-claims",
+  "wrong-installation",
+]);
+export type LicenceProblem = typeof LicenceProblem.Type;
+
 /** `grace` keeps everything working after expiry; `expired` means read-only. */
 export const LicenceStatus = Schema.Literals([
   "not-yet-valid",

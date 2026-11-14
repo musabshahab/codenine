@@ -1,0 +1,28 @@
+{
+  "name": "@codenine/control",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --watch-path=src --watch-path=../../packages src/bin.ts serve",
+    "start": "node src/bin.ts serve",
+    "db:generate": "drizzle-kit generate",
+    "test": "vp test run --config ../../vite.config.ts --dir .",
+    "typecheck": "effect-tsgo tsrs --noEmit"
+  },
+  "dependencies": {
+    "@codenine/contracts": "workspace:*",
+    "@codenine/shared": "workspace:*",
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-pg": "catalog:",
+    "drizzle-orm": "1.0.0-rc.5",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/sql-pglite": "4.1.2",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "drizzle-kit": "1.0.0-rc.5",
+    "vite-plus": "catalog:"
+  }
+}

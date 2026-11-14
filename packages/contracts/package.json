@@ -19,6 +19,10 @@
       "types": "./src/relay.ts",
       "import": "./src/relay.ts"
     },
+    "./control": {
+      "types": "./src/control.ts",
+      "import": "./src/control.ts"
+    },
     "./licence": {
       "types": "./src/licence.ts",
       "import": "./src/licence.ts"

@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+
+import type { ControlLicenceOverview } from "@codenine/contracts/control";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Config from "effect/Config";
+import * as Console from "effect/Console";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import { Argument, Command } from "effect/cli";
+
+import * as Db from "./db.ts";
+import * as ControlHttp from "./http/ControlHttp.ts";
+import { Installation } from "./installation/Installation.ts";
+import * as Licence from "./licence/LicenceService.ts";
+
+const layerControl = Licence.layer.pipe(
+  Layer.provideMerge(Installation.layer),
+  Layer.provide(Licence.LicenceTrust.layer),
+  Layer.provideMerge(Db.layer),
+);
+
+const ServeConfig = Config.all({
+  host: Config.String("CODENINE_CONTROL_HOST").pipe(Config.withDefault("127.0.0.1")),
+  port: Config.Port("CODENINE_CONTROL_PORT").pipe(Config.withDefault(3780)),
+});
+
+const formatOverview = ({ installationId, licence }: ControlLicenceOverview) => {
+  const lines = [`Installation: ${installationId}`];
+  switch (licence._tag) {
+    case "missing":
+      lines.push("Licence:      none installed, so Codenine is read-only");
+      break;
+    case "unusable":
+      lines.push(`Licence:      ${licence.licenceId} cannot be used (${licence.problem})`);
+      break;
+    case "installed":
+      lines.push(
+        `Licence:      ${licence.licenceId} (${licence.status})`,
+        `Customer:     ${licence.customer}`,
+        `Seats:        ${licence.seatsUsed} of ${licence.seats} in use`,
+        `Editions:     ${licence.editions.join(", ")}`,
+        `Features:     ${licence.features.join(", ") || "none"}`,
+        `Runs:         ${licence.startsAt.slice(0, 10)} to ${Licence.lastDay(licence.expiresAt)}, then grace to ${Licence.lastDay(licence.graceEndsAt)}`,
+      );
+      break;
+  }
+  return lines.join("\n");
+};
+
+const serveCommand = Command.make("serve", {}, () =>
+  Effect.gen(function* () {
+    const { host, port } = yield* ServeConfig;
+    return yield* Layer.launch(
+      Layer.mergeAll(ControlHttp.layerServer({ host, port }), Licence.layerDailyCheck).pipe(
+        Layer.provide(layerControl),
+      ),
+    );
+  }),
+).pipe(Command.withDescription("Run the control server."));
+
+const installCommand = Command.make(
+  "install",
+  {
+    licence: Argument.String("licence").pipe(
+      Argument.withDescription("A path to the licence key file, or the key itself."),
+    ),
+  },
+  Effect.fnUntraced(function* ({ licence }) {
+    const fs = yield* FileSystem.FileSystem;
+    const token = (yield* fs.exists(licence)) ? yield* fs.readFileString(licence) : licence;
+    const result = yield* (yield* Licence.LicenceService).install(token);
+    const inUse =
+      result.overview.licence._tag === "installed" &&
+      result.overview.licence.licenceId === result.licenceId;
+    yield* Console.log(
+      inUse
+        ? `Installed licence ${result.licenceId}. It is now in use.\n`
+        : `Installed licence ${result.licenceId}. It is not in use yet: the longest-running working licence applies.\n`,
+    );
+    yield* Console.log(formatOverview(result.overview));
+  }, Effect.provide(layerControl)),
+).pipe(Command.withDescription("Install a licence key."));
+
+const showCommand = Command.make("show", {}, () =>
+  Licence.LicenceService.pipe(
+    Effect.flatMap((licence) => licence.overview),
+    Effect.flatMap((overview) => Console.log(formatOverview(overview))),
+    Effect.provide(layerControl),
+  ),
+).pipe(Command.withDescription("Show the licence in use and this installation's ID."));
+
+const controlCommand = Command.make("codenine-control").pipe(
+  Command.withDescription("The Codenine control server for business installations."),
+  Command.withSubcommands([
+    serveCommand,
+    Command.make("licence").pipe(
+      Command.withDescription("Install and inspect licence keys."),
+      Command.withSubcommands([installCommand, showCommand]),
+    ),
+  ]),
+);
+
+Command.run(controlCommand, { version: "0.0.0" }).pipe(
+  Effect.provide(
+    Layer.mergeAll(NodeServices.layer, NodeCrypto.layerSignature, NodeCrypto.layerSecureRandom),
+  ),
+  NodeRuntime.runMain,
+);

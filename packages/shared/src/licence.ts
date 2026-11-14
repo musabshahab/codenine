@@ -1,4 +1,9 @@
-import { LICENCE_TOKEN_TYPE, LicenceClaims, type LicenceStatus } from "@codenine/contracts/licence";
+import {
+  LICENCE_TOKEN_TYPE,
+  LicenceClaims,
+  LicenceProblem,
+  type LicenceStatus,
+} from "@codenine/contracts/licence";
 export {
   LICENCE_ISSUER,
   LicenceClaims,
@@ -14,15 +19,7 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
 export class LicenceError extends Schema.TaggedError<LicenceError>()("LicenceError", {
-  reason: Schema.Literals([
-    "malformed",
-    "unknown-key",
-    "invalid-signature",
-    "wrong-type",
-    "invalid-claims",
-    "wrong-installation",
-    "signing-failed",
-  ]),
+  reason: LicenceProblem,
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message(): string {
@@ -39,9 +36,16 @@ export class LicenceError extends Schema.TaggedError<LicenceError>()("LicenceErr
         return "This licence key is missing or has invalid details.";
       case "wrong-installation":
         return "This licence key belongs to a different installation.";
-      case "signing-failed":
-        return "The licence key could not be signed.";
     }
+  }
+}
+
+export class LicenceSigningError extends Schema.TaggedError<LicenceSigningError>()(
+  "LicenceSigningError",
+  { cause: Schema.optional(Schema.Defect()) },
+) {
+  override get message(): string {
+    return "The licence key could not be signed.";
   }
 }
 
@@ -63,23 +67,23 @@ export const signLicence = Effect.fn("licence.sign")(function* (input: {
   readonly privateKey: string | Jwk.PrivateKey;
   readonly keyId: string;
   readonly claims: LicenceClaims;
-}): Effect.fn.Return<string, LicenceError, Signature.Signature> {
+}): Effect.fn.Return<string, LicenceSigningError, Signature.Signature> {
   const key =
     typeof input.privateKey === "string"
       ? yield* importLicencePrivateKey(input.privateKey).pipe(
-          Effect.mapError((cause) => new LicenceError({ reason: "signing-failed", cause })),
+          Effect.mapError((cause) => new LicenceSigningError({ cause })),
         )
       : input.privateKey;
   if (key.algorithm !== "EdDSA") {
-    return yield* new LicenceError({ reason: "signing-failed" });
+    return yield* new LicenceSigningError({});
   }
   const payload = yield* encodeClaims(input.claims).pipe(
-    Effect.mapError((cause) => new LicenceError({ reason: "invalid-claims", cause })),
+    Effect.mapError((cause) => new LicenceSigningError({ cause })),
   );
   const token = yield* Jws.sign(new TextEncoder().encode(payload), key, {
     typ: LICENCE_TOKEN_TYPE,
     kid: input.keyId,
-  }).pipe(Effect.mapError((cause) => new LicenceError({ reason: "signing-failed", cause })));
+  }).pipe(Effect.mapError((cause) => new LicenceSigningError({ cause })));
   return Redacted.value(token);
 });
 

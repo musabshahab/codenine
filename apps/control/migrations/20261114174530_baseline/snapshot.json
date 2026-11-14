@@ -1,0 +1,341 @@
+{
+  "type": "base",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c7458c5d-bee5-4309-a3a4-b050f702aa6f",
+  "prevIds": ["00000000-0000-0000-0000-000000000000"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_installation"],
+      "writes": [
+        "s|tbl|public.control_installation",
+        "n|tbl|public.control_installation",
+        "e|tbl|public.control_installation",
+        "n|rel|public.control_installation",
+        "n|type|public.control_installation",
+        "n|rel|public.control_installation_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_licences"],
+      "writes": [
+        "s|tbl|public.control_licences",
+        "n|tbl|public.control_licences",
+        "e|tbl|public.control_licences",
+        "n|rel|public.control_licences",
+        "n|type|public.control_licences",
+        "n|rel|public.control_licences_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_people"],
+      "writes": [
+        "s|tbl|public.control_people",
+        "n|tbl|public.control_people",
+        "e|tbl|public.control_people",
+        "n|rel|public.control_people",
+        "n|type|public.control_people",
+        "n|rel|public.control_people_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "control_licences",
+        "idx_control_licences_installed_at"
+      ],
+      "writes": [
+        "s|idx|public.idx_control_licences_installed_at",
+        "n|idx|public.idx_control_licences_installed_at",
+        "e|idx|public.idx_control_licences_installed_at",
+        "n|rel|public.idx_control_licences_installed_at"
+      ],
+      "reads": [
+        "n|tbl|public.control_licences",
+        "n|sch|public",
+        "n|col|public.control_licences.installed_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "control_people", "idx_control_people_email"],
+      "writes": [
+        "s|idx|public.idx_control_people_email",
+        "n|idx|public.idx_control_people_email",
+        "e|idx|public.idx_control_people_email",
+        "n|rel|public.idx_control_people_email"
+      ],
+      "reads": ["n|tbl|public.control_people", "n|sch|public"]
+    }
+  ],
+  "ddl": [
+    {
+      "schema": "public",
+      "name": "control_installation",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "control_licences",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "control_people",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "table": "control_installation",
+      "name": "singleton",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "true",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_installation",
+      "name": "id",
+      "type": "varchar(64)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_installation",
+      "name": "created_at",
+      "type": "varchar(64)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_licences",
+      "name": "id",
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_licences",
+      "name": "token",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_licences",
+      "name": "installed_at",
+      "type": "varchar(64)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "id",
+      "type": "varchar(64)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "email",
+      "type": "varchar(320)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "display_name",
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "role",
+      "type": "varchar(16)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "status",
+      "type": "varchar(16)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "created_at",
+      "type": "varchar(64)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "updated_at",
+      "type": "varchar(64)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "control_licences",
+      "name": "idx_control_licences_installed_at",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "installed_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "idx_control_people_email",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "lower(\"email\")",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "control_installation",
+      "name": "control_installation_pkey",
+      "columns": ["singleton"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "control_licences",
+      "name": "control_licences_pkey",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "control_people",
+      "name": "control_people_pkey",
+      "columns": ["id"],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "control_installation",
+      "name": "control_installation_singleton",
+      "value": "\"singleton\"",
+      "entityType": "checks"
+    }
+  ]
+}
