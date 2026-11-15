@@ -24,6 +24,7 @@ import type { WorkspaceKey } from "../workspaces/WorkspaceManager.ts";
 import { WorkspaceTokens } from "../workspaces/WorkspaceTokens.ts";
 import { AiAccounts, type AiUpstream } from "./AiAccounts.ts";
 import { AiUsage } from "./AiUsage.ts";
+import { BudgetAlerts } from "./BudgetAlerts.ts";
 import { type BudgetHold, type BudgetLevel, Budgets, limitsOf } from "./Budgets.ts";
 import { CLAUDE_PRICES_VERSION, claudeCostMicros, claudeModelKey } from "./claudePricing.ts";
 import { type ClaudeMeter, makeClaudeStreamMeter, meterClaudeJson } from "./claudeUsage.ts";
@@ -448,7 +449,8 @@ interface Caller {
 /** A call let through: its place among the person's running calls and its hold on budgets. */
 interface Admitted {
   readonly personId: string;
-  readonly hold: BudgetHold | null;
+  /** Empty when no budget binds the call, which still counts toward totals. */
+  readonly hold: BudgetHold;
   done: boolean;
 }
 
@@ -460,6 +462,7 @@ export const make = Effect.gen(function* () {
   const aiAccounts = yield* AiAccounts;
   const usage = yield* AiUsage;
   const budgets = yield* Budgets;
+  const alerts = yield* BudgetAlerts;
   const client = yield* HttpClient.HttpClient;
   const licence = yield* LicenceService;
   const parallelCalls = yield* GatewayParallelCallsConfig;
@@ -543,7 +546,13 @@ export const make = Effect.gen(function* () {
       const left = (running.get(admitted.personId) ?? 1) - 1;
       if (left > 0) running.set(admitted.personId, left);
       else running.delete(admitted.personId);
-      return admitted.hold === null ? Effect.void : budgets.settle(admitted.hold, costMicros);
+      return budgets.settle(admitted.hold, costMicros).pipe(
+        Effect.flatMap((crossings) =>
+          Effect.forEach(crossings, (crossing) => FiberSet.run(writes, alerts.crossed(crossing)), {
+            discard: true,
+          }),
+        ),
+      );
     });
 
   /** Lets a call through within the person's rules and budgets, or says why not. */
@@ -608,17 +617,17 @@ export const make = Effect.gen(function* () {
         ),
       } as const;
     }
-    let hold: BudgetHold | null = null;
+    let hold: BudgetHold = { who: caller.key, keys: [], amount: 0 };
     if (budgeted) {
       const adjusted = Math.round(
         ((estimate ?? 0) * (100 + upstream.account.priceAdjustment)) / 100,
       );
       const held = yield* budgets.hold(caller.key, limits, adjusted);
       if (held._tag === "Full") {
-        return refuse(
-          held.level,
-          provider.refusals.budget(BUDGET_MESSAGES[held.level](dollars(held.limit))),
-        );
+        const { level, limit } = held.crossing;
+        // Being turned away is when someone learns a budget ran out, if no call crossed it.
+        yield* FiberSet.run(writes, alerts.crossed(held.crossing));
+        return refuse(level, provider.refusals.budget(BUDGET_MESSAGES[level](dollars(limit))));
       }
       hold = held.hold;
     }

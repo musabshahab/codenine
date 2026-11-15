@@ -80,3 +80,27 @@ export const workspaceOpenedMail = (mail: {
     "This is in the audit log. If you have questions, ask them or another owner.",
   ),
 });
+
+/** A warning about AI spend: a budget nearly or wholly used, or an hour far above usual. */
+export const budgetAlertMail = (mail: {
+  readonly to: string;
+  readonly displayName: string;
+  readonly origin: string;
+  readonly subject: string;
+  /** What happened, in one or two sentences. */
+  readonly what: string;
+  /** What the reader can do about it. */
+  readonly next: string;
+}): MailMessage => ({
+  to: mail.to,
+  subject: mail.subject,
+  text: lines(
+    `Hello ${mail.displayName},`,
+    "",
+    mail.what,
+    "",
+    mail.next,
+    "",
+    `Codenine at ${mail.origin}`,
+  ),
+});

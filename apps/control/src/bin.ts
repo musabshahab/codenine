@@ -20,6 +20,7 @@ import * as AuditLog from "./audit/AuditLog.ts";
 import * as Departments from "./departments/Departments.ts";
 import * as AiAccounts from "./gateway/AiAccounts.ts";
 import * as AiUsage from "./gateway/AiUsage.ts";
+import * as BudgetAlerts from "./gateway/BudgetAlerts.ts";
 import * as BudgetRequests from "./gateway/BudgetRequests.ts";
 import * as Budgets from "./gateway/Budgets.ts";
 import * as Gateway from "./gateway/Gateway.ts";
@@ -70,7 +71,9 @@ const layerAccounts = Profiles.layer.pipe(
   Layer.provideMerge(ControlPublicUrl.layer),
 );
 
-const layerBudgets = BudgetRequests.layer.pipe(Layer.provideMerge(Budgets.layer));
+const layerBudgets = Layer.mergeAll(BudgetRequests.layer, BudgetAlerts.layer).pipe(
+  Layer.provideMerge(Budgets.layer),
+);
 
 /** For commands, which change people and the licence but never touch workspaces. */
 const layerCommandAdministration = Administration.layer.pipe(
@@ -137,6 +140,7 @@ const serveCommand = Command.make("serve", {}, () =>
         GatewayHttp.layerServer({ host: gatewayHost, port: gatewayPort }),
         Licence.layerDailyCheck,
         WorkspaceRetention.layerHourlySweep,
+        BudgetAlerts.layerHourlySpikeCheck,
         AuditExport.layer,
       ).pipe(
         Layer.provide(

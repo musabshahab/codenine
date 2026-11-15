@@ -503,3 +503,10 @@ export const controlBudgetRequests = pgTable(
     index("idx_control_budget_requests_period").on(table.period, table.level),
   ],
 );
+
+/** Budget warnings sent, by what they were about, so each goes out once. */
+export const controlBudgetAlerts = pgTable("control_budget_alerts", {
+  /** Such as `person-month:<person>/<department>:2026-11:80` or `spike:<person>/<department>:2026-11-15T10`. */
+  key: varchar("key", { length: 255 }).primaryKey(),
+  sentAt: varchar("sent_at", { length: 64 }).notNull(),
+});

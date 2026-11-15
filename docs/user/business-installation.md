@@ -364,6 +364,13 @@ On the company's profile, **Who may change these and let a department spend more
 **Owners only**: then only owners decide those requests, and only owners change the company's and
 departments' budgets. Nobody decides their own request.
 
+With a mail server set up, Codenine emails people when they have used 80% of their monthly budget
+and when a budget runs out, with a copy to their department's admins. A department's budget is
+reported to its admins and to owners and admins, and the company's to owners and admins; daily
+budgets report only when they run out. Once an hour, Codenine also looks for anyone whose last hour
+cost at least $10 and four times their usual hour, as an agent stuck in a loop would, and tells them
+and their department's admins. Each email goes out once.
+
 To keep a fault from running up a bill, also give each department its own workspace or project at
 the provider, with the provider's own spending limit where it offers one.
 

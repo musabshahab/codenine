@@ -1,0 +1,76 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8f7af7d0-0c23-4d51-9a37-d1a112346b38",
+  "prevIds": ["595bef34-6a12-4ec8-8119-8928e9ba8ff4"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_budget_alerts"],
+      "writes": [
+        "s|tbl|public.control_budget_alerts",
+        "n|tbl|public.control_budget_alerts",
+        "e|tbl|public.control_budget_alerts",
+        "n|rel|public.control_budget_alerts",
+        "n|type|public.control_budget_alerts",
+        "n|rel|public.control_budget_alerts_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_budget_alerts",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_alerts",
+        "name": "key",
+        "type": "varchar(255)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_alerts",
+        "name": "sent_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_alerts",
+        "name": "control_budget_alerts_pkey",
+        "columns": ["key"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

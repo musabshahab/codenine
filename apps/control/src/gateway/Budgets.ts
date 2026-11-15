@@ -44,9 +44,20 @@ export interface BudgetHold {
   readonly amount: number;
 }
 
+/** A budget's spend passing a share of its limit: 80% to warn, 100% when it runs out. */
+export interface BudgetCrossing {
+  readonly level: BudgetLevel;
+  readonly who: WorkspaceKey;
+  /** The month or day it is for. */
+  readonly period: string;
+  readonly percent: 80 | 100;
+  readonly spent: number;
+  readonly limit: number;
+}
+
 export type HoldResult =
   | { readonly _tag: "Held"; readonly hold: BudgetHold }
-  | { readonly _tag: "Full"; readonly level: BudgetLevel; readonly limit: number };
+  | { readonly _tag: "Full"; readonly crossing: BudgetCrossing };
 
 /** How one budget stands, in millionths of a dollar. */
 export interface BudgetUse {
@@ -86,8 +97,14 @@ export class Budgets extends Context.Service<
       limits: BudgetLimits,
       amount: number,
     ) => Effect.Effect<HoldResult>;
-    /** Replaces a hold with what its call cost; a second settle of the same hold does nothing. */
-    readonly settle: (hold: BudgetHold, cost: number) => Effect.Effect<void>;
+    /**
+     * Replaces a hold with what its call cost, once, and says which budgets
+     * that cost took past 80% or 100% of their limit.
+     */
+    readonly settle: (
+      hold: BudgetHold,
+      cost: number,
+    ) => Effect.Effect<ReadonlyArray<BudgetCrossing>>;
     /** Raises a budget for one period, once a request for more is approved and recorded. */
     readonly grant: (grant: BudgetGrant) => Effect.Effect<void>;
     /** How each budget over someone's calls stands now. */
@@ -104,7 +121,19 @@ interface Bucket {
   held: number;
   /** Granted on request for this period. */
   extra: number;
+  /** The limit last checked against, before what was granted. */
+  limit: number | null;
 }
+
+// Daily budgets catch runaway agents; a warning on each of them would be noise.
+const WARN_AT: Record<BudgetLevel, ReadonlyArray<80 | 100>> = {
+  "person-month": [80, 100],
+  "person-day": [100],
+  "department-month": [80, 100],
+  "company-month": [80, 100],
+};
+
+const EMPTY: Bucket = { spent: 0, held: 0, extra: 0, limit: null };
 
 interface Period extends BudgetPeriod {
   readonly monthStart: string;
@@ -224,6 +253,14 @@ export const make = Effect.gen(function* () {
 
   const total = (rows: ReadonlyArray<{ readonly total: number | null }>) => rows[0]?.total ?? 0;
 
+  /** Keeps each loaded budget's limit as last checked, to warn when calls settle. */
+  const remember = (all: ReadonlyArray<Check>) => {
+    for (const check of all) {
+      const bucket = buckets.get(check.key);
+      if (bucket !== undefined) bucket.limit = check.limit;
+    }
+  };
+
   const load = Effect.fn("Budgets.load")(function* (check: Check) {
     if (buckets.has(check.key)) return;
     const spent = total(
@@ -242,22 +279,34 @@ export const make = Effect.gen(function* () {
               .where(check.granted),
           );
     // Another call may have loaded it meanwhile, and holds may already be on it.
-    if (!buckets.has(check.key)) buckets.set(check.key, { spent, held: 0, extra });
+    if (!buckets.has(check.key)) {
+      buckets.set(check.key, { spent, held: 0, extra, limit: check.limit });
+    }
   }, dieOnDatabaseError);
 
   return Budgets.of({
     hold: Effect.fn("Budgets.hold")(function* (who, limits, amount) {
       const period = yield* periodNow;
       prune(period);
-      const limited = checks(who, limits, period).filter((check) => check.limit !== null);
+      const all = checks(who, limits, period);
+      const limited = all.filter((check) => check.limit !== null);
       yield* Effect.forEach(limited, load, { discard: true });
+      remember(all);
       for (const check of limited) {
-        const bucket = buckets.get(check.key) ?? { spent: 0, held: 0, extra: 0 };
+        const bucket = buckets.get(check.key) ?? EMPTY;
         if (
           check.limit !== null &&
           bucket.spent + bucket.held + amount > check.limit + bucket.extra
         ) {
-          return { _tag: "Full", level: check.level, limit: check.limit + bucket.extra } as const;
+          const crossing: BudgetCrossing = {
+            level: check.level,
+            who,
+            period: check.level === "person-day" ? period.day : period.month,
+            percent: 100,
+            spent: bucket.spent,
+            limit: check.limit + bucket.extra,
+          };
+          return { _tag: "Full", crossing } as const;
         }
       }
       for (const check of limited) {
@@ -268,7 +317,7 @@ export const make = Effect.gen(function* () {
       return { _tag: "Held", hold } as const;
     }),
     settle: Effect.fn("Budgets.settle")(function* (hold, cost) {
-      if (settled.has(hold)) return;
+      if (settled.has(hold)) return [];
       settled.add(hold);
       for (const key of hold.keys) {
         const bucket = buckets.get(key);
@@ -277,10 +326,29 @@ export const make = Effect.gen(function* () {
       // The cost counts in the period the call ended in; totals not loaded yet read it later.
       const period = yield* periodNow;
       prune(period);
+      const crossings: Array<BudgetCrossing> = [];
       for (const check of checks(hold.who, NO_LIMITS, period)) {
         const bucket = buckets.get(check.key);
-        if (bucket !== undefined) bucket.spent += cost;
+        if (bucket === undefined) continue;
+        const before = bucket.spent;
+        bucket.spent += cost;
+        if (bucket.limit === null) continue;
+        const limit = bucket.limit + bucket.extra;
+        for (const percent of WARN_AT[check.level]) {
+          const line = (limit * percent) / 100;
+          if (before < line && bucket.spent >= line) {
+            crossings.push({
+              level: check.level,
+              who: hold.who,
+              period: check.level === "person-day" ? period.day : period.month,
+              percent,
+              spent: bucket.spent,
+              limit,
+            });
+          }
+        }
       }
+      return crossings;
     }),
     grant: Effect.fn("Budgets.grant")((grant: BudgetGrant) =>
       Effect.sync(() => {
@@ -299,8 +367,9 @@ export const make = Effect.gen(function* () {
       prune(period);
       const all = checks(who, limits, period);
       yield* Effect.forEach(all, load, { discard: true });
+      remember(all);
       return all.map((check): BudgetUse => {
-        const bucket = buckets.get(check.key) ?? { spent: 0, held: 0, extra: 0 };
+        const bucket = buckets.get(check.key) ?? EMPTY;
         return {
           level: check.level,
           spent: bucket.spent,

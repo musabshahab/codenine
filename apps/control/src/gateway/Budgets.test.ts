@@ -79,16 +79,34 @@ describe("Budgets", () => {
         const first = yield* budgets.hold(ada, limits, 20 * DOLLAR);
         expect(yield* budgets.hold(ada, limits, 20 * DOLLAR)).toEqual({
           _tag: "Full",
-          level: "person-month",
-          limit: 100 * DOLLAR,
+          crossing: {
+            level: "person-month",
+            who: ada,
+            period: "2026-11",
+            percent: 100,
+            spent: 70 * DOLLAR,
+            limit: 100 * DOLLAR,
+          },
         });
         if (first._tag !== "Held") return expect.unreachable();
-        yield* budgets.settle(first.hold, 5 * DOLLAR);
-        yield* budgets.settle(first.hold, 5 * DOLLAR);
+        expect(yield* budgets.settle(first.hold, 5 * DOLLAR)).toEqual([]);
+        expect(yield* budgets.settle(first.hold, 5 * DOLLAR)).toEqual([]);
 
         // $75 spent: room for $25 more, and not a cent beyond.
-        expect((yield* budgets.hold(ada, limits, 25 * DOLLAR))._tag).toBe("Held");
+        const second = yield* budgets.hold(ada, limits, 25 * DOLLAR);
         expect((yield* budgets.hold(ada, limits, 1))._tag).toBe("Full");
+        if (second._tag !== "Held") return expect.unreachable();
+        // A call that takes the month past 80% says so, once.
+        expect(yield* budgets.settle(second.hold, 10 * DOLLAR)).toEqual([
+          {
+            level: "person-month",
+            who: ada,
+            period: "2026-11",
+            percent: 80,
+            spent: 85 * DOLLAR,
+            limit: 100 * DOLLAR,
+          },
+        ]);
       }),
     ),
   );
@@ -111,7 +129,7 @@ describe("Budgets", () => {
         yield* Effect.forEach(held, (hold) => budgets.settle(hold, 200_000));
         expect(yield* budgets.hold(ada, limits, 1)).toMatchObject({
           _tag: "Full",
-          level: "department-month",
+          crossing: { level: "department-month", spent: 1_200_000 },
         });
       }),
     ),
@@ -127,7 +145,7 @@ describe("Budgets", () => {
         expect((yield* budgets.hold(ada, limits, 500_000))._tag).toBe("Held");
         expect(yield* budgets.hold(ada, limits, 600_000)).toMatchObject({
           _tag: "Full",
-          level: "person-day",
+          crossing: { level: "person-day", period: "2026-11-30" },
         });
 
         yield* TestClock.adjust("1 hour");
