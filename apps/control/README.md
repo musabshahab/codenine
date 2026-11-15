@@ -2,8 +2,10 @@
 
 The control server is the front door of a self-hosted business installation. It keeps the
 company's records in PostgreSQL, checks the licence key and holds local accounts: a password and
-an authenticator app for each person. Later phases add single sign-on, roles, and routing each
-person to their own workspace server.
+a passkey or authenticator app for each person. With `CODENINE_CONTROL_WORKSPACE_DRIVER=docker`
+it starts a workspace container for each person, from the image in
+[`images/workspace`](../../images/workspace); [Running Codenine for a team](../../docs/user/business-installation.md)
+lists its settings. Later phases add single sign-on and roles.
 
 It answers its own routes under `/control`, so `/api`, `/ws` and the workspace descriptor under
 `/.well-known/codenine` stay free to forward to a workspace server. The HTTP API is defined in

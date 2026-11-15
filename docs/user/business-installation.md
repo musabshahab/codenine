@@ -1,20 +1,28 @@
 # Running Codenine for a team
 
-A business installation has two servers. The **control server** is where people sign in and
-where the licence lives. The **workspace server** is where the agents work. People open the
-control server's address in a browser, and it passes them through to the workspace.
+A business installation has a **control server**, where people sign in and the licence lives,
+and **workspace servers**, where agents work: one for each person, or one the team shares.
+People open the control server's address in a browser, and it passes each of them through to
+their workspace.
 
-Both run from a checkout of this repository with Node 26. Commands below run from its root.
+Everything runs from a checkout of this repository with Node 26. Commands below run from its
+root.
 
 ## Set up the control server
 
-It needs a PostgreSQL database. Build the web app for business use first:
+It needs a PostgreSQL database. Mark the checkout for business use, so that every build from it
+leaves out the services a business installation does not use, then build the web app:
 
 ```bash
-CODENINE_BUSINESS_EDITION=1 vp run --filter @codenine/web build
+echo CODENINE_BUSINESS_EDITION=1 >> .env
 ```
 
-Then start the control server with these settings:
+```bash
+vp run --filter @codenine/web build
+```
+
+Then start the control server with these settings, and those for
+[where agents work](#choose-where-agents-work):
 
 - `CODENINE_CONTROL_DATABASE_URL`: the PostgreSQL connection string.
 - `CODENINE_CONTROL_SECRET_KEY`: 32 random bytes in base64, for example from
@@ -22,8 +30,6 @@ Then start the control server with these settings:
 - `CODENINE_CONTROL_PUBLIC_URL`: the address people use, such as `https://codenine.example.com`.
   People must open Codenine at exactly this address; changes sent from any other are refused.
 - `CODENINE_CONTROL_WEB_DIR`: `apps/web/dist`.
-- `CODENINE_CONTROL_WORKSPACE_URL`: where the control server reaches the workspace server, such
-  as `http://127.0.0.1:3773`.
 - `CODENINE_CONTROL_SMTP_URL` and `CODENINE_CONTROL_MAIL_FROM` (optional): your mail server, such as
   `smtps://user:password@mail.example.com:465`, and the sender, such as
   `Codenine <codenine@example.com>`. With them, Codenine emails invitations and reset links, and
@@ -37,9 +43,65 @@ It listens on `127.0.0.1:3780`, which `CODENINE_CONTROL_HOST` and `CODENINE_CONT
 change. It serves plain HTTP, so put it behind a reverse proxy that answers on your HTTPS
 address.
 
-## Connect the workspace server
+## Choose where agents work
 
-Print what the workspace needs to trust the control server:
+The control server can start a workspace for each person in Docker, or pass everyone to one
+workspace server the team shares. Give each person their own unless everyone trusts each other:
+in a shared workspace, anyone's agents can reach everyone's files.
+
+### One workspace per person
+
+The control server starts a person's workspace the first time they open Codenine, which takes a
+few seconds. Each has its own volume for the person's projects, settings and agent sign-ins, its
+own network, and CPU and memory limits. Agents run as an ordinary user on a read-only system, so
+even with full access they cannot reach another person's files or workspace. They can reach the
+internet and anything the Docker host serves on its network addresses, so keep the database and
+other services on the host bound to `127.0.0.1`.
+
+Run the control server on the machine that runs Docker, since each workspace answers only there.
+Build the workspace image on that machine, from the checkout marked for business use. Besides
+Docker, it needs `patchelf`:
+
+```bash
+vp run --filter codenine build
+```
+
+```bash
+node apps/server/scripts/cli.ts build-exe
+```
+
+```bash
+node scripts/build-cli-archive.ts --platform linux --arch x64 --version 1.0.0
+```
+
+```bash
+images/workspace/build.sh release-cli/codenine-1.0.0-linux-x64.tar.gz codenine-workspace:1.0.0
+```
+
+The image holds the workspace server, Claude Code, Codex, Git and the GitHub CLI. Then set these
+on the control server:
+
+- `CODENINE_CONTROL_WORKSPACE_DRIVER`: `docker`.
+- `CODENINE_CONTROL_WORKSPACE_IMAGE`: the image, such as `codenine-workspace:1.0.0`.
+- `CODENINE_CONTROL_WORKSPACE_CPUS` and `CODENINE_CONTROL_WORKSPACE_MEMORY_GB` (optional): each
+  workspace's limits, 2 CPUs and 4 GB unless set.
+- `CODENINE_CONTROL_DOCKER_SOCKET` (optional): the Docker socket, `/var/run/docker.sock` unless
+  set. The control server's user needs access to it.
+
+Each workspace is a container named `codenine-<installation ID>-<person ID>`, and its files live
+on the volume of the same name ending in `-home`. Back up those volumes. A workspace keeps the
+image it was created with. To move everyone to a new image, remove the containers while no agents
+are working; the volumes stay, and each person's next visit creates their container again:
+
+```bash
+docker rm --force $(docker ps --all --quiet --filter name=codenine-inst_)
+```
+
+### One shared workspace server
+
+Set `CODENINE_CONTROL_WORKSPACE_URL` on the control server to where it reaches the workspace
+server, such as `http://127.0.0.1:3773`. Then print what the workspace needs to trust the control
+server:
 
 ```bash
 node apps/control/src/bin.ts workspace key

@@ -32,7 +32,9 @@ checks key ID, signature, type, issuer, audience and time.
 - **The workspace port is internal.** The control server forwards only `/api`, `/ws` and the
   workspace descriptor under `/.well-known/codenine`, each with a token. The workspace still
   serves `/mcp` with its own sessions so its agent processes can reach their tools, so the
-  workspace must be reachable only from the control server.
+  workspace must be reachable only from the control server. The Docker driver publishes each
+  workspace's port on the host's loopback only and gives each workspace its own network, which
+  is why the control server must run on the Docker host.
 - **The control server answers its own routes under `/control`**, so it never shadows a
   workspace route.
 - **Forwarding keeps compression.** HTTP bodies pass through as the workspace compressed them
