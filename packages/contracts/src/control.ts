@@ -184,6 +184,217 @@ export class ControlDepartmentError extends Schema.TaggedError<ControlDepartment
   }
 }
 
+/** A host name, or with a leading dot, a domain and everything under it. */
+export const ControlHost = Schema.String.check(Schema.isPattern(/^\.?[a-z0-9-]+(\.[a-z0-9-]+)+$/u));
+
+export const ControlProfileScalar = Schema.Literals(["image", "cpus", "memoryGb", "sleepMinutes"]);
+export type ControlProfileScalar = typeof ControlProfileScalar.Type;
+
+/**
+ * One layer of a workspace profile: the company's, a department's, a team's or
+ * one person's exception. What a layer leaves out comes from the layer above;
+ * what a layer locks or blocks, no layer below can change.
+ */
+export const ControlProfileSettings = Schema.Struct({
+  /** The workspace image; without one, the installation's. */
+  image: Schema.optionalKey(TrimmedNonEmptyString),
+  cpus: Schema.optionalKey(
+    Schema.Number.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(64)),
+  ),
+  memoryGb: Schema.optionalKey(
+    Schema.Number.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(512)),
+  ),
+  /** How long an idle workspace stays awake. */
+  sleepMinutes: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(5), Schema.isLessThanOrEqualTo(1440)),
+  ),
+  /** Whether members get a terminal. Owners and admins always do; restricted people never. */
+  terminal: Schema.optionalKey(Schema.Literals(["allow", "block"])),
+  /** Hosts workspaces may reach beyond the installation's list. */
+  allowHosts: Schema.optionalKey(Schema.Array(ControlHost)),
+  /** Hosts no layer below can allow, from the installation's list too. */
+  blockHosts: Schema.optionalKey(Schema.Array(ControlHost)),
+  /** Settings the layers below cannot change. */
+  lock: Schema.optionalKey(Schema.Array(ControlProfileScalar)),
+});
+export type ControlProfileSettings = typeof ControlProfileSettings.Type;
+
+/** What a person's workspace in one department is made from, all layers applied. */
+export const ControlEffectiveProfile = Schema.Struct({
+  /** Null for the installation's image. */
+  image: Schema.NullOr(Schema.String),
+  cpus: Schema.Number,
+  memoryGb: Schema.Number,
+  sleepMinutes: Schema.Number,
+  terminal: Schema.Boolean,
+  /** Beyond the installation's list. */
+  allowHosts: Schema.Array(Schema.String),
+  blockHosts: Schema.Array(Schema.String),
+});
+export type ControlEffectiveProfile = typeof ControlEffectiveProfile.Type;
+
+/** `company`, `department:<id>` or `team:<id>`. */
+export const ControlProfileId = Schema.String.check(
+  Schema.isPattern(/^(company|department:[\w-]+|team:[\w-]+)$/u),
+);
+export type ControlProfileId = typeof ControlProfileId.Type;
+
+export const ControlProfileVersion = Schema.Struct({
+  version: PositiveInt,
+  settings: ControlProfileSettings,
+  note: Schema.String,
+  createdBy: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ControlProfileVersion = typeof ControlProfileVersion.Type;
+
+export const ControlProfile = Schema.Struct({
+  id: ControlProfileId,
+  /** What admins call it, such as `Company`, `Design` or `Design / Brand`. */
+  name: Schema.String,
+  /** The version everyone gets; null while it has none. */
+  published: Schema.NullOr(PositiveInt),
+  /** A newer version only some people get, until it is published or discarded. */
+  test: Schema.NullOr(
+    Schema.Struct({ version: PositiveInt, people: Schema.Array(TrimmedNonEmptyString) }),
+  ),
+  /** Newest first. */
+  versions: Schema.Array(ControlProfileVersion),
+});
+export type ControlProfile = typeof ControlProfile.Type;
+
+/** How a draft would change what people get, before it is saved. */
+export const ControlProfilePreview = Schema.Struct({
+  /** Everyone the profile applies to. */
+  people: NonNegativeInt,
+  /** Of them, those whose workspace would change. */
+  affected: NonNegativeInt,
+  changes: Schema.Array(
+    Schema.Struct({
+      setting: Schema.Literals([
+        "image",
+        "cpus",
+        "memoryGb",
+        "sleepMinutes",
+        "terminal",
+        "allowHosts",
+        "blockHosts",
+      ]),
+      people: NonNegativeInt,
+      /** Values or hosts some people lose, and those they gain. */
+      removed: Schema.Array(Schema.String),
+      added: Schema.Array(Schema.String),
+    }),
+  ),
+});
+export type ControlProfilePreview = typeof ControlProfilePreview.Type;
+
+/** A time-limited change for one person, applied after their teams. */
+export const ControlProfileException = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  personId: TrimmedNonEmptyString,
+  /** Null for every department the person is in. */
+  departmentId: Schema.NullOr(TrimmedNonEmptyString),
+  settings: ControlProfileSettings,
+  reason: Schema.String,
+  endsAt: IsoDateTime,
+  createdBy: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ControlProfileException = typeof ControlProfileException.Type;
+
+export class ControlProfileError extends Schema.TaggedError<ControlProfileError>()(
+  "ControlProfileError",
+  {
+    reason: Schema.Literals([
+      "not-found",
+      "nothing-to-test",
+      "nothing-to-roll-back",
+      "outside-profile",
+      "needs-reason",
+      "invalid-end",
+    ]),
+  },
+  { httpApiStatus: 400 },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "not-found":
+        return "That profile or exception does not exist.";
+      case "nothing-to-test":
+        return "No version is being tested.";
+      case "nothing-to-roll-back":
+        return "There is no earlier version to go back to.";
+      case "outside-profile":
+        return "Test a change only with people the profile applies to.";
+      case "needs-reason":
+        return "Say why the exception is needed.";
+      case "invalid-end":
+        return "An exception ends within 90 days.";
+    }
+  }
+}
+
+export const ControlProfileTemplateName = Schema.Literals([
+  "Coder",
+  "Infrastructure",
+  "Marketing",
+  "HR",
+  "Product",
+]);
+export type ControlProfileTemplateName = typeof ControlProfileTemplateName.Type;
+
+/** Starting points for department profiles, copied and then adjusted. */
+export const CONTROL_PROFILE_TEMPLATES: Record<
+  ControlProfileTemplateName,
+  { readonly description: string; readonly settings: ControlProfileSettings }
+> = {
+  Coder: {
+    description: "Large workspaces with a terminal, GitHub and the package registries.",
+    settings: { cpus: 4, memoryGb: 8, sleepMinutes: 60, terminal: "allow" },
+  },
+  Infrastructure: {
+    description: "A terminal and the cloud providers' APIs, for read-only credentials.",
+    settings: {
+      cpus: 2,
+      memoryGb: 4,
+      sleepMinutes: 30,
+      terminal: "allow",
+      allowHosts: [".amazonaws.com", ".googleapis.com", "management.azure.com"],
+    },
+  },
+  Marketing: {
+    description: "No terminal; agents draft and edit.",
+    settings: { cpus: 2, memoryGb: 4, sleepMinutes: 30, terminal: "block" },
+  },
+  HR: {
+    description: "Small workspaces with no terminal, and no GitHub or package registries.",
+    settings: {
+      cpus: 1,
+      memoryGb: 2,
+      sleepMinutes: 15,
+      terminal: "block",
+      blockHosts: [
+        ".github.com",
+        ".githubusercontent.com",
+        ".npmjs.org",
+        ".yarnpkg.com",
+        "pypi.org",
+        "files.pythonhosted.org",
+        ".crates.io",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "repo.maven.apache.org",
+        "repo1.maven.org",
+      ],
+    },
+  },
+  Product: {
+    description: "A terminal for prototypes, in medium workspaces.",
+    settings: { cpus: 2, memoryGb: 4, sleepMinutes: 30, terminal: "allow" },
+  },
+};
+
 export const ControlSession = Schema.Struct({
   id: TrimmedNonEmptyString,
   userAgent: Schema.NullOr(Schema.String),
@@ -453,10 +664,22 @@ export const ControlAuditAction = Schema.Literals([
   "team.delete",
   "team.add-member",
   "team.remove-member",
+  "profile.publish",
+  "profile.test",
+  "profile.discard",
+  "profile.rollback",
+  "exception.create",
+  "exception.end",
 ]);
 export type ControlAuditAction = typeof ControlAuditAction.Type;
 
-export const ControlAuditTargetKind = Schema.Literals(["person", "licence", "department", "team"]);
+export const ControlAuditTargetKind = Schema.Literals([
+  "person",
+  "licence",
+  "department",
+  "team",
+  "profile",
+]);
 export type ControlAuditTargetKind = typeof ControlAuditTargetKind.Type;
 
 /** What a change touched, before and after it. Secrets never appear here. */
@@ -652,6 +875,7 @@ const ControlMeGroup = HttpApiGroup.make("me")
 const PersonParams = Schema.Struct({ personId: TrimmedNonEmptyString });
 const DepartmentParams = Schema.Struct({ departmentId: TrimmedNonEmptyString });
 const TeamParams = Schema.Struct({ teamId: TrimmedNonEmptyString });
+const ProfileParams = Schema.Struct({ profileId: ControlProfileId });
 
 const ControlAdminGroup = HttpApiGroup.make("admin")
   .add(
@@ -710,7 +934,11 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       error: ControlForbiddenError,
     }),
     HttpApiEndpoint.post("createDepartment", "/control/api/admin/departments", {
-      payload: Schema.Struct({ name: Schema.String }),
+      payload: Schema.Struct({
+        name: Schema.String,
+        /** Its profile starts as a copy of this template. */
+        template: Schema.optionalKey(ControlProfileTemplateName),
+      }),
       success: ControlDepartment,
       error: [ControlForbiddenError, ControlDepartmentError],
     }),
@@ -774,6 +1002,68 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
         error: [ControlForbiddenError, ControlDepartmentError, ControlAccountError],
       },
     ),
+    HttpApiEndpoint.get("profiles", "/control/api/admin/profiles", {
+      success: Schema.Array(ControlProfile),
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.post("previewProfile", "/control/api/admin/profiles/:profileId/preview", {
+      params: ProfileParams,
+      payload: Schema.Struct({ settings: ControlProfileSettings }),
+      success: ControlProfilePreview,
+      error: [ControlForbiddenError, ControlProfileError],
+    }),
+    HttpApiEndpoint.post("saveProfile", "/control/api/admin/profiles/:profileId/versions", {
+      params: ProfileParams,
+      payload: Schema.Struct({
+        settings: ControlProfileSettings,
+        note: Schema.String,
+        /** Give the new version only to these people first. */
+        testWith: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+      }),
+      success: ControlProfile,
+      error: [ControlForbiddenError, ControlProfileError],
+    }),
+    HttpApiEndpoint.post("publishTest", "/control/api/admin/profiles/:profileId/publish-test", {
+      params: ProfileParams,
+      success: ControlProfile,
+      error: [ControlForbiddenError, ControlProfileError],
+    }),
+    HttpApiEndpoint.post("discardTest", "/control/api/admin/profiles/:profileId/discard-test", {
+      params: ProfileParams,
+      success: ControlProfile,
+      error: [ControlForbiddenError, ControlProfileError],
+    }),
+    HttpApiEndpoint.post("rollBackProfile", "/control/api/admin/profiles/:profileId/roll-back", {
+      params: ProfileParams,
+      success: ControlProfile,
+      error: [ControlForbiddenError, ControlProfileError],
+    }),
+    HttpApiEndpoint.get("personProfile", "/control/api/admin/people/:personId/profile", {
+      params: PersonParams,
+      query: Schema.Struct({ department: Schema.optionalKey(TrimmedNonEmptyString) }),
+      success: ControlEffectiveProfile,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.get("exceptions", "/control/api/admin/exceptions", {
+      success: Schema.Array(ControlProfileException),
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.post("addException", "/control/api/admin/exceptions", {
+      payload: Schema.Struct({
+        personId: TrimmedNonEmptyString,
+        departmentId: Schema.NullOr(TrimmedNonEmptyString),
+        settings: ControlProfileSettings,
+        reason: Schema.String,
+        endsAt: IsoDateTime,
+      }),
+      success: ControlProfileException,
+      error: [ControlForbiddenError, ControlProfileError, ControlAccountError],
+    }),
+    HttpApiEndpoint.post("endException", "/control/api/admin/exceptions/:exceptionId/end", {
+      params: Schema.Struct({ exceptionId: TrimmedNonEmptyString }),
+      success: ControlOk,
+      error: [ControlForbiddenError, ControlProfileError, ControlAccountError],
+    }),
     HttpApiEndpoint.get("audit", "/control/api/admin/audit", {
       query: Schema.Struct({
         before: Schema.optionalKey(

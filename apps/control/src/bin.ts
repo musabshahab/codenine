@@ -18,6 +18,7 @@ import * as Administration from "./admin/Administration.ts";
 import * as AuditExport from "./audit/AuditExport.ts";
 import * as AuditLog from "./audit/AuditLog.ts";
 import * as Departments from "./departments/Departments.ts";
+import * as Profiles from "./profiles/Profiles.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
 import * as Sessions from "./accounts/Sessions.ts";
@@ -41,7 +42,8 @@ const layerControl = Licence.layer.pipe(
   Layer.provideMerge(Db.layer),
 );
 
-const layerAccounts = AccountsModule.layer.pipe(
+const layerAccounts = Profiles.layer.pipe(
+  Layer.provideMerge(AccountsModule.layer),
   Layer.provideMerge(WebAuthn.layer),
   Layer.provideMerge(Mailer.layer),
   Layer.provideMerge(Sessions.layer),

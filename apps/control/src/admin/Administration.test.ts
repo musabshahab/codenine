@@ -209,11 +209,15 @@ describe("Administration", () => {
           after: { applied: "lic_second" },
         });
 
-        const design = yield* writesOne(admin.createDepartment(ada, "Design"), {
+        const design = yield* writesOne(admin.createDepartment(ada, "Design", "Product"), {
           action: "department.create",
           target: { kind: "department", label: "Design" },
-          after: { name: "Design" },
+          after: { name: "Design", template: "Product" },
         });
+        // Its profile starts as the template, without a second entry.
+        expect(
+          (yield* admin.profiles(ada)).find(({ id }) => id === `department:${design.id}`)?.versions,
+        ).toMatchObject([{ version: 1, note: "From the Product template", settings: { cpus: 2 } }]);
         yield* writesOne(admin.renameDepartment(ada, design.id, "Brand"), {
           action: "department.rename",
           before: { name: "Design" },
@@ -254,6 +258,78 @@ describe("Administration", () => {
         yield* writesOne(admin.deleteDepartment(ada, design.id), {
           action: "department.delete",
           before: { name: "Brand" },
+        });
+
+        yield* writesOne(
+          admin.saveProfile(ada, {
+            profileId: "company",
+            settings: { cpus: 4 },
+            note: "Bigger",
+            testWith: null,
+          }),
+          {
+            action: "profile.publish",
+            target: { kind: "profile", id: "company", label: "Company" },
+            before: null,
+            after: { version: 1, changes: "cpus: unset → 4", note: "Bigger" },
+          },
+        );
+        yield* writesOne(
+          admin.saveProfile(ada, {
+            profileId: "company",
+            settings: { cpus: 8 },
+            note: "",
+            testWith: [cy.id],
+          }),
+          {
+            action: "profile.test",
+            before: { version: 1 },
+            after: { version: 2, changes: "cpus: 4 → 8", testers: 1 },
+          },
+        );
+        yield* writesOne(admin.publishTest(ada, "company"), {
+          action: "profile.publish",
+          before: { version: 1 },
+          after: { version: 2, changes: "cpus: 4 → 8" },
+        });
+        yield* admin.saveProfile(ada, {
+          profileId: "company",
+          settings: { cpus: 16 },
+          note: "",
+          testWith: [cy.id],
+        });
+        yield* writesOne(admin.discardTest(ada, "company"), {
+          action: "profile.discard",
+          before: { version: 3 },
+          after: null,
+        });
+        yield* writesOne(admin.rollBackProfile(ada, "company"), {
+          action: "profile.rollback",
+          before: { version: 2 },
+          after: { version: 4, changes: "cpus: 8 → 4", note: "Rolled back to version 1" },
+        });
+        const exception = yield* writesOne(
+          admin.addException(ada, {
+            personId: cy.id,
+            departmentId: null,
+            settings: { memoryGb: 16 },
+            reason: "A large data job",
+            endsAt: "2026-12-17T12:00:00.000Z",
+          }),
+          {
+            action: "exception.create",
+            target: { kind: "person", label: "cy@acme.test" },
+            after: {
+              department: "every department",
+              reason: "A large data job",
+              changes: "memoryGb: unset → 16",
+            },
+          },
+        );
+        yield* writesOne(admin.endException(ada, exception.id), {
+          action: "exception.end",
+          before: { department: "every department", reason: "A large data job" },
+          after: null,
         });
 
         // Nothing changed, nothing written: the same role again, or a refused change.
@@ -311,6 +387,37 @@ describe("Administration", () => {
         expect(yield* Effect.flip(admin.addTeamMember(ada, team, fay.id))).toMatchObject({
           reason: "not-in-department",
         });
+        // Her department's profile and its teams' are hers to change; the company's is not.
+        const profile = { settings: { terminal: "block" }, note: "", testWith: null } as const;
+        expect(yield* refused(admin.saveProfile(dee, { ...profile, profileId: "company" }))).toBe(
+          "ControlForbiddenError",
+        );
+        expect(
+          yield* refused(
+            admin.saveProfile(dee, { ...profile, profileId: `department:${sales.id}` }),
+          ),
+        ).toBe("ControlForbiddenError");
+        yield* admin.saveProfile(dee, { ...profile, profileId: `department:${design.id}` });
+        expect((yield* admin.profiles(dee)).map(({ name }) => name)).toEqual([
+          "Design",
+          "Design / Brand",
+        ]);
+        expect((yield* admin.personProfile(dee, invited.person.id, design.id)).terminal).toBe(
+          false,
+        );
+        // An exception for all of someone's departments is for owners and admins.
+        const exception = {
+          personId: cy.id,
+          settings: { cpus: 8 },
+          reason: "A large build",
+          endsAt: "2026-12-17T12:00:00.000Z",
+        };
+        expect(yield* refused(admin.addException(dee, { ...exception, departmentId: null }))).toBe(
+          "ControlForbiddenError",
+        );
+        yield* admin.addException(dee, { ...exception, departmentId: design.id });
+        expect((yield* admin.exceptions(dee)).map(({ personId }) => personId)).toEqual([cy.id]);
+
         const left = yield* admin.removeDepartmentMember(dee, design.id, cy.id);
         expect(left.teams[0]?.members).toEqual([]);
         expect(yield* Effect.flip(admin.deleteDepartment(ada, design.id))).toMatchObject({

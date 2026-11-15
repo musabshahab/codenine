@@ -74,6 +74,19 @@ database send each batch from one of them, and a failure resends rather than ski
 removes nothing a destination has not taken, so a long outage there delays deletion instead of
 losing entries.
 
+## Workspace profiles
+
+What a workspace is made from comes from layers applied from the top: the company's profile, the
+department's, its teams', then the person's time-limited exceptions
+([`layering.ts`](../../apps/control/src/profiles/layering.ts)). A layer changes only what the layers
+above left open, as Claude's and Codex's own admin settings do: it cannot change a setting above it
+locked, lift a blocked terminal, or reach a blocked host. Without that rule, a department admin, who
+edits their own department's layer, could undo the company's limits.
+
+Each layer keeps its versions. A new one goes to everyone or first to a test group; rolling back
+publishes a copy of the version everyone had before, so the history only grows and the audit log
+names every step. Previews load all layers once and resolve every affected workspace in memory.
+
 ## Sleeping workspaces
 
 Only the workspace knows whether anyone has it open and whether its agents have work, so a

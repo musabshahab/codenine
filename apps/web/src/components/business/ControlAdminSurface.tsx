@@ -629,6 +629,12 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "team.delete": "deleted the team",
   "team.add-member": "added to a team",
   "team.remove-member": "removed from a team",
+  "profile.publish": "published a new version of the profile",
+  "profile.test": "started testing a version of the profile",
+  "profile.discard": "dropped the version being tested of the profile",
+  "profile.rollback": "rolled back the profile",
+  "exception.create": "made an exception for",
+  "exception.end": "ended an exception for",
 };
 
 const auditValue = (value: string | number | boolean | null | undefined) =>

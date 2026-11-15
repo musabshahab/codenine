@@ -376,7 +376,7 @@ export const layerAdminApi = HttpApiBuilder.group(
       )
       .handle("departments", () => Effect.flatMap(actor, admin.departments))
       .handle("createDepartment", ({ payload }) =>
-        Effect.flatMap(actor, (by) => admin.createDepartment(by, payload.name)),
+        Effect.flatMap(actor, (by) => admin.createDepartment(by, payload.name, payload.template)),
       )
       .handle("renameDepartment", ({ params, payload }) =>
         Effect.flatMap(actor, (by) =>
@@ -412,6 +412,43 @@ export const layerAdminApi = HttpApiBuilder.group(
       )
       .handle("removeTeamMember", ({ params }) =>
         Effect.flatMap(actor, (by) => admin.removeTeamMember(by, params.teamId, params.personId)),
+      )
+      .handle("profiles", () => Effect.flatMap(actor, admin.profiles))
+      .handle("previewProfile", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) => admin.previewProfile(by, params.profileId, payload.settings)),
+      )
+      .handle("saveProfile", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.saveProfile(by, {
+            profileId: params.profileId,
+            settings: payload.settings,
+            note: payload.note,
+            testWith: payload.testWith ?? null,
+          }),
+        ),
+      )
+      .handle("publishTest", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.publishTest(by, params.profileId)),
+      )
+      .handle("discardTest", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.discardTest(by, params.profileId)),
+      )
+      .handle("rollBackProfile", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.rollBackProfile(by, params.profileId)),
+      )
+      .handle("personProfile", ({ params, query }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.personProfile(by, params.personId, query.department ?? null),
+        ),
+      )
+      .handle("exceptions", () => Effect.flatMap(actor, admin.exceptions))
+      .handle("addException", ({ payload }) =>
+        Effect.flatMap(actor, (by) => admin.addException(by, payload)),
+      )
+      .handle("endException", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.endException(by, params.exceptionId)).pipe(
+          Effect.as(ok),
+        ),
       )
       .handle("audit", ({ query }) =>
         Effect.flatMap(actor, (by) => admin.audit(by, query.before ?? null)),

@@ -18,14 +18,21 @@ export const WORKSPACE_UID = 1000;
 /** Where the egress proxy listens. */
 export const EGRESS_PORT = 3128;
 
-/** Settings every workspace driver reads. */
-export const WorkspaceConfig = Config.all({
-  image: Config.String("CODENINE_CONTROL_WORKSPACE_IMAGE"),
+const sizeConfig = {
   cpus: Config.Number("CODENINE_CONTROL_WORKSPACE_CPUS").pipe(Config.withDefault(2)),
   memoryGb: Config.Number("CODENINE_CONTROL_WORKSPACE_MEMORY_GB").pipe(Config.withDefault(4)),
   sleepMinutes: Config.Number("CODENINE_CONTROL_WORKSPACE_SLEEP_MINUTES").pipe(
     Config.withDefault(30),
   ),
+};
+
+/** The size workspaces get where no profile sets one. */
+export const WorkspaceSizeConfig = Config.all(sizeConfig);
+
+/** Settings every workspace driver reads. */
+export const WorkspaceConfig = Config.all({
+  image: Config.String("CODENINE_CONTROL_WORKSPACE_IMAGE"),
+  ...sizeConfig,
 });
 
 /** What a managed workspace needs: whom to trust, when to sleep, how to reach out. */

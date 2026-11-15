@@ -3,6 +3,7 @@ import type {
   ControlAuditActorKind,
   ControlAuditTargetKind,
   ControlAuditValues,
+  ControlProfileSettings,
   ControlRole,
 } from "@codenine/contracts/control";
 import { sql } from "drizzle-orm";
@@ -213,6 +214,55 @@ export const controlTeamMembers = pgTable(
     createdAt: varchar("created_at", { length: 64 }).notNull(),
   },
   (table) => [primaryKey({ columns: [table.teamId, table.personId] })],
+);
+
+/**
+ * A workspace profile layer: `company`, `department:<id>` or `team:<id>`. Its
+ * versions are kept; one is what everyone gets, and a newer one can go to a
+ * few people first.
+ */
+export const controlProfiles = pgTable("control_profiles", {
+  id: varchar("id", { length: 80 }).primaryKey(),
+  published: integer("published"),
+  testVersion: integer("test_version"),
+  testPeople: jsonb("test_people").$type<ReadonlyArray<string>>(),
+  updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+});
+
+export const controlProfileVersions = pgTable(
+  "control_profile_versions",
+  {
+    profileId: varchar("profile_id", { length: 80 })
+      .notNull()
+      .references(() => controlProfiles.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    settings: jsonb("settings").notNull().$type<ControlProfileSettings>(),
+    note: varchar("note", { length: 500 }).notNull(),
+    createdBy: varchar("created_by", { length: 512 }).notNull(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    /** When it last became what everyone gets, so a rollback knows what came before. */
+    publishedAt: varchar("published_at", { length: 64 }),
+  },
+  (table) => [primaryKey({ columns: [table.profileId, table.version] })],
+);
+
+/** A time-limited change for one person, in one department or all of theirs. */
+export const controlProfileExceptions = pgTable(
+  "control_profile_exceptions",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    personId: personId(),
+    departmentId: varchar("department_id", { length: 64 }).references(() => controlDepartments.id, {
+      onDelete: "cascade",
+    }),
+    settings: jsonb("settings").notNull().$type<ControlProfileSettings>(),
+    reason: varchar("reason", { length: 500 }).notNull(),
+    endsAt: varchar("ends_at", { length: 64 }).notNull(),
+    endedAt: varchar("ended_at", { length: 64 }),
+    createdBy: varchar("created_by", { length: 512 }).notNull(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+  },
+  (table) => [index("idx_control_profile_exceptions_person").on(table.personId)],
 );
 
 /**

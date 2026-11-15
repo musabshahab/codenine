@@ -1,4 +1,10 @@
-import type { ControlDepartment, ControlPerson, ControlTeam } from "@codenine/contracts/control";
+import {
+  CONTROL_PROFILE_TEMPLATES,
+  type ControlDepartment,
+  type ControlPerson,
+  ControlProfileTemplateName,
+  type ControlTeam,
+} from "@codenine/contracts/control";
 import React, { useState } from "react";
 
 import { Badge } from "../ui/badge";
@@ -6,6 +12,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { type ControlCall, SectionTitle } from "./adminParts";
+
+const templateNames = ControlProfileTemplateName.literals;
 
 /** Departments and their teams, as far as the signed-in person's role reaches. */
 export function DepartmentsSection({
@@ -22,6 +30,7 @@ export function DepartmentsSection({
   readonly onAction: (change: ControlCall) => Promise<boolean>;
 }) {
   const [name, setName] = useState("");
+  const [template, setTemplate] = useState<ControlProfileTemplateName | "">("");
   const byId = new Map(people.map((person) => [person.id, person]));
 
   return (
@@ -50,11 +59,16 @@ export function DepartmentsSection({
           className="mt-3 flex flex-wrap items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            void onAction((client) => client.admin.createDepartment({ payload: { name } })).then(
-              (created) => {
-                if (created) setName("");
-              },
-            );
+            void onAction((client) =>
+              client.admin.createDepartment({
+                payload: template === "" ? { name } : { name, template },
+              }),
+            ).then((created) => {
+              if (created) {
+                setName("");
+                setTemplate("");
+              }
+            });
           }}
         >
           <div className="w-56">
@@ -66,6 +80,29 @@ export function DepartmentsSection({
               value={name}
             />
           </div>
+          <Select
+            items={{
+              "": "No template",
+              ...Object.fromEntries(templateNames.map((option) => [option, option])),
+            }}
+            onValueChange={(value) => {
+              const chosen = templateNames.find((option) => option === value);
+              setTemplate(chosen ?? "");
+            }}
+            value={template}
+          >
+            <SelectTrigger aria-label="Start from a template" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="">No template</SelectItem>
+              {templateNames.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}: {CONTROL_PROFILE_TEMPLATES[option].description}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
           <Button disabled={name.trim() === ""} size="sm" type="submit" variant="outline">
             Add department
           </Button>

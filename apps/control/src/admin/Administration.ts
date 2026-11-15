@@ -6,13 +6,22 @@ import {
   type ControlAuditValues,
   type ControlDepartment,
   type ControlDepartmentError,
+  type ControlEffectiveProfile,
   ControlForbiddenError,
   ControlLicenceInstallError,
   type ControlLicenceOverview,
   type ControlMe,
   type ControlPermission,
   type ControlPerson,
+  type ControlProfile,
+  ControlProfileError,
+  type ControlProfileException,
+  type ControlProfileId,
+  type ControlProfilePreview,
+  type ControlProfileSettings,
+  type ControlProfileTemplateName,
   type ControlRole,
+  CONTROL_PROFILE_TEMPLATES,
   permissionReach,
 } from "@codenine/contracts/control";
 import * as Context from "effect/Context";
@@ -29,6 +38,8 @@ import {
 } from "../audit/AuditLog.ts";
 import { Departments } from "../departments/Departments.ts";
 import { type LicenceInstallResult, LicenceService } from "../licence/LicenceService.ts";
+import { describeLayerChange } from "../profiles/layering.ts";
+import { type ProfileStep, Profiles } from "../profiles/Profiles.ts";
 import { WorkspaceRetention } from "../workspaces/WorkspaceRetention.ts";
 
 /** Who asks for an admin action: their role decides what they may do, and the audit log names them. */
@@ -54,6 +65,7 @@ export const operatorActor = (label: string): AdminActor => ({
 type PersonError = ControlForbiddenError | ControlAccountError;
 type DepartmentError = ControlForbiddenError | ControlDepartmentError;
 type MembershipError = DepartmentError | ControlAccountError;
+type ProfileError = ControlForbiddenError | ControlProfileError;
 
 /**
  * Licence, people and department changes, checked against the asker's role and
@@ -107,9 +119,11 @@ export class Administration extends Context.Service<
     readonly departments: (
       actor: AdminActor,
     ) => Effect.Effect<ReadonlyArray<ControlDepartment>, ControlForbiddenError>;
+    /** With a template, the department's profile starts as a copy of it. */
     readonly createDepartment: (
       actor: AdminActor,
       name: string,
+      template?: ControlProfileTemplateName,
     ) => Effect.Effect<ControlDepartment, DepartmentError>;
     readonly renameDepartment: (
       actor: AdminActor,
@@ -154,6 +168,59 @@ export class Administration extends Context.Service<
       teamId: string,
       personId: string,
     ) => Effect.Effect<ControlDepartment, MembershipError>;
+    /** The profiles the actor may change: the company's, and their departments' and teams'. */
+    readonly profiles: (
+      actor: AdminActor,
+    ) => Effect.Effect<ReadonlyArray<ControlProfile>, ControlForbiddenError>;
+    readonly previewProfile: (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+      settings: ControlProfileSettings,
+    ) => Effect.Effect<ControlProfilePreview, ProfileError>;
+    readonly saveProfile: (
+      actor: AdminActor,
+      input: {
+        readonly profileId: ControlProfileId;
+        readonly settings: ControlProfileSettings;
+        readonly note: string;
+        readonly testWith: ReadonlyArray<string> | null;
+      },
+    ) => Effect.Effect<ControlProfile, ProfileError>;
+    readonly publishTest: (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+    ) => Effect.Effect<ControlProfile, ProfileError>;
+    readonly discardTest: (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+    ) => Effect.Effect<ControlProfile, ProfileError>;
+    readonly rollBackProfile: (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+    ) => Effect.Effect<ControlProfile, ProfileError>;
+    /** What a person's workspace in a department, or outside any, is made from. */
+    readonly personProfile: (
+      actor: AdminActor,
+      personId: string,
+      departmentId: string | null,
+    ) => Effect.Effect<ControlEffectiveProfile, PersonError>;
+    readonly exceptions: (
+      actor: AdminActor,
+    ) => Effect.Effect<ReadonlyArray<ControlProfileException>, ControlForbiddenError>;
+    readonly addException: (
+      actor: AdminActor,
+      input: {
+        readonly personId: string;
+        readonly departmentId: string | null;
+        readonly settings: ControlProfileSettings;
+        readonly reason: string;
+        readonly endsAt: string;
+      },
+    ) => Effect.Effect<ControlProfileException, ProfileError | ControlAccountError>;
+    readonly endException: (
+      actor: AdminActor,
+      exceptionId: string,
+    ) => Effect.Effect<void, ProfileError | ControlAccountError>;
     readonly audit: (
       actor: AdminActor,
       before: number | null,
@@ -167,6 +234,7 @@ export const make = Effect.gen(function* () {
   const retention = yield* WorkspaceRetention;
   const auditLog = yield* AuditLog;
   const departments = yield* Departments;
+  const profiles = yield* Profiles;
 
   const record = (
     actor: AdminActor,
@@ -232,6 +300,64 @@ export const make = Effect.gen(function* () {
       }
     }
     return person;
+  });
+
+  /** The company's profile is for owners and admins; a department's or team's, for its admins too. */
+  const requireProfile = Effect.fn("Administration.requireProfile")(function* (
+    actor: AdminActor,
+    profileId: ControlProfileId,
+  ) {
+    const reach = yield* reachOf(actor, "departments:manage");
+    const departmentId = yield* profiles.departmentOf(profileId);
+    if (departmentId === null ? reach !== "all" : false) {
+      return yield* new ControlForbiddenError({});
+    }
+    if (departmentId !== null) {
+      yield* requireDepartment(actor, departmentId);
+    }
+  });
+
+  const recordStep = (
+    actor: AdminActor,
+    action: ControlAuditAction,
+    step: ProfileStep,
+    extra: ControlAuditValues = {},
+  ) =>
+    record(
+      actor,
+      action,
+      { kind: "profile", id: step.profile.id, label: step.profile.name },
+      step.from === null ? null : { version: step.from.version },
+      step.to === null
+        ? null
+        : {
+            version: step.to.version,
+            changes: describeLayerChange(step.from?.settings ?? null, step.to.settings) || null,
+            ...extra,
+          },
+    );
+
+  /** Where an exception applies, for the audit log. */
+  const exceptionPlace = (departmentId: string | null) =>
+    departmentId === null
+      ? Effect.succeed("every department")
+      : departments.find(departmentId).pipe(
+          Effect.map((department) => department.name),
+          Effect.orElseSucceed(() => departmentId),
+        );
+
+  /** Exceptions for all of someone's departments are for owners and admins. */
+  const requireExceptionPlace = Effect.fn("Administration.requireExceptionPlace")(function* (
+    actor: AdminActor,
+    departmentId: string | null,
+  ) {
+    if (departmentId === null) {
+      if ((yield* reachOf(actor, "people:manage")) !== "all") {
+        return yield* new ControlForbiddenError({});
+      }
+      return;
+    }
+    yield* requireDepartment(actor, departmentId);
   });
 
   /** The departments a permission reaches for the actor. */
@@ -414,13 +540,26 @@ export const make = Effect.gen(function* () {
     createDepartment: Effect.fn("Administration.createDepartment")(function* (
       actor: AdminActor,
       name: string,
+      template?: ControlProfileTemplateName,
     ) {
       if ((yield* reachOf(actor, "departments:manage")) !== "all") {
         return yield* new ControlForbiddenError({});
       }
       const department = yield* departments.create(name);
+      if (template !== undefined) {
+        yield* profiles
+          .save({
+            id: `department:${department.id}`,
+            settings: CONTROL_PROFILE_TEMPLATES[template].settings,
+            note: `From the ${template} template`,
+            testWith: null,
+            by: actor.who.label,
+          })
+          .pipe(Effect.catchTags({ ControlProfileError: Effect.die }));
+      }
       yield* record(actor, "department.create", departmentTarget(department), null, {
         name: department.name,
+        template: template ?? null,
       });
       return department;
     }),
@@ -583,6 +722,144 @@ export const make = Effect.gen(function* () {
         );
       }
       return yield* departments.find(department.id);
+    }),
+    profiles: Effect.fn("Administration.profiles")(function* (actor: AdminActor) {
+      const reached = yield* reachedDepartments(actor, "departments:manage");
+      const ids: Array<ControlProfileId> = reached.all ? ["company"] : [];
+      for (const department of reached.departments) {
+        ids.push(
+          `department:${department.id}`,
+          ...department.teams.map((team) => `team:${team.id}` as const),
+        );
+      }
+      return yield* profiles.list(ids).pipe(Effect.catchTags({ ControlProfileError: Effect.die }));
+    }),
+    previewProfile: Effect.fn("Administration.previewProfile")(function* (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+      settings: ControlProfileSettings,
+    ) {
+      yield* requireProfile(actor, profileId);
+      return yield* profiles.preview(profileId, settings);
+    }),
+    saveProfile: Effect.fn("Administration.saveProfile")(function* (
+      actor: AdminActor,
+      input: {
+        readonly profileId: ControlProfileId;
+        readonly settings: ControlProfileSettings;
+        readonly note: string;
+        readonly testWith: ReadonlyArray<string> | null;
+      },
+    ) {
+      yield* requireProfile(actor, input.profileId);
+      const step = yield* profiles.save({
+        id: input.profileId,
+        settings: input.settings,
+        note: input.note,
+        testWith: input.testWith,
+        by: actor.who.label,
+      });
+      yield* recordStep(
+        actor,
+        input.testWith === null ? "profile.publish" : "profile.test",
+        step,
+        input.testWith === null
+          ? { note: input.note.trim() || null }
+          : { note: input.note.trim() || null, testers: input.testWith.length },
+      );
+      return step.profile;
+    }),
+    publishTest: Effect.fn("Administration.publishTest")(function* (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+    ) {
+      yield* requireProfile(actor, profileId);
+      const step = yield* profiles.publishTest(profileId);
+      yield* recordStep(actor, "profile.publish", step);
+      return step.profile;
+    }),
+    discardTest: Effect.fn("Administration.discardTest")(function* (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+    ) {
+      yield* requireProfile(actor, profileId);
+      const step = yield* profiles.discardTest(profileId);
+      yield* recordStep(actor, "profile.discard", step);
+      return step.profile;
+    }),
+    rollBackProfile: Effect.fn("Administration.rollBackProfile")(function* (
+      actor: AdminActor,
+      profileId: ControlProfileId,
+    ) {
+      yield* requireProfile(actor, profileId);
+      const step = yield* profiles.rollBack(profileId, actor.who.label);
+      const restored = step.profile.versions.find(({ version }) => version === step.to?.version);
+      yield* recordStep(actor, "profile.rollback", step, { note: restored?.note ?? null });
+      return step.profile;
+    }),
+    personProfile: Effect.fn("Administration.personProfile")(function* (
+      actor: AdminActor,
+      personId: string,
+      departmentId: string | null,
+    ) {
+      yield* requireManaged(actor, personId);
+      return yield* profiles.effective(personId, departmentId);
+    }),
+    exceptions: Effect.fn("Administration.exceptions")(function* (actor: AdminActor) {
+      const reached = yield* reachedDepartments(actor, "people:manage");
+      const all = yield* profiles.exceptions;
+      if (reached.all) return all;
+      const theirs = new Set(reached.departments.map((department) => department.id));
+      const people = new Set(reached.departments.flatMap((department) => department.members));
+      return all.filter((exception) =>
+        exception.departmentId === null
+          ? people.has(exception.personId)
+          : theirs.has(exception.departmentId),
+      );
+    }),
+    addException: Effect.fn("Administration.addException")(function* (
+      actor: AdminActor,
+      input: {
+        readonly personId: string;
+        readonly departmentId: string | null;
+        readonly settings: ControlProfileSettings;
+        readonly reason: string;
+        readonly endsAt: string;
+      },
+    ) {
+      const person = yield* requireManaged(actor, input.personId);
+      yield* requireExceptionPlace(actor, input.departmentId);
+      const exception = yield* profiles.addException({ ...input, by: actor.who.label });
+      yield* record(actor, "exception.create", personTarget(person), null, {
+        department: yield* exceptionPlace(exception.departmentId),
+        reason: exception.reason,
+        endsAt: exception.endsAt,
+        changes: describeLayerChange(null, exception.settings) || null,
+      });
+      return exception;
+    }),
+    endException: Effect.fn("Administration.endException")(function* (
+      actor: AdminActor,
+      exceptionId: string,
+    ) {
+      const exception = (yield* profiles.exceptions).find(({ id }) => id === exceptionId);
+      if (exception === undefined) {
+        return yield* new ControlProfileError({ reason: "not-found" });
+      }
+      const person = yield* requireManaged(actor, exception.personId);
+      yield* requireExceptionPlace(actor, exception.departmentId);
+      yield* profiles.endException(exceptionId);
+      yield* record(
+        actor,
+        "exception.end",
+        personTarget(person),
+        {
+          department: yield* exceptionPlace(exception.departmentId),
+          reason: exception.reason,
+          endsAt: exception.endsAt,
+        },
+        null,
+      );
     }),
     audit: Effect.fn("Administration.audit")(function* (actor: AdminActor, before: number | null) {
       const reached = yield* reachedDepartments(actor, "audit:read");

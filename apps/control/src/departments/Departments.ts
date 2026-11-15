@@ -11,6 +11,7 @@ import { ControlDb } from "../db.ts";
 import {
   controlDepartmentMembers,
   controlDepartments,
+  controlProfiles,
   controlTeamMembers,
   controlTeams,
 } from "../persistence/schema.ts";
@@ -214,6 +215,15 @@ export const make = Effect.gen(function* () {
       if (department.members.length > 0) {
         return yield* new ControlDepartmentError({ reason: "not-empty" });
       }
+      // Profiles are keyed by name, not by a foreign key, so they go by hand.
+      yield* db
+        .delete(controlProfiles)
+        .where(
+          inArray(controlProfiles.id, [
+            `department:${departmentId}`,
+            ...department.teams.map((team) => `team:${team.id}`),
+          ]),
+        );
       yield* db.delete(controlDepartments).where(eq(controlDepartments.id, departmentId));
     }, dieOnDatabaseError),
     addMember: Effect.fn("Departments.addMember")(function* (
@@ -281,6 +291,7 @@ export const make = Effect.gen(function* () {
     }, dieOnDatabaseError),
     removeTeam: Effect.fn("Departments.removeTeam")(function* (teamId: string) {
       const departmentId = yield* teamDepartment(teamId);
+      yield* db.delete(controlProfiles).where(eq(controlProfiles.id, `team:${teamId}`));
       yield* db.delete(controlTeams).where(eq(controlTeams.id, teamId));
       return yield* find(departmentId);
     }, dieOnDatabaseError),
