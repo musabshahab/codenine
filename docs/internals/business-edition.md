@@ -15,7 +15,8 @@ are in [`workspaceToken.ts`](../../packages/contracts/src/workspaceToken.ts); ve
 checks key ID, signature, type, issuer, audience and time.
 
 - **The workspace stores nothing about these sessions.** It never sees the control server's
-  cookie, and it refuses cookies, its own sessions, pairing, bootstrap exchange and DPoP.
+  cookie, and it refuses cookies, its own sessions, pairing, bootstrap exchange and DPoP. It
+  also issues no sessions or pairing links, so `codenine auth` and `codenine pair` fail plainly.
   Revocation therefore happens on the control server: sign-out, a reset or deactivation ends
   that person's forwarded sockets at once, and the next HTTP request has no token. Local
   socket invalidation is skipped for managed sessions, because there is no local row to watch.

@@ -23,6 +23,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
+import * as PairingGrantStore from "./PairingGrantStore.ts";
 
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
@@ -929,14 +930,25 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
           expect(yield* refusal(makeBearerRequest(yield* sign({ exp: now - 120 })))).toBe(
             "ServerAuthInvalidCredentialError",
           );
-          const local = yield* serverAuth.issueSession();
+          const issuingRefusals = yield* Effect.all([
+            Effect.flip(serverAuth.issueSession()),
+            Effect.flip(serverAuth.createPairingLink()),
+            Effect.flip(serverAuth.issuePairingCredential({ scopes: ["orchestration:read"] })),
+            Effect.flip(serverAuth.issueStartupPairingCredential()),
+          ]);
+          expect(issuingRefusals.map((error) => error._tag)).toEqual(
+            Array.from({ length: 4 }, () => "ServerAuthManagedWorkspaceError"),
+          );
+
+          // Credentials left from before the workspace was managed still do not work.
+          const local = yield* sessions.issue({ method: "bearer-access-token" });
           expect(yield* refusal(makeBearerRequest(local.token))).toBe(
             "ServerAuthInvalidCredentialError",
           );
           expect(yield* refusal(makeCookieRequest(sessions.cookieName, local.token))).toBe(
             "ServerAuthMissingCredentialError",
           );
-          const pairing = yield* serverAuth.issuePairingCredential({
+          const pairing = yield* (yield* PairingGrantStore.PairingGrantStore).issueOneTimeToken({
             scopes: ["orchestration:read"],
           });
           const exchange = yield* Effect.flip(

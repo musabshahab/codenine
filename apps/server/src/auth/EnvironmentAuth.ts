@@ -331,6 +331,15 @@ export class ServerAuthCloudMintJwtSigningError extends Schema.TaggedError<Serve
   }
 }
 
+export class ServerAuthManagedWorkspaceError extends Schema.TaggedError<ServerAuthManagedWorkspaceError>()(
+  "ServerAuthManagedWorkspaceError",
+  {},
+) {
+  override get message(): string {
+    return "This workspace is managed by a control server. People sign in there, so it issues no pairing links or sessions of its own.";
+  }
+}
+
 export const ServerAuthInternalError = Schema.Union([
   ServerAuthBootstrapCredentialValidationError,
   ServerAuthSessionCredentialValidationError,
@@ -354,6 +363,7 @@ export const ServerAuthInternalError = Schema.Union([
   ServerAuthCloudRelayIssuerMissingError,
   ServerAuthCloudHealthJwtSigningError,
   ServerAuthCloudMintJwtSigningError,
+  ServerAuthManagedWorkspaceError,
 ]);
 export type ServerAuthInternalError = typeof ServerAuthInternalError.Type;
 export const isServerAuthInternalError = Schema.is(ServerAuthInternalError);
@@ -725,6 +735,8 @@ export const make = Effect.gen(function* () {
   const refuseLocalCredential = new ServerAuthInvalidCredentialError({
     diagnostic: "This workspace is managed by a control server. Sign in there.",
   });
+  const refuseIssuingWhenManaged =
+    managedTokens === undefined ? Effect.void : Effect.fail(new ServerAuthManagedWorkspaceError());
 
   const authenticateToken = (
     token: string,
@@ -1049,7 +1061,7 @@ export const make = Effect.gen(function* () {
     expiresAt: issued.expiresAt,
   });
 
-  const issuePairingLink = Effect.fn("EnvironmentAuth.issuePairingLink")(
+  const issuePairingGrant = Effect.fn("EnvironmentAuth.issuePairingLink")(
     function* (input: Parameters<EnvironmentAuth["Service"]["createPairingLink"]>[0]) {
       const createdAt = yield* DateTime.now;
       const issued = yield* bootstrapCredentials.issueOneTimeToken({
@@ -1073,6 +1085,10 @@ export const make = Effect.gen(function* () {
     },
     Effect.mapError((cause) => new ServerAuthPairingLinkCreationError({ cause })),
   );
+
+  const issuePairingLink = (
+    input: Parameters<EnvironmentAuth["Service"]["createPairingLink"]>[0],
+  ) => refuseIssuingWhenManaged.pipe(Effect.andThen(issuePairingGrant(input)));
 
   const createPairingLink: EnvironmentAuth["Service"]["createPairingLink"] = Effect.fn(
     "EnvironmentAuth.createPairingLink",
@@ -1108,33 +1124,37 @@ export const make = Effect.gen(function* () {
     );
 
   const issueSession: EnvironmentAuth["Service"]["issueSession"] = (input) =>
-    sessions
-      .issue({
-        subject: input?.subject ?? DEFAULT_SESSION_SUBJECT,
-        method: "bearer-access-token",
-        scopes: input?.scopes ?? AuthStandardClientScopes,
-        client: {
-          ...(input?.label ? { label: input.label } : {}),
-          deviceType: "bot",
-        },
-        ...(input?.ttl ? { ttl: input.ttl } : {}),
-      })
-      .pipe(
-        Effect.map(
-          (issued) =>
-            ({
-              sessionId: issued.sessionId,
-              token: issued.token,
-              method: "bearer-access-token",
-              scopes: issued.scopes,
-              subject: input?.subject ?? DEFAULT_SESSION_SUBJECT,
-              client: issued.client,
-              expiresAt: DateTime.toUtc(issued.expiresAt),
-            }) satisfies IssuedBearerSession,
-        ),
-        Effect.mapError((cause) => new ServerAuthSessionTokenIssueError({ cause })),
-        Effect.withSpan("EnvironmentAuth.issueSession"),
-      );
+    refuseIssuingWhenManaged.pipe(
+      Effect.andThen(
+        sessions
+          .issue({
+            subject: input?.subject ?? DEFAULT_SESSION_SUBJECT,
+            method: "bearer-access-token",
+            scopes: input?.scopes ?? AuthStandardClientScopes,
+            client: {
+              ...(input?.label ? { label: input.label } : {}),
+              deviceType: "bot",
+            },
+            ...(input?.ttl ? { ttl: input.ttl } : {}),
+          })
+          .pipe(
+            Effect.map(
+              (issued) =>
+                ({
+                  sessionId: issued.sessionId,
+                  token: issued.token,
+                  method: "bearer-access-token",
+                  scopes: issued.scopes,
+                  subject: input?.subject ?? DEFAULT_SESSION_SUBJECT,
+                  client: issued.client,
+                  expiresAt: DateTime.toUtc(issued.expiresAt),
+                }) satisfies IssuedBearerSession,
+            ),
+            Effect.mapError((cause) => new ServerAuthSessionTokenIssueError({ cause })),
+          ),
+      ),
+      Effect.withSpan("EnvironmentAuth.issueSession"),
+    );
 
   const listSessions: EnvironmentAuth["Service"]["listSessions"] = () =>
     sessions.listActive().pipe(
