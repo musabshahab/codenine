@@ -15,6 +15,7 @@ import { Argument, Command, Flag } from "effect/cli";
 
 import { Accounts } from "./accounts/Accounts.ts";
 import * as Administration from "./admin/Administration.ts";
+import * as AuditExport from "./audit/AuditExport.ts";
 import * as AuditLog from "./audit/AuditLog.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
@@ -104,6 +105,7 @@ const serveCommand = Command.make("serve", {}, () =>
         ),
         Licence.layerDailyCheck,
         WorkspaceRetention.layerHourlySweep,
+        AuditExport.layer,
       ).pipe(
         Layer.provide(Administration.layer),
         Layer.provide(WorkspaceRetention.layer),

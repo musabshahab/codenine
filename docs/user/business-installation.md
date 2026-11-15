@@ -252,6 +252,19 @@ The address is the one your reverse proxy reports in `X-Forwarded-For`. The cont
 that header only from a proxy on the same machine; if yours runs elsewhere, list its network in
 `CODENINE_CONTROL_TRUSTED_PROXIES`, such as `10.0.0.0/8`.
 
+Entries are kept for a year; `CODENINE_CONTROL_AUDIT_RETENTION_DAYS` changes that, and `0` keeps them
+for good. To keep a copy where admins of Codenine cannot change it, send the log to your own systems:
+
+- `CODENINE_CONTROL_AUDIT_SYSLOG`: a syslog server, as `udp://host:514`, `tcp://host:514` or
+  `tls://host:6514`. Each entry is one RFC 5424 message whose text is the entry as JSON.
+- `CODENINE_CONTROL_AUDIT_OTLP_URL`: an OpenTelemetry collector's logs address, such as
+  `https://collector.example.com:4318/v1/logs`, with any headers it needs in
+  `CODENINE_CONTROL_AUDIT_OTLP_HEADERS`, such as `Authorization=Bearer <token>`.
+
+Codenine sends new entries within seconds and retries while your system is unreachable, so an entry
+can arrive twice but is never skipped; each carries its number for spotting repeats. It deletes
+entries past their retention only once every destination has them.
+
 ## Give people the desktop app
 
 A business build of the desktop app opens your Codenine and nothing else. Build it from the checkout

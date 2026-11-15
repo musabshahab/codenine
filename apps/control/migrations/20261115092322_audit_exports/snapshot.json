@@ -1,0 +1,76 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "54a0b108-665a-4536-90f0-9c11c9110dcc",
+  "prevIds": ["ed95eda8-4089-4950-b7da-5ad9bef75436"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_audit_exports"],
+      "writes": [
+        "s|tbl|public.control_audit_exports",
+        "n|tbl|public.control_audit_exports",
+        "e|tbl|public.control_audit_exports",
+        "n|rel|public.control_audit_exports",
+        "n|type|public.control_audit_exports",
+        "n|rel|public.control_audit_exports_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_audit_exports",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_audit_exports",
+        "name": "sink",
+        "type": "varchar(16)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_audit_exports",
+        "name": "last_id",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_audit_exports",
+        "name": "control_audit_exports_pkey",
+        "columns": ["sink"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

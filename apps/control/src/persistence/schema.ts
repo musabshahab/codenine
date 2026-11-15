@@ -7,6 +7,7 @@ import type {
 } from "@codenine/contracts/control";
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -192,3 +193,12 @@ export const controlAuditEvents = pgTable(
   },
   (table) => [index("idx_control_audit_events_at").on(table.at)],
 );
+
+/**
+ * How far each export has sent the audit log. Entries past retention are
+ * removed only once every configured export has them.
+ */
+export const controlAuditExports = pgTable("control_audit_exports", {
+  sink: varchar("sink", { length: 16 }).primaryKey().$type<"syslog" | "otlp">(),
+  lastId: bigint("last_id", { mode: "number" }).notNull(),
+});

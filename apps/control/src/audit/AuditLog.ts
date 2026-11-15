@@ -6,7 +6,7 @@ import type {
   ControlAuditTargetKind,
   ControlAuditValues,
 } from "@codenine/contracts/control";
-import { desc, lt } from "drizzle-orm";
+import { and, asc, desc, gt, lt, lte } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -53,6 +53,13 @@ export class AuditLog extends Context.Service<
     readonly record: (entry: AuditRecord) => Effect.Effect<void>;
     /** Newest first, a page at a time; `before` is the `next` of the page before. */
     readonly list: (before: number | null) => Effect.Effect<ControlAuditPage>;
+    /** Oldest first, for exports. */
+    readonly after: (id: number, limit: number) => Effect.Effect<ReadonlyArray<ControlAuditEntry>>;
+    /** Removes entries recorded before `at`, but none after `upTo` when it is given. */
+    readonly remove: (input: {
+      readonly before: string;
+      readonly upTo: number | null;
+    }) => Effect.Effect<void>;
   }
 >()("@codenine/control/audit/AuditLog") {}
 
@@ -102,7 +109,31 @@ export const make = Effect.gen(function* () {
     return { entries, next: rows.length > PAGE_SIZE && oldest ? oldest.id : null };
   }, Effect.orDie);
 
-  return AuditLog.of({ record, list });
+  const after = Effect.fn("AuditLog.after")(function* (id: number, limit: number) {
+    const rows = yield* db
+      .select()
+      .from(controlAuditEvents)
+      .where(gt(controlAuditEvents.id, id))
+      .orderBy(asc(controlAuditEvents.id))
+      .limit(limit);
+    return rows.map(toEntry);
+  }, Effect.orDie);
+
+  const remove = Effect.fn("AuditLog.remove")(function* (input: {
+    readonly before: string;
+    readonly upTo: number | null;
+  }) {
+    yield* db
+      .delete(controlAuditEvents)
+      .where(
+        and(
+          lt(controlAuditEvents.at, input.before),
+          input.upTo === null ? undefined : lte(controlAuditEvents.id, input.upTo),
+        ),
+      );
+  }, Effect.orDie);
+
+  return AuditLog.of({ record, list, after, remove });
 });
 
 export const layer = Layer.effect(AuditLog, make);

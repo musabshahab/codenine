@@ -68,6 +68,12 @@ every way of signing in is covered. An entry is written after its change commits
 transaction, because changes reach mail and workspaces; a database failure in between leaves a
 change without its entry, and the request fails.
 
+Exports keep a cursor per destination in the database and move it only after the destination took
+a batch, inside a transaction that locks the cursor with `SKIP LOCKED`, so control servers sharing a
+database send each batch from one of them, and a failure resends rather than skips. Retention
+removes nothing a destination has not taken, so a long outage there delays deletion instead of
+losing entries.
+
 ## Sleeping workspaces
 
 Only the workspace knows whether anyone has it open and whether its agents have work, so a
