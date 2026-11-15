@@ -223,3 +223,23 @@ If the only owner is locked out, someone with access to the control server can r
 ```bash
 node apps/control/src/bin.ts people reset --email you@example.com
 ```
+
+## Give people the desktop app
+
+A business build of the desktop app opens your Codenine and nothing else. Build it from the checkout
+marked for business use, with your Codenine's address in the same `.env`:
+
+```bash
+echo CODENINE_BUSINESS_URL=https://codenine.example.com >> .env
+```
+
+Then build it for each platform as in [Development](../operations/development.md), for example:
+
+```bash
+vp run dist:desktop:dmg
+```
+
+People sign in to the app with their password, or choose **Sign in with your browser** to use a
+passkey. The browser brings them back to the app; if it does not, it shows a code to type in the
+app, which works once for 5 minutes. They stay signed in until they sign out or an admin signs
+them out. Links to other sites open in their browser.

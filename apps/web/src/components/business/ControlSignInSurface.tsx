@@ -2,7 +2,9 @@ import type { PasskeyAssertion, PasskeyRequestOptions } from "@codenine/contract
 import React, { useState } from "react";
 
 import { callControl, controlErrorMessage } from "../../business/control";
+import { businessDesktopScheme } from "../../business/desktopSignIn";
 import { passkeyErrorMessage, passkeysAvailable, signWithPasskey } from "../../business/passkeys";
+import { DesktopBrowserSignIn } from "./DesktopBrowserSignIn";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -42,6 +44,7 @@ const DESCRIPTIONS: Record<Exclude<Step["kind"], "code">, string> = {
 
 /** Signs in at the control server: a password, then an authenticator or recovery code. */
 export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () => void }) {
+  const [desktopScheme] = useState(businessDesktopScheme);
   const [step, setStep] = useState<Step>({ kind: "password" });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -304,6 +307,9 @@ export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () =
           </div>
         </form>
       )}
+      {step.kind === "password" && desktopScheme !== null ? (
+        <DesktopBrowserSignIn onSignedIn={onSignedIn} scheme={desktopScheme} />
+      ) : null}
     </StandalonePage>
   );
 }

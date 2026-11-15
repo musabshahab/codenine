@@ -166,6 +166,13 @@ export const layerAccountApi = HttpApiBuilder.group(
           return yield* startSession(personId);
         }),
       )
+      .handle(
+        "desktopSignIn",
+        Effect.fn("ControlHttp.desktopSignIn")(function* ({ payload }) {
+          const { personId } = yield* accounts.redeemDesktopCode(payload.code);
+          return yield* startSession(personId);
+        }),
+      )
       .handle("requestPasswordReset", ({ payload }) =>
         Effect.as(accounts.requestPasswordReset(payload.email), ok),
       )
@@ -208,6 +215,13 @@ export const layerMeApi = HttpApiBuilder.group(
             .isAsleep(person.id)
             .pipe(Effect.catchTags({ WorkspaceUnavailableError: workspaceUnavailable }));
           return { asleep };
+        }),
+      )
+      .handle(
+        "createDesktopCode",
+        Effect.fn("ControlHttp.createDesktopCode")(function* () {
+          const { person } = yield* ControlPrincipal;
+          return yield* accounts.issueDesktopCode(person.id);
         }),
       )
       .handle(

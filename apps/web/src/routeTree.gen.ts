@@ -19,6 +19,8 @@ import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as AdminSignInRouteImport } from './routes/admin.sign-in'
 import { Route as AdminEnrolRouteImport } from './routes/admin.enrol'
+import { Route as AdminDesktopReturnRouteImport } from './routes/admin.desktop-return'
+import { Route as AdminDesktopCodeRouteImport } from './routes/admin.desktop-code'
 import { Route as ChatUsageRouteImport } from './routes/_chat.usage'
 import { Route as ChatTasksRouteImport } from './routes/_chat.tasks'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
@@ -98,6 +100,16 @@ const AdminSignInRoute = AdminSignInRouteImport.update({
 const AdminEnrolRoute = AdminEnrolRouteImport.update({
   id: '/admin/enrol',
   path: '/admin/enrol',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDesktopReturnRoute = AdminDesktopReturnRouteImport.update({
+  id: '/admin/desktop-return',
+  path: '/admin/desktop-return',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDesktopCodeRoute = AdminDesktopCodeRouteImport.update({
+  id: '/admin/desktop-code',
+  path: '/admin/desktop-code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatUsageRoute = ChatUsageRouteImport.update({
@@ -273,6 +285,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof ChatSettingsRouteWithChildren
   '/tasks': typeof ChatTasksRoute
   '/usage': typeof ChatUsageRoute
+  '/admin/desktop-code': typeof AdminDesktopCodeRoute
+  '/admin/desktop-return': typeof AdminDesktopReturnRoute
   '/admin/enrol': typeof AdminEnrolRoute
   '/admin/sign-in': typeof AdminSignInRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
@@ -314,6 +328,8 @@ export interface FileRoutesByTo {
   '/settings': typeof ChatSettingsRouteWithChildren
   '/tasks': typeof ChatTasksRoute
   '/usage': typeof ChatUsageRoute
+  '/admin/desktop-code': typeof AdminDesktopCodeRoute
+  '/admin/desktop-return': typeof AdminDesktopReturnRoute
   '/admin/enrol': typeof AdminEnrolRoute
   '/admin/sign-in': typeof AdminSignInRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
@@ -358,6 +374,8 @@ export interface FileRoutesById {
   '/_chat/settings': typeof ChatSettingsRouteWithChildren
   '/_chat/tasks': typeof ChatTasksRoute
   '/_chat/usage': typeof ChatUsageRoute
+  '/admin/desktop-code': typeof AdminDesktopCodeRoute
+  '/admin/desktop-return': typeof AdminDesktopReturnRoute
   '/admin/enrol': typeof AdminEnrolRoute
   '/admin/sign-in': typeof AdminSignInRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
@@ -403,6 +421,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/usage'
+    | '/admin/desktop-code'
+    | '/admin/desktop-return'
     | '/admin/enrol'
     | '/admin/sign-in'
     | '/projects/$projectKey'
@@ -444,6 +464,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/usage'
+    | '/admin/desktop-code'
+    | '/admin/desktop-return'
     | '/admin/enrol'
     | '/admin/sign-in'
     | '/projects/$projectKey'
@@ -487,6 +509,8 @@ export interface FileRouteTypes {
     | '/_chat/settings'
     | '/_chat/tasks'
     | '/_chat/usage'
+    | '/admin/desktop-code'
+    | '/admin/desktop-return'
     | '/admin/enrol'
     | '/admin/sign-in'
     | '/projects/$projectKey'
@@ -525,6 +549,8 @@ export interface RootRouteChildren {
   ConnectAgentRoute: typeof ConnectAgentRoute
   PairRoute: typeof PairRoute
   WelcomeRoute: typeof WelcomeRoute
+  AdminDesktopCodeRoute: typeof AdminDesktopCodeRoute
+  AdminDesktopReturnRoute: typeof AdminDesktopReturnRoute
   AdminEnrolRoute: typeof AdminEnrolRoute
   AdminSignInRoute: typeof AdminSignInRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
@@ -602,6 +628,20 @@ declare module '@tanstack/react-router' {
       path: '/admin/enrol'
       fullPath: '/admin/enrol'
       preLoaderRoute: typeof AdminEnrolRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/desktop-return': {
+      id: '/admin/desktop-return'
+      path: '/admin/desktop-return'
+      fullPath: '/admin/desktop-return'
+      preLoaderRoute: typeof AdminDesktopReturnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/desktop-code': {
+      id: '/admin/desktop-code'
+      path: '/admin/desktop-code'
+      fullPath: '/admin/desktop-code'
+      preLoaderRoute: typeof AdminDesktopCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat/usage': {
@@ -910,6 +950,8 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectAgentRoute: ConnectAgentRoute,
   PairRoute: PairRoute,
   WelcomeRoute: WelcomeRoute,
+  AdminDesktopCodeRoute: AdminDesktopCodeRoute,
+  AdminDesktopReturnRoute: AdminDesktopReturnRoute,
   AdminEnrolRoute: AdminEnrolRoute,
   AdminSignInRoute: AdminSignInRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,

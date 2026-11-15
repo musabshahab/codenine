@@ -15,6 +15,13 @@ const publicConfigDefine = {
     repoEnv.CODENINE_CLERK_PUBLISHABLE_KEY?.trim() ?? "",
   ),
 };
+const businessEdition = ["1", "true"].includes(
+  repoEnv.CODENINE_BUSINESS_EDITION?.trim().toLowerCase() ?? "",
+);
+const businessDefine = {
+  __CODENINE_BUSINESS_EDITION__: JSON.stringify(businessEdition),
+  __CODENINE_BUSINESS_URL__: JSON.stringify(repoEnv.CODENINE_BUSINESS_URL?.trim() ?? ""),
+};
 
 export default defineConfig({
   run: {
@@ -84,17 +91,30 @@ export default defineConfig({
       },
     },
     {
-      // boot.cjs requires the other two at runtime, so all three stay separate files.
+      // boot.cjs requires the others at runtime, so they stay separate files.
       format: "cjs",
       outDir: "dist-electron",
       dts: false,
       sourcemap: true,
       outExtensions: () => ({ js: ".cjs" }),
+      define: businessDefine,
       entry: ["src/boot.ts", "src/compileCache.ts", "src/serverCompileCache.ts"],
       clean: false,
       deps: {
-        neverBundle: (id) => id === "./main.cjs" || id === "./compileCache.cjs",
+        neverBundle: (id) =>
+          id === "./main.cjs" || id === "./businessMain.cjs" || id === "./compileCache.cjs",
       },
+    },
+    {
+      format: "cjs",
+      outDir: "dist-electron",
+      dts: false,
+      sourcemap: true,
+      outExtensions: () => ({ js: ".cjs" }),
+      define: businessDefine,
+      entry: ["src/business/businessMain.ts"],
+      clean: false,
+      deps: { neverBundle: isMainProcessExternal },
     },
     {
       format: "cjs",

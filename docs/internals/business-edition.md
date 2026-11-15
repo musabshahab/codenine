@@ -40,6 +40,11 @@ checks key ID, signature, type, issuer, audience and time.
   the same rules, so they depend on a network plugin that enforces them.
 - **The control server answers its own routes under `/control`**, so it never shadows a
   workspace route.
+- **The business desktop app is a window, not a client.** It loads the control server's address
+  with no preload, so pages there get nothing a browser tab would not, and keeps them on that
+  address. Browser sign-in hands back a single-use code through a `codenine://` link, which the
+  window redeems only with the state it stored when it started, so a link from elsewhere cannot
+  sign it in to another account.
 - **Forwarding keeps compression.** HTTP bodies pass through as the workspace compressed them
   (a `fetch` client would unzip them), and the control server deflates WebSocket frames for the
   browser while the hop between the servers stays uncompressed. Without this, a large thread

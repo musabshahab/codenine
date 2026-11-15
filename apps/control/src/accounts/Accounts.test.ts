@@ -376,6 +376,26 @@ describe("Accounts", () => {
     }),
   );
 
+  it.effect("signs the desktop app in once from a code a signed-in browser shows", () =>
+    withAccounts(() =>
+      Effect.gen(function* () {
+        const accounts = yield* Accounts;
+        const { personId } = yield* ownerReady;
+        const { code } = yield* accounts.issueDesktopCode(personId);
+        expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/u);
+
+        // Typed loosely, it still reads as the code shown; then it is used up.
+        const typed = ` ${code.toLowerCase().replace("-", " ").replaceAll("0", "o")} `;
+        expect(yield* accounts.redeemDesktopCode(typed)).toEqual({ personId });
+        expect(yield* reasonOf(accounts.redeemDesktopCode(code))).toBe("desktop-code");
+
+        const late = yield* accounts.issueDesktopCode(personId);
+        yield* TestClock.adjust("6 minutes");
+        expect(yield* reasonOf(accounts.redeemDesktopCode(late.code))).toBe("desktop-code");
+      }),
+    ),
+  );
+
   it.effect("sets up a passkey instead of an authenticator app and signs in with it", () =>
     Effect.gen(function* () {
       const { sent, layer } = yield* recordingMailer;

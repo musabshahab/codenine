@@ -21,6 +21,8 @@ const SHELL_LESS_PATHS = new Set([
   "/admin",
   "/admin/sign-in",
   "/admin/enrol",
+  "/admin/desktop-code",
+  "/admin/desktop-return",
 ]);
 
 let mainAppHref: string | null = null;

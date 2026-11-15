@@ -1,5 +1,6 @@
 import {
   ControlAccountError,
+  type ControlDesktopCode,
   type ControlEnrolment,
   type ControlPasskey,
   type ControlPerson,
@@ -56,13 +57,24 @@ const PASSWORD_LINK_MINUTES = 60;
 const PASSWORD_LINK_COOLDOWN_MINUTES = 5;
 const SIGN_IN_TICKET_MINUTES = 5;
 const PASSKEY_TICKET_MINUTES = 5;
+const DESKTOP_CODE_MINUTES = 5;
+/** Easy to read and type: no I, L, O or U. 32 letters, so each random byte maps evenly. */
+const DESKTOP_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+/** A typed code, read the way it was shown. */
+const normalizeDesktopCode = (typed: string) =>
+  typed
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/gu, "")
+    .replaceAll("O", "0")
+    .replaceAll("I", "1")
+    .replaceAll("L", "1");
 const MAX_PASSKEY_NAME_LENGTH = 128;
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_MINUTES = 15;
 const RECOVERY_CODE_COUNT = 10;
 const AUTHENTICATOR_ISSUER = "Codenine";
 
-type TicketPurpose = "invitation" | "reset" | "password" | "sign-in" | "passkey";
+type TicketPurpose = "invitation" | "reset" | "password" | "sign-in" | "passkey" | "desktop";
 
 /** What proves it is the person after their password. Absent fields were not offered. */
 interface SecondFactorProof {
@@ -141,6 +153,12 @@ export class Accounts extends Context.Service<
       input: SecondFactorProof & { readonly ticket: string },
     ) => Effect.Effect<{ readonly personId: string }, ControlSignInError>;
     readonly signInMethods: (personId: string) => Effect.Effect<ControlSignInMethods>;
+    /** A code a signed-in browser shows, which signs the desktop app in once within minutes. */
+    readonly issueDesktopCode: (personId: string) => Effect.Effect<ControlDesktopCode>;
+    /** Takes a desktop code once; the person it was issued to gets a new session. */
+    readonly redeemDesktopCode: (
+      code: string,
+    ) => Effect.Effect<{ readonly personId: string }, ControlSignInError>;
     /** Options for a new passkey, and the ticket that holds their challenge. */
     readonly startPasskey: (personId: string) => Effect.Effect<{
       readonly ticket: string;
@@ -481,7 +499,7 @@ export const make = Effect.gen(function* () {
       .update(controlPeople)
       .set({ status: "deactivated", deactivatedAt: now, updatedAt: now })
       .where(eq(controlPeople.id, personId));
-    yield* retireTickets(personId, ["invitation", "reset", "password", "sign-in"]);
+    yield* retireTickets(personId, ["invitation", "reset", "password", "sign-in", "desktop"]);
     yield* sessions.revokeAll(personId);
   }, dieOnDatabaseError);
 
@@ -510,7 +528,14 @@ export const make = Effect.gen(function* () {
     yield* db.delete(controlCredentials).where(eq(controlCredentials.personId, personId));
     yield* db.delete(controlRecoveryCodes).where(eq(controlRecoveryCodes.personId, personId));
     yield* db.delete(controlPasskeys).where(eq(controlPasskeys.personId, personId));
-    yield* retireTickets(personId, ["invitation", "reset", "password", "sign-in", "passkey"]);
+    yield* retireTickets(personId, [
+      "invitation",
+      "reset",
+      "password",
+      "sign-in",
+      "passkey",
+      "desktop",
+    ]);
     yield* sessions.revokeAll(personId);
     return yield* issueLink(personId, person.status === "invited" ? "invitation" : "reset");
   }, dieOnDatabaseError);
@@ -940,6 +965,31 @@ export const make = Effect.gen(function* () {
     return { personId };
   }, dieOnDatabaseError);
 
+  const issueDesktopCode = Effect.fn("Accounts.issueDesktopCode")(function* (personId: string) {
+    const code = Array.from(
+      yield* random.randomBytes(10),
+      (byte) => DESKTOP_CODE_ALPHABET[byte % DESKTOP_CODE_ALPHABET.length],
+    ).join("");
+    const expiresAt = yield* later({ minutes: DESKTOP_CODE_MINUTES });
+    yield* db.insert(controlTickets).values({
+      tokenHash: yield* hashToken(code),
+      purpose: "desktop",
+      personId,
+      createdAt: yield* nowIso,
+      expiresAt,
+      pendingChallenge: null,
+    });
+    return { code: `${code.slice(0, 5)}-${code.slice(5)}`, expiresAt };
+  }, Effect.orDie);
+
+  const redeemDesktopCode = Effect.fn("Accounts.redeemDesktopCode")(function* (code: string) {
+    const ticket = yield* openTicket(normalizeDesktopCode(code), ["desktop"]);
+    if (Option.isNone(ticket) || !(yield* claimTicket(ticket.value.tokenHash))) {
+      return yield* new ControlSignInError({ reason: "desktop-code" });
+    }
+    return { personId: ticket.value.personId };
+  }, dieOnDatabaseError);
+
   const signInMethods = Effect.fn("Accounts.signInMethods")(function* (personId: string) {
     const [credentials] = yield* db
       .select({ totpSecret: controlCredentials.totpSecret })
@@ -1033,6 +1083,8 @@ export const make = Effect.gen(function* () {
     listDeactivated,
     deactivate,
     reactivate,
+    issueDesktopCode,
+    redeemDesktopCode,
     issueReset,
     unlock,
     requestPasswordReset,

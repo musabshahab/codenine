@@ -245,6 +245,7 @@ export class ControlSignInError extends Schema.TaggedError<ControlSignInError>()
       "invalid-ticket",
       "wrong-code",
       "passkey-failed",
+      "desktop-code",
     ]),
     lockedUntil: Schema.optionalKey(IsoDateTime),
   },
@@ -262,9 +263,18 @@ export class ControlSignInError extends Schema.TaggedError<ControlSignInError>()
         return "That code is not right.";
       case "passkey-failed":
         return "That passkey did not work. Try again, or use a code.";
+      case "desktop-code":
+        return "That code is not right, or it has expired. Get a new one in your browser.";
     }
   }
 }
+
+/** A code a signed-in browser shows, to sign the desktop app in once. */
+export const ControlDesktopCode = Schema.Struct({
+  code: Schema.String,
+  expiresAt: IsoDateTime,
+});
+export type ControlDesktopCode = typeof ControlDesktopCode.Type;
 
 export class ControlUnavailableError extends Schema.TaggedError<ControlUnavailableError>()(
   "ControlUnavailableError",
@@ -373,6 +383,11 @@ const ControlAccountGroup = HttpApiGroup.make("account").add(
     success: ControlMe,
     error: ControlSignInError,
   }).annotate(OpenApi.Summary, "Check a code or passkey and start a session"),
+  HttpApiEndpoint.post("desktopSignIn", "/control/api/desktop-sign-in", {
+    payload: Schema.Struct({ code: Schema.String }),
+    success: ControlMe,
+    error: ControlSignInError,
+  }).annotate(OpenApi.Summary, "Start a desktop app's session from a code a browser showed"),
   HttpApiEndpoint.post("requestPasswordReset", "/control/api/password-reset", {
     payload: Schema.Struct({ email: Schema.String }),
     success: ControlOk,
@@ -414,6 +429,9 @@ const ControlMeGroup = HttpApiGroup.make("me")
     HttpApiEndpoint.post("wakeWorkspace", "/control/api/me/workspace/wake", {
       success: ControlOk,
       error: ControlUnavailableError,
+    }),
+    HttpApiEndpoint.post("createDesktopCode", "/control/api/me/desktop-code", {
+      success: ControlDesktopCode,
     }),
     HttpApiEndpoint.post("signOut", "/control/api/sign-out", { success: ControlOk }),
     HttpApiEndpoint.get("sessions", "/control/api/me/sessions", {

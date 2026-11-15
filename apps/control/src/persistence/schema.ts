@@ -96,7 +96,7 @@ export const controlTickets = pgTable(
     tokenHash: varchar("token_hash", { length: 64 }).primaryKey(),
     purpose: varchar("purpose", { length: 16 })
       .notNull()
-      .$type<"invitation" | "reset" | "password" | "sign-in" | "passkey">(),
+      .$type<"invitation" | "reset" | "password" | "sign-in" | "passkey" | "desktop">(),
     personId: personId(),
     /** The sealed authenticator secret offered during set-up, until it is confirmed. */
     pendingTotpSecret: text("pending_totp_secret"),
