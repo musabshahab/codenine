@@ -356,6 +356,14 @@ not retry. A model or effort the rules do not allow is refused with the ones tha
 days begin at midnight in your company's time zone. With a budget set, a model Codenine has no
 price for is refused, since its cost cannot be counted.
 
+When a budget runs out, people can ask for more, with an amount and a reason. Requests appear in
+**Admin**, under **Requests for more AI budget**, with what has been spent. An approved amount adds
+to that budget for the month or day it was asked in, and no longer. Department admins decide
+requests about their people's budgets; owners and admins decide requests about a department's.
+On the company's profile, **Who may change these and let a department spend more** can be set to
+**Owners only**: then only owners decide those requests, and only owners change the company's and
+departments' budgets. Nobody decides their own request.
+
 To keep a fault from running up a bill, also give each department its own workspace or project at
 the provider, with the provider's own spending limit where it offers one.
 

@@ -2,6 +2,9 @@ import {
   type ControlAiAccount,
   type ControlAiAccountSettings,
   type ControlAiError,
+  ControlBudgetError,
+  type ControlBudgetRequest,
+  type ControlBudgetRequestLevel,
   assignableRoles,
   type ControlAccountError,
   type ControlAuditAction,
@@ -53,11 +56,17 @@ import {
 import { ControlPublicUrl } from "../config.ts";
 import { Departments } from "../departments/Departments.ts";
 import { AiAccounts } from "../gateway/AiAccounts.ts";
+import { BudgetRequests } from "../gateway/BudgetRequests.ts";
 import { type LicenceInstallResult, LicenceService } from "../licence/LicenceService.ts";
 import { Mailer } from "../mail/Mailer.ts";
 import { workspaceOpenedMail } from "../mail/messages.ts";
-import { describeLayerChange } from "../profiles/layering.ts";
-import { type ProfileStep, Profiles, type WorkspaceChange } from "../profiles/Profiles.ts";
+import { describeLayerChange, sameSharedBudgets } from "../profiles/layering.ts";
+import {
+  type ProfileGuard,
+  type ProfileStep,
+  Profiles,
+  type WorkspaceChange,
+} from "../profiles/Profiles.ts";
 import { ProvisioningTokens } from "../provisioning/ProvisioningTokens.ts";
 import { SsoConnections } from "../sso/SsoConnections.ts";
 import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
@@ -329,6 +338,15 @@ export class Administration extends Context.Service<
       actor: AdminActor,
       accountId: string,
     ) => Effect.Effect<void, ControlForbiddenError | ControlAiError>;
+    /** Requests for more budget the actor may decide: pending, and decided lately. */
+    readonly budgetRequests: (
+      actor: AdminActor,
+    ) => Effect.Effect<ReadonlyArray<ControlBudgetRequest>, ControlForbiddenError>;
+    readonly decideBudgetRequest: (
+      actor: AdminActor,
+      requestId: string,
+      approve: boolean,
+    ) => Effect.Effect<ControlBudgetRequest, ControlForbiddenError | ControlBudgetError>;
     /** Owners only; it lets them sign in with a password while single sign-on is required. */
     readonly setEmergency: (
       actor: AdminActor,
@@ -363,6 +381,7 @@ export const make = Effect.gen(function* () {
   const provisioningTokens = yield* ProvisioningTokens;
   const ssoConnections = yield* SsoConnections;
   const aiAccounts = yield* AiAccounts;
+  const budgetRequests = yield* BudgetRequests;
   const mailer = yield* Mailer;
   const { origin } = yield* ControlPublicUrl;
 
@@ -446,6 +465,37 @@ export const make = Effect.gen(function* () {
       yield* requireDepartment(actor, departmentId);
     }
   });
+
+  /**
+   * Where a company lets only owners decide what departments may spend, a
+   * change by anyone else to the company's profile must leave the shared
+   * budgets, and that choice, as they were.
+   */
+  const sharedBudgetsGuard = (
+    actor: AdminActor,
+    profileId: ControlProfileId,
+  ): ProfileGuard | undefined =>
+    profileId !== "company" || actor.role === "owner"
+      ? undefined
+      : (before, after) =>
+          (before.published?.budgetApprovers ?? "owners-and-admins") === "owners" &&
+          (!sameSharedBudgets(before.published, after.published) ||
+            !sameSharedBudgets(before.test, after.test))
+            ? Effect.fail(new ControlProfileError({ reason: "owners-only" }))
+            : Effect.void;
+
+  const decidesForDepartments = (actor: AdminActor, approvers: "owners" | "owners-and-admins") =>
+    actor.role === "owner" || (actor.role === "admin" && approvers === "owners-and-admins");
+
+  /** Whether owners alone, or admins too, decide what departments may spend. */
+  const budgetApprovers = profiles.list(["company"]).pipe(
+    Effect.map(([company]) => {
+      const published = company?.versions.find(({ version }) => version === company.published);
+      return published?.settings.budgetApprovers ?? "owners-and-admins";
+    }),
+    // The company's profile always exists to be read.
+    Effect.orDie,
+  );
 
   /**
    * Puts into effect at once what can change while a workspace runs: whether its
@@ -1139,6 +1189,7 @@ export const make = Effect.gen(function* () {
         note: input.note,
         testWith: input.testWith,
         by: actor.who.label,
+        guard: sharedBudgetsGuard(actor, input.profileId),
       });
       return yield* finishStep(
         actor,
@@ -1154,7 +1205,7 @@ export const make = Effect.gen(function* () {
       profileId: ControlProfileId,
     ) {
       yield* requireProfile(actor, profileId);
-      const step = yield* profiles.publishTest(profileId);
+      const step = yield* profiles.publishTest(profileId, sharedBudgetsGuard(actor, profileId));
       return yield* finishStep(actor, "profile.publish", step);
     }),
     discardTest: Effect.fn("Administration.discardTest")(function* (
@@ -1162,7 +1213,7 @@ export const make = Effect.gen(function* () {
       profileId: ControlProfileId,
     ) {
       yield* requireProfile(actor, profileId);
-      const step = yield* profiles.discardTest(profileId);
+      const step = yield* profiles.discardTest(profileId, sharedBudgetsGuard(actor, profileId));
       return yield* finishStep(actor, "profile.discard", step);
     }),
     rollBackProfile: Effect.fn("Administration.rollBackProfile")(function* (
@@ -1170,7 +1221,11 @@ export const make = Effect.gen(function* () {
       profileId: ControlProfileId,
     ) {
       yield* requireProfile(actor, profileId);
-      const step = yield* profiles.rollBack(profileId, actor.who.label);
+      const step = yield* profiles.rollBack(
+        profileId,
+        actor.who.label,
+        sharedBudgetsGuard(actor, profileId),
+      );
       const restored = step.profile.versions.find(({ version }) => version === step.to?.version);
       return yield* finishStep(actor, "profile.rollback", step, {
         note: restored?.note ?? null,
@@ -1333,6 +1388,52 @@ export const make = Effect.gen(function* () {
         aiAccountValues(removed),
         null,
       );
+    }),
+    budgetRequests: Effect.fn("Administration.budgetRequests")(function* (actor: AdminActor) {
+      const reached = yield* reachedDepartments(actor, "departments:manage");
+      const levels: Array<ControlBudgetRequestLevel> = ["person-month", "person-day"];
+      if (decidesForDepartments(actor, yield* budgetApprovers)) levels.push("department-month");
+      return yield* budgetRequests.list({
+        departments: reached.all ? null : reached.departments.map(({ id }) => id),
+        levels,
+        exceptPersonId: actor.who.kind === "person" ? actor.who.id : null,
+      });
+    }),
+    decideBudgetRequest: Effect.fn("Administration.decideBudgetRequest")(function* (
+      actor: AdminActor,
+      requestId: string,
+      approve: boolean,
+    ) {
+      const request = yield* budgetRequests.find(requestId);
+      if (actor.who.kind === "person" && actor.who.id === request.personId) {
+        return yield* new ControlBudgetError({ reason: "own-request" });
+      }
+      if (request.level === "department-month") {
+        if (!decidesForDepartments(actor, yield* budgetApprovers)) {
+          return yield* new ControlForbiddenError({});
+        }
+      } else if (request.departmentId === null) {
+        if ((yield* reachOf(actor, "departments:manage")) !== "all") {
+          return yield* new ControlForbiddenError({});
+        }
+      } else {
+        yield* requireDepartment(actor, request.departmentId);
+      }
+      const decided = yield* budgetRequests.decide({ requestId, approve, by: actor.who.label });
+      yield* record(
+        actor,
+        approve ? "budget-request.approve" : "budget-request.decline",
+        { kind: "budget-request", id: decided.id, label: decided.personName },
+        null,
+        {
+          level: decided.level,
+          period: decided.period,
+          amountUsd: decided.amountUsd,
+          department: decided.departmentName,
+          reason: decided.reason,
+        },
+      );
+      return decided;
     }),
     setEmergency: Effect.fn("Administration.setEmergency")(function* (
       actor: AdminActor,

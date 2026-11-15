@@ -10,7 +10,6 @@ import { ControlDb } from "../db.ts";
 import { controlAiUsage } from "../persistence/schema.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { testKeyPair } from "../testing/testLicence.ts";
-import * as BudgetsModule from "./Budgets.ts";
 import { type BudgetLimits, Budgets } from "./Budgets.ts";
 
 const NONE: BudgetLimits = {
@@ -30,8 +29,7 @@ const withBudgets = <A, E, R>(body: Effect.Effect<A, E, R>, timeZone = "UTC") =>
     yield* TestClock.setTime(Date.parse("2026-11-30T14:00:00Z"));
     return yield* body.pipe(
       Effect.provide(
-        BudgetsModule.layer.pipe(
-          Layer.provideMerge(layerTestServices(keys.publicKey)),
+        layerTestServices(keys.publicKey).pipe(
           Layer.provide(
             ConfigProvider.layer(
               ConfigProvider.fromEnv({ env: { CODENINE_CONTROL_TIME_ZONE: timeZone } }),

@@ -1,5 +1,6 @@
 import {
   type ControlAiAccount,
+  type ControlBudgetRequest,
   assignableRoles,
   type ControlAuditEntry,
   type ControlAuditPage,
@@ -43,6 +44,7 @@ import { type ControlCall, ROLE_LABELS, SectionTitle } from "./adminParts";
 import { DepartmentsSection } from "./ControlDepartments";
 import { ProfilesSection } from "./ControlProfiles";
 import { AiAccountsSection } from "./ControlAiAccounts";
+import { BudgetRequestsSection } from "./ControlBudgetRequests";
 import { ProvisioningSection } from "./ControlProvisioning";
 import { SingleSignOnSection } from "./ControlSingleSignOn";
 
@@ -58,6 +60,7 @@ interface AdminData {
   readonly provisioning: ControlProvisioning | null;
   readonly ssoConnections: ReadonlyArray<ControlSsoConnection> | null;
   readonly aiAccounts: ReadonlyArray<ControlAiAccount> | null;
+  readonly budgetRequests: ReadonlyArray<ControlBudgetRequest> | null;
   readonly profiles: ReadonlyArray<ControlProfile> | null;
   readonly exceptions: ReadonlyArray<ControlProfileException> | null;
 }
@@ -78,6 +81,7 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     profiles,
     exceptions,
     aiAccounts,
+    budgetRequests,
   ] = await Promise.all([
     callControl((client) => client.me.sessions()),
     callControl((client) => client.me.signInMethods()),
@@ -104,6 +108,9 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     permissionReach(me.role, "ai:manage") === null
       ? null
       : callControl((client) => client.admin.aiAccounts()),
+    permissionReach(me.role, "departments:manage") === null
+      ? null
+      : callControl((client) => client.admin.budgetRequests()),
   ]);
   return {
     me,
@@ -118,6 +125,7 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     profiles,
     exceptions,
     aiAccounts,
+    budgetRequests,
   };
 };
 
@@ -252,6 +260,10 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
           people={data.people ?? []}
           profiles={data.profiles}
         />
+      )}
+
+      {data.budgetRequests === null ? null : (
+        <BudgetRequestsSection onAction={act} requests={data.budgetRequests} />
       )}
 
       {data.aiAccounts === null ? null : (
@@ -924,6 +936,8 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "ai-account.create": "added the AI account",
   "ai-account.update": "changed the AI account",
   "ai-account.delete": "removed the AI account",
+  "budget-request.approve": "approved more AI budget for",
+  "budget-request.decline": "declined more AI budget for",
 };
 
 const auditValue = (value: string | number | boolean | null | undefined) =>

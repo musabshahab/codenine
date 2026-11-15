@@ -24,7 +24,7 @@ import type { WorkspaceKey } from "../workspaces/WorkspaceManager.ts";
 import { WorkspaceTokens } from "../workspaces/WorkspaceTokens.ts";
 import { AiAccounts, type AiUpstream } from "./AiAccounts.ts";
 import { AiUsage } from "./AiUsage.ts";
-import { type BudgetHold, type BudgetLevel, Budgets } from "./Budgets.ts";
+import { type BudgetHold, type BudgetLevel, Budgets, limitsOf } from "./Budgets.ts";
 import { CLAUDE_PRICES_VERSION, claudeCostMicros, claudeModelKey } from "./claudePricing.ts";
 import { type ClaudeMeter, makeClaudeStreamMeter, meterClaudeJson } from "./claudeUsage.ts";
 import { OPENAI_PRICES_VERSION, openAiCostMicros, openAiModelKey } from "./openaiPricing.ts";
@@ -428,8 +428,6 @@ const BUDGET_MESSAGES: Record<BudgetLevel, (limit: string) => string> = {
     `Your company has used its AI budget for this month (${limit}). Ask an admin.`,
 };
 
-const toMicros = (usd: number | null) => (usd === null ? null : Math.round(usd * 1_000_000));
-
 const authHeaders = (upstream: AiUpstream): Record<string, string> => {
   switch (upstream.account.kind) {
     case "anthropic":
@@ -585,12 +583,7 @@ export const make = Effect.gen(function* () {
         ),
       );
     }
-    const limits = {
-      personMonth: toMicros(rules.monthlyUsd),
-      personDay: toMicros(rules.dailyUsd),
-      departmentMonth: toMicros(rules.departmentMonthlyUsd),
-      companyMonth: toMicros(rules.companyMonthlyUsd),
-    };
+    const limits = limitsOf(rules);
     const budgeted = Object.values(limits).some((limit) => limit !== null);
     const estimate = provider.estimate(
       asked.model,

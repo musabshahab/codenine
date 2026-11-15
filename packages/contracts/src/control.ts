@@ -268,6 +268,11 @@ export const ControlProfileSettings = Schema.Struct({
   companyMonthlyUsd: Schema.optionalKey(ControlUsd),
   /** The company's profile only: what each department's people may spend in a month together, by department id. */
   departmentMonthlyUsd: Schema.optionalKey(Schema.Record(Schema.String, ControlUsd)),
+  /**
+   * The company's profile only: who may change the shared budgets and let a
+   * department spend more than its own; owners and admins when unset.
+   */
+  budgetApprovers: Schema.optionalKey(Schema.Literals(["owners", "owners-and-admins"])),
   /** Settings the layers below cannot change. */
   lock: Schema.optionalKey(Schema.Array(ControlProfileScalar)),
 });
@@ -389,6 +394,7 @@ export class ControlProfileError extends Schema.TaggedError<ControlProfileError>
       "needs-reason",
       "invalid-end",
       "company-only",
+      "owners-only",
     ]),
   },
   { httpApiStatus: 400 },
@@ -409,6 +415,8 @@ export class ControlProfileError extends Schema.TaggedError<ControlProfileError>
         return "An exception ends within 90 days.";
       case "company-only":
         return "The company's and departments' AI budgets are set on the company profile.";
+      case "owners-only":
+        return "Only owners can change the company's and departments' AI budgets, as your company chose.";
     }
   }
 }
@@ -865,6 +873,101 @@ export class ControlAiError extends Schema.TaggedError<ControlAiError>()(
   }
 }
 
+/** A budget over AI calls: one person's this month or today, their department's, or the company's. */
+export const ControlBudgetLevel = Schema.Literals([
+  "person-month",
+  "person-day",
+  "department-month",
+  "company-month",
+]);
+export type ControlBudgetLevel = typeof ControlBudgetLevel.Type;
+
+/** The budgets someone may ask to go over; the company's changes on its profile. */
+export const ControlBudgetRequestLevel = Schema.Literals([
+  "person-month",
+  "person-day",
+  "department-month",
+]);
+export type ControlBudgetRequestLevel = typeof ControlBudgetRequestLevel.Type;
+
+/** How much of one budget is spent, in US dollars. */
+export const ControlBudgetUse = Schema.Struct({
+  level: ControlBudgetLevel,
+  spentUsd: Schema.Number,
+  /** With what was granted on request for this month or day; null where there is no limit. */
+  limitUsd: Schema.NullOr(Schema.Number),
+});
+export type ControlBudgetUse = typeof ControlBudgetUse.Type;
+
+/** A request to spend more than a budget allows, for the month or day it was made in. */
+export const ControlBudgetRequest = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  personId: TrimmedNonEmptyString,
+  personName: Schema.String,
+  departmentId: Schema.NullOr(TrimmedNonEmptyString),
+  departmentName: Schema.NullOr(Schema.String),
+  level: ControlBudgetRequestLevel,
+  /** The month, such as 2026-11, or the day, such as 2026-11-15, in the company's time zone. */
+  period: Schema.String,
+  amountUsd: Schema.Number,
+  reason: Schema.String,
+  status: Schema.Literals(["pending", "approved", "declined"]),
+  createdAt: IsoDateTime,
+  decidedBy: Schema.NullOr(Schema.String),
+  decidedAt: Schema.NullOr(IsoDateTime),
+  /** How that budget stands now, so whoever decides sees what was spent. */
+  use: ControlBudgetUse,
+});
+export type ControlBudgetRequest = typeof ControlBudgetRequest.Type;
+
+/** A person's AI budgets in the department their browser works in, and their requests. */
+export const ControlMyBudget = Schema.Struct({
+  departmentId: Schema.NullOr(TrimmedNonEmptyString),
+  budgets: Schema.Array(ControlBudgetUse),
+  /** This month's, newest first. */
+  requests: Schema.Array(ControlBudgetRequest),
+});
+export type ControlMyBudget = typeof ControlMyBudget.Type;
+
+export const ControlBudgetAsk = Schema.Struct({
+  level: ControlBudgetRequestLevel,
+  amountUsd: Schema.Number.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(1_000_000)),
+  reason: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
+});
+export type ControlBudgetAsk = typeof ControlBudgetAsk.Type;
+
+export class ControlBudgetError extends Schema.TaggedError<ControlBudgetError>()(
+  "ControlBudgetError",
+  {
+    reason: Schema.Literals([
+      "not-found",
+      "no-limit",
+      "already-asked",
+      "already-decided",
+      "own-request",
+      "period-ended",
+    ]),
+  },
+  { httpApiStatus: 400 },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "not-found":
+        return "That request does not exist.";
+      case "no-limit":
+        return "That budget has no limit, so there is no more to ask for.";
+      case "already-asked":
+        return "You have already asked for more of that budget. Wait for an answer.";
+      case "already-decided":
+        return "That request has already been decided.";
+      case "own-request":
+        return "Someone else must decide your own request.";
+      case "period-ended":
+        return "The month or day that request was for has ended.";
+    }
+  }
+}
+
 /** An identity provider the sign-in page offers. */
 export const ControlSsoChoice = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -999,6 +1102,8 @@ export const ControlAuditAction = Schema.Literals([
   "ai-account.create",
   "ai-account.update",
   "ai-account.delete",
+  "budget-request.approve",
+  "budget-request.decline",
 ]);
 export type ControlAuditAction = typeof ControlAuditAction.Type;
 
@@ -1011,6 +1116,7 @@ export const ControlAuditTargetKind = Schema.Literals([
   "provisioning",
   "sso",
   "ai-account",
+  "budget-request",
 ]);
 export type ControlAuditTargetKind = typeof ControlAuditTargetKind.Type;
 
@@ -1194,6 +1300,12 @@ const ControlMeGroup = HttpApiGroup.make("me")
     }),
     HttpApiEndpoint.post("createDesktopCode", "/control/api/me/desktop-code", {
       success: ControlDesktopCode,
+    }),
+    HttpApiEndpoint.get("budget", "/control/api/me/budget", { success: ControlMyBudget }),
+    HttpApiEndpoint.post("askForBudget", "/control/api/me/budget/requests", {
+      payload: ControlBudgetAsk,
+      success: ControlBudgetRequest,
+      error: ControlBudgetError,
     }),
     HttpApiEndpoint.post("signOut", "/control/api/sign-out", { success: ControlOk }),
     HttpApiEndpoint.get("sessions", "/control/api/me/sessions", {
@@ -1480,6 +1592,16 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       params: Schema.Struct({ accountId: TrimmedNonEmptyString }),
       success: ControlOk,
       error: [ControlForbiddenError, ControlAiError],
+    }),
+    HttpApiEndpoint.get("budgetRequests", "/control/api/admin/budget/requests", {
+      success: Schema.Array(ControlBudgetRequest),
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.post("decideBudgetRequest", "/control/api/admin/budget/requests/:requestId", {
+      params: Schema.Struct({ requestId: TrimmedNonEmptyString }),
+      payload: Schema.Struct({ approve: Schema.Boolean }),
+      success: ControlBudgetRequest,
+      error: [ControlForbiddenError, ControlBudgetError],
     }),
     HttpApiEndpoint.put("setEmergency", "/control/api/admin/people/:personId/emergency", {
       params: PersonParams,

@@ -39,6 +39,7 @@ import {
 } from "../workspaces/WorkspaceManager.ts";
 import { SsoConnections } from "../sso/SsoConnections.ts";
 import { Workplace } from "../workspaces/Workplace.ts";
+import { BudgetRequests } from "../gateway/BudgetRequests.ts";
 
 const ok = { ok: true as const };
 
@@ -243,6 +244,7 @@ export const layerMeApi = HttpApiBuilder.group(
     const workspaces = yield* WorkspaceManager;
     const workplace = yield* Workplace;
     const admin = yield* Administration;
+    const budgetRequests = yield* BudgetRequests;
     const { secure } = yield* ControlPublicUrl;
     const here = Effect.map(ControlPrincipal, ({ sessionId, person, departmentId, viewing }) => ({
       sessionId,
@@ -272,6 +274,18 @@ export const layerMeApi = HttpApiBuilder.group(
         }),
       )
       .handle("departments", () => Effect.flatMap(here, workplace.departmentsOf))
+      .handle("budget", () =>
+        here.pipe(
+          Effect.flatMap((session) => workplace.keyFor({ ...session, viewing: null })),
+          Effect.flatMap(budgetRequests.mine),
+        ),
+      )
+      .handle("askForBudget", ({ payload }) =>
+        here.pipe(
+          Effect.flatMap((session) => workplace.keyFor({ ...session, viewing: null })),
+          Effect.flatMap((key) => budgetRequests.ask(key, payload)),
+        ),
+      )
       .handle(
         "leaveWorkspace",
         Effect.fn("ControlHttp.leaveWorkspace")(function* () {
@@ -525,6 +539,12 @@ export const layerAdminApi = HttpApiBuilder.group(
         ),
       )
       .handle("aiAccounts", () => Effect.flatMap(actor, admin.aiAccounts))
+      .handle("budgetRequests", () => Effect.flatMap(actor, admin.budgetRequests))
+      .handle("decideBudgetRequest", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.decideBudgetRequest(by, params.requestId, payload.approve),
+        ),
+      )
       .handle("createAiAccount", ({ payload }) =>
         Effect.flatMap(actor, (by) => admin.createAiAccount(by, payload)),
       )

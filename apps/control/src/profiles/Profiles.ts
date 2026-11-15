@@ -56,6 +56,18 @@ export interface ExceptionStep {
   readonly changed: ReadonlyArray<WorkspaceChange>;
 }
 
+/** What everyone gets of a layer, and what its test group gets, at one moment. */
+export interface LayerSettings {
+  readonly published: ControlProfileSettings | null;
+  readonly test: ControlProfileSettings | null;
+}
+
+/** A check a change must pass to be kept, given the layer before and after it. */
+export type ProfileGuard = (
+  before: LayerSettings,
+  after: LayerSettings,
+) => Effect.Effect<void, ControlProfileError>;
+
 /**
  * Workspace profiles: the company's layer, each department's and each team's,
  * their versions, and people's exceptions. `effective` is what a person's
@@ -78,13 +90,21 @@ export class Profiles extends Context.Service<
       readonly note: string;
       readonly testWith: ReadonlyArray<string> | null;
       readonly by: string;
+      readonly guard?: ProfileGuard | undefined;
     }) => Effect.Effect<ProfileStep, ControlProfileError>;
-    readonly publishTest: (id: ControlProfileId) => Effect.Effect<ProfileStep, ControlProfileError>;
-    readonly discardTest: (id: ControlProfileId) => Effect.Effect<ProfileStep, ControlProfileError>;
+    readonly publishTest: (
+      id: ControlProfileId,
+      guard?: ProfileGuard,
+    ) => Effect.Effect<ProfileStep, ControlProfileError>;
+    readonly discardTest: (
+      id: ControlProfileId,
+      guard?: ProfileGuard,
+    ) => Effect.Effect<ProfileStep, ControlProfileError>;
     /** Gives everyone the version they had before the current one, as a new version. */
     readonly rollBack: (
       id: ControlProfileId,
       by: string,
+      guard?: ProfileGuard,
     ) => Effect.Effect<ProfileStep, ControlProfileError>;
     readonly preview: (
       id: ControlProfileId,
@@ -177,7 +197,9 @@ const effectiveIn = (
 
 /** Shared budgets belong to the company's layer, where one place sets them all. */
 const setsSharedBudgets = (settings: ControlProfileSettings) =>
-  settings.companyMonthlyUsd !== undefined || settings.departmentMonthlyUsd !== undefined;
+  settings.companyMonthlyUsd !== undefined ||
+  settings.departmentMonthlyUsd !== undefined ||
+  settings.budgetApprovers !== undefined;
 
 /** What a step does to a profile, given where its versions stand. */
 type ProfileChange<E> = (current: {
@@ -385,7 +407,36 @@ export const make = Effect.gen(function* () {
   });
 
   /** Adds a version under the profile's lock and applies `apply` to its pointers. */
-  const changeProfile = <E>(id: ControlProfileId, change: ProfileChange<E>) =>
+  /** The settings of a layer's published and test versions, as they stand. */
+  const layerSettings = Effect.fn("Profiles.layerSettings")(function* (id: ControlProfileId) {
+    const [row] = yield* db.select().from(controlProfiles).where(eq(controlProfiles.id, id));
+    const versions = [row?.published ?? null, row?.testVersion ?? null].filter(
+      (version) => version !== null,
+    );
+    const found =
+      versions.length === 0
+        ? []
+        : yield* db
+            .select({
+              version: controlProfileVersions.version,
+              settings: controlProfileVersions.settings,
+            })
+            .from(controlProfileVersions)
+            .where(
+              and(
+                eq(controlProfileVersions.profileId, id),
+                inArray(controlProfileVersions.version, versions),
+              ),
+            );
+    const settingsOf = (version: number | null | undefined) =>
+      found.find((candidate) => candidate.version === version)?.settings ?? null;
+    return {
+      published: settingsOf(row?.published),
+      test: settingsOf(row?.testVersion),
+    } satisfies LayerSettings;
+  });
+
+  const changeProfile = <E>(id: ControlProfileId, change: ProfileChange<E>, guard?: ProfileGuard) =>
     db.transaction(() =>
       Effect.gen(function* () {
         const now = yield* nowIso;
@@ -404,6 +455,7 @@ export const make = Effect.gen(function* () {
           .where(eq(controlProfileVersions.profileId, id))
           .orderBy(desc(controlProfileVersions.version))
           .limit(1);
+        const before = guard === undefined ? null : yield* layerSettings(id);
         const plan = yield* change({
           published: row?.published ?? null,
           testVersion: row?.testVersion ?? null,
@@ -436,6 +488,8 @@ export const make = Effect.gen(function* () {
           .update(controlProfiles)
           .set({ ...plan.set, updatedAt: now })
           .where(eq(controlProfiles.id, id));
+        // Failing here undoes the change with the rest of the transaction.
+        if (guard !== undefined && before !== null) yield* guard(before, yield* layerSettings(id));
         return { from: plan.from, to: plan.to };
       }),
     );
@@ -473,9 +527,10 @@ export const make = Effect.gen(function* () {
   const step = Effect.fn("Profiles.step")(function* <E>(
     id: ControlProfileId,
     change: ProfileChange<E>,
+    guard?: ProfileGuard,
   ) {
     const scope = yield* scopeOf(id);
-    const { result, changed } = yield* measured(changeProfile(id, change), (_, loaded) =>
+    const { result, changed } = yield* measured(changeProfile(id, change, guard), (_, loaded) =>
       scope.people.flatMap((personId) => workspacesOf(loaded, personId, scope.departmentId)),
     );
     return yield* stepped(id, result, changed);
@@ -511,6 +566,7 @@ export const make = Effect.gen(function* () {
       readonly note: string;
       readonly testWith: ReadonlyArray<string> | null;
       readonly by: string;
+      readonly guard?: ProfileGuard | undefined;
     }) {
       if (input.id !== "company" && setsSharedBudgets(input.settings)) {
         return yield* new ControlProfileError({ reason: "company-only" });
@@ -523,97 +579,119 @@ export const make = Effect.gen(function* () {
       ) {
         return yield* new ControlProfileError({ reason: "outside-profile" });
       }
-      return yield* step(input.id, (current) =>
-        Effect.succeed({
-          insert: {
-            settings: input.settings,
-            note: input.note,
-            by: input.by,
-            published: testWith === null,
-          },
-          set:
-            testWith === null
-              ? { published: current.latest + 1, testVersion: null, testPeople: null }
-              : { testVersion: current.latest + 1, testPeople: [...new Set(testWith)] },
-          from: current.published,
-          to: current.latest + 1,
-        }),
-      );
-    }, dieOnDatabaseError),
-    publishTest: Effect.fn("Profiles.publishTest")(function* (id: ControlProfileId) {
-      return yield* step(id, (current) =>
-        current.testVersion === null
-          ? Effect.fail(new ControlProfileError({ reason: "nothing-to-test" }))
-          : Effect.succeed({
-              set: { published: current.testVersion, testVersion: null, testPeople: null },
-              publish: current.testVersion,
-              from: current.published,
-              to: current.testVersion,
-            }),
-      );
-    }, dieOnDatabaseError),
-    discardTest: Effect.fn("Profiles.discardTest")(function* (id: ControlProfileId) {
-      return yield* step(id, (current) =>
-        current.testVersion === null
-          ? Effect.fail(new ControlProfileError({ reason: "nothing-to-test" }))
-          : Effect.succeed({
-              set: { testVersion: null, testPeople: null },
-              from: current.testVersion,
-              to: null,
-            }),
-      );
-    }, dieOnDatabaseError),
-    rollBack: Effect.fn("Profiles.rollBack")(function* (id: ControlProfileId, by: string) {
-      return yield* step(id, (current) =>
-        Effect.gen(function* () {
-          const [published] = yield* db
-            .select()
-            .from(controlProfileVersions)
-            .where(
-              and(
-                eq(controlProfileVersions.profileId, id),
-                eq(controlProfileVersions.version, current.published ?? 0),
-              ),
-            );
-          const [previous] =
-            published?.publishedAt === null || published === undefined
-              ? []
-              : yield* db
-                  .select()
-                  .from(controlProfileVersions)
-                  .where(
-                    and(
-                      eq(controlProfileVersions.profileId, id),
-                      // Two publications in the same millisecond still have an order.
-                      or(
-                        lt(controlProfileVersions.publishedAt, published.publishedAt),
-                        and(
-                          eq(controlProfileVersions.publishedAt, published.publishedAt),
-                          lt(controlProfileVersions.version, published.version),
-                        ),
-                      ),
-                    ),
-                  )
-                  .orderBy(
-                    desc(controlProfileVersions.publishedAt),
-                    desc(controlProfileVersions.version),
-                  )
-                  .limit(1);
-          if (previous === undefined) {
-            return yield* new ControlProfileError({ reason: "nothing-to-roll-back" });
-          }
-          return {
+      return yield* step(
+        input.id,
+        (current) =>
+          Effect.succeed({
             insert: {
-              settings: previous.settings,
-              note: `Rolled back to version ${previous.version}`,
-              by,
-              published: true,
+              settings: input.settings,
+              note: input.note,
+              by: input.by,
+              published: testWith === null,
             },
-            set: { published: current.latest + 1 },
+            set:
+              testWith === null
+                ? { published: current.latest + 1, testVersion: null, testPeople: null }
+                : { testVersion: current.latest + 1, testPeople: [...new Set(testWith)] },
             from: current.published,
             to: current.latest + 1,
-          };
-        }),
+          }),
+        input.guard,
+      );
+    }, dieOnDatabaseError),
+    publishTest: Effect.fn("Profiles.publishTest")(function* (
+      id: ControlProfileId,
+      guard?: ProfileGuard,
+    ) {
+      return yield* step(
+        id,
+        (current) =>
+          current.testVersion === null
+            ? Effect.fail(new ControlProfileError({ reason: "nothing-to-test" }))
+            : Effect.succeed({
+                set: { published: current.testVersion, testVersion: null, testPeople: null },
+                publish: current.testVersion,
+                from: current.published,
+                to: current.testVersion,
+              }),
+        guard,
+      );
+    }, dieOnDatabaseError),
+    discardTest: Effect.fn("Profiles.discardTest")(function* (
+      id: ControlProfileId,
+      guard?: ProfileGuard,
+    ) {
+      return yield* step(
+        id,
+        (current) =>
+          current.testVersion === null
+            ? Effect.fail(new ControlProfileError({ reason: "nothing-to-test" }))
+            : Effect.succeed({
+                set: { testVersion: null, testPeople: null },
+                from: current.testVersion,
+                to: null,
+              }),
+        guard,
+      );
+    }, dieOnDatabaseError),
+    rollBack: Effect.fn("Profiles.rollBack")(function* (
+      id: ControlProfileId,
+      by: string,
+      guard?: ProfileGuard,
+    ) {
+      return yield* step(
+        id,
+        (current) =>
+          Effect.gen(function* () {
+            const [published] = yield* db
+              .select()
+              .from(controlProfileVersions)
+              .where(
+                and(
+                  eq(controlProfileVersions.profileId, id),
+                  eq(controlProfileVersions.version, current.published ?? 0),
+                ),
+              );
+            const [previous] =
+              published?.publishedAt === null || published === undefined
+                ? []
+                : yield* db
+                    .select()
+                    .from(controlProfileVersions)
+                    .where(
+                      and(
+                        eq(controlProfileVersions.profileId, id),
+                        // Two publications in the same millisecond still have an order.
+                        or(
+                          lt(controlProfileVersions.publishedAt, published.publishedAt),
+                          and(
+                            eq(controlProfileVersions.publishedAt, published.publishedAt),
+                            lt(controlProfileVersions.version, published.version),
+                          ),
+                        ),
+                      ),
+                    )
+                    .orderBy(
+                      desc(controlProfileVersions.publishedAt),
+                      desc(controlProfileVersions.version),
+                    )
+                    .limit(1);
+            if (previous === undefined) {
+              return yield* new ControlProfileError({ reason: "nothing-to-roll-back" });
+            }
+            return {
+              insert: {
+                settings: previous.settings,
+                note: `Rolled back to version ${previous.version}`,
+                by,
+                published: true,
+              },
+              set: { published: current.latest + 1 },
+              from: current.published,
+              to: current.latest + 1,
+            };
+          }),
+        guard,
       );
     }, dieOnDatabaseError),
     preview: Effect.fn("Profiles.preview")(function* (

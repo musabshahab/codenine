@@ -39,8 +39,14 @@ interface Draft {
   /** The company's profile only. */
   readonly companyMonthlyUsd: string;
   readonly departmentMonthlyUsd: Readonly<Record<string, string>>;
+  readonly budgetApprovers: "owners" | "owners-and-admins";
   readonly lock: ReadonlyArray<ControlProfileScalar>;
 }
+
+const APPROVERS: Record<Draft["budgetApprovers"], string> = {
+  "owners-and-admins": "Owners and admins",
+  owners: "Owners only",
+};
 
 const LOCKABLE: ReadonlyArray<readonly [ControlProfileScalar, string]> = [
   ["image", "Image"],
@@ -103,6 +109,7 @@ const draftOf = (settings: ControlProfileSettings): Draft => ({
   departmentMonthlyUsd: Object.fromEntries(
     Object.entries(settings.departmentMonthlyUsd ?? {}).map(([id, usd]) => [id, String(usd)]),
   ),
+  budgetApprovers: settings.budgetApprovers ?? "owners-and-admins",
   lock: settings.lock ?? [],
 });
 
@@ -168,6 +175,7 @@ const settingsOf = (draft: Draft): ControlProfileSettings | string => {
     ...(typeof dailyUsd === "number" ? { dailyUsd } : {}),
     ...(typeof companyMonthlyUsd === "number" ? { companyMonthlyUsd } : {}),
     ...(Object.keys(departmentMonthlyUsd).length === 0 ? {} : { departmentMonthlyUsd }),
+    ...(draft.budgetApprovers === "owners" ? { budgetApprovers: "owners" as const } : {}),
     ...(draft.lock.length === 0 ? {} : { lock: [...draft.lock] }),
   };
 };
@@ -198,6 +206,7 @@ const describe = (
       : Object.entries(settings.departmentMonthlyUsd)
           .map(([id, usd]) => `$${usd} a month for ${departmentName(id)}`)
           .join(", "),
+    settings.budgetApprovers === "owners" ? "only owners decide department budgets" : null,
     settings.lock === undefined ? null : `locks ${settings.lock.join(", ")}`,
   ]
     .filter((part) => part !== null)
@@ -373,6 +382,33 @@ function SettingsFields({
               />
             ))}
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              Who may change these and let a department spend more
+            </span>
+            <div className="w-44 shrink-0">
+              <Select
+                items={APPROVERS}
+                onValueChange={(value) => {
+                  if (value === "owners" || value === "owners-and-admins") {
+                    onChange({ budgetApprovers: value });
+                  }
+                }}
+                value={draft.budgetApprovers}
+              >
+                <SelectTrigger aria-label="Who decides department budgets" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  {Object.entries(APPROVERS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </div>
+          </label>
         </>
       )}
       {withLocks ? (

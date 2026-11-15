@@ -20,7 +20,6 @@ import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence
 import * as WorkspaceTokens from "../workspaces/WorkspaceTokens.ts";
 import { AiAccounts } from "./AiAccounts.ts";
 import { AiUsage, type AiUsageRow } from "./AiUsage.ts";
-import * as Budgets from "./Budgets.ts";
 import * as Gateway from "./Gateway.ts";
 
 const encoder = new TextEncoder();
@@ -104,7 +103,6 @@ const withGateway = <A, E, R>(
               AiUsage.of({ record: (row) => Queue.offer(rows, row).pipe(Effect.asVoid) }),
             ),
           ),
-          Layer.provideMerge(Budgets.layer),
           Layer.provideMerge(WorkspaceTokens.layer),
           Layer.provideMerge(layerTestServices(keys.publicKey)),
           Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),

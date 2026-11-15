@@ -7,6 +7,8 @@ import * as Sessions from "../accounts/Sessions.ts";
 import * as AuditLog from "../audit/AuditLog.ts";
 import * as Departments from "../departments/Departments.ts";
 import * as AiAccounts from "../gateway/AiAccounts.ts";
+import * as BudgetRequests from "../gateway/BudgetRequests.ts";
+import * as Budgets from "../gateway/Budgets.ts";
 import * as Profiles from "../profiles/Profiles.ts";
 import * as ProvisioningTokens from "../provisioning/ProvisioningTokens.ts";
 import * as SsoConnections from "../sso/SsoConnections.ts";
@@ -28,7 +30,9 @@ export const layerTestServices = (
   licencePublicKey: string,
   mailer: Layer.Layer<Mailer> = Layer.succeed(Mailer, Mailer.off),
 ) =>
-  Profiles.layer.pipe(
+  BudgetRequests.layer.pipe(
+    Layer.provideMerge(Budgets.layer),
+    Layer.provideMerge(Profiles.layer),
     Layer.provideMerge(AiAccounts.layer),
     Layer.provideMerge(ProvisioningTokens.layer),
     Layer.provideMerge(SsoConnections.layer),

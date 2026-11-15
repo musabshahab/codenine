@@ -32,6 +32,18 @@ export const sharedBudgets = (
 
 const NOT_SHARED: SharedBudgets = { companyMonthlyUsd: null, departmentMonthlyUsd: null };
 
+const amounts = (record: Readonly<Record<string, number>> | undefined) =>
+  JSON.stringify(Object.entries(record ?? {}).toSorted(([a], [b]) => a.localeCompare(b)));
+
+/** Whether two versions of the company's layer set the same shared budgets and approvers. */
+export const sameSharedBudgets = (
+  a: ControlProfileSettings | null,
+  b: ControlProfileSettings | null,
+) =>
+  a?.companyMonthlyUsd === b?.companyMonthlyUsd &&
+  a?.budgetApprovers === b?.budgetApprovers &&
+  amounts(a?.departmentMonthlyUsd) === amounts(b?.departmentMonthlyUsd);
+
 /** Whether `wide`, a host or a domain with a leading dot, covers `host`. */
 export const coversHost = (wide: string, host: string) =>
   wide === host || (wide.startsWith(".") && (host === wide.slice(1) || host.endsWith(wide)));
@@ -221,6 +233,7 @@ const LAYER_KEYS = [
   "dailyUsd",
   "companyMonthlyUsd",
   "departmentMonthlyUsd",
+  "budgetApprovers",
   "lock",
 ] as const satisfies ReadonlyArray<keyof ControlProfileSettings>;
 

@@ -1,6 +1,7 @@
 import type {
   ControlAiAccountKind,
   ControlAiRefusal,
+  ControlBudgetRequestLevel,
   ControlAuditAction,
   ControlAuditActorKind,
   ControlAuditTargetKind,
@@ -471,5 +472,34 @@ export const controlAiUsage = pgTable(
     index("idx_control_ai_usage_at").on(table.at),
     index("idx_control_ai_usage_person").on(table.personId, table.at),
     index("idx_control_ai_usage_department").on(table.departmentId, table.at),
+  ],
+);
+
+/**
+ * A request to spend more than a budget allows. Approved, its amount adds to
+ * that budget for the month or day it was made in, and no longer.
+ */
+export const controlBudgetRequests = pgTable(
+  "control_budget_requests",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    personId: personId(),
+    // No reference, so a decided request outlives its department, as usage does.
+    departmentId: varchar("department_id", { length: 64 }),
+    level: varchar("level", { length: 32 }).notNull().$type<ControlBudgetRequestLevel>(),
+    /** `2026-11` or `2026-11-15`, in the company's time zone. */
+    period: varchar("period", { length: 16 }).notNull(),
+    amountMicros: bigint("amount_micros", { mode: "number" }).notNull(),
+    reason: varchar("reason", { length: 500 }).notNull(),
+    status: varchar("status", { length: 16 })
+      .notNull()
+      .$type<"pending" | "approved" | "declined">(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    decidedBy: varchar("decided_by", { length: 512 }),
+    decidedAt: varchar("decided_at", { length: 64 }),
+  },
+  (table) => [
+    index("idx_control_budget_requests_status").on(table.status, table.createdAt),
+    index("idx_control_budget_requests_period").on(table.period, table.level),
   ],
 );

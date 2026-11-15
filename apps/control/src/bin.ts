@@ -20,6 +20,7 @@ import * as AuditLog from "./audit/AuditLog.ts";
 import * as Departments from "./departments/Departments.ts";
 import * as AiAccounts from "./gateway/AiAccounts.ts";
 import * as AiUsage from "./gateway/AiUsage.ts";
+import * as BudgetRequests from "./gateway/BudgetRequests.ts";
 import * as Budgets from "./gateway/Budgets.ts";
 import * as Gateway from "./gateway/Gateway.ts";
 import * as GatewayHttp from "./gateway/GatewayHttp.ts";
@@ -69,10 +70,13 @@ const layerAccounts = Profiles.layer.pipe(
   Layer.provideMerge(ControlPublicUrl.layer),
 );
 
+const layerBudgets = BudgetRequests.layer.pipe(Layer.provideMerge(Budgets.layer));
+
 /** For commands, which change people and the licence but never touch workspaces. */
 const layerCommandAdministration = Administration.layer.pipe(
   Layer.provide(WorkspaceRetention.layer),
   Layer.provide(Layer.succeed(WorkspaceManager, WorkspaceManager.none)),
+  Layer.provide(layerBudgets),
   Layer.provideMerge(layerAccounts),
 );
 
@@ -138,7 +142,6 @@ const serveCommand = Command.make("serve", {}, () =>
         Layer.provide(
           Gateway.layer.pipe(
             Layer.provide(AiUsage.layer),
-            Layer.provide(Budgets.layer),
             Layer.provide(GatewayHttp.layerProviderClient),
           ),
         ),
@@ -150,6 +153,8 @@ const serveCommand = Command.make("serve", {}, () =>
         // One manager for the API, forwarding and retention, so all see the same workspaces.
         Layer.provide(WorkspaceDriver.layer),
         Layer.provide(WorkspaceTokensModule.layer),
+        // One Budgets for the gateway and for requests, so an approval frees the calls it is for.
+        Layer.provideMerge(layerBudgets),
         Layer.provideMerge(layerAccounts),
       ),
     );

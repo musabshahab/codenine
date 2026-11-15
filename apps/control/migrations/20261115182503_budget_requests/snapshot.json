@@ -1,0 +1,359 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "595bef34-6a12-4ec8-8119-8928e9ba8ff4",
+  "prevIds": ["39a6cf5a-fa75-4449-8a38-589d48d2b4d0"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_budget_requests"],
+      "writes": [
+        "s|tbl|public.control_budget_requests",
+        "n|tbl|public.control_budget_requests",
+        "e|tbl|public.control_budget_requests",
+        "n|rel|public.control_budget_requests",
+        "n|type|public.control_budget_requests",
+        "n|rel|public.control_budget_requests_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "control_budget_requests",
+        "idx_control_budget_requests_status"
+      ],
+      "writes": [
+        "s|idx|public.idx_control_budget_requests_status",
+        "n|idx|public.idx_control_budget_requests_status",
+        "e|idx|public.idx_control_budget_requests_status",
+        "n|rel|public.idx_control_budget_requests_status"
+      ],
+      "reads": [
+        "n|tbl|public.control_budget_requests",
+        "n|sch|public",
+        "n|col|public.control_budget_requests.status",
+        "n|col|public.control_budget_requests.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "control_budget_requests",
+        "idx_control_budget_requests_period"
+      ],
+      "writes": [
+        "s|idx|public.idx_control_budget_requests_period",
+        "n|idx|public.idx_control_budget_requests_period",
+        "e|idx|public.idx_control_budget_requests_period",
+        "n|rel|public.idx_control_budget_requests_period"
+      ],
+      "reads": [
+        "n|tbl|public.control_budget_requests",
+        "n|sch|public",
+        "n|col|public.control_budget_requests.period",
+        "n|col|public.control_budget_requests.level"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_budget_requests"],
+      "writes": [
+        "s|fk|public.control_budget_requests.control_budget_requests_person_id_control_people_id_fkey",
+        "n|fk|public.control_budget_requests.control_budget_requests_person_id_control_people_id_fkey",
+        "e|fk|public.control_budget_requests.control_budget_requests_person_id_control_people_id_fkey",
+        "n|con|public.control_budget_requests.control_budget_requests_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_budget_requests",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_budget_requests.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_budget_requests",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "department_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "level",
+        "type": "varchar(32)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "period",
+        "type": "varchar(16)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "amount_micros",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "reason",
+        "type": "varchar(500)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "status",
+        "type": "varchar(16)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "decided_by",
+        "type": "varchar(512)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "decided_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "idx_control_budget_requests_status",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "status",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "idx_control_budget_requests_period",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "period",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "level",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "control_budget_requests_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_budget_requests",
+        "name": "control_budget_requests_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

@@ -13,8 +13,11 @@ import * as TestClock from "effect/testing/TestClock";
 import { Sessions } from "../accounts/Sessions.ts";
 import { AuditLog, ON_THE_SERVER } from "../audit/AuditLog.ts";
 import { ControlDb } from "../db.ts";
+import { Departments } from "../departments/Departments.ts";
+import { BudgetRequests } from "../gateway/BudgetRequests.ts";
 import { LicenceService } from "../licence/LicenceService.ts";
 import { type MailMessage, Mailer } from "../mail/Mailer.ts";
+import { Profiles } from "../profiles/Profiles.ts";
 import { controlPeople } from "../persistence/schema.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
@@ -649,6 +652,83 @@ describe("Administration", () => {
 
         yield* admin.setRole(ada, { personId: bea.id, role: "owner" });
         expect((yield* admin.setRole(ada, { personId: ada.id, role: "admin" })).role).toBe("admin");
+      }),
+    ),
+  );
+
+  it.effect("lets each company choose who decides what departments may spend", () =>
+    withAdministration(() =>
+      Effect.gen(function* () {
+        const admin = yield* Administration.Administration;
+        const requests = yield* BudgetRequests;
+        const departments = yield* Departments;
+        const ada = yield* person("Ada", "owner");
+        const bea = yield* person("Bea", "admin");
+        const cy = yield* person("Cy", "member");
+        const dee = yield* person("Dee", "department-admin");
+        const design = yield* departments.create("Design");
+        yield* departments.addMember(design.id, cy.id);
+        yield* departments.addMember(design.id, dee.id);
+        const budgets = { monthlyUsd: 10, departmentMonthlyUsd: { [design.id]: 100 } };
+        const save = (actor: typeof ada, settings: ControlProfileSettings) =>
+          admin.saveProfile(actor, { profileId: "company", settings, note: "", testWith: null });
+        yield* save(ada, budgets);
+
+        const inDesign = (who: { readonly id: string }) => ({
+          personId: who.id,
+          departmentId: design.id,
+        });
+        const more = { amountUsd: 5, reason: "Release week" };
+        const hers = yield* requests.ask(inDesign(cy), { level: "person-month", ...more });
+        const theirs = yield* requests.ask(inDesign(cy), { level: "department-month", ...more });
+        const deeOwn = yield* requests.ask(inDesign(dee), { level: "person-month", ...more });
+
+        // A department admin decides their people's budgets, never their department's or their own.
+        expect((yield* admin.budgetRequests(dee)).map(({ id }) => id)).toEqual([hers.id]);
+        expect((yield* admin.decideBudgetRequest(dee, hers.id, true)).status).toBe("approved");
+        expect(yield* refused(admin.decideBudgetRequest(dee, theirs.id, true))).toBe(
+          "ControlForbiddenError",
+        );
+        expect(yield* Effect.flip(admin.decideBudgetRequest(dee, deeOwn.id, true))).toMatchObject({
+          reason: "own-request",
+        });
+        expect(yield* refused(admin.budgetRequests(cy))).toBe("ControlForbiddenError");
+
+        // Owners only: admins neither decide departments' requests nor change their budgets.
+        yield* save(ada, { ...budgets, budgetApprovers: "owners" });
+        expect((yield* admin.budgetRequests(bea)).map(({ level }) => level)).not.toContain(
+          "department-month",
+        );
+        expect(yield* refused(admin.decideBudgetRequest(bea, theirs.id, true))).toBe(
+          "ControlForbiddenError",
+        );
+        expect(
+          yield* Effect.flip(
+            save(bea, { ...budgets, budgetApprovers: "owners", departmentMonthlyUsd: {} }),
+          ),
+        ).toMatchObject({ reason: "owners-only" });
+        expect(
+          yield* Effect.flip(save(bea, { ...budgets, budgetApprovers: "owners-and-admins" })),
+        ).toMatchObject({ reason: "owners-only" });
+        yield* save(bea, { ...budgets, budgetApprovers: "owners", cpus: 4 });
+        yield* save(ada, {
+          ...budgets,
+          budgetApprovers: "owners",
+          departmentMonthlyUsd: { [design.id]: 200 },
+        });
+        // Rolling back would take Design back to $100, so it is refused and leaves no version.
+        expect(yield* Effect.flip(admin.rollBackProfile(bea, "company"))).toMatchObject({
+          reason: "owners-only",
+        });
+        const [company] = yield* (yield* Profiles).list(["company"]);
+        expect([company?.published, company?.versions.length]).toEqual([4, 4]);
+
+        expect((yield* admin.decideBudgetRequest(ada, theirs.id, true)).use.limitUsd).toBe(205);
+        expect((yield* (yield* AuditLog).list(null)).entries[0]).toMatchObject({
+          action: "budget-request.approve",
+          target: { kind: "budget-request", label: "Cy" },
+          after: { level: "department-month", amountUsd: 5, department: "Design" },
+        });
       }),
     ),
   );
