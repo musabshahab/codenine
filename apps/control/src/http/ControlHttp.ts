@@ -320,5 +320,11 @@ export const layerServer = <E, R>(
   moreRoutes: Layer.Layer<never, E, R>,
 ) =>
   HttpRouter.serve(Layer.mergeAll(layerRoutes, moreRoutes)).pipe(
-    Layer.provide(NodeHttpServer.layer(NodeHttp.createServer, options)),
+    Layer.provide(
+      // Compress forwarded WebSocket frames as the workspace server does.
+      NodeHttpServer.layer(NodeHttp.createServer, {
+        ...options,
+        websocket: { perMessageDeflate: true },
+      }),
+    ),
   );

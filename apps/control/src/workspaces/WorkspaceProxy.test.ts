@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - both test servers listen on Node http.Servers.
 import * as NodeHttp from "node:http";
+import * as NodeZlib from "node:zlib";
 
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -49,9 +50,24 @@ const echo = Effect.gen(function* () {
   });
 }).pipe(Effect.orDie);
 
+const COMPRESSIBLE = "codenine ".repeat(1_000);
+
 /** Stands in for a workspace server: it reports what reached it. */
 const fakeWorkspace = Layer.mergeAll(
   HttpRouter.add("*", "/api/echo", echo),
+  HttpRouter.add(
+    "GET",
+    "/api/compressed",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      return (request.headers["accept-encoding"] ?? "").includes("gzip")
+        ? HttpServerResponse.uint8Array(NodeZlib.gzipSync(COMPRESSIBLE), {
+            contentType: "text/plain",
+            headers: { "content-encoding": "gzip" },
+          })
+        : HttpServerResponse.text(COMPRESSIBLE);
+    }),
+  ),
   HttpRouter.add("GET", "/.well-known/codenine/environment", echo),
   HttpRouter.add(
     "GET",
@@ -180,6 +196,27 @@ const call = (url: string, options: { readonly cookie?: string; readonly body?: 
     };
   }).pipe(Effect.provide(FetchHttpClient.layer), Effect.orDie);
 
+/** A GET that leaves the body as it arrived, as a browser's network stack sees it. */
+const getRaw = (url: string, headers: Readonly<Record<string, string>>) =>
+  Effect.promise(
+    () =>
+      new Promise<{ readonly encoding: string | undefined; readonly body: Buffer }>(
+        (resolve, reject) => {
+          NodeHttp.get(url, { headers }, (response) => {
+            const chunks: Array<Buffer> = [];
+            response.on("data", (chunk: Buffer) => chunks.push(chunk));
+            response.once("error", reject);
+            response.once("end", () =>
+              resolve({
+                encoding: response.headers["content-encoding"],
+                body: Buffer.concat(chunks),
+              }),
+            );
+          }).once("error", reject);
+        },
+      ),
+  );
+
 describe("WorkspaceProxy", () => {
   it.live("forwards API requests with a workspace token instead of the control cookie", () =>
     withProxy(
@@ -208,6 +245,14 @@ describe("WorkspaceProxy", () => {
           expect(yield* posted.echo).toMatchObject({ method: "POST", body: "hello workspace" });
 
           expect((yield* call(`http://${host}/api/echo`)).status).toBe(401);
+
+          // Bodies stay compressed on the way through, as the browser asked.
+          const compressed = yield* getRaw(`http://${host}/api/compressed`, {
+            cookie,
+            "accept-encoding": "gzip",
+          });
+          expect(compressed.encoding).toBe("gzip");
+          expect(NodeZlib.gunzipSync(compressed.body).toString()).toBe(COMPRESSIBLE);
         }),
       { licensed: true },
     ),

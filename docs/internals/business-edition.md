@@ -34,6 +34,10 @@ checks key ID, signature, type, issuer, audience and time.
   workspace must be reachable only from the control server.
 - **The control server answers its own routes under `/control`**, so it never shadows a
   workspace route.
+- **Forwarding keeps compression.** HTTP bodies pass through as the workspace compressed them
+  (a `fetch` client would unzip them), and the control server deflates WebSocket frames for the
+  browser while the hop between the servers stays uncompressed. Without this, a large thread
+  reached remote browsers at about four times the size.
 
 ## Keys and secrets
 

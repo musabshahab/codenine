@@ -4,13 +4,11 @@ import { ControlAccountError, type ControlLicenceOverview } from "@codenine/cont
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as Config from "effect/Config";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { Accounts } from "./accounts/Accounts.ts";
@@ -80,11 +78,7 @@ const serveCommand = Command.make("serve", {}, () =>
           Layer.mergeAll(WorkspaceProxy.layerForwarding, ControlHttp.layerWebApp),
         ),
         Licence.layerDailyCheck,
-      ).pipe(
-        Layer.provide(WorkspaceTokensModule.layer),
-        Layer.provide(Layer.mergeAll(FetchHttpClient.layer, NodeSocket.layerWebSocketConstructor)),
-        Layer.provideMerge(layerAccounts),
-      ),
+      ).pipe(Layer.provide(WorkspaceTokensModule.layer), Layer.provideMerge(layerAccounts)),
     );
   }),
 ).pipe(Command.withDescription("Run the control server."));

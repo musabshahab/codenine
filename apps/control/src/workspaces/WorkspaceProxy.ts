@@ -1,3 +1,5 @@
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
+import * as NodeWS from "@effect/platform-node/NodeWS";
 import { licenceAllowsWork } from "@codenine/shared/licence";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -35,9 +37,8 @@ export class WorkspaceUpstream extends Context.Service<
   );
 }
 
-// Hop-by-hop headers, our own cookie and credentials, and encodings fetch undoes on its own.
+// Hop-by-hop headers and our own cookie and credentials. Encodings pass through untouched.
 const REQUEST_HEADERS_DROPPED = new Set([
-  "accept-encoding",
   "authorization",
   "connection",
   "content-length",
@@ -52,7 +53,6 @@ const REQUEST_HEADERS_DROPPED = new Set([
 ]);
 const RESPONSE_HEADERS_DROPPED = new Set([
   "connection",
-  "content-encoding",
   "content-length",
   "keep-alive",
   "set-cookie",
@@ -143,6 +143,30 @@ export const layerHttpForwarding = HttpRouter.use((router) =>
     // The app reads the workspace's descriptor before it opens /ws.
     yield* router.add("GET", "/.well-known/codenine/*", forwardRequest);
   }),
+).pipe(
+  // Undici's request client leaves bodies as sent. Fetch would unzip them and keep the
+  // encoding header, and remote browsers would pay for uncompressed snapshots.
+  Layer.provide(NodeHttpClient.layerUndici),
+);
+
+/**
+ * Sockets to the workspace use `ws`, which pauses reads when the browser falls
+ * behind, so the proxy does not buffer without limit. Frames between the two
+ * servers stay uncompressed: the browser's side is compressed, and deflating
+ * both hops would cost each message three passes.
+ */
+const layerWorkspaceSocket = Layer.succeed(Socket.WebSocketConstructor)(
+  (url, options) =>
+    new NodeWS.WebSocket(
+      url,
+      typeof options === "object" && !Array.isArray(options) ? options.protocols : options,
+      {
+        perMessageDeflate: false,
+        ...(typeof options === "object" && !Array.isArray(options) && options.headers
+          ? { headers: options.headers }
+          : {}),
+      },
+    ) as unknown as globalThis.WebSocket,
 );
 
 /** Copies messages one way until either side closes. */
@@ -192,7 +216,7 @@ export const layerSocketForwarding = HttpRouter.use((router) =>
       }).pipe(Effect.scoped),
     );
   }),
-);
+).pipe(Layer.provide(layerWorkspaceSocket));
 
 /**
  * Forwards `/api` and `/ws` when `CODENINE_CONTROL_WORKSPACE_URL` is set;
