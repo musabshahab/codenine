@@ -25,7 +25,9 @@ node src/bin.ts serve
 database and its backups. `CODENINE_CONTROL_PUBLIC_URL` (default `http://127.0.0.1:3780`) is
 where people reach the installation, and links in invitations point there.
 `CODENINE_CONTROL_HOST` (default `127.0.0.1`) and `CODENINE_CONTROL_PORT` (default `3780`) set
-where it listens.
+where it listens. With `CODENINE_CONTROL_SMTP_URL` and `CODENINE_CONTROL_MAIL_FROM` it emails
+set-up links and forgotten-password links; without them, nothing is sent and admins pass links on.
+Test against a local stub or a test inbox, never real people.
 
 The same command runs operator tasks against the database:
 

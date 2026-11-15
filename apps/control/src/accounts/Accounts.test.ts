@@ -7,9 +7,11 @@ import type * as Mac from "effect/crypto/Mac";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Licence from "../licence/LicenceService.ts";
+import { type MailMessage, Mailer } from "../mail/Mailer.ts";
 import { codeNow, fromBase32 } from "../testing/authenticator.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
@@ -26,6 +28,7 @@ const withAccounts = <A, E, R>(
       claims: LicenceClaims,
     ) => Effect.Effect<void, LicenceError | LicenceSigningError, Licence.LicenceService>;
   }) => Effect.Effect<A, E, R>,
+  mailer?: Layer.Layer<Mailer>,
 ) =>
   Effect.gen(function* () {
     const keys = yield* testKeyPair;
@@ -37,7 +40,7 @@ const withAccounts = <A, E, R>(
         ),
         Effect.asVoid,
       );
-    return yield* body({ install }).pipe(Effect.provide(layerTestServices(keys.publicKey)));
+    return yield* body({ install }).pipe(Effect.provide(layerTestServices(keys.publicKey, mailer)));
   }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
 /** Sets a password and authenticator from a link, as the person would. */
@@ -45,7 +48,7 @@ const enrol = (token: string, password = PASSWORD) =>
   Effect.gen(function* () {
     const accounts = yield* Accounts;
     const enrolment = yield* accounts.startEnrolment(token);
-    const secret = fromBase32(enrolment.authenticatorSecret);
+    const secret = fromBase32(enrolment.authenticator?.secret ?? "");
     const finished = yield* accounts.finishEnrolment({
       token,
       password,
@@ -77,6 +80,23 @@ const signIn = (input: {
     return yield* accounts.completeSignIn({ ticket, code: yield* input.code });
   });
 
+/** A mail server that keeps what it is sent, in order. */
+const recordingMailer = Effect.gen(function* () {
+  const sent = yield* Queue.unbounded<MailMessage>();
+  const layer = Layer.succeed(
+    Mailer,
+    Mailer.of({
+      enabled: true,
+      send: Effect.fn("test.send")(function* (message: MailMessage) {
+        yield* Queue.offer(sent, message);
+      }),
+    }),
+  );
+  return { sent, layer };
+});
+
+const linkToken = (mail: MailMessage) => /\/admin\/enrol#(\S+)/u.exec(mail.text)?.[1] ?? "";
+
 const reasonOf = <A, E extends { readonly reason: string }, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.flip,
@@ -96,10 +116,10 @@ describe("Accounts", () => {
 
         const enrolment = yield* accounts.startEnrolment(token);
         expect(enrolment).toMatchObject({ purpose: "invitation", email: "Ada@Acme.test" });
-        expect(enrolment.authenticatorUri).toMatch(
+        expect(enrolment.authenticator?.uri).toMatch(
           /^otpauth:\/\/totp\/Codenine%3AAda%40Acme\.test\?secret=[A-Z2-7]{32}&issuer=Codenine&/u,
         );
-        const secret = fromBase32(enrolment.authenticatorSecret);
+        const secret = fromBase32(enrolment.authenticator?.secret ?? "");
         const code = yield* codeNow(secret);
         expect(
           yield* reasonOf(accounts.finishEnrolment({ token, password: "too short", code })),
@@ -264,6 +284,7 @@ describe("Accounts", () => {
           yield* reasonOf(accounts.signIn({ email: "ada@acme.test", password: PASSWORD })),
         ).toBe("wrong-credentials");
         expect((yield* accounts.startEnrolment(token)).purpose).toBe("reset");
+        expect(yield* reasonOf(accounts.requestPasswordReset("ada@acme.test"))).toBe("email-off");
         const { secret } = yield* enrol(token, "a brand new password");
         expect(
           yield* signIn({
@@ -278,5 +299,76 @@ describe("Accounts", () => {
         expect(yield* authenticated(third.token)).toBe(false);
       }),
     ),
+  );
+
+  it.effect("emails a link for a forgotten password, which still asks for the second factor", () =>
+    Effect.gen(function* () {
+      const { sent, layer } = yield* recordingMailer;
+      yield* withAccounts(
+        () =>
+          Effect.gen(function* () {
+            const accounts = yield* Accounts;
+            const sessions = yield* Sessions;
+            const { personId, secret, recoveryCodes } = yield* ownerReady;
+            const invitation = yield* Queue.take(sent);
+            expect(invitation).toMatchObject({
+              to: "ada@acme.test",
+              subject: "You are invited to Codenine",
+            });
+            expect(linkToken(invitation)).not.toBe("");
+            const signedIn = yield* sessions.create({ personId, userAgent: null });
+
+            yield* accounts.requestPasswordReset("nobody@acme.test");
+            yield* accounts.requestPasswordReset(" ADA@acme.test ");
+            const mail = yield* Queue.take(sent);
+            expect(mail).toMatchObject({
+              to: "ada@acme.test",
+              subject: "Choose a new Codenine password",
+            });
+            const token = linkToken(mail);
+            // Asking again within five minutes sends nothing and leaves the first link working.
+            yield* accounts.requestPasswordReset("ada@acme.test");
+            expect(yield* accounts.startEnrolment(token)).toEqual({
+              purpose: "password",
+              email: "ada@acme.test",
+              displayName: "Ada",
+            });
+
+            const change = (password: string, code: string) =>
+              reasonOf(accounts.finishEnrolment({ token, password, code }));
+            expect(yield* change("short", recoveryCodes[0] ?? "")).toBe("weak-password");
+            expect(yield* change("a brand new password", "000000")).toBe("wrong-code");
+            expect(
+              yield* accounts.finishEnrolment({
+                token,
+                password: "a brand new password",
+                code: recoveryCodes[0] ?? "",
+              }),
+            ).toEqual({ personId, recoveryCodes: [] });
+            expect(Option.isSome(yield* sessions.authenticate(signedIn.token))).toBe(false);
+            expect(yield* change("another new password", recoveryCodes[1] ?? "")).toBe(
+              "invalid-link",
+            );
+            expect(
+              yield* reasonOf(accounts.signIn({ email: "ada@acme.test", password: PASSWORD })),
+            ).toBe("wrong-credentials");
+            expect(
+              yield* signIn({
+                email: "ada@acme.test",
+                password: "a brand new password",
+                code: codeNow(secret),
+              }),
+            ).toEqual({ personId });
+
+            const reset = yield* accounts.issueReset(personId);
+            expect(reset.emailed).toBe(true);
+            expect(yield* Queue.take(sent)).toMatchObject({
+              to: "ada@acme.test",
+              subject: "Set up your Codenine sign-in again",
+            });
+          }),
+        layer,
+      );
+    }),
   );
 });

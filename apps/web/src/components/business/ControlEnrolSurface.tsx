@@ -18,8 +18,9 @@ type Stage =
   | { readonly kind: "done"; readonly recoveryCodes: ReadonlyArray<string> };
 
 /**
- * Opens an invitation or reset link: the person scans an authenticator code,
- * chooses a password, and keeps their recovery codes.
+ * Opens a set-up link. Invitations and resets set up a password, an
+ * authenticator and recovery codes; a forgotten-password link changes only the
+ * password, after the person's current code.
  */
 export function ControlEnrolSurface({
   token,
@@ -87,6 +88,10 @@ export function ControlEnrolSurface({
       setErrorMessage(result.message);
       return;
     }
+    if (result.recoveryCodes.length === 0) {
+      onFinished();
+      return;
+    }
     setStage({ kind: "done", recoveryCodes: result.recoveryCodes });
   };
 
@@ -117,34 +122,48 @@ export function ControlEnrolSurface({
   }
 
   const { enrolment } = stage;
+  const { authenticator } = enrolment;
+  const number = (step: number) => (authenticator === undefined ? step - 1 : step);
   return (
     <StandalonePage>
       <StandalonePageHeader
-        title={enrolment.purpose === "reset" ? "Set up your sign-in again" : "Welcome to Codenine"}
-        description={`Set a password and an authenticator app for ${enrolment.email}.`}
+        title={
+          enrolment.purpose === "password"
+            ? "Choose a new password"
+            : enrolment.purpose === "reset"
+              ? "Set up your sign-in again"
+              : "Welcome to Codenine"
+        }
+        description={
+          authenticator === undefined
+            ? `For ${enrolment.email}. You will still sign in with your authenticator app.`
+            : `Set a password and an authenticator app for ${enrolment.email}.`
+        }
       />
 
       <form className="mt-6 space-y-5" onSubmit={(event) => void finish(event)}>
-        <div className="space-y-3">
-          <p className="text-sm font-medium">1. Scan this code with an authenticator app</p>
-          <div className="w-fit rounded-xl bg-white p-3">
-            <QRCodeSvg
-              level="M"
-              marginSize={1}
-              size={168}
-              title="Authenticator set-up code"
-              value={enrolment.authenticatorUri}
-            />
+        {authenticator === undefined ? null : (
+          <div className="space-y-3">
+            <p className="text-sm font-medium">1. Scan this code with an authenticator app</p>
+            <div className="w-fit rounded-xl bg-white p-3">
+              <QRCodeSvg
+                level="M"
+                marginSize={1}
+                size={168}
+                title="Authenticator set-up code"
+                value={authenticator.uri}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Or type this key into the app:{" "}
+              <code className="font-mono break-all">{authenticator.secret}</code>
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Or type this key into the app:{" "}
-            <code className="font-mono break-all">{enrolment.authenticatorSecret}</code>
-          </p>
-        </div>
+        )}
 
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="enrol-password">
-            2. Choose a password
+            {number(2)}. Choose {authenticator === undefined ? "a new" : "a"} password
           </label>
           <Input
             id="enrol-password"
@@ -171,14 +190,16 @@ export function ControlEnrolSurface({
 
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="enrol-code">
-            3. Enter the 6-digit code the app shows
+            {authenticator === undefined
+              ? `${number(3)}. Enter the code from your authenticator app, or a recovery code`
+              : `${number(3)}. Enter the 6-digit code the app shows`}
           </label>
           <Input
             id="enrol-code"
             autoComplete="one-time-code"
             disabled={isSubmitting}
             font="mono"
-            inputMode="numeric"
+            inputMode={authenticator === undefined ? "text" : "numeric"}
             nativeInput
             onChange={(event) => setCode(event.currentTarget.value)}
             required
@@ -193,7 +214,11 @@ export function ControlEnrolSurface({
         ) : null}
 
         <Button disabled={isSubmitting} size="sm" type="submit">
-          {isSubmitting ? "Setting up..." : "Finish set-up"}
+          {isSubmitting
+            ? "Saving..."
+            : authenticator === undefined
+              ? "Change password"
+              : "Finish set-up"}
         </Button>
       </form>
     </StandalonePage>

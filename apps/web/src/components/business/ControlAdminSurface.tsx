@@ -385,8 +385,10 @@ function PeopleSection({
         <Alert className="mt-4" variant="info">
           <AlertDescription>
             <p>
-              Send this link to {issuedLink.person.displayName}. It works once: they set a password
-              and an authenticator app, then they are signed in.
+              {issuedLink.emailed
+                ? `We emailed this link to ${issuedLink.person.email}.`
+                : `Send this link to ${issuedLink.person.displayName}.`}{" "}
+              It works once: they set a password and an authenticator app, then they are signed in.
             </p>
             <p className="mt-2 font-mono text-xs break-all">{issuedLink.link}</p>
             <div className="mt-2 flex gap-2">

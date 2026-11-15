@@ -18,11 +18,19 @@ const bodyOf = (init: RequestInit | undefined) =>
         : "{}",
   ) as Record<string, string>;
 
-/** Answers like the control server for one person with one password and one code. */
-const fakeControlServer = () =>
+/**
+ * Answers like the control server for one person with one password and one
+ * code. Without mail, forgotten-password links are refused.
+ */
+const fakeControlServer = ({ mail = true } = {}) =>
   vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
     const body = bodyOf(init);
+    if (path === "/control/api/password-reset") {
+      return mail
+        ? json(200, { ok: true })
+        : json(400, { _tag: "ControlAccountError", reason: "email-off" });
+    }
     if (path === "/control/api/sign-in") {
       return body["password"] === PASSWORD
         ? json(200, { ticket: "ticket-1" })
@@ -57,5 +65,27 @@ describe("ControlSignInSurface", () => {
     await page.getByLabelText("Code").fill("123456");
     await page.getByRole("button", { name: "Sign in" }).click();
     await vi.waitFor(() => expect(onSignedIn).toHaveBeenCalledOnce());
+  });
+
+  it("emails a new-password link without saying whether the account exists", async () => {
+    using _fetch = stubGlobal("fetch", fakeControlServer());
+    await using _screen = await render(<ControlSignInSurface onSignedIn={vi.fn()} />);
+
+    await page.getByRole("button", { name: "Forgot your password?" }).click();
+    await page.getByLabelText("Email address").fill("someone@acme.test");
+    await page.getByRole("button", { name: "Email me a link" }).click();
+    await expect
+      .element(page.getByText(/If an account uses someone@acme\.test, we have emailed it a link/u))
+      .toBeVisible();
+  });
+
+  it("says to ask an admin when the installation sends no email", async () => {
+    using _fetch = stubGlobal("fetch", fakeControlServer({ mail: false }));
+    await using _screen = await render(<ControlSignInSurface onSignedIn={vi.fn()} />);
+
+    await page.getByRole("button", { name: "Forgot your password?" }).click();
+    await page.getByLabelText("Email address").fill("ada@acme.test");
+    await page.getByRole("button", { name: "Email me a link" }).click();
+    await expect.element(page.getByText(/Ask an admin to reset your sign-in/u)).toBeVisible();
   });
 });

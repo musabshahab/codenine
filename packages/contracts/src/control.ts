@@ -66,14 +66,16 @@ export const ControlSession = Schema.Struct({
 });
 export type ControlSession = typeof ControlSession.Type;
 
-/** What an invitation or reset link shows before the person sets a password. */
+/**
+ * What a set-up link shows before the person sets a password. Invitations and
+ * admin resets set up a new authenticator; a forgotten-password link keeps it.
+ */
 export const ControlEnrolment = Schema.Struct({
-  purpose: Schema.Literals(["invitation", "reset"]),
+  purpose: Schema.Literals(["invitation", "reset", "password"]),
   email: TrimmedNonEmptyString,
   displayName: TrimmedNonEmptyString,
-  /** An `otpauth://` URI for a QR code; the secret is also shown for typing in. */
-  authenticatorUri: Schema.String,
-  authenticatorSecret: Schema.String,
+  /** An `otpauth://` URI for a QR code, and its secret for typing in. */
+  authenticator: Schema.optionalKey(Schema.Struct({ uri: Schema.String, secret: Schema.String })),
 });
 export type ControlEnrolment = typeof ControlEnrolment.Type;
 
@@ -90,6 +92,8 @@ export class ControlAccountError extends Schema.TaggedError<ControlAccountError>
       "invalid-link",
       "weak-password",
       "wrong-code",
+      "locked",
+      "email-off",
     ]),
   },
   { httpApiStatus: 400 },
@@ -114,6 +118,10 @@ export class ControlAccountError extends Schema.TaggedError<ControlAccountError>
         return "Use a password of at least 12 characters.";
       case "wrong-code":
         return "That code is not right. Check the time on your device and try the newest code.";
+      case "locked":
+        return "Too many failed attempts. Try again later or ask an admin to unlock your account.";
+      case "email-off":
+        return "This installation does not send email. Ask an admin to reset your sign-in.";
     }
   }
 }
@@ -171,7 +179,12 @@ export const ControlSessionEntry = Schema.Struct({
 export type ControlSessionEntry = typeof ControlSessionEntry.Type;
 
 /** A set-up link for an admin to pass on. It works once. */
-export const ControlIssuedLink = Schema.Struct({ person: ControlPerson, link: Schema.String });
+export const ControlIssuedLink = Schema.Struct({
+  person: ControlPerson,
+  link: Schema.String,
+  /** True when the link was also emailed to the person. */
+  emailed: Schema.Boolean,
+});
 export type ControlIssuedLink = typeof ControlIssuedLink.Type;
 
 export class ControlSignedOutError extends Schema.TaggedError<ControlSignedOutError>()(
@@ -233,16 +246,27 @@ const ControlAccountGroup = HttpApiGroup.make("account").add(
     success: ControlMe,
     error: ControlSignInError,
   }).annotate(OpenApi.Summary, "Check an authenticator or recovery code and start a session"),
+  HttpApiEndpoint.post("requestPasswordReset", "/control/api/password-reset", {
+    payload: Schema.Struct({ email: Schema.String }),
+    success: ControlOk,
+    error: ControlAccountError,
+  }).annotate(
+    OpenApi.Summary,
+    "Email a link to choose a new password, if the address has an account",
+  ),
   HttpApiEndpoint.post("startEnrolment", "/control/api/enrolment/start", {
     payload: Schema.Struct({ token: Schema.String }),
     success: ControlEnrolment,
     error: ControlAccountError,
-  }).annotate(OpenApi.Summary, "Open an invitation or reset link"),
+  }).annotate(OpenApi.Summary, "Open an invitation, reset or new-password link"),
   HttpApiEndpoint.post("finishEnrolment", "/control/api/enrolment/finish", {
     payload: Schema.Struct({ token: Schema.String, password: Schema.String, code: Schema.String }),
     success: Schema.Struct({ me: ControlMe, recoveryCodes: Schema.Array(Schema.String) }),
     error: ControlAccountError,
-  }).annotate(OpenApi.Summary, "Set a password and authenticator and start a session"),
+  }).annotate(
+    OpenApi.Summary,
+    "Set a password, prove or set up the second factor, and start a session",
+  ),
 );
 
 const ControlMeGroup = HttpApiGroup.make("me")

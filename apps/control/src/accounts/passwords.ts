@@ -1,3 +1,4 @@
+import * as Context from "effect/Context";
 import * as Kdf from "effect/crypto/Kdf";
 import * as Mac from "effect/crypto/Mac";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -8,8 +9,20 @@ import * as Result from "effect/Result";
 export const MIN_PASSWORD_LENGTH = 12;
 export const MAX_PASSWORD_LENGTH = 256;
 
+interface Argon2Cost {
+  readonly memory: number;
+  readonly passes: number;
+  readonly parallelism: number;
+}
+
 // RFC 9106's second recommended setting, for memory-constrained hosts.
-const PARAMETERS = { memory: 65_536, passes: 3, parallelism: 4 } as const;
+const PARAMETERS: Argon2Cost = { memory: 65_536, passes: 3, parallelism: 4 };
+
+/** The cost of new hashes. Tests lower it; a check always uses the cost stored in the hash. */
+export const PasswordHashCost = Context.Reference<Argon2Cost>(
+  "@codenine/control/accounts/passwords/PasswordHashCost",
+  { defaultValue: () => PARAMETERS },
+);
 const PHC = /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/u;
 
 const encoder = new TextEncoder();
@@ -19,12 +32,7 @@ const padded = (text: string) => text.padEnd(text.length + ((4 - (text.length % 
 /** Stands in for a real hash when the email is unknown, so timing does not reveal it. */
 export const UNKNOWN_PERSON_HASH = `$argon2id$v=19$m=${PARAMETERS.memory},t=${PARAMETERS.passes},p=${PARAMETERS.parallelism}$${"A".repeat(22)}$${"A".repeat(43)}`;
 
-const derive = (
-  password: string,
-  salt: Uint8Array,
-  parameters: { readonly memory: number; readonly passes: number; readonly parallelism: number },
-  length: number,
-) =>
+const derive = (password: string, salt: Uint8Array, parameters: Argon2Cost, length: number) =>
   Kdf.Kdf.pipe(
     Effect.flatMap((kdf) =>
       kdf.derive(Kdf.argon2id(parameters), encoder.encode(password), { salt, length }),
@@ -33,9 +41,10 @@ const derive = (
   );
 
 export const hashPassword = Effect.fn("passwords.hash")(function* (password: string) {
+  const cost = yield* PasswordHashCost;
   const salt = yield* (yield* SecureRandom.SecureRandom).randomBytes(16);
-  const hash = yield* derive(password, salt, PARAMETERS, 32);
-  return `$argon2id$v=19$m=${PARAMETERS.memory},t=${PARAMETERS.passes},p=${PARAMETERS.parallelism}$${unpadded(salt)}$${unpadded(hash)}`;
+  const hash = yield* derive(password, salt, cost, 32);
+  return `$argon2id$v=19$m=${cost.memory},t=${cost.passes},p=${cost.parallelism}$${unpadded(salt)}$${unpadded(hash)}`;
 });
 
 export const verifyPassword = Effect.fn("passwords.verify")(function* (

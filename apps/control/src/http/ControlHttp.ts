@@ -25,7 +25,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as HttpStaticServer from "effect/http/HttpStaticServer";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
-import { Accounts } from "../accounts/Accounts.ts";
+import { Accounts, type IssuedLink } from "../accounts/Accounts.ts";
 import { Sessions } from "../accounts/Sessions.ts";
 import { ControlPublicUrl, enrolmentLink } from "../config.ts";
 import { ControlDb } from "../db.ts";
@@ -161,6 +161,9 @@ export const layerAccountApi = HttpApiBuilder.group(
           return yield* startSession(personId);
         }),
       )
+      .handle("requestPasswordReset", ({ payload }) =>
+        Effect.as(accounts.requestPasswordReset(payload.email), ok),
+      )
       .handle("startEnrolment", ({ payload }) => accounts.startEnrolment(payload.token))
       .handle(
         "finishEnrolment",
@@ -231,17 +234,12 @@ export const layerAdminApi = HttpApiBuilder.group(
     const accounts = yield* Accounts;
     const licence = yield* LicenceService;
     const { origin } = yield* ControlPublicUrl;
-    const withLink = <E, R>(
-      issued: Effect.Effect<
-        {
-          readonly person: import("@codenine/contracts/control").ControlPerson;
-          readonly token: string;
-        },
-        E,
-        R
-      >,
-    ) =>
-      Effect.map(issued, ({ person, token }) => ({ person, link: enrolmentLink(origin, token) }));
+    const withLink = <E, R>(issued: Effect.Effect<IssuedLink, E, R>) =>
+      Effect.map(issued, ({ person, token, emailed }) => ({
+        person,
+        link: enrolmentLink(origin, token),
+        emailed,
+      }));
 
     return handlers
       .handle("licence", () => Effect.andThen(requireAdmin, licence.overview))

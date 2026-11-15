@@ -24,6 +24,10 @@ Then start the control server with these settings:
 - `CODENINE_CONTROL_WEB_DIR`: `apps/web/dist`.
 - `CODENINE_CONTROL_WORKSPACE_URL`: where the control server reaches the workspace server, such
   as `http://127.0.0.1:3773`.
+- `CODENINE_CONTROL_SMTP_URL` and `CODENINE_CONTROL_MAIL_FROM` (optional): your mail server, such as
+  `smtps://user:password@mail.example.com:465`, and the sender, such as
+  `Codenine <codenine@example.com>`. With them, Codenine emails invitations and reset links, and
+  people can reset a forgotten password themselves. Without them, admins send each link by hand.
 
 ```bash
 node apps/control/src/bin.ts serve
@@ -76,13 +80,17 @@ when it starts.
 
 Owners and admins manage people under **Account**:
 
-- **Invite** someone to get a one-time link to send them. Each invited or active person takes a
-  seat on the licence.
+- **Invite** someone to get a one-time link for them, which Codenine also emails when a mail server
+  is set. Each invited or active person takes a seat on the licence.
 - **Deactivate** someone to sign them out everywhere and free their seat.
 - **Reset sign-in** for someone who lost their authenticator and recovery codes. It removes
   their password and authenticator and gives you a new link for them.
 - **Unlock** someone after ten failed sign-in attempts; otherwise the lock lifts after 15
   minutes.
+
+When a mail server is set, people who forget their password can choose **Forgot your password?**
+on the sign-in page. The emailed link works for an hour, and they still need their authenticator
+app or a recovery code.
 
 Everyone can open **Account** at the bottom of the sidebar to see where they are signed in and
 sign out of any browser, or everywhere at once. Owners and admins manage the licence and people

@@ -101,7 +101,7 @@ const signedInOwner = Effect.gen(function* () {
     displayName: "Ada",
   });
   const enrolment = yield* accounts.startEnrolment(token);
-  const secret = fromBase32(enrolment.authenticatorSecret);
+  const secret = fromBase32(enrolment.authenticator?.secret ?? "");
   yield* accounts.finishEnrolment({ token, password: PASSWORD, code: yield* codeNow(secret) });
   const session = yield* (yield* Sessions).create({ personId: person.id, userAgent: null });
   return { personId: person.id, cookie: `${COOKIE}=${session.token}` };
@@ -118,7 +118,7 @@ describe("ControlHttp", () => {
         const enrolment = yield* read(ControlEnrolment)(
           yield* call("/control/api/enrolment/start", send("POST", { token })),
         );
-        const secret = fromBase32(enrolment.authenticatorSecret);
+        const secret = fromBase32(enrolment.authenticator?.secret ?? "");
         const finished = yield* call(
           "/control/api/enrolment/finish",
           send("POST", { token, password: PASSWORD, code: yield* codeNow(secret) }),
@@ -233,7 +233,7 @@ describe("ControlHttp", () => {
         yield* accounts.finishEnrolment({
           token: beaToken,
           password: PASSWORD,
-          code: yield* codeNow(fromBase32(enrolment.authenticatorSecret)),
+          code: yield* codeNow(fromBase32(enrolment.authenticator?.secret ?? "")),
         });
         const bea = yield* (yield* Sessions).create({
           personId: invited.person.id,

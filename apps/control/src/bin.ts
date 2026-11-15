@@ -22,6 +22,7 @@ import * as Db from "./db.ts";
 import * as ControlHttp from "./http/ControlHttp.ts";
 import { Installation } from "./installation/Installation.ts";
 import * as Licence from "./licence/LicenceService.ts";
+import { Mailer } from "./mail/Mailer.ts";
 import * as WorkspaceProxy from "./workspaces/WorkspaceProxy.ts";
 import * as WorkspaceTokensModule from "./workspaces/WorkspaceTokens.ts";
 
@@ -32,6 +33,7 @@ const layerControl = Licence.layer.pipe(
 );
 
 const layerAccounts = AccountsModule.layer.pipe(
+  Layer.provideMerge(Mailer.layer),
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(SecretBox.layer),
   Layer.provideMerge(layerControl),
@@ -123,11 +125,16 @@ const inviteOwnerCommand = Command.make(
     name: Flag.String("name").pipe(Flag.withDescription("The owner's name."), Flag.withDefault("")),
   },
   Effect.fnUntraced(function* ({ email, name }) {
-    const { person, token } = yield* (yield* Accounts).inviteOwner({ email, displayName: name });
+    const { person, token, emailed } = yield* (yield* Accounts).inviteOwner({
+      email,
+      displayName: name,
+    });
     yield* Console.log(
       [
         `${person.displayName} <${person.email}> is invited as the owner.`,
-        "Send them this link. It works once and expires in 7 days:",
+        emailed
+          ? "We emailed them this link. It works once and expires in 7 days:"
+          : "Send them this link. It works once and expires in 7 days:",
         "",
         `  ${enrolmentLink((yield* ControlPublicUrl).origin, token)}`,
       ].join("\n"),
@@ -146,11 +153,11 @@ const resetCommand = Command.make(
     if (person === undefined) {
       return yield* new ControlAccountError({ reason: "not-found" });
     }
-    const { token } = yield* accounts.issueReset(person.id);
+    const { token, emailed } = yield* accounts.issueReset(person.id);
     yield* Console.log(
       [
         `${person.displayName}'s password and authenticator are removed, and they are signed out everywhere.`,
-        `Send them this link to set new ones. It works once and expires in ${person.status === "invited" ? "7 days" : "24 hours"}:`,
+        `${emailed ? "We emailed them this link" : "Send them this link"} to set new ones. It works once and expires in ${person.status === "invited" ? "7 days" : "24 hours"}:`,
         "",
         `  ${enrolmentLink((yield* ControlPublicUrl).origin, token)}`,
       ].join("\n"),
