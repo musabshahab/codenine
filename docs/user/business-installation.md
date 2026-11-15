@@ -88,6 +88,8 @@ on the control server:
 - `CODENINE_CONTROL_WORKSPACE_SLEEP_MINUTES` (optional): how long a workspace waits, with nobody
   having Codenine open and no agent working, before it sleeps. 30 unless set; `0` keeps
   workspaces awake.
+- `CODENINE_CONTROL_WORKSPACE_RETENTION_DAYS` (optional): how long a deactivated person's files
+  are kept before they are deleted. 30 unless set.
 - `CODENINE_CONTROL_DOCKER_SOCKET` (optional): the Docker socket, `/var/run/docker.sock` unless
   set. The control server's user needs access to it.
 
@@ -150,7 +152,9 @@ Owners and admins manage people under **Account**:
 
 - **Invite** someone to get a one-time link for them, which Codenine also emails when a mail server
   is set. Each invited or active person takes a seat on the licence.
-- **Deactivate** someone to sign them out everywhere and free their seat.
+- **Deactivate** someone to sign them out everywhere and free their seat. With one workspace per
+  person, their workspace stops too. Their files are kept for 30 days and come back if you
+  reactivate them in that time; after that they are deleted.
 - **Reset sign-in** for someone who lost their passkeys, authenticator and recovery codes. It
   removes all of them and their password, and gives you a new link for them.
 - **Unlock** someone after ten failed sign-in attempts; otherwise the lock lifts after 15

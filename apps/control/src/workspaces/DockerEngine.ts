@@ -91,9 +91,10 @@ export class DockerEngine extends Context.Service<
     /** The ID of the image a name or tag points to now. */
     readonly imageId: (image: string) => Effect.Effect<string, DockerEngineError>;
     readonly stop: (name: string) => Effect.Effect<void, DockerEngineError>;
-    readonly removeContainer: (name: string) => Effect.Effect<void, DockerEngineError>;
-    readonly removeVolume: (name: string) => Effect.Effect<void, DockerEngineError>;
-    readonly removeNetwork: (name: string) => Effect.Effect<void, DockerEngineError>;
+    /** Each removal is true when there was something to remove. */
+    readonly removeContainer: (name: string) => Effect.Effect<boolean, DockerEngineError>;
+    readonly removeVolume: (name: string) => Effect.Effect<boolean, DockerEngineError>;
+    readonly removeNetwork: (name: string) => Effect.Effect<boolean, DockerEngineError>;
   }
 >()("@codenine/control/workspaces/DockerEngine") {
   static readonly make = Effect.gen(function* () {
@@ -218,27 +219,30 @@ export class DockerEngine extends Context.Service<
         );
       }),
       removeContainer: Effect.fn("DockerEngine.removeContainer")(function* (name) {
-        yield* call(
+        const response = yield* call(
           "remove a container",
           HttpClientRequest.delete(`${API}/containers/${encodeURIComponent(name)}`).pipe(
             HttpClientRequest.setUrlParam("force", "true"),
           ),
           [404],
         );
+        return response.status !== 404;
       }),
       removeVolume: Effect.fn("DockerEngine.removeVolume")(function* (name) {
-        yield* call(
+        const response = yield* call(
           "remove a volume",
           HttpClientRequest.delete(`${API}/volumes/${encodeURIComponent(name)}`),
           [404],
         );
+        return response.status !== 404;
       }),
       removeNetwork: Effect.fn("DockerEngine.removeNetwork")(function* (name) {
-        yield* call(
+        const response = yield* call(
           "remove a network",
           HttpClientRequest.delete(`${API}/networks/${encodeURIComponent(name)}`),
           [404],
         );
+        return response.status !== 404;
       }),
     });
   });

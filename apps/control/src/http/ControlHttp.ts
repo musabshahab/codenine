@@ -34,6 +34,7 @@ import {
   WorkspaceManager,
   type WorkspaceUnavailableError,
 } from "../workspaces/WorkspaceManager.ts";
+import { WorkspaceRetention } from "../workspaces/WorkspaceRetention.ts";
 
 const ok = { ok: true as const };
 
@@ -290,6 +291,7 @@ export const layerAdminApi = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const accounts = yield* Accounts;
     const licence = yield* LicenceService;
+    const retention = yield* WorkspaceRetention;
     const { origin } = yield* ControlPublicUrl;
     const withLink = <E, R>(issued: Effect.Effect<IssuedLink, E, R>) =>
       Effect.map(issued, ({ person, token, emailed }) => ({
@@ -317,7 +319,7 @@ export const layerAdminApi = HttpApiBuilder.group(
         Effect.andThen(requireAdmin, withLink(accounts.invite(payload))),
       )
       .handle("deactivate", ({ params }) =>
-        Effect.andThen(requireAdmin, Effect.as(accounts.deactivate(params.personId), ok)),
+        Effect.andThen(requireAdmin, Effect.as(retention.deactivate(params.personId), ok)),
       )
       .handle("reactivate", ({ params }) =>
         Effect.andThen(requireAdmin, accounts.reactivate(params.personId)),

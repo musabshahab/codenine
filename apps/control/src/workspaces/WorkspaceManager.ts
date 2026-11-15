@@ -32,6 +32,10 @@ export class WorkspaceManager extends Context.Service<
     readonly forget: (personId: string) => Effect.Effect<void>;
     /** Whether the person's workspace is stopped or not made yet, so their next request starts it. */
     readonly isAsleep: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
+    /** Stops and removes the person's workspace, keeping their files; true when there was one. */
+    readonly retire: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
+    /** Deletes the files of a retired workspace; true when there were some. */
+    readonly removeFiles: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
   }
 >()("@codenine/control/workspaces/WorkspaceManager") {
   /** Everyone reaches one workspace server at `CODENINE_CONTROL_WORKSPACE_URL`. */
@@ -40,6 +44,9 @@ export class WorkspaceManager extends Context.Service<
       targetFor: Effect.fn("WorkspaceManager.targetFor")(() => Effect.succeed(target)),
       forget: Effect.fn("WorkspaceManager.forget")(() => Effect.void),
       isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
+      // People share it, so leaving removes nothing.
+      retire: Effect.fn("WorkspaceManager.retire")(() => Effect.succeed(false)),
+      removeFiles: Effect.fn("WorkspaceManager.removeFiles")(() => Effect.succeed(false)),
     });
 
   /** No workspace is set up: people can sign in, and every forwarded request fails. */
@@ -49,6 +56,8 @@ export class WorkspaceManager extends Context.Service<
     ),
     forget: Effect.fn("WorkspaceManager.forget")(() => Effect.void),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
+    retire: Effect.fn("WorkspaceManager.retire")(() => Effect.succeed(false)),
+    removeFiles: Effect.fn("WorkspaceManager.removeFiles")(() => Effect.succeed(false)),
   });
 
   /** The shared workspace server, when `CODENINE_CONTROL_WORKSPACE_URL` names one. */

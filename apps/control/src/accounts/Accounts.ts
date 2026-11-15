@@ -92,6 +92,10 @@ export class Accounts extends Context.Service<
       readonly role: "admin" | "member";
     }) => Effect.Effect<IssuedLink, ControlAccountError>;
     readonly listPeople: Effect.Effect<ReadonlyArray<ControlPerson>>;
+    /** Everyone deactivated, and since when. */
+    readonly listDeactivated: Effect.Effect<
+      ReadonlyArray<{ readonly personId: string; readonly deactivatedAt: string }>
+    >;
     readonly deactivate: (personId: string) => Effect.Effect<void, ControlAccountError>;
     readonly reactivate: (personId: string) => Effect.Effect<ControlPerson, ControlAccountError>;
     /** Removes the person's password, authenticator and passkeys; they set new ones from the link. */
@@ -447,6 +451,17 @@ export const make = Effect.gen(function* () {
     return rows.map((row) => toPerson(row, now));
   }).pipe(Effect.orDie, Effect.withSpan("Accounts.listPeople"));
 
+  const listDeactivated = Effect.gen(function* () {
+    const rows = yield* db
+      .select({ personId: controlPeople.id, deactivatedAt: controlPeople.deactivatedAt })
+      .from(controlPeople)
+      .where(eq(controlPeople.status, "deactivated"));
+    // Rows from before the column existed were given one by its migration.
+    return rows.flatMap(({ personId, deactivatedAt }) =>
+      deactivatedAt === null ? [] : [{ personId, deactivatedAt }],
+    );
+  }).pipe(Effect.orDie, Effect.withSpan("Accounts.listDeactivated"));
+
   const deactivate = Effect.fn("Accounts.deactivate")(function* (personId: string) {
     const person = yield* findPerson(personId);
     if (person.status === "deactivated") {
@@ -461,9 +476,10 @@ export const make = Effect.gen(function* () {
         return yield* new ControlAccountError({ reason: "last-owner" });
       }
     }
+    const now = yield* nowIso;
     yield* db
       .update(controlPeople)
-      .set({ status: "deactivated", updatedAt: yield* nowIso })
+      .set({ status: "deactivated", deactivatedAt: now, updatedAt: now })
       .where(eq(controlPeople.id, personId));
     yield* retireTickets(personId, ["invitation", "reset", "password", "sign-in"]);
     yield* sessions.revokeAll(personId);
@@ -477,7 +493,11 @@ export const make = Effect.gen(function* () {
     yield* requireFreeSeat;
     yield* db
       .update(controlPeople)
-      .set({ status: person.canSignIn ? "active" : "invited", updatedAt: yield* nowIso })
+      .set({
+        status: person.canSignIn ? "active" : "invited",
+        deactivatedAt: null,
+        updatedAt: yield* nowIso,
+      })
       .where(eq(controlPeople.id, personId));
     return yield* findPerson(personId);
   }, dieOnDatabaseError);
@@ -1010,6 +1030,7 @@ export const make = Effect.gen(function* () {
     inviteOwner,
     invite,
     listPeople,
+    listDeactivated,
     deactivate,
     reactivate,
     issueReset,

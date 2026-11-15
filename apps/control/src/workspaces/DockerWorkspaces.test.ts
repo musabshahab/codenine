@@ -43,6 +43,8 @@ const fakeDocker = (workspacePort: number) => {
   const created: Array<CreatedContainer> = [];
   const starts: Array<string> = [];
   const removed: Array<string> = [];
+  const removedNetworks: Array<string> = [];
+  const removedVolumes: Array<string> = [];
   const running = new Map<string, boolean>();
   const labels = new Map<string, Readonly<Record<string, string>>>();
   const image = { id: "sha256:first" };
@@ -105,9 +107,28 @@ const fakeDocker = (workspacePort: number) => {
       "/v1.44/containers/:name",
       Effect.gen(function* () {
         const name = yield* nameParam;
+        if (!running.has(name)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
         removed.push(name);
         running.delete(name);
         labels.delete(name);
+        return HttpServerResponse.empty({ status: 204 });
+      }),
+    ),
+    HttpRouter.add(
+      "DELETE",
+      "/v1.44/networks/:name",
+      Effect.map(nameParam, (name) => {
+        removedNetworks.push(name);
+        return HttpServerResponse.empty({ status: 204 });
+      }),
+    ),
+    HttpRouter.add(
+      "DELETE",
+      "/v1.44/volumes/:name",
+      Effect.map(nameParam, (name) => {
+        removedVolumes.push(name);
         return HttpServerResponse.empty({ status: 204 });
       }),
     ),
@@ -136,7 +157,17 @@ const fakeDocker = (workspacePort: number) => {
     held.next = hold;
     return hold;
   });
-  return { created, starts, removed, running, image, holdNextStart, routes };
+  return {
+    created,
+    starts,
+    removed,
+    removedNetworks,
+    removedVolumes,
+    running,
+    image,
+    holdNextStart,
+    routes,
+  };
 };
 
 const serve = <E, R>(routes: Layer.Layer<never, E, R>, listen: NodeHttpServer.Options) =>
@@ -232,12 +263,21 @@ describe("DockerWorkspaces", () => {
         expect(docker.starts).toEqual([ada.container, ada.container]);
         expect(docker.created).toHaveLength(1);
 
-        const bea = yield* workspaces.targetFor("per_bea");
-        expect(bea.workspaceId).toBe("per_bea");
+        const bea = DockerWorkspaces.workspaceNames(installation.id, "per_bea");
+        expect((yield* workspaces.targetFor("per_bea")).workspaceId).toBe("per_bea");
         expect(docker.created.map((created) => created.name)).toEqual([
           ada.container,
-          DockerWorkspaces.workspaceNames(installation.id, "per_bea").container,
+          bea.container,
         ]);
+
+        // When Bea leaves, her container and network go; her files stay until they are removed.
+        expect(yield* workspaces.retire("per_bea")).toBe(true);
+        expect(yield* workspaces.retire("per_bea")).toBe(false);
+        expect([docker.removed, docker.removedVolumes]).toEqual([[bea.container], []]);
+        expect(docker.removedNetworks).toContain(bea.network);
+        expect(yield* workspaces.isAsleep("per_bea")).toBe(true);
+        yield* workspaces.removeFiles("per_bea");
+        expect(docker.removedVolumes).toEqual([bea.volume]);
       }),
     ),
   );

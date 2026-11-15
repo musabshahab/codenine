@@ -24,6 +24,7 @@ import * as Licence from "./licence/LicenceService.ts";
 import { Mailer } from "./mail/Mailer.ts";
 import * as WorkspaceDriver from "./workspaces/WorkspaceDriver.ts";
 import * as WorkspaceProxy from "./workspaces/WorkspaceProxy.ts";
+import * as WorkspaceRetention from "./workspaces/WorkspaceRetention.ts";
 import * as WorkspaceTokensModule from "./workspaces/WorkspaceTokens.ts";
 
 const layerControl = Licence.layer.pipe(
@@ -79,8 +80,10 @@ const serveCommand = Command.make("serve", {}, () =>
           Layer.mergeAll(WorkspaceProxy.layerForwarding, ControlHttp.layerWebApp),
         ),
         Licence.layerDailyCheck,
+        WorkspaceRetention.layerHourlySweep,
       ).pipe(
-        // One manager for the API and forwarding, so both see the same workspaces.
+        Layer.provide(WorkspaceRetention.layer),
+        // One manager for the API, forwarding and retention, so all see the same workspaces.
         Layer.provide(WorkspaceDriver.layer),
         Layer.provide(WorkspaceTokensModule.layer),
         Layer.provideMerge(layerAccounts),

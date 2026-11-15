@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8a6c08f5-df85-48f9-82c3-d517a9ed73f0",
+  "prevIds": ["e00cd099-4e05-46db-acca-7942c04f7e36"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "control_people", "deactivated_at"],
+      "writes": [
+        "s|col|public.control_people.deactivated_at",
+        "n|col|public.control_people.deactivated_at",
+        "e|col|public.control_people.deactivated_at"
+      ],
+      "reads": ["n|tbl|public.control_people", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_people",
+        "name": "deactivated_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

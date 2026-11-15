@@ -161,6 +161,8 @@ const withProxy = <A, E, R>(
         Effect.sync(() => void forgotten.push(personId)),
       ),
       isAsleep: Effect.fn("test.isAsleep")(() => Effect.succeed(false)),
+      retire: Effect.fn("test.retire")(() => Effect.succeed(false)),
+      removeFiles: Effect.fn("test.removeFiles")(() => Effect.succeed(false)),
     });
     const services = WorkspaceTokens.layer.pipe(
       Layer.provideMerge(Layer.succeed(WorkspaceManager, manager)),

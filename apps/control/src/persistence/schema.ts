@@ -46,6 +46,8 @@ export const controlPeople = pgTable(
     status: varchar("status", { length: 16 })
       .notNull()
       .$type<"invited" | "active" | "deactivated">(),
+    /** Their workspace files are kept for a while after this, then deleted. */
+    deactivatedAt: varchar("deactivated_at", { length: 64 }),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     updatedAt: varchar("updated_at", { length: 64 }).notNull(),
   },

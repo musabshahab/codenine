@@ -164,6 +164,22 @@ export const make = Effect.gen(function* () {
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
     ),
+    retire: Effect.fn("WorkspaceManager.retire")(
+      function* (personId: string) {
+        const names = workspaceNames(installation.id, personId);
+        const removed = yield* engine.removeContainer(names.container);
+        yield* engine.removeNetwork(names.network);
+        yield* Cache.invalidate(targets, personId);
+        return removed;
+      },
+      Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
+    ),
+    removeFiles: Effect.fn("WorkspaceManager.removeFiles")(
+      function* (personId: string) {
+        return yield* engine.removeVolume(workspaceNames(installation.id, personId).volume);
+      },
+      Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
+    ),
   });
 });
 
