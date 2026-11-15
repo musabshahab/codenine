@@ -20,6 +20,8 @@ import {
   type ControlProfilePreview,
   type ControlProfileSettings,
   type ControlProfileTemplateName,
+  type ControlProvisioning,
+  type ControlProvisioningToken,
   type ControlRole,
   CONTROL_PROFILE_TEMPLATES,
   permissionReach,
@@ -38,10 +40,12 @@ import {
   ON_THE_SERVER,
   type RequestSource,
 } from "../audit/AuditLog.ts";
+import { ControlPublicUrl } from "../config.ts";
 import { Departments } from "../departments/Departments.ts";
 import { type LicenceInstallResult, LicenceService } from "../licence/LicenceService.ts";
 import { describeLayerChange } from "../profiles/layering.ts";
 import { type ProfileStep, Profiles, type WorkspaceChange } from "../profiles/Profiles.ts";
+import { ProvisioningTokens } from "../provisioning/ProvisioningTokens.ts";
 import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
 import { WorkspaceRetention } from "../workspaces/WorkspaceRetention.ts";
 
@@ -64,6 +68,26 @@ export const operatorActor = (label: string): AdminActor => ({
   who: { kind: "operator", id: null, label },
   source: ON_THE_SERVER,
 });
+
+/**
+ * The identity provider, through the provisioning token only owners create.
+ * It acts as an owner so that removing anyone, owners too, ends their access;
+ * it never gives roles, and the last owner stays.
+ */
+export const provisioningActor = (source: RequestSource): AdminActor => ({
+  role: "owner",
+  who: { kind: "provisioning", id: null, label: "Provisioning" },
+  source,
+});
+
+/** Where identity providers reach SCIM provisioning on the control server. */
+export const SCIM_PATH = "/control/scim/v2";
+
+const PROVISIONING_TARGET = {
+  kind: "provisioning",
+  id: "scim",
+  label: "SCIM provisioning",
+} as const;
 
 type PersonError = ControlForbiddenError | ControlAccountError;
 type DepartmentError = ControlForbiddenError | ControlDepartmentError;
@@ -99,6 +123,19 @@ export class Administration extends Context.Service<
         readonly departments?: ReadonlyArray<string> | undefined;
       },
     ) => Effect.Effect<IssuedLink, PersonError | ControlDepartmentError>;
+    /** Someone the identity provider manages, who signs in through it: a member with no link. */
+    readonly provisionPerson: (
+      actor: AdminActor,
+      input: { readonly email: string; readonly displayName: string },
+    ) => Effect.Effect<ControlPerson, PersonError>;
+    readonly updatePerson: (
+      actor: AdminActor,
+      input: {
+        readonly personId: string;
+        readonly email?: string;
+        readonly displayName?: string;
+      },
+    ) => Effect.Effect<ControlPerson, PersonError>;
     /** The first owner, before anyone can sign in to invite them. */
     readonly inviteOwner: (
       actor: AdminActor,
@@ -224,6 +261,16 @@ export class Administration extends Context.Service<
       actor: AdminActor,
       exceptionId: string,
     ) => Effect.Effect<void, ProfileError | ControlAccountError>;
+    readonly provisioning: (
+      actor: AdminActor,
+    ) => Effect.Effect<ControlProvisioning, ControlForbiddenError>;
+    /** Replaces any token there was. */
+    readonly createProvisioningToken: (
+      actor: AdminActor,
+    ) => Effect.Effect<ControlProvisioningToken, ControlForbiddenError>;
+    readonly revokeProvisioningToken: (
+      actor: AdminActor,
+    ) => Effect.Effect<ControlProvisioning, ControlForbiddenError>;
     readonly audit: (
       actor: AdminActor,
       before: number | null,
@@ -240,6 +287,8 @@ export const make = Effect.gen(function* () {
   const profiles = yield* Profiles;
   const sessions = yield* Sessions;
   const workspaces = yield* WorkspaceManager;
+  const provisioningTokens = yield* ProvisioningTokens;
+  const { origin } = yield* ControlPublicUrl;
 
   const record = (
     actor: AdminActor,
@@ -413,6 +462,20 @@ export const make = Effect.gen(function* () {
     return { all: false, departments: all.filter((department) => mine.includes(department.id)) };
   });
 
+  /** Sign-in and provisioning settings can take over or remove anyone, so they are owners' alone. */
+  const requireSecurity = Effect.fn("Administration.requireSecurity")(function* (
+    actor: AdminActor,
+  ) {
+    if ((yield* reachOf(actor, "security:manage")) !== "all") {
+      return yield* new ControlForbiddenError({});
+    }
+  });
+
+  const provisioningOverview = Effect.map(
+    provisioningTokens.current,
+    (token): ControlProvisioning => ({ url: `${origin}${SCIM_PATH}`, token }),
+  );
+
   return Administration.of({
     licence: Effect.fn("Administration.licence")(function* (actor: AdminActor) {
       yield* reachOf(actor, "licence:read");
@@ -479,6 +542,46 @@ export const make = Effect.gen(function* () {
         departments: joining.map((department) => department.name).join(", ") || null,
       });
       return issued;
+    }),
+    provisionPerson: Effect.fn("Administration.provisionPerson")(function* (
+      actor: AdminActor,
+      input: { readonly email: string; readonly displayName: string },
+    ) {
+      if ((yield* reachOf(actor, "people:manage")) !== "all" || !canGive(actor, "member")) {
+        return yield* new ControlForbiddenError({});
+      }
+      const person = yield* accounts.addPerson(input);
+      const { email, displayName, role } = person;
+      yield* record(actor, "person.provision", personTarget(person), null, {
+        email,
+        displayName,
+        role,
+      });
+      return person;
+    }),
+    updatePerson: Effect.fn("Administration.updatePerson")(function* (
+      actor: AdminActor,
+      input: {
+        readonly personId: string;
+        readonly email?: string;
+        readonly displayName?: string;
+      },
+    ) {
+      const before = yield* requireManaged(actor, input.personId);
+      const after = yield* accounts.updatePerson(input);
+      const changed = (["email", "displayName"] as const).filter(
+        (key) => before[key] !== after[key],
+      );
+      if (changed.length > 0) {
+        yield* record(
+          actor,
+          "person.update",
+          personTarget(after),
+          Object.fromEntries(changed.map((key) => [key, before[key]])),
+          Object.fromEntries(changed.map((key) => [key, after[key]])),
+        );
+      }
+      return after;
     }),
     inviteOwner: Effect.fn("Administration.inviteOwner")(function* (
       actor: AdminActor,
@@ -650,7 +753,12 @@ export const make = Effect.gen(function* () {
       yield* requireDepartment(actor, departmentId);
       const person = yield* requireManaged(actor, personId);
       const department = yield* departments.find(departmentId);
+      const hadDepartment = (yield* departments.ofPerson(personId)).length > 0;
       if (yield* departments.addMember(departmentId, personId)) {
+        // Someone who worked outside departments moves into this one's workspace.
+        if (!hadDepartment) {
+          yield* sessions.reconnect(personId);
+        }
         yield* record(actor, "department.add-member", personTarget(person), null, {
           department: department.name,
         });
@@ -922,6 +1030,41 @@ export const make = Effect.gen(function* () {
         null,
       );
       yield* takeEffect(changed);
+    }),
+    provisioning: Effect.fn("Administration.provisioning")(function* (actor: AdminActor) {
+      yield* requireSecurity(actor);
+      return yield* provisioningOverview;
+    }),
+    createProvisioningToken: Effect.fn("Administration.createProvisioningToken")(function* (
+      actor: AdminActor,
+    ) {
+      yield* requireSecurity(actor);
+      const replaced = yield* provisioningTokens.current;
+      const token = yield* provisioningTokens.issue(actor.who.label);
+      yield* record(
+        actor,
+        "provisioning.token-create",
+        PROVISIONING_TARGET,
+        replaced === null ? null : { createdAt: replaced.createdAt, createdBy: replaced.createdBy },
+        null,
+      );
+      return { token, provisioning: yield* provisioningOverview };
+    }),
+    revokeProvisioningToken: Effect.fn("Administration.revokeProvisioningToken")(function* (
+      actor: AdminActor,
+    ) {
+      yield* requireSecurity(actor);
+      const revoked = yield* provisioningTokens.current;
+      if (yield* provisioningTokens.revoke) {
+        yield* record(
+          actor,
+          "provisioning.token-revoke",
+          PROVISIONING_TARGET,
+          revoked === null ? null : { createdAt: revoked.createdAt, createdBy: revoked.createdBy },
+          null,
+        );
+      }
+      return yield* provisioningOverview;
     }),
     audit: Effect.fn("Administration.audit")(function* (actor: AdminActor, before: number | null) {
       const reached = yield* reachedDepartments(actor, "audit:read");

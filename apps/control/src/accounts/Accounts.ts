@@ -13,7 +13,7 @@ import {
   type PasskeyRequestOptions,
 } from "@codenine/contracts/control";
 import { licenceAllowsWork } from "@codenine/shared/licence";
-import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, ne, sql } from "drizzle-orm";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
@@ -104,6 +104,17 @@ export class Accounts extends Context.Service<
       readonly displayName: string;
       readonly role: ControlRole;
     }) => Effect.Effect<IssuedLink, ControlAccountError>;
+    /** Someone an identity provider manages: a member with no set-up link, who signs in through it. */
+    readonly addPerson: (input: {
+      readonly email: string;
+      readonly displayName: string;
+    }) => Effect.Effect<ControlPerson, ControlAccountError>;
+    /** A new email or name; their sign-in stays as it is. */
+    readonly updatePerson: (input: {
+      readonly personId: string;
+      readonly email?: string;
+      readonly displayName?: string;
+    }) => Effect.Effect<ControlPerson, ControlAccountError>;
     readonly findPerson: (personId: string) => Effect.Effect<ControlPerson, ControlAccountError>;
     /** Their open connections reconnect, so a new role applies at once. */
     readonly setRole: (input: {
@@ -443,7 +454,8 @@ export const make = Effect.gen(function* () {
     return yield* issueLink(personId, "invitation");
   }, dieOnDatabaseError);
 
-  const invite = Effect.fn("Accounts.invite")(function* (input: {
+  /** Someone who takes a seat and has not signed in yet. */
+  const insertPerson = Effect.fn("Accounts.insertPerson")(function* (input: {
     readonly email: string;
     readonly displayName: string;
     readonly role: ControlRole;
@@ -471,7 +483,52 @@ export const make = Effect.gen(function* () {
       createdAt: now,
       updatedAt: now,
     });
-    return yield* issueLink(personId, "invitation");
+    return personId;
+  });
+
+  const invite = Effect.fn("Accounts.invite")(function* (input: {
+    readonly email: string;
+    readonly displayName: string;
+    readonly role: ControlRole;
+  }) {
+    return yield* issueLink(yield* insertPerson(input), "invitation");
+  }, dieOnDatabaseError);
+
+  const addPerson = Effect.fn("Accounts.addPerson")(function* (input: {
+    readonly email: string;
+    readonly displayName: string;
+  }) {
+    return yield* findPerson(yield* insertPerson({ ...input, role: "member" }));
+  }, dieOnDatabaseError);
+
+  const updatePerson = Effect.fn("Accounts.updatePerson")(function* (input: {
+    readonly personId: string;
+    readonly email?: string;
+    readonly displayName?: string;
+  }) {
+    const person = yield* findPerson(input.personId);
+    const email = input.email?.trim() ?? person.email;
+    const displayName = input.displayName?.trim() || person.displayName;
+    if (email === person.email && displayName === person.displayName) {
+      return person;
+    }
+    if (email !== person.email) {
+      if (!isEmail(email)) {
+        return yield* new ControlAccountError({ reason: "invalid-email" });
+      }
+      const [taken] = yield* db
+        .select({ id: controlPeople.id })
+        .from(controlPeople)
+        .where(and(sameEmail(email), ne(controlPeople.id, person.id)));
+      if (taken !== undefined) {
+        return yield* new ControlAccountError({ reason: "email-taken" });
+      }
+    }
+    yield* db
+      .update(controlPeople)
+      .set({ email, displayName, updatedAt: yield* nowIso })
+      .where(eq(controlPeople.id, person.id));
+    return yield* findPerson(person.id);
   }, dieOnDatabaseError);
 
   const listPeople = Effect.gen(function* () {
@@ -1128,6 +1185,8 @@ export const make = Effect.gen(function* () {
   return Accounts.of({
     inviteOwner,
     invite,
+    addPerson,
+    updatePerson,
     findPerson,
     setRole,
     listPeople,

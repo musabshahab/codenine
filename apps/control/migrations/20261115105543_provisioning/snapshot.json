@@ -1,0 +1,412 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e772ef08-3058-4258-80a1-e794e6d34fa6",
+  "prevIds": ["a2963e1f-5878-403f-9635-9738b69a9593"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_directory_groups"],
+      "writes": [
+        "s|tbl|public.control_directory_groups",
+        "n|tbl|public.control_directory_groups",
+        "e|tbl|public.control_directory_groups",
+        "n|rel|public.control_directory_groups",
+        "n|type|public.control_directory_groups",
+        "n|rel|public.control_directory_groups_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_directory_people"],
+      "writes": [
+        "s|tbl|public.control_directory_people",
+        "n|tbl|public.control_directory_people",
+        "e|tbl|public.control_directory_people",
+        "n|rel|public.control_directory_people",
+        "n|type|public.control_directory_people",
+        "n|rel|public.control_directory_people_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_provisioning_tokens"],
+      "writes": [
+        "s|tbl|public.control_provisioning_tokens",
+        "n|tbl|public.control_provisioning_tokens",
+        "e|tbl|public.control_provisioning_tokens",
+        "n|rel|public.control_provisioning_tokens",
+        "n|type|public.control_provisioning_tokens",
+        "n|rel|public.control_provisioning_tokens_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "control_directory_people",
+        "idx_control_directory_people_user_name"
+      ],
+      "writes": [
+        "s|idx|public.idx_control_directory_people_user_name",
+        "n|idx|public.idx_control_directory_people_user_name",
+        "e|idx|public.idx_control_directory_people_user_name",
+        "n|rel|public.idx_control_directory_people_user_name"
+      ],
+      "reads": ["n|tbl|public.control_directory_people", "n|sch|public"]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_directory_groups"],
+      "writes": [
+        "s|fk|public.control_directory_groups.control_directory_groups_04nycHJmiz2L_fkey",
+        "n|fk|public.control_directory_groups.control_directory_groups_04nycHJmiz2L_fkey",
+        "e|fk|public.control_directory_groups.control_directory_groups_04nycHJmiz2L_fkey",
+        "n|con|public.control_directory_groups.control_directory_groups_04nycHJmiz2L_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_directory_groups",
+        "n|sch|public",
+        "n|tbl|public.control_departments",
+        "n|sch|public",
+        "n|col|public.control_directory_groups.department_id",
+        "n|col|public.control_departments.id",
+        "e|uniqueness|public.control_departments.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_directory_people"],
+      "writes": [
+        "s|fk|public.control_directory_people.control_directory_people_person_id_control_people_id_fkey",
+        "n|fk|public.control_directory_people.control_directory_people_person_id_control_people_id_fkey",
+        "e|fk|public.control_directory_people.control_directory_people_person_id_control_people_id_fkey",
+        "n|con|public.control_directory_people.control_directory_people_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_directory_people",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_directory_people.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_directory_groups",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_directory_people",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_provisioning_tokens",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_groups",
+        "name": "department_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_groups",
+        "name": "external_id",
+        "type": "varchar(255)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "user_name",
+        "type": "varchar(320)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "external_id",
+        "type": "varchar(255)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "given_name",
+        "type": "varchar(255)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "family_name",
+        "type": "varchar(255)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "removed_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_provisioning_tokens",
+        "name": "token_hash",
+        "type": "varchar(128)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_provisioning_tokens",
+        "name": "created_by",
+        "type": "varchar(512)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_provisioning_tokens",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_provisioning_tokens",
+        "name": "last_used_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "idx_control_directory_people_user_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "lower(\"user_name\")",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_groups",
+        "name": "control_directory_groups_04nycHJmiz2L_fkey",
+        "nameExplicit": false,
+        "columns": ["department_id"],
+        "schemaTo": "public",
+        "tableTo": "control_departments",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "control_directory_people_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_groups",
+        "name": "control_directory_groups_pkey",
+        "columns": ["department_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_directory_people",
+        "name": "control_directory_people_pkey",
+        "columns": ["person_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_provisioning_tokens",
+        "name": "control_provisioning_tokens_pkey",
+        "columns": ["token_hash"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

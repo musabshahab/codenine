@@ -109,6 +109,12 @@ describe("Administration", () => {
         expect(yield* refused(admin.deactivate(bea, ada.id))).toBe("ControlForbiddenError");
         expect((yield* admin.setRole(bea, { personId: cy.id, role: "admin" })).role).toBe("admin");
         expect((yield* admin.invite(ada, { ...invite, role: "owner" })).person.role).toBe("owner");
+        // Nor create the provisioning token, which can deactivate owners.
+        expect(yield* refused(admin.createProvisioningToken(bea))).toBe("ControlForbiddenError");
+        expect((yield* admin.createProvisioningToken(ada)).provisioning).toMatchObject({
+          url: "https://codenine.acme.test/control/scim/v2",
+          token: { createdBy: "ada@acme.test", lastUsedAt: null },
+        });
 
         // Members and auditors manage nobody, and a department admin with no department neither.
         for (const actor of [cy, eve, dee]) {

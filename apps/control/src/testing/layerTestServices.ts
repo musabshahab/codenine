@@ -7,6 +7,7 @@ import * as Sessions from "../accounts/Sessions.ts";
 import * as AuditLog from "../audit/AuditLog.ts";
 import * as Departments from "../departments/Departments.ts";
 import * as Profiles from "../profiles/Profiles.ts";
+import * as ProvisioningTokens from "../provisioning/ProvisioningTokens.ts";
 import { WebAuthn } from "../accounts/WebAuthn.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { Installation } from "../installation/Installation.ts";
@@ -26,6 +27,7 @@ export const layerTestServices = (
   mailer: Layer.Layer<Mailer> = Layer.succeed(Mailer, Mailer.off),
 ) =>
   Profiles.layer.pipe(
+    Layer.provideMerge(ProvisioningTokens.layer),
     Layer.provideMerge(Accounts.layer),
     Layer.provideMerge(WebAuthn.layer),
     Layer.provideMerge(mailer),

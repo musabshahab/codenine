@@ -103,6 +103,18 @@ every workspace's proxy at start-up and hourly, for what changes without one: th
 hosts, a change made while it was down, an exception that ran out. Kubernetes workspaces share the
 installation's one proxy, so profiles' hosts do not apply there yet.
 
+## Provisioning
+
+SCIM users are people and SCIM groups are departments, with no mapping between them, so an
+identity provider that finds a group by name, as Entra ID and Okta do before creating one, joins
+an existing department ([`scim.ts`](../../apps/control/src/provisioning/scim.ts)). Every change
+goes through `Administration` as a provisioning actor, so the audit log, sign-outs, workspace
+retirement and seat checks are the admin pages' own. That actor has an owner's reach, because
+offboarding must reach owners too; for the same reason only owners hold `security:manage`, which
+creates its token, and `keepAnOwner` still protects the last owner. A user the identity provider
+deletes stays as a deactivated person, so the audit log and file retention keep working, and
+`control_directory_people` hides them from SCIM, which expects a 404 after a delete.
+
 ## Sleeping workspaces
 
 Only the workspace knows whether anyone has it open and whether its agents have work, so a

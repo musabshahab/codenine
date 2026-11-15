@@ -461,6 +461,9 @@ export const layerAdminApi = HttpApiBuilder.group(
           Effect.as(ok),
         ),
       )
+      .handle("provisioning", () => Effect.flatMap(actor, admin.provisioning))
+      .handle("createProvisioningToken", () => Effect.flatMap(actor, admin.createProvisioningToken))
+      .handle("revokeProvisioningToken", () => Effect.flatMap(actor, admin.revokeProvisioningToken))
       .handle("audit", ({ query }) =>
         Effect.flatMap(actor, (by) => admin.audit(by, query.before ?? null)),
       );

@@ -87,7 +87,6 @@ const ROLE_PERMISSIONS: Record<
   },
   admin: {
     "licence:read": "all",
-    "security:manage": "all",
     "people:manage": "all",
     "departments:manage": "all",
     "audit:read": "all",
@@ -641,6 +640,28 @@ export const ControlMyDepartments = Schema.Struct({
 });
 export type ControlMyDepartments = typeof ControlMyDepartments.Type;
 
+/** How an identity provider reaches the control server to add, change and remove people. */
+export const ControlProvisioning = Schema.Struct({
+  /** The SCIM 2.0 address to give the identity provider. */
+  url: Schema.String,
+  /** The token it uses; only its use is shown, never the token. */
+  token: Schema.NullOr(
+    Schema.Struct({
+      createdAt: IsoDateTime,
+      createdBy: Schema.String,
+      lastUsedAt: Schema.NullOr(IsoDateTime),
+    }),
+  ),
+});
+export type ControlProvisioning = typeof ControlProvisioning.Type;
+
+/** A new provisioning token, shown this once. */
+export const ControlProvisioningToken = Schema.Struct({
+  token: Schema.String,
+  provisioning: ControlProvisioning,
+});
+export type ControlProvisioningToken = typeof ControlProvisioningToken.Type;
+
 /** A set-up link for an admin to pass on. It works once. */
 export const ControlIssuedLink = Schema.Struct({
   person: ControlPerson,
@@ -650,13 +671,23 @@ export const ControlIssuedLink = Schema.Struct({
 });
 export type ControlIssuedLink = typeof ControlIssuedLink.Type;
 
-/** Who acted: a person, someone at the control server's command line, or Codenine itself. */
-export const ControlAuditActorKind = Schema.Literals(["person", "operator", "system"]);
+/**
+ * Who acted: a person, someone at the control server's command line, the
+ * identity provider through provisioning, or Codenine itself.
+ */
+export const ControlAuditActorKind = Schema.Literals([
+  "person",
+  "operator",
+  "provisioning",
+  "system",
+]);
 export type ControlAuditActorKind = typeof ControlAuditActorKind.Type;
 
 export const ControlAuditAction = Schema.Literals([
   "licence.install",
   "person.invite",
+  "person.provision",
+  "person.update",
   "person.role",
   "person.deactivate",
   "person.reactivate",
@@ -680,6 +711,8 @@ export const ControlAuditAction = Schema.Literals([
   "profile.rollback",
   "exception.create",
   "exception.end",
+  "provisioning.token-create",
+  "provisioning.token-revoke",
 ]);
 export type ControlAuditAction = typeof ControlAuditAction.Type;
 
@@ -689,6 +722,7 @@ export const ControlAuditTargetKind = Schema.Literals([
   "department",
   "team",
   "profile",
+  "provisioning",
 ]);
 export type ControlAuditTargetKind = typeof ControlAuditTargetKind.Type;
 
@@ -1086,6 +1120,19 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       params: Schema.Struct({ exceptionId: TrimmedNonEmptyString }),
       success: ControlOk,
       error: [ControlForbiddenError, ControlProfileError, ControlAccountError],
+    }),
+    HttpApiEndpoint.get("provisioning", "/control/api/admin/provisioning", {
+      success: ControlProvisioning,
+      error: ControlForbiddenError,
+    }),
+    /** Replaces any token there was, so the identity provider needs the new one. */
+    HttpApiEndpoint.post("createProvisioningToken", "/control/api/admin/provisioning/token", {
+      success: ControlProvisioningToken,
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.delete("revokeProvisioningToken", "/control/api/admin/provisioning/token", {
+      success: ControlProvisioning,
+      error: ControlForbiddenError,
     }),
     HttpApiEndpoint.get("audit", "/control/api/admin/audit", {
       query: Schema.Struct({

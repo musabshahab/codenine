@@ -219,6 +219,43 @@ export const controlTeamMembers = pgTable(
 );
 
 /**
+ * The token an identity provider provisions people with. Only its digest is
+ * kept, and a new token replaces the old one.
+ */
+export const controlProvisioningTokens = pgTable("control_provisioning_tokens", {
+  tokenHash: varchar("token_hash", { length: 128 }).primaryKey(),
+  createdBy: varchar("created_by", { length: 512 }).notNull(),
+  createdAt: varchar("created_at", { length: 64 }).notNull(),
+  lastUsedAt: varchar("last_used_at", { length: 64 }),
+});
+
+/**
+ * How the identity provider knows a person: its user name, which can differ
+ * from their email, its own ID and their names. A person it removed stays
+ * deactivated here but is no longer one of its users.
+ */
+export const controlDirectoryPeople = pgTable(
+  "control_directory_people",
+  {
+    personId: personId().primaryKey(),
+    userName: varchar("user_name", { length: 320 }).notNull(),
+    externalId: varchar("external_id", { length: 255 }),
+    givenName: varchar("given_name", { length: 255 }),
+    familyName: varchar("family_name", { length: 255 }),
+    removedAt: varchar("removed_at", { length: 64 }),
+  },
+  (table) => [
+    uniqueIndex("idx_control_directory_people_user_name").on(sql`lower(${table.userName})`),
+  ],
+);
+
+/** The identity provider's own ID for a department it pushed as a group. */
+export const controlDirectoryGroups = pgTable("control_directory_groups", {
+  departmentId: departmentId().primaryKey(),
+  externalId: varchar("external_id", { length: 255 }),
+});
+
+/**
  * A workspace profile layer: `company`, `department:<id>` or `team:<id>`. Its
  * versions are kept; one is what everyone gets, and a newer one can go to a
  * few people first.

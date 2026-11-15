@@ -63,7 +63,6 @@ const ROLES: Record<
     withoutLicence: LOOK,
     permissions: {
       "licence:read": "all",
-      "security:manage": "all",
       "people:manage": "all",
       "departments:manage": "all",
       "audit:read": "all",

@@ -204,14 +204,14 @@ when it starts.
 
 Each person has a role, which decides what they can do in their workspace and under **Account**:
 
-| Role             | In their workspace                                                           | Under **Account**                                                    |
-| ---------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Owner            | Everything                                                                   | Everything, including installing the licence and making other owners |
-| Admin            | Everything                                                                   | People, the audit log, and the licence without installing one        |
-| Department admin | Everything                                                                   | Members and restricted members of their own departments              |
-| Member           | Everything                                                                   | Their own sign-in                                                    |
-| Restricted       | Agents and previews, with no terminal, no source control and read-only files | Their own sign-in                                                    |
-| Auditor          | Looking only                                                                 | The audit log                                                        |
+| Role             | In their workspace                                                           | Under **Account**                                                 |
+| ---------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Owner            | Everything                                                                   | Everything, including the licence, provisioning and making owners |
+| Admin            | Everything                                                                   | People, the audit log, and the licence without installing one     |
+| Department admin | Everything                                                                   | Members and restricted members of their own departments           |
+| Member           | Everything                                                                   | Their own sign-in                                                 |
+| Restricted       | Agents and previews, with no terminal, no source control and read-only files | Their own sign-in                                                 |
+| Auditor          | Looking only                                                                 | The audit log                                                     |
 
 Someone can change only the people whose role they could give, so an admin cannot change, reset or
 deactivate an owner. A new role applies at once: the person's open windows reconnect with it. There
@@ -262,6 +262,37 @@ terminal, and the sites they may reach beyond the allowed hosts or may not reach
 template blocks GitHub and the package registries. A change to the terminal or to sites reaches
 workspaces that are awake at once, and people whose terminal changed reconnect; a new size, image
 or sleep time waits until each workspace next wakes.
+
+## Provision people from your identity provider
+
+Microsoft Entra ID, Okta and other identity providers can keep Codenine's people in step over SCIM
+2.0. They add people, change their names and emails, and move them between departments: each
+group they push is a department, and a group named like an existing department joins it.
+Unassigning someone in the identity provider deactivates them, which signs them out everywhere and
+stops their workspaces. Removing someone from a group takes them out of that department and stops
+their workspace there. Roles stay as you set them under **Account**, and new people are members.
+
+An owner sets it up under **Account**, in **Provisioning**: copy the address, then choose **Create
+token** and copy the token, which is shown once. Replacing or revoking the token stops the identity
+provider until it has the new one.
+
+- **Microsoft Entra ID**: create an enterprise application of your own (not from the gallery). In
+  its **Provisioning**, choose automatic provisioning, give the address as the tenant URL and the
+  token as the secret token, and test the connection. In the user mappings keep `userName`,
+  `active`, `displayName`, `emails[type eq "work"].value`, `name.givenName`, `name.familyName` and
+  `externalId`, and remove the others, which Codenine does not keep. Assign the groups whose people
+  should use Codenine, then start provisioning.
+- **Okta**: in your app integration, turn on SCIM provisioning. Give the address as the SCIM
+  connector base URL, `userName` as the unique identifier, and the token as a bearer token in an
+  HTTP header. Choose to push new users, profile updates and groups; under **To App**, allow
+  creating users, updating their attributes and deactivating them. Then push the groups that
+  should be departments.
+
+People the identity provider adds have no password. They sign in through it once single sign-on
+is set up; until then, **Reset sign-in** gives them a link to set up a password. Keep at least one
+owner who signs in without the identity provider, so you can reach Codenine if it fails. The
+identity provider can deactivate owners, but never the last one. Deleting a pushed group deletes
+its department and the department's profile; the people in it keep their files.
 
 ## Read the audit log
 

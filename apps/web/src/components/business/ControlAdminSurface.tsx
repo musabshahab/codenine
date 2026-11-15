@@ -7,6 +7,7 @@ import {
   type ControlLicenceOverview,
   type ControlMe,
   type ControlPerson,
+  type ControlProvisioning,
   type ControlRole,
   type ControlSessionEntry,
   type ControlSignInMethods,
@@ -34,6 +35,7 @@ import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
 import { Textarea } from "../ui/textarea";
 import { type ControlCall, ROLE_LABELS, SectionTitle } from "./adminParts";
 import { DepartmentsSection } from "./ControlDepartments";
+import { ProvisioningSection } from "./ControlProvisioning";
 
 interface AdminData {
   readonly me: ControlMe;
@@ -44,28 +46,33 @@ interface AdminData {
   readonly people: ReadonlyArray<ControlPerson> | null;
   readonly departments: ReadonlyArray<ControlDepartment> | null;
   readonly audit: ControlAuditPage | null;
+  readonly provisioning: ControlProvisioning | null;
 }
 
 const loadAdminData = async (): Promise<AdminData | null> => {
   const me = await fetchControlMe();
   if (me === null) return null;
-  const [sessions, signInMethods, licence, people, departments, audit] = await Promise.all([
-    callControl((client) => client.me.sessions()),
-    callControl((client) => client.me.signInMethods()),
-    permissionReach(me.role, "licence:read") === null
-      ? null
-      : callControl((client) => client.admin.licence()),
-    permissionReach(me.role, "people:manage") === null
-      ? null
-      : callControl((client) => client.admin.people()),
-    permissionReach(me.role, "departments:manage") === null
-      ? null
-      : callControl((client) => client.admin.departments()),
-    permissionReach(me.role, "audit:read") === null
-      ? null
-      : callControl((client) => client.admin.audit({ query: {} })),
-  ]);
-  return { me, sessions, signInMethods, licence, people, departments, audit };
+  const [sessions, signInMethods, licence, people, departments, audit, provisioning] =
+    await Promise.all([
+      callControl((client) => client.me.sessions()),
+      callControl((client) => client.me.signInMethods()),
+      permissionReach(me.role, "licence:read") === null
+        ? null
+        : callControl((client) => client.admin.licence()),
+      permissionReach(me.role, "people:manage") === null
+        ? null
+        : callControl((client) => client.admin.people()),
+      permissionReach(me.role, "departments:manage") === null
+        ? null
+        : callControl((client) => client.admin.departments()),
+      permissionReach(me.role, "audit:read") === null
+        ? null
+        : callControl((client) => client.admin.audit({ query: {} })),
+      permissionReach(me.role, "security:manage") === null
+        ? null
+        : callControl((client) => client.admin.provisioning()),
+    ]);
+  return { me, sessions, signInMethods, licence, people, departments, audit, provisioning };
 };
 
 /** Licence, people and sessions for a business installation. */
@@ -188,6 +195,27 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
           departments={data.departments}
           onAction={act}
           people={data.people ?? []}
+        />
+      )}
+
+      {data.provisioning === null ? null : (
+        <ProvisioningSection
+          onCreateToken={async () => {
+            setErrorMessage("");
+            const created = await callControl((client) =>
+              client.admin.createProvisioningToken(),
+            ).then(
+              ({ token }) => token,
+              (error: unknown) => {
+                setErrorMessage(controlErrorMessage(error));
+                return null;
+              },
+            );
+            if (created !== null) await refresh();
+            return created;
+          }}
+          onRevokeToken={() => act((client) => client.admin.revokeProvisioningToken())}
+          provisioning={data.provisioning}
         />
       )}
 
@@ -612,6 +640,8 @@ function PeopleSection({
 const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "licence.install": "installed licence",
   "person.invite": "invited",
+  "person.provision": "added",
+  "person.update": "changed the email or name of",
   "person.role": "changed the role of",
   "person.deactivate": "deactivated",
   "person.reactivate": "reactivated",
@@ -635,6 +665,8 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "profile.rollback": "rolled back the profile",
   "exception.create": "made an exception for",
   "exception.end": "ended an exception for",
+  "provisioning.token-create": "created a token for",
+  "provisioning.token-revoke": "revoked the token for",
 };
 
 const auditValue = (value: string | number | boolean | null | undefined) =>
