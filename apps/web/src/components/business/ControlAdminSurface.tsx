@@ -9,8 +9,9 @@ import {
   type ControlPerson,
   type ControlProvisioning,
   type ControlRole,
-  type ControlSsoConnection,
+  type ControlSession,
   type ControlSessionEntry,
+  type ControlSsoConnection,
   type ControlSignInMethods,
   permissionReach,
 } from "@codenine/contracts/control";
@@ -374,6 +375,9 @@ function LicenceSection({
   );
 }
 
+/** Enough to scan; a search finds anyone else. */
+const PEOPLE_SHOWN = 100;
+
 const PERSON_STATUS = {
   invited: { label: "Invited", variant: "info" },
   active: { label: "Active", variant: "success" },
@@ -412,6 +416,34 @@ function PeopleSection({
   const [linkError, setLinkError] = useState("");
   const [issuedLink, setIssuedLink] = useState<ControlIssuedLink | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
+  const [search, setSearch] = useState("");
+  const [openSessions, setOpenSessions] = useState<{
+    readonly personId: string;
+    readonly sessions: ReadonlyArray<ControlSession>;
+  } | null>(null);
+  const searched = search.trim().toLowerCase();
+  const matching =
+    searched === ""
+      ? people
+      : people.filter((person) =>
+          [person.displayName, person.email, ...departmentNames(person.id)]
+            .join(" ")
+            .toLowerCase()
+            .includes(searched),
+        );
+  const shownPeople = matching.slice(0, PEOPLE_SHOWN);
+
+  const toggleSessions = async (personId: string) => {
+    if (openSessions?.personId === personId) {
+      setOpenSessions(null);
+      return;
+    }
+    setLinkError("");
+    await callControl((client) => client.admin.personSessions({ params: { personId } })).then(
+      (sessions) => setOpenSessions({ personId, sessions }),
+      (error: unknown) => setLinkError(controlErrorMessage(error)),
+    );
+  };
 
   /** Asks for an invitation or reset link to show the admin. */
   const issue = async (
@@ -449,8 +481,18 @@ function PeopleSection({
   return (
     <section>
       <SectionTitle>People</SectionTitle>
-      <ul className="mt-3 divide-y divide-border/70">
-        {people.map((person) => {
+      <div className="mt-3">
+        <Input
+          aria-label="Search people"
+          onChange={(event) => setSearch(event.currentTarget.value)}
+          placeholder="Search by name, email or department"
+          size="sm"
+          type="search"
+          value={search}
+        />
+      </div>
+      <ul className="mt-2 divide-y divide-border/70">
+        {shownPeople.map((person) => {
           const manages = givable.includes(person.role);
           return (
             <li className="flex flex-wrap items-center gap-2 py-2" key={person.id}>
@@ -520,6 +562,16 @@ function PeopleSection({
                   {person.status === "invited" ? "New invitation link" : "Reset sign-in"}
                 </Button>
               )}
+              {!manages || person.id === me.id || person.status === "deactivated" ? null : (
+                <Button
+                  aria-expanded={openSessions?.personId === person.id}
+                  onClick={() => void toggleSessions(person.id)}
+                  size="xs"
+                  variant="ghost"
+                >
+                  Sessions
+                </Button>
+              )}
               {!manages || person.id === me.id ? null : person.status === "deactivated" ? (
                 <Button
                   onClick={() =>
@@ -545,10 +597,50 @@ function PeopleSection({
                   Deactivate
                 </Button>
               )}
+              {openSessions?.personId === person.id ? (
+                <div className="basis-full space-y-2 rounded-md border border-border/70 p-2 text-xs">
+                  {openSessions.sessions.length === 0 ? (
+                    <p className="text-muted-foreground">Not signed in anywhere.</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {openSessions.sessions.map((session) => (
+                        <li key={session.id}>
+                          {session.userAgent ?? "Unknown browser"} · last seen{" "}
+                          {new Date(session.lastSeenAt).toLocaleString()}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {openSessions.sessions.length === 0 ? null : (
+                    <Button
+                      onClick={() =>
+                        void onAction((client) =>
+                          client.admin.signOutPerson({ params: { personId: person.id } }),
+                        ).then((signedOut) => {
+                          if (signedOut) setOpenSessions(null);
+                        })
+                      }
+                      size="xs"
+                      variant="destructive-outline"
+                    >
+                      Sign out everywhere
+                    </Button>
+                  )}
+                </div>
+              ) : null}
             </li>
           );
         })}
       </ul>
+
+      {matching.length > shownPeople.length ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Showing {shownPeople.length} of {matching.length}. Search to find someone else.
+        </p>
+      ) : null}
+      {matching.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">Nobody matches.</p>
+      ) : null}
 
       {issuedLink === null ? null : (
         <Alert className="mt-4" variant="info">
@@ -691,6 +783,7 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "provisioning.token-create": "created a token for",
   "provisioning.token-revoke": "revoked the token for",
   "person.emergency": "changed whether this owner keeps a password:",
+  "person.sign-out": "signed out everywhere",
   "sso.create": "set up single sign-on with",
   "sso.update": "changed single sign-on with",
   "sso.delete": "removed single sign-on with",

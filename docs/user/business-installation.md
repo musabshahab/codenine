@@ -229,6 +229,10 @@ Owners, admins and department admins manage people under **Account**:
   removes all of them and their password, and gives you a new link for them.
 - **Unlock** someone after ten failed sign-in attempts; otherwise the lock lifts after 15
   minutes.
+- **Sessions** shows where someone is signed in, and **Sign out everywhere** ends all of it at once,
+  as for a lost laptop, without deactivating them.
+
+Search the list by name, email or department; it shows the first 100 matches.
 
 When a mail server is set, people who forget their password can choose **Forgot your password?**
 on the sign-in page. The emailed link works for an hour, and they still need their passkey,

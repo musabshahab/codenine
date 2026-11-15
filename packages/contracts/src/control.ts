@@ -818,6 +818,7 @@ export const ControlAuditAction = Schema.Literals([
   "provisioning.token-create",
   "provisioning.token-revoke",
   "person.emergency",
+  "person.sign-out",
   "sso.create",
   "sso.update",
   "sso.delete",
@@ -1091,6 +1092,16 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
     HttpApiEndpoint.post("reset", "/control/api/admin/people/:personId/reset", {
       params: PersonParams,
       success: ControlIssuedLink,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.get("personSessions", "/control/api/admin/people/:personId/sessions", {
+      params: PersonParams,
+      success: Schema.Array(ControlSession),
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.post("signOutPerson", "/control/api/admin/people/:personId/sign-out", {
+      params: PersonParams,
+      success: ControlOk,
       error: [ControlForbiddenError, ControlAccountError],
     }),
     HttpApiEndpoint.post("unlock", "/control/api/admin/people/:personId/unlock", {

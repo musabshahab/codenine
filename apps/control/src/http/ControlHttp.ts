@@ -469,6 +469,12 @@ export const layerAdminApi = HttpApiBuilder.group(
           Effect.as(ok),
         ),
       )
+      .handle("personSessions", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.personSessions(by, params.personId)),
+      )
+      .handle("signOutPerson", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.signOutPerson(by, params.personId)).pipe(Effect.as(ok)),
+      )
       .handle("ssoConnections", () => Effect.flatMap(actor, admin.ssoConnections))
       .handle("createSsoConnection", ({ payload }) =>
         Effect.flatMap(actor, (by) =>

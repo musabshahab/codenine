@@ -127,7 +127,7 @@ describe("Administration", () => {
     ),
   );
 
-  it.effect("applies a new role to open connections at once", () =>
+  it.effect("applies a new role to open connections at once, and signs people out", () =>
     withAdministration(() =>
       Effect.gen(function* () {
         const admin = yield* Administration.Administration;
@@ -149,6 +149,18 @@ describe("Administration", () => {
         // The session itself goes on, and the next connection carries the new role.
         const after = Option.getOrThrow(yield* sessions.authenticate(token));
         expect(after.person.role).toBe("restricted");
+
+        // Signing them out everywhere ends the session itself.
+        expect((yield* admin.personSessions(bea, cy.id)).map(({ id }) => id)).toEqual([
+          after.sessionId,
+        ]);
+        const signedOut = yield* Effect.forkChild(sessions.awaitEnd(after), {
+          startImmediately: true,
+        });
+        yield* admin.signOutPerson(bea, cy.id);
+        yield* Fiber.join(signedOut);
+        expect(Option.isNone(yield* sessions.authenticate(token))).toBe(true);
+        expect(yield* admin.personSessions(bea, cy.id)).toEqual([]);
       }),
     ),
   );

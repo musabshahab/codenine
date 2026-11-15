@@ -23,6 +23,7 @@ import {
   type ControlProvisioning,
   type ControlProvisioningToken,
   type ControlRole,
+  type ControlSession,
   ControlSsoError,
   type ControlSsoConnection,
   type ControlSsoProtocol,
@@ -128,6 +129,15 @@ export class Administration extends Context.Service<
         readonly departments?: ReadonlyArray<string> | undefined;
       },
     ) => Effect.Effect<IssuedLink, PersonError | ControlDepartmentError>;
+    readonly personSessions: (
+      actor: AdminActor,
+      personId: string,
+    ) => Effect.Effect<ReadonlyArray<ControlSession>, PersonError>;
+    /** Ends every session of theirs, and with it their open windows. */
+    readonly signOutPerson: (
+      actor: AdminActor,
+      personId: string,
+    ) => Effect.Effect<void, PersonError>;
     /** Someone the identity provider manages, who signs in through it: a member with no link. */
     readonly provisionPerson: (
       actor: AdminActor,
@@ -583,6 +593,22 @@ export const make = Effect.gen(function* () {
         departments: joining.map((department) => department.name).join(", ") || null,
       });
       return issued;
+    }),
+    personSessions: Effect.fn("Administration.personSessions")(function* (
+      actor: AdminActor,
+      personId: string,
+    ) {
+      yield* requireManaged(actor, personId);
+      return yield* sessions.list(personId);
+    }),
+    signOutPerson: Effect.fn("Administration.signOutPerson")(function* (
+      actor: AdminActor,
+      personId: string,
+    ) {
+      const person = yield* requireManaged(actor, personId);
+      const signedIn = (yield* sessions.list(personId)).length;
+      yield* sessions.revokeAll(personId);
+      yield* record(actor, "person.sign-out", personTarget(person), { sessions: signedIn }, null);
     }),
     provisionPerson: Effect.fn("Administration.provisionPerson")(function* (
       actor: AdminActor,
