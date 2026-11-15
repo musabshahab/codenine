@@ -234,7 +234,15 @@ export const CodexDriver: ProviderDriver<
     const checkProvider = modelCatalog.refreshInBackground.pipe(
       Effect.andThen(
         Effect.zipWith(
-          checkCodexProviderStatus(effectiveConfig, undefined, processEnv),
+          checkCodexProviderStatus(
+            effectiveConfig,
+            undefined,
+            processEnv,
+            // A managed workspace's Codex goes through its company's AI gateway.
+            processEnv.CODENINE_MANAGED_AI_GATEWAY?.trim()
+              ? { status: "authenticated", type: "customEndpoint", label: "Company account" }
+              : undefined,
+          ),
           currentCatalog,
           (draft, catalog) => stampIdentity(applyCodexModelCatalog(draft, catalog)),
           { concurrent: true },

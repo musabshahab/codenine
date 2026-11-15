@@ -1,7 +1,8 @@
-import type {
-  ControlAiAccount,
+import {
+  type ControlAiAccount,
   ControlAiAccountKind,
-  ControlAiAccountSettings,
+  type ControlAiAccountSettings,
+  aiAccountServes,
 } from "@codenine/contracts/control";
 import React, { useState } from "react";
 
@@ -16,6 +17,24 @@ import { type ControlCall, SectionTitle } from "./adminParts";
 const KIND_LABELS: Record<ControlAiAccountKind, string> = {
   anthropic: "Claude API",
   "anthropic-compatible": "Gateway with Anthropic's API",
+  openai: "OpenAI API",
+  "azure-openai": "Azure OpenAI",
+  "openai-compatible": "Gateway with OpenAI's API",
+};
+
+const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
+
+const ADDRESSES: Record<ControlAiAccountKind, string> = {
+  anthropic: "Address (leave empty for api.anthropic.com)",
+  "anthropic-compatible": "Address, such as https://litellm.acme.internal",
+  openai: "Address (leave empty for api.openai.com)",
+  "azure-openai": "Address, such as https://acme.openai.azure.com/openai",
+  "openai-compatible": "Address, such as https://litellm.acme.internal",
+};
+
+const DEFAULT_ADDRESSES: Partial<Record<ControlAiAccountKind, string>> = {
+  anthropic: "api.anthropic.com",
+  openai: "api.openai.com",
 };
 
 interface Draft {
@@ -112,10 +131,14 @@ export function AiAccountsSection({
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm font-medium">{account.name}</p>
               <Badge variant="secondary">{KIND_LABELS[account.kind]}</Badge>
-              {account.isDefault ? <Badge variant="info">Default for Claude</Badge> : null}
+              {account.isDefault ? (
+                <Badge variant="info">
+                  Default for {AGENT_NAMES[aiAccountServes(account.kind)]}
+                </Badge>
+              ) : null}
             </div>
             <p className="text-xs text-muted-foreground">
-              {account.baseUrl ?? "api.anthropic.com"} · key ending {account.keyHint}
+              {account.baseUrl ?? DEFAULT_ADDRESSES[account.kind]} · key ending {account.keyHint}
               {account.priceAdjustment === 0
                 ? ""
                 : ` · prices ${account.priceAdjustment > 0 ? "+" : ""}${account.priceAdjustment}%`}
@@ -145,7 +168,7 @@ export function AiAccountsSection({
       </ul>
       {accounts.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          No AI account is set up yet, so agents in workspaces cannot call Claude.
+          No AI account is set up yet, so agents in workspaces cannot call Claude or Codex.
         </p>
       ) : null}
 
@@ -153,7 +176,13 @@ export function AiAccountsSection({
         <Button
           className="mt-3"
           onClick={() =>
-            setEditing({ id: null, draft: { ...EMPTY, isDefault: accounts.length === 0 } })
+            setEditing({
+              id: null,
+              draft: {
+                ...EMPTY,
+                isDefault: !accounts.some(({ kind }) => aiAccountServes(kind) === "claude"),
+              },
+            })
           }
           size="sm"
           variant="outline"
@@ -166,19 +195,29 @@ export function AiAccountsSection({
             {editing.id === null ? "Add an AI account" : `Change ${editing.draft.name}`}
           </p>
           <Select
-            onValueChange={(value) =>
-              change({ kind: value === "anthropic-compatible" ? value : "anthropic" })
-            }
+            onValueChange={(value) => {
+              const kind = ControlAiAccountKind.literals.find((candidate) => candidate === value);
+              if (kind === undefined) return;
+              change({
+                kind,
+                isDefault: !accounts.some(
+                  (account) =>
+                    account.id !== editing.id &&
+                    aiAccountServes(account.kind) === aiAccountServes(kind),
+                ),
+              });
+            }}
             value={editing.draft.kind}
           >
             <SelectTrigger aria-label="Provider" size="sm">
               <SelectValue />
             </SelectTrigger>
             <SelectPopup>
-              <SelectItem value="anthropic">{KIND_LABELS.anthropic}</SelectItem>
-              <SelectItem value="anthropic-compatible">
-                {KIND_LABELS["anthropic-compatible"]}, such as LiteLLM
-              </SelectItem>
+              {ControlAiAccountKind.literals.map((kind) => (
+                <SelectItem key={kind} value={kind}>
+                  {KIND_LABELS[kind]}, for {AGENT_NAMES[aiAccountServes(kind)]}
+                </SelectItem>
+              ))}
             </SelectPopup>
           </Select>
           <Input
@@ -191,11 +230,7 @@ export function AiAccountsSection({
           <Input
             aria-label="Address"
             onChange={(event) => change({ baseUrl: event.currentTarget.value })}
-            placeholder={
-              editing.draft.kind === "anthropic"
-                ? "Address (leave empty for api.anthropic.com)"
-                : "Address, such as https://litellm.acme.internal"
-            }
+            placeholder={ADDRESSES[editing.draft.kind]}
             size="sm"
             value={editing.draft.baseUrl}
           />
@@ -221,7 +256,7 @@ export function AiAccountsSection({
               checked={editing.draft.isDefault}
               onCheckedChange={(checked) => change({ isDefault: checked === true })}
             />
-            Use it for Claude
+            Use it for {AGENT_NAMES[aiAccountServes(editing.draft.kind)]}
           </label>
           {problem ? (
             <Alert variant="error">

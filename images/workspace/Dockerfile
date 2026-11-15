@@ -13,6 +13,7 @@ RUN userdel --remove ubuntu \
   && useradd --uid 1000 --create-home --home-dir /home/codenine --shell /bin/bash codenine
 
 COPY opt/ /opt/
+COPY codex-config.toml /etc/codex/config.toml
 
 ENV PATH=/opt/codenine:/opt/claude/bin:/opt/codex/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin \
   CODENINE_HOME=/home/codenine/.codenine

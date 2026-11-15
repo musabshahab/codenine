@@ -158,8 +158,9 @@ and API people use.
 - **Every workspace reaches it as `http://codenine-gateway:8080`,** set in its environment with its
   token, so Claude in the app and in a terminal use it alike. On Docker the egress proxy answers to
   that name on each workspace's network and passes those requests, and only those, to the control
-  server; on Kubernetes it is a service. Anthropic is off the egress allow list, so the gateway is
-  the only way to Claude.
+  server; on Kubernetes it is a service. Anthropic and OpenAI are off the egress allow list, so the
+  gateway is the only way to Claude and Codex. Codex gets the gateway as a custom provider through
+  `CODENINE_CODEX_LAUNCH_ARGS`; its ID stays `codenine`, since Codex keeps it in its sessions.
 
 - **A workspace's token is stable and checked on every call.** It is signed with the workspace
   token key but has its own type, so neither kind passes for the other. It names only the person
@@ -167,17 +168,18 @@ and API people use.
   not a reason to make the container again. Revocation happens at the gateway: a deactivated
   person, or one no longer in the department, is refused within 30 seconds.
 - **Refusals use statuses the CLIs do not retry.** Claude Code and Codex retry 408, 409, 429 and
-  5xx, so the gateway's own refusals are 401, 403 or 404 in Anthropic's error shape. A provider's
-  errors pass through unchanged.
+  5xx, so the gateway's own refusals are 401, 403 or 404, in each provider's error shape. A
+  provider's errors pass through unchanged.
 - **Bodies pass through as they arrive.** The gateway asks the provider for uncompressed replies
   and reads usage from the stream as it passes, so a stream is never held back to be metered. A
   reply cut off by the workspace is recorded with what it used so far.
 - **Usage comes from `usage.iterations` when a reply has it.** With server-side fallbacks or
   compaction, the top-level usage covers only the attempt that produced the reply; each iteration
   is priced at its own model.
-- **Prices are an estimate.** They come from a table in the source
-  ([`claudePricing.ts`](../../apps/control/src/gateway/claudePricing.ts)), versioned on every
-  usage row, adjusted by each account's percentage. The provider's invoice is what the company
+- **Prices are an estimate.** They come from tables in the source
+  ([`claudePricing.ts`](../../apps/control/src/gateway/claudePricing.ts),
+  [`openaiPricing.ts`](../../apps/control/src/gateway/openaiPricing.ts)), versioned on every usage
+  row, adjusted by each account's percentage. The provider's invoice is what the company
   pays. Bedrock and Vertex AI set their own prices; the adjustment covers regional endpoints.
 - **The gateway honours `HTTPS_PROXY` and `NO_PROXY`** when it calls providers, as company
   networks often require.

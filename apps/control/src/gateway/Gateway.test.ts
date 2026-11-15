@@ -201,6 +201,64 @@ describe("Gateway", () => {
     ),
   );
 
+  it.effect("passes Codex's calls to OpenAI with the company's key, beside Claude's account", () =>
+    withGateway(
+      () =>
+        sse([
+          `event: response.created\ndata: {"type":"response.created","response":{"model":"gpt-5.5","usage":null}}\n\n`,
+          `event: response.completed\ndata: {"type":"response.completed","response":{"model":"gpt-5.5","service_tier":"default","output":[],"usage":{"input_tokens":10000,"input_tokens_details":{"cached_tokens":8000},"output_tokens":1000}}}\n\n`,
+        ]),
+      ({ asked, rows }) =>
+        Effect.gen(function* () {
+          // Each agent has its own default account.
+          const claude = yield* companyAccount;
+          const openAi = yield* (yield* AiAccounts).create({
+            name: "OpenAI",
+            kind: "openai",
+            baseUrl: null,
+            priceAdjustment: -10,
+            isDefault: true,
+            apiKey: "sk-openai-company-key",
+          });
+          expect(
+            (yield* (yield* AiAccounts).list).map(({ name, isDefault }) => [name, isDefault]),
+          ).toEqual([
+            [claude.name, true],
+            [openAi.name, true],
+          ]);
+          const ada = yield* adaInDesign;
+          const reply = yield* (yield* Gateway.Gateway).codex({
+            method: "POST",
+            path: "/v1/responses",
+            search: "",
+            headers: Headers.fromInput({
+              authorization: `Bearer ${ada.token}`,
+              "content-type": "application/json",
+              "session-id": "codex-session",
+            }),
+            body: encoder.encode(JSON.stringify({ model: "gpt-5.5", stream: true })),
+          });
+          expect(yield* readAll(reply)).toContain("response.completed");
+          expect(asked[0]?.url).toBe("https://api.openai.com/v1/responses");
+          expect(asked[0]?.headers["authorization"]).toBe("Bearer sk-openai-company-key");
+
+          // 2,000 uncached tokens at $5 and 8,000 cached at $0.50 a million, 1,000 out at $30, less 10%.
+          expect(yield* Queue.take(rows)).toMatchObject({
+            accountId: openAi.id,
+            provider: "codex",
+            model: "gpt-5.5",
+            inputTokens: 2000,
+            cacheReadTokens: 8000,
+            outputTokens: 1000,
+            costMicros: ((10_000 + 4_000 + 30_000) * 90) / 100,
+            priceVersion: "openai-2026-11-15",
+            outcome: "ok",
+            sessionId: "codex-session",
+          });
+        }),
+    ),
+  );
+
   it.effect("records what a stream used so far when the workspace stops reading", () =>
     withGateway(
       () => sse([START], false),

@@ -46,6 +46,15 @@ export const WorkspaceConfig = Config.all({
 
 const NO_PROXY = `localhost,127.0.0.1,${GATEWAY_ALIAS}`;
 
+/** Codex's provider: the gateway's Responses API, with the token from the environment. */
+const CODEX_LAUNCH_ARGS = [
+  'model_provider="codenine"',
+  // Codex keeps this provider ID in its sessions and needs it unchanged to resume them.
+  `model_providers.codenine={name="Company account",base_url="${GATEWAY_URL}/openai/v1",wire_api="responses",env_key="CODENINE_MANAGED_AI_TOKEN",requires_openai_auth=false,supports_websockets=false}`,
+]
+  .map((value) => `-c ${JSON.stringify(value)}`)
+  .join(" ");
+
 /** What a managed workspace needs: whom to trust, when to sleep, how to reach out. */
 export const workspaceEnv = (input: {
   readonly verifier: WorkspaceTokens["Service"]["verifier"];
@@ -68,11 +77,15 @@ export const workspaceEnv = (input: {
   NO_PROXY,
   no_proxy: NO_PROXY,
   NODE_USE_ENV_PROXY: "1",
-  // Claude, in the app and in a terminal alike, goes through the company's gateway.
+  // Claude and Codex, in the app and in a terminal alike, go through the company's gateway.
   CODENINE_MANAGED_AI_GATEWAY: GATEWAY_URL,
+  CODENINE_MANAGED_AI_TOKEN: input.gatewayToken,
   ANTHROPIC_BASE_URL: `${GATEWAY_URL}/anthropic`,
   ANTHROPIC_AUTH_TOKEN: input.gatewayToken,
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+  CODENINE_CODEX_LAUNCH_ARGS: CODEX_LAUNCH_ARGS,
+  OPENAI_BASE_URL: `${GATEWAY_URL}/openai/v1`,
+  OPENAI_API_KEY: input.gatewayToken,
 });
 
 /** The labels marking whose workspace a container, pod, volume or network is. */
@@ -84,12 +97,10 @@ export const workspaceLabels = (installationId: string, key: WorkspaceKey) => ({
 });
 
 /**
- * What every workspace may reach: OpenAI for Codex, GitHub and package
- * registries. Claude goes through the gateway, never straight to Anthropic.
+ * What every workspace may reach: GitHub and package registries. Claude and
+ * Codex go through the gateway, never straight to Anthropic or OpenAI.
  */
 export const DEFAULT_ALLOWED_HOSTS: ReadonlyArray<string> = [
-  ".openai.com",
-  ".chatgpt.com",
   ".github.com",
   ".githubusercontent.com",
   ".npmjs.org",

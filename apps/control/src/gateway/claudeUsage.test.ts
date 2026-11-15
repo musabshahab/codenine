@@ -36,6 +36,7 @@ describe("makeClaudeStreamMeter", () => {
       expect(meterInPieces(stream, size)).toEqual({
         model: "claude-opus-5-5",
         failed: false,
+        ended: true,
         attempts: [
           {
             model: "claude-opus-5-5",
@@ -83,8 +84,11 @@ describe("makeClaudeStreamMeter", () => {
     expect(result.attempts.map((attempt) => attempt.tokens.inputTokens)).toEqual([5]);
   });
 
-  it("has no attempts for a stream that ends before any usage", () => {
-    expect(meterInPieces("event: ping\ndata: {}\n\n", 4).attempts).toEqual([]);
+  it("has no attempts for a stream cut off before any usage, and knows it did not end", () => {
+    expect(meterInPieces("event: ping\ndata: {}\n\n", 4)).toMatchObject({
+      attempts: [],
+      ended: false,
+    });
   });
 });
 
@@ -117,6 +121,7 @@ describe("meterClaudeJson", () => {
       model: "claude-opus-5-5",
       attempts: [],
       failed: true,
+      ended: true,
     });
   });
 });

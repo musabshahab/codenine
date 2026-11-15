@@ -47,6 +47,7 @@ curl -fsSL -o "$context/codex.tar.gz" "$codex_url"
 echo "$codex_sha256  $context/codex.tar.gz" | sha256sum --check --quiet
 tar -xzf "$context/codex.tar.gz" -C "$context/opt/codex"
 rm "$context/codex.tar.gz"
+cp "$(dirname "$0")/codex-config.toml" "$context/codex-config.toml"
 
 # Proxy settings pass through to the package install and stay out of the image.
 docker build --tag "$tag" --file "$(dirname "$0")/Dockerfile" \

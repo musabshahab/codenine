@@ -720,14 +720,28 @@ export const ControlSsoConnection = Schema.Struct({
 });
 export type ControlSsoConnection = typeof ControlSsoConnection.Type;
 
-/** Where the gateway sends Claude's calls: Anthropic's API, or another gateway that speaks it. */
-export const ControlAiAccountKind = Schema.Literals(["anthropic", "anthropic-compatible"]);
+/**
+ * Where the gateway sends calls: Anthropic's API or another gateway that
+ * speaks it for Claude; OpenAI's, Azure OpenAI's, or another gateway that
+ * speaks it for Codex.
+ */
+export const ControlAiAccountKind = Schema.Literals([
+  "anthropic",
+  "anthropic-compatible",
+  "openai",
+  "azure-openai",
+  "openai-compatible",
+]);
 export type ControlAiAccountKind = typeof ControlAiAccountKind.Type;
+
+/** The agent an account's kind serves. */
+export const aiAccountServes = (kind: ControlAiAccountKind): "claude" | "codex" =>
+  kind === "anthropic" || kind === "anthropic-compatible" ? "claude" : "codex";
 
 const AiAccountCommon = {
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   kind: ControlAiAccountKind,
-  /** Null for the provider's own address; needed for another gateway. */
+  /** Null for the provider's own address; needed for Azure OpenAI and another gateway. */
   baseUrl: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(2048))),
   /** A percentage added to every price: -15 for a negotiated discount, 10 for a regional endpoint. */
   priceAdjustment: Schema.Number.check(
@@ -735,7 +749,7 @@ const AiAccountCommon = {
     Schema.isGreaterThanOrEqualTo(-100),
     Schema.isLessThanOrEqualTo(100),
   ),
-  /** Whether workspaces use it for its provider unless a rule picks another. */
+  /** Whether workspaces use it for the agent it serves unless a rule picks another. */
   isDefault: Schema.Boolean,
 };
 
@@ -770,7 +784,7 @@ export class ControlAiError extends Schema.TaggedError<ControlAiError>()(
       case "needs-key":
         return "Give the account's API key.";
       case "needs-address":
-        return "Give the address of the gateway, such as https://litellm.acme.internal.";
+        return "Give the address, such as https://acme.openai.azure.com/openai or https://litellm.acme.internal.";
       case "bad-address":
         return "The address must start with http:// or https:// and have no query or password.";
     }

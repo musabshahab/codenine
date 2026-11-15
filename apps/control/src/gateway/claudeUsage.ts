@@ -13,6 +13,8 @@ export interface ClaudeMeter {
   readonly attempts: ReadonlyArray<ClaudeAttempt>;
   /** Whether the reply said it failed, such as a stream that ended in an error event. */
   readonly failed: boolean;
+  /** Whether the stream got to its end, so a client closing it then lost nothing. */
+  readonly ended: boolean;
 }
 
 type Json = Readonly<Record<string, unknown>>;
@@ -74,13 +76,23 @@ export const meterClaudeJson = (body: Uint8Array, asked: string): ClaudeMeter =>
   try {
     reply = JSON.parse(new TextDecoder().decode(body));
   } catch {
-    return { model: asked, attempts: [], failed: true };
+    return { model: asked, attempts: [], failed: true, ended: true };
   }
   if (!isRecord(reply) || !isRecord(reply["usage"])) {
-    return { model: asked, attempts: [], failed: isRecord(reply) && reply["type"] === "error" };
+    return {
+      model: asked,
+      attempts: [],
+      failed: isRecord(reply) && reply["type"] === "error",
+      ended: true,
+    };
   }
   const answered = typeof reply["model"] === "string" ? reply["model"] : asked;
-  return { model: answered, attempts: attemptsOf(reply["usage"], asked, answered), failed: false };
+  return {
+    model: answered,
+    attempts: attemptsOf(reply["usage"], asked, answered),
+    failed: false,
+    ended: true,
+  };
 };
 
 const EVENT_PREFIX = "event:";
@@ -101,6 +113,7 @@ export const makeClaudeStreamMeter = (asked: string) => {
   let usage: Record<string, unknown> = {};
   let seen = false;
   let failed = false;
+  let ended = false;
 
   const take = (payload: string) => {
     let data: unknown;
@@ -140,6 +153,10 @@ export const makeClaudeStreamMeter = (asked: string) => {
     if (!text.startsWith(DATA_PREFIX)) return;
     const payload = text.slice(DATA_PREFIX.length).trim();
     const head = payload.slice(0, TYPE_WINDOW);
+    if (event === "message_stop" || (event === "" && /"type"\s*:\s*"message_stop"/u.test(head))) {
+      ended = true;
+      return;
+    }
     const wanted =
       event === "message_start" ||
       event === "message_delta" ||
@@ -162,6 +179,7 @@ export const makeClaudeStreamMeter = (asked: string) => {
       model: answered,
       attempts: seen ? attemptsOf(usage, asked, answered) : [],
       failed,
+      ended: ended || failed,
     }),
   };
 };

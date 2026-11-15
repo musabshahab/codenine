@@ -1,0 +1,12 @@
+# Codex in a workspace terminal calls AI through the company's gateway, as the
+# app does. The control server sets CODENINE_MANAGED_AI_TOKEN in each workspace;
+# the provider ID matches the app's, which Codex keeps in its sessions.
+model_provider = "codenine"
+
+[model_providers.codenine]
+name = "Company account"
+base_url = "http://codenine-gateway:8080/openai/v1"
+wire_api = "responses"
+env_key = "CODENINE_MANAGED_AI_TOKEN"
+requires_openai_auth = false
+supports_websockets = false

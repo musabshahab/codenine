@@ -524,6 +524,10 @@ describe("DockerWorkspaces", () => {
             "HTTPS_PROXY=http://egress:3128",
             "NO_PROXY=localhost,127.0.0.1,codenine-gateway",
             "ANTHROPIC_BASE_URL=http://codenine-gateway:8080/anthropic",
+            "OPENAI_BASE_URL=http://codenine-gateway:8080/openai/v1",
+            expect.stringMatching(
+              /^CODENINE_CODEX_LAUNCH_ARGS=.*base_url=\\"http:\/\/codenine-gateway:8080\/openai\/v1\\"/u,
+            ),
           ]),
         );
         // Claude calls the gateway with a token naming Ada's workspace, which the gateway checks.
@@ -551,10 +555,12 @@ describe("DockerWorkspaces", () => {
         expect(squid).toContain(" git.acme.test");
         expect(squid).not.toContain("api.github.com");
         expect(squid).not.toContain("acl blocked");
-        // The gateway's name leads to the control server, and Anthropic is not on the list.
+        // The gateway's name leads to the control server; the providers are not on the list.
         expect(squid).toContain("http_port 8080 accel defaultsite=codenine-gateway name=gateway");
         expect(squid).toContain("cache_peer host.docker.internal parent 3781 0 no-query");
-        expect(listed(squid, "allowed")).not.toContain(".anthropic.com");
+        expect(listed(squid, "allowed")).not.toEqual(
+          expect.arrayContaining([expect.stringMatching(/anthropic|openai|chatgpt|claude/u)]),
+        );
 
         // Bea's workspace reaches the same hosts, so it shares the proxy.
         yield* workspaces.targetFor(BEA);

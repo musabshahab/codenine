@@ -1,24 +1,33 @@
 import {
   type ControlAiAccount,
+  type ControlAiAccountKind,
   ControlAiError,
   type ControlAiAccountSettings,
+  aiAccountServes,
 } from "@codenine/contracts/control";
-import { asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { Hex } from "effect/encoding";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
 import { SecretBox } from "../accounts/SecretBox.ts";
 import { ControlDb } from "../db.ts";
 import { controlAiAccounts } from "../persistence/schema.ts";
 
-/** Anthropic's own API, for an account that names no other address. */
-export const ANTHROPIC_API_URL = "https://api.anthropic.com";
+/** The providers' own APIs, for an account that names no other address. */
+const DEFAULT_URLS: Partial<Record<ControlAiAccountKind, string>> = {
+  anthropic: "https://api.anthropic.com",
+  openai: "https://api.openai.com",
+};
+
+const KINDS_SERVING = {
+  claude: ["anthropic", "anthropic-compatible"],
+  codex: ["openai", "azure-openai", "openai-compatible"],
+} as const satisfies Record<"claude" | "codex", ReadonlyArray<ControlAiAccountKind>>;
 
 /** An account the gateway can call now: where, and with which key. */
 export interface AiUpstream {
@@ -39,8 +48,8 @@ export class AiAccounts extends Context.Service<
       settings: ControlAiAccountSettings,
     ) => Effect.Effect<ControlAiAccount, ControlAiError>;
     readonly remove: (id: string) => Effect.Effect<ControlAiAccount, ControlAiError>;
-    /** Where Claude's calls go: the default Claude account, else the oldest; null with none. */
-    readonly claude: Effect.Effect<AiUpstream | null>;
+    /** Where an agent's calls go: its default account, else its oldest; null with none. */
+    readonly upstreamFor: (agent: "claude" | "codex") => Effect.Effect<AiUpstream | null>;
   }
 >()("@codenine/control/gateway/AiAccounts") {}
 
@@ -67,7 +76,7 @@ export const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
   // Read on every call through the gateway, so kept until an account changes.
-  const cachedClaude = yield* Ref.make(Option.none<AiUpstream | null>());
+  const cached = yield* Ref.make(new Map<"claude" | "codex", AiUpstream | null>());
 
   const toAccount = (row: typeof controlAiAccounts.$inferSelect): ControlAiAccount => ({
     id: row.id,
@@ -84,7 +93,7 @@ export const make = Effect.gen(function* () {
   const rows = db.select().from(controlAiAccounts).orderBy(asc(controlAiAccounts.createdAt));
 
   const prepare = Effect.fn("AiAccounts.prepare")(function* (settings: ControlAiAccountSettings) {
-    if (settings.kind === "anthropic-compatible" && settings.baseUrl === null) {
+    if (DEFAULT_URLS[settings.kind] === undefined && settings.baseUrl === null) {
       return yield* new ControlAiError({ reason: "needs-address" });
     }
     const baseUrl = settings.baseUrl === null ? null : cleanBaseUrl(settings.baseUrl);
@@ -106,25 +115,33 @@ export const make = Effect.gen(function* () {
       .seal(encoder.encode(key), keyContext(id))
       .pipe(Effect.map((sealed) => ({ apiKey: sealed, keyHint: key.slice(-4) })));
 
-  /** Every account serves Claude for now, so a new default takes over from the others. */
-  const clearOtherDefaults = (id: string) =>
-    db.update(controlAiAccounts).set({ isDefault: false }).where(ne(controlAiAccounts.id, id));
+  /** A new default takes over from the other accounts serving the same agent. */
+  const clearOtherDefaults = (id: string, kind: ControlAiAccountKind) =>
+    db
+      .update(controlAiAccounts)
+      .set({ isDefault: false })
+      .where(
+        and(
+          ne(controlAiAccounts.id, id),
+          inArray(controlAiAccounts.kind, [...KINDS_SERVING[aiAccountServes(kind)]]),
+        ),
+      );
 
-  const changed = Ref.set(cachedClaude, Option.none());
+  const changed = Ref.set(cached, new Map());
 
   const notFound = () => new ControlAiError({ reason: "not-found" });
 
-  const loadClaude = Effect.gen(function* () {
-    const found = yield* rows;
+  const load = Effect.fn("AiAccounts.load")(function* (agent: "claude" | "codex") {
+    const found = (yield* rows).filter((row) => aiAccountServes(row.kind) === agent);
     const row = found.find((candidate) => candidate.isDefault) ?? found[0];
     if (row === undefined) return null;
     const key = yield* box.open(row.apiKey, keyContext(row.id)).pipe(Effect.orDie);
     return {
       account: toAccount(row),
-      baseUrl: row.baseUrl ?? ANTHROPIC_API_URL,
+      baseUrl: row.baseUrl ?? DEFAULT_URLS[row.kind] ?? "",
       key: decoder.decode(key),
     } satisfies AiUpstream;
-  }).pipe(dieOnDatabaseError);
+  }, dieOnDatabaseError);
 
   return AiAccounts.of({
     list: rows.pipe(
@@ -141,7 +158,7 @@ export const make = Effect.gen(function* () {
       const key = yield* sealKey(id, settings.apiKey);
       const row = yield* db.transaction(() =>
         Effect.gen(function* () {
-          if (values.isDefault) yield* clearOtherDefaults(id);
+          if (values.isDefault) yield* clearOtherDefaults(id, values.kind);
           const [inserted] = yield* db
             .insert(controlAiAccounts)
             .values({ id, ...values, ...key, createdAt: values.updatedAt })
@@ -163,7 +180,7 @@ export const make = Effect.gen(function* () {
       const key = settings.apiKey === undefined ? {} : yield* sealKey(id, settings.apiKey);
       const row = yield* db.transaction(() =>
         Effect.gen(function* () {
-          if (values.isDefault) yield* clearOtherDefaults(id);
+          if (values.isDefault) yield* clearOtherDefaults(id, values.kind);
           const [updated] = yield* db
             .update(controlAiAccounts)
             .set({ ...values, ...key })
@@ -189,13 +206,13 @@ export const make = Effect.gen(function* () {
       yield* changed;
       return toAccount(row);
     }, dieOnDatabaseError),
-    claude: Effect.gen(function* () {
-      const cached = yield* Ref.get(cachedClaude);
-      if (Option.isSome(cached)) return cached.value;
-      const loaded = yield* loadClaude;
-      yield* Ref.set(cachedClaude, Option.some(loaded));
+    upstreamFor: Effect.fn("AiAccounts.upstreamFor")(function* (agent: "claude" | "codex") {
+      const known = (yield* Ref.get(cached)).get(agent);
+      if (known !== undefined) return known;
+      const loaded = yield* load(agent);
+      yield* Ref.update(cached, (current) => new Map(current).set(agent, loaded));
       return loaded;
-    }).pipe(Effect.withSpan("AiAccounts.claude")),
+    }),
   });
 });
 

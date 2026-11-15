@@ -17,7 +17,6 @@ import { Gateway, type GatewayReply } from "./Gateway.ts";
 
 /** Anthropic's own limit on one request. */
 const MAX_REQUEST = ByteSize.mebibytes(32);
-const CLAUDE_PREFIX = "/anthropic";
 
 const toResponse = (reply: GatewayReply) =>
   reply.body instanceof Uint8Array
@@ -25,48 +24,44 @@ const toResponse = (reply: GatewayReply) =>
     : HttpServerResponse.stream(reply.body, { status: reply.status, headers: reply.headers });
 
 const tooLarge = HttpServerResponse.jsonUnsafe(
-  {
-    type: "error",
-    error: { type: "request_too_large", message: "The request is larger than 32 MB." },
-  },
+  { error: { type: "request_too_large", message: "The request is larger than 32 MB." } },
   { status: 413 },
 );
 
 /**
  * The gateway's routes, served on their own port that only workspaces reach:
- * Claude's API under `/anthropic`, and a health check.
+ * Claude's API under `/anthropic`, Codex's under `/openai`, and a health check.
  */
 export const layerRoutes = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const gateway = yield* Gateway;
-    yield* router.add(
-      "*",
-      `${CLAUDE_PREFIX}/*`,
-      Effect.gen(function* () {
+    const passOn = Effect.fn("GatewayHttp.passOn")(
+      function* (prefix: string, forward: Gateway["Service"]["claude"]) {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const url = new URL(request.url, "http://gateway.invalid");
         const body =
           request.method === "GET" || request.method === "HEAD"
             ? null
             : new Uint8Array(yield* request.arrayBuffer);
-        const reply = yield* gateway.claude({
+        const reply = yield* forward({
           method: request.method,
-          path: url.pathname.slice(CLAUDE_PREFIX.length),
+          path: url.pathname.slice(prefix.length),
           search: url.search,
           headers: request.headers,
           body,
         });
         return toResponse(reply);
-      }).pipe(
-        Effect.provideService(HttpIncomingMessage.MaxBodySize, MAX_REQUEST),
-        Effect.catchTags({
-          HttpServerError: (error) =>
-            error.reason._tag === "RequestParseError" && error.reason.reason === "BodyTooLarge"
-              ? Effect.succeed(tooLarge)
-              : Effect.fail(error),
-        }),
-      ),
+      },
+      Effect.provideService(HttpIncomingMessage.MaxBodySize, MAX_REQUEST),
+      Effect.catchTags({
+        HttpServerError: (error) =>
+          error.reason._tag === "RequestParseError" && error.reason.reason === "BodyTooLarge"
+            ? Effect.succeed(tooLarge)
+            : Effect.fail(error),
+      }),
     );
+    yield* router.add("*", "/anthropic/*", passOn("/anthropic", gateway.claude));
+    yield* router.add("*", "/openai/*", passOn("/openai", gateway.codex));
     yield* router.add("GET", "/health", Effect.succeed(HttpServerResponse.text("ok")));
   }),
 );

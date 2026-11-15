@@ -443,7 +443,7 @@ export const controlAiUsage = pgTable(
     personId: varchar("person_id", { length: 64 }).notNull(),
     departmentId: varchar("department_id", { length: 64 }),
     accountId: varchar("account_id", { length: 64 }),
-    provider: varchar("provider", { length: 16 }).notNull().$type<"claude">(),
+    provider: varchar("provider", { length: 16 }).notNull().$type<"claude" | "codex">(),
     model: varchar("model", { length: 255 }).notNull(),
     inputTokens: integer("input_tokens").notNull(),
     cacheWriteTokens: integer("cache_write_tokens").notNull(),
