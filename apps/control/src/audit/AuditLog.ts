@@ -6,7 +6,7 @@ import type {
   ControlAuditTargetKind,
   ControlAuditValues,
 } from "@codenine/contracts/control";
-import { and, asc, desc, gt, lt, lte } from "drizzle-orm";
+import { and, asc, desc, gt, inArray, lt, lte, or } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -51,8 +51,14 @@ export class AuditLog extends Context.Service<
   AuditLog,
   {
     readonly record: (entry: AuditRecord) => Effect.Effect<void>;
-    /** Newest first, a page at a time; `before` is the `next` of the page before. */
-    readonly list: (before: number | null) => Effect.Effect<ControlAuditPage>;
+    /**
+     * Newest first, a page at a time; `before` is the `next` of the page before.
+     * With `about`, only entries whose actor or target has one of those IDs.
+     */
+    readonly list: (
+      before: number | null,
+      about?: ReadonlyArray<string>,
+    ) => Effect.Effect<ControlAuditPage>;
     /** Oldest first, for exports. */
     readonly after: (id: number, limit: number) => Effect.Effect<ReadonlyArray<ControlAuditEntry>>;
     /** Removes entries recorded before `at`, but none after `upTo` when it is given. */
@@ -97,11 +103,27 @@ export const make = Effect.gen(function* () {
     });
   }, Effect.orDie);
 
-  const list = Effect.fn("AuditLog.list")(function* (before: number | null) {
+  const list = Effect.fn("AuditLog.list")(function* (
+    before: number | null,
+    about?: ReadonlyArray<string>,
+  ) {
+    if (about !== undefined && about.length === 0) {
+      return { entries: [], next: null };
+    }
     const rows = yield* db
       .select()
       .from(controlAuditEvents)
-      .where(before === null ? undefined : lt(controlAuditEvents.id, before))
+      .where(
+        and(
+          before === null ? undefined : lt(controlAuditEvents.id, before),
+          about === undefined
+            ? undefined
+            : or(
+                inArray(controlAuditEvents.actorId, [...about]),
+                inArray(controlAuditEvents.targetId, [...about]),
+              ),
+        ),
+      )
       .orderBy(desc(controlAuditEvents.id))
       .limit(PAGE_SIZE + 1);
     const entries = rows.slice(0, PAGE_SIZE).map(toEntry);

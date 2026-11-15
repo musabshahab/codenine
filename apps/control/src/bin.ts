@@ -17,6 +17,7 @@ import { Accounts } from "./accounts/Accounts.ts";
 import * as Administration from "./admin/Administration.ts";
 import * as AuditExport from "./audit/AuditExport.ts";
 import * as AuditLog from "./audit/AuditLog.ts";
+import * as Departments from "./departments/Departments.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
 import * as Sessions from "./accounts/Sessions.ts";
@@ -45,6 +46,7 @@ const layerAccounts = AccountsModule.layer.pipe(
   Layer.provideMerge(Mailer.layer),
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(AuditLog.layer),
+  Layer.provideMerge(Departments.layer),
   Layer.provideMerge(SecretBox.layer),
   Layer.provideMerge(layerControl),
   Layer.provideMerge(ControlPublicUrl.layer),

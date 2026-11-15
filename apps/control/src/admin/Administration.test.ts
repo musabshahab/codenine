@@ -95,7 +95,7 @@ describe("Administration", () => {
         expect((yield* admin.setRole(bea, { personId: cy.id, role: "admin" })).role).toBe("admin");
         expect((yield* admin.invite(ada, { ...invite, role: "owner" })).person.role).toBe("owner");
 
-        // Members and auditors manage nobody; department admins only their own departments.
+        // Members and auditors manage nobody, and a department admin with no department neither.
         for (const actor of [cy, eve, dee]) {
           expect(yield* refused(admin.issueReset(actor, bea.id))).toBe("ControlForbiddenError");
         }
@@ -158,70 +158,171 @@ describe("Administration", () => {
         const renewal = yield* sign(
           testClaims({ sub: "lic_second", seats: 10, exp: testClaims().exp + 365 * 86_400 }),
         );
-        const changes = [
-          [
-            admin.invite(ada, { email: "fay@acme.test", displayName: "Fay", role: "member" }),
-            { action: "person.invite", before: null, after: { role: "member" } },
-          ],
-          [
-            admin.setRole(ada, { personId: cy.id, role: "restricted" }),
-            { action: "person.role", before: { role: "member" }, after: { role: "restricted" } },
-          ],
-          [
-            admin.unlock(ada, cy.id),
-            {
-              action: "person.unlock",
-              before: { lockedUntil: null },
-              after: { lockedUntil: null },
-            },
-          ],
-          [
-            admin.issueReset(ada, cy.id),
-            { action: "person.reset", before: { canSignIn: false }, after: { canSignIn: false } },
-          ],
-          [
-            admin.deactivate(ada, cy.id),
-            {
-              action: "person.deactivate",
-              before: { status: "active" },
-              after: { status: "deactivated" },
-            },
-          ],
-          [
-            admin.reactivate(ada, cy.id),
-            {
-              action: "person.reactivate",
-              before: { status: "deactivated" },
-              after: { status: "invited" },
-            },
-          ],
-          [
-            admin.installLicence(ada, renewal),
-            {
-              action: "licence.install",
-              target: { kind: "licence", id: "lic_second" },
-              before: { applied: "lic_first" },
-              after: { applied: "lic_second" },
-            },
-          ],
-        ] as const;
-        for (const [change, entry] of changes) {
-          const before = (yield* newest).length;
-          yield* change;
-          const entries = yield* newest;
-          expect(entries.length).toBe(before + 1);
-          expect(entries[0]).toMatchObject({
-            actor: { kind: "person", id: ada.id, label: "ada@acme.test" },
-            source: FROM,
-            ...entry,
+        const byAda = {
+          actor: { kind: "person", id: ada.id, label: "ada@acme.test" },
+          source: FROM,
+        };
+        /** Runs a change and checks that it wrote exactly one entry, matching `entry`. */
+        const writesOne = <A, E, R>(change: Effect.Effect<A, E, R>, entry: object) =>
+          Effect.gen(function* () {
+            const before = (yield* newest)[0]?.id ?? 0;
+            const result = yield* change;
+            const [latest, previous] = yield* newest;
+            expect([latest?.id, previous?.id]).toEqual([before + 1, before]);
+            expect(latest).toMatchObject({ ...byAda, ...entry });
+            return result;
           });
-        }
+
+        yield* writesOne(
+          admin.invite(ada, { email: "fay@acme.test", displayName: "Fay", role: "member" }),
+          { action: "person.invite", before: null, after: { role: "member", departments: null } },
+        );
+        yield* writesOne(admin.setRole(ada, { personId: cy.id, role: "restricted" }), {
+          action: "person.role",
+          before: { role: "member" },
+          after: { role: "restricted" },
+        });
+        yield* writesOne(admin.unlock(ada, cy.id), {
+          action: "person.unlock",
+          before: { lockedUntil: null },
+          after: { lockedUntil: null },
+        });
+        yield* writesOne(admin.issueReset(ada, cy.id), {
+          action: "person.reset",
+          before: { canSignIn: false },
+          after: { canSignIn: false },
+        });
+        yield* writesOne(admin.deactivate(ada, cy.id), {
+          action: "person.deactivate",
+          before: { status: "active" },
+          after: { status: "deactivated" },
+        });
+        yield* writesOne(admin.reactivate(ada, cy.id), {
+          action: "person.reactivate",
+          before: { status: "deactivated" },
+          after: { status: "invited" },
+        });
+        yield* writesOne(admin.installLicence(ada, renewal), {
+          action: "licence.install",
+          target: { kind: "licence", id: "lic_second" },
+          before: { applied: "lic_first" },
+          after: { applied: "lic_second" },
+        });
+
+        const design = yield* writesOne(admin.createDepartment(ada, "Design"), {
+          action: "department.create",
+          target: { kind: "department", label: "Design" },
+          after: { name: "Design" },
+        });
+        yield* writesOne(admin.renameDepartment(ada, design.id, "Brand"), {
+          action: "department.rename",
+          before: { name: "Design" },
+          after: { name: "Brand" },
+        });
+        yield* writesOne(admin.addDepartmentMember(ada, design.id, cy.id), {
+          action: "department.add-member",
+          target: { kind: "person", label: "cy@acme.test" },
+          after: { department: "Brand" },
+        });
+        const withTeam = yield* writesOne(admin.createTeam(ada, design.id, "Logos"), {
+          action: "team.create",
+          target: { kind: "team", label: "Brand / Logos" },
+          after: { name: "Logos", department: "Brand" },
+        });
+        const team = withTeam.teams[0]?.id ?? "";
+        yield* writesOne(admin.renameTeam(ada, team, "Marks"), {
+          action: "team.rename",
+          before: { name: "Logos" },
+          after: { name: "Marks" },
+        });
+        yield* writesOne(admin.addTeamMember(ada, team, cy.id), {
+          action: "team.add-member",
+          after: { team: "Brand / Marks" },
+        });
+        yield* writesOne(admin.removeTeamMember(ada, team, cy.id), {
+          action: "team.remove-member",
+          before: { team: "Brand / Marks" },
+        });
+        yield* writesOne(admin.deleteTeam(ada, team), {
+          action: "team.delete",
+          before: { name: "Marks" },
+        });
+        yield* writesOne(admin.removeDepartmentMember(ada, design.id, cy.id), {
+          action: "department.remove-member",
+          before: { department: "Brand" },
+        });
+        yield* writesOne(admin.deleteDepartment(ada, design.id), {
+          action: "department.delete",
+          before: { name: "Brand" },
+        });
 
         // Nothing changed, nothing written: the same role again, or a refused change.
-        const count = (yield* newest).length;
+        const latest = (yield* newest)[0]?.id;
         yield* admin.setRole(ada, { personId: cy.id, role: "restricted" });
         yield* Effect.flip(admin.installLicence(cy, renewal));
-        expect((yield* newest).length).toBe(count);
+        expect((yield* newest)[0]?.id).toBe(latest);
+      }),
+    ),
+  );
+
+  it.effect("lets department admins manage the people and teams of their own departments", () =>
+    withAdministration(() =>
+      Effect.gen(function* () {
+        const admin = yield* Administration.Administration;
+        const ada = yield* person("Ada", "owner");
+        const bea = yield* person("Bea", "admin");
+        const cy = yield* person("Cy", "member");
+        const dee = yield* person("Dee", "department-admin");
+        const fay = yield* person("Fay", "member");
+        const design = yield* admin.createDepartment(ada, "Design");
+        const sales = yield* admin.createDepartment(ada, "Sales");
+        for (const member of [bea, cy, dee]) {
+          yield* admin.addDepartmentMember(ada, design.id, member.id);
+        }
+        yield* admin.addDepartmentMember(ada, sales.id, fay.id);
+
+        // Dee sees Design's people and changes those whose role she could give.
+        expect((yield* admin.people(dee)).map(({ email }) => email).toSorted()).toEqual([
+          "bea@acme.test",
+          "cy@acme.test",
+          "dee@acme.test",
+        ]);
+        yield* admin.issueReset(dee, cy.id);
+        expect(yield* refused(admin.issueReset(dee, fay.id))).toBe("ControlForbiddenError");
+        expect(yield* refused(admin.issueReset(dee, bea.id))).toBe("ControlForbiddenError");
+        expect(yield* refused(admin.addDepartmentMember(dee, design.id, fay.id))).toBe(
+          "ControlForbiddenError",
+        );
+        expect((yield* admin.departments(dee)).map(({ name }) => name)).toEqual(["Design"]);
+        expect(yield* refused(admin.createDepartment(dee, "Studio"))).toBe("ControlForbiddenError");
+
+        // She invites people into her own departments only.
+        const gus = { email: "gus@acme.test", displayName: "Gus", role: "member" } as const;
+        expect(yield* refused(admin.invite(dee, gus))).toBe("ControlForbiddenError");
+        expect(yield* refused(admin.invite(dee, { ...gus, departments: [sales.id] }))).toBe(
+          "ControlForbiddenError",
+        );
+        const invited = yield* admin.invite(dee, { ...gus, departments: [design.id] });
+        expect((yield* admin.departments(dee))[0]?.members).toContain(invited.person.id);
+
+        // Teams hold members of their department; leaving the department leaves its teams.
+        const team = (yield* admin.createTeam(dee, design.id, "Brand")).teams[0]?.id ?? "";
+        yield* admin.addTeamMember(dee, team, cy.id);
+        expect(yield* Effect.flip(admin.addTeamMember(ada, team, fay.id))).toMatchObject({
+          reason: "not-in-department",
+        });
+        const left = yield* admin.removeDepartmentMember(dee, design.id, cy.id);
+        expect(left.teams[0]?.members).toEqual([]);
+        expect(yield* Effect.flip(admin.deleteDepartment(ada, design.id))).toMatchObject({
+          reason: "not-empty",
+        });
+
+        // Her audit log is about her department and its people, not about Sales.
+        const labels = (yield* admin.audit(dee, null)).entries.map(({ target }) => target?.label);
+        expect(labels).toContain("Design / Brand");
+        expect(labels).toContain("gus@acme.test");
+        expect(labels).not.toContain("Sales");
+        expect(labels).not.toContain("fay@acme.test");
       }),
     ),
   );

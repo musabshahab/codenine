@@ -138,6 +138,52 @@ export const ControlPerson = Schema.Struct({
 });
 export type ControlPerson = typeof ControlPerson.Type;
 
+export const ControlTeam = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  /** Each is also a member of the team's department. */
+  members: Schema.Array(TrimmedNonEmptyString),
+});
+export type ControlTeam = typeof ControlTeam.Type;
+
+/** A department and the people in it, by person ID. People can be in several. */
+export const ControlDepartment = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  members: Schema.Array(TrimmedNonEmptyString),
+  teams: Schema.Array(ControlTeam),
+});
+export type ControlDepartment = typeof ControlDepartment.Type;
+
+export class ControlDepartmentError extends Schema.TaggedError<ControlDepartmentError>()(
+  "ControlDepartmentError",
+  {
+    reason: Schema.Literals([
+      "invalid-name",
+      "name-taken",
+      "not-found",
+      "not-empty",
+      "not-in-department",
+    ]),
+  },
+  { httpApiStatus: 400 },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "invalid-name":
+        return "Give it a name of up to 128 characters.";
+      case "name-taken":
+        return "Another one already has that name.";
+      case "not-found":
+        return "That department or team does not exist.";
+      case "not-empty":
+        return "Move everyone out of the department before deleting it.";
+      case "not-in-department":
+        return "Add them to the department first.";
+    }
+  }
+}
+
 export const ControlSession = Schema.Struct({
   id: TrimmedNonEmptyString,
   userAgent: Schema.NullOr(Schema.String),
@@ -397,10 +443,20 @@ export const ControlAuditAction = Schema.Literals([
   "person.unlock",
   "person.sign-in",
   "person.files-deleted",
+  "department.create",
+  "department.rename",
+  "department.delete",
+  "department.add-member",
+  "department.remove-member",
+  "team.create",
+  "team.rename",
+  "team.delete",
+  "team.add-member",
+  "team.remove-member",
 ]);
 export type ControlAuditAction = typeof ControlAuditAction.Type;
 
-export const ControlAuditTargetKind = Schema.Literals(["person", "licence"]);
+export const ControlAuditTargetKind = Schema.Literals(["person", "licence", "department", "team"]);
 export type ControlAuditTargetKind = typeof ControlAuditTargetKind.Type;
 
 /** What a change touched, before and after it. Secrets never appear here. */
@@ -594,6 +650,8 @@ const ControlMeGroup = HttpApiGroup.make("me")
   .middleware(ControlSessionAuth);
 
 const PersonParams = Schema.Struct({ personId: TrimmedNonEmptyString });
+const DepartmentParams = Schema.Struct({ departmentId: TrimmedNonEmptyString });
+const TeamParams = Schema.Struct({ teamId: TrimmedNonEmptyString });
 
 const ControlAdminGroup = HttpApiGroup.make("admin")
   .add(
@@ -615,9 +673,11 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
         email: Schema.String,
         displayName: Schema.String,
         role: ControlRole,
+        /** Department admins must name at least one of their own. */
+        departments: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
       }),
       success: ControlIssuedLink,
-      error: [ControlForbiddenError, ControlAccountError],
+      error: [ControlForbiddenError, ControlAccountError, ControlDepartmentError],
     }),
     HttpApiEndpoint.put("setRole", "/control/api/admin/people/:personId/role", {
       params: PersonParams,
@@ -645,6 +705,75 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       success: ControlOk,
       error: [ControlForbiddenError, ControlAccountError],
     }),
+    HttpApiEndpoint.get("departments", "/control/api/admin/departments", {
+      success: Schema.Array(ControlDepartment),
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.post("createDepartment", "/control/api/admin/departments", {
+      payload: Schema.Struct({ name: Schema.String }),
+      success: ControlDepartment,
+      error: [ControlForbiddenError, ControlDepartmentError],
+    }),
+    HttpApiEndpoint.put("renameDepartment", "/control/api/admin/departments/:departmentId", {
+      params: DepartmentParams,
+      payload: Schema.Struct({ name: Schema.String }),
+      success: ControlDepartment,
+      error: [ControlForbiddenError, ControlDepartmentError],
+    }),
+    HttpApiEndpoint.delete("deleteDepartment", "/control/api/admin/departments/:departmentId", {
+      params: DepartmentParams,
+      success: ControlOk,
+      error: [ControlForbiddenError, ControlDepartmentError],
+    }),
+    HttpApiEndpoint.put(
+      "addDepartmentMember",
+      "/control/api/admin/departments/:departmentId/members/:personId",
+      {
+        params: Schema.Struct({ ...DepartmentParams.fields, ...PersonParams.fields }),
+        success: ControlDepartment,
+        error: [ControlForbiddenError, ControlDepartmentError, ControlAccountError],
+      },
+    ),
+    HttpApiEndpoint.delete(
+      "removeDepartmentMember",
+      "/control/api/admin/departments/:departmentId/members/:personId",
+      {
+        params: Schema.Struct({ ...DepartmentParams.fields, ...PersonParams.fields }),
+        success: ControlDepartment,
+        error: [ControlForbiddenError, ControlDepartmentError, ControlAccountError],
+      },
+    ),
+    HttpApiEndpoint.post("createTeam", "/control/api/admin/departments/:departmentId/teams", {
+      params: DepartmentParams,
+      payload: Schema.Struct({ name: Schema.String }),
+      success: ControlDepartment,
+      error: [ControlForbiddenError, ControlDepartmentError],
+    }),
+    HttpApiEndpoint.put("renameTeam", "/control/api/admin/teams/:teamId", {
+      params: TeamParams,
+      payload: Schema.Struct({ name: Schema.String }),
+      success: ControlDepartment,
+      error: [ControlForbiddenError, ControlDepartmentError],
+    }),
+    HttpApiEndpoint.delete("deleteTeam", "/control/api/admin/teams/:teamId", {
+      params: TeamParams,
+      success: ControlDepartment,
+      error: [ControlForbiddenError, ControlDepartmentError],
+    }),
+    HttpApiEndpoint.put("addTeamMember", "/control/api/admin/teams/:teamId/members/:personId", {
+      params: Schema.Struct({ ...TeamParams.fields, ...PersonParams.fields }),
+      success: ControlDepartment,
+      error: [ControlForbiddenError, ControlDepartmentError, ControlAccountError],
+    }),
+    HttpApiEndpoint.delete(
+      "removeTeamMember",
+      "/control/api/admin/teams/:teamId/members/:personId",
+      {
+        params: Schema.Struct({ ...TeamParams.fields, ...PersonParams.fields }),
+        success: ControlDepartment,
+        error: [ControlForbiddenError, ControlDepartmentError, ControlAccountError],
+      },
+    ),
     HttpApiEndpoint.get("audit", "/control/api/admin/audit", {
       query: Schema.Struct({
         before: Schema.optionalKey(

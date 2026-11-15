@@ -240,6 +240,14 @@ If the only owner is locked out, someone with access to the control server can r
 node apps/control/src/bin.ts people reset --email you@example.com
 ```
 
+## Departments and teams
+
+Owners and admins add departments under **Account**, and put people in them; someone can be in
+several. A department admin manages the members and restricted members of their own departments:
+they invite people into one of them, reset and deactivate those people, and see only their
+departments' entries in the audit log. Teams group people within a department; a department admin
+can add teams to their departments. A department can be deleted once nobody is left in it.
+
 ## Read the audit log
 
 Owners, admins and auditors find the audit log under **Account**. It records each change to people

@@ -2,6 +2,7 @@ import {
   assignableRoles,
   type ControlAuditEntry,
   type ControlAuditPage,
+  type ControlDepartment,
   type ControlIssuedLink,
   type ControlLicenceOverview,
   type ControlMe,
@@ -31,8 +32,8 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
 import { Textarea } from "../ui/textarea";
-
-type ControlCall = (client: ControlClient) => Effect.Effect<unknown, unknown>;
+import { type ControlCall, ROLE_LABELS, SectionTitle } from "./adminParts";
+import { DepartmentsSection } from "./ControlDepartments";
 
 interface AdminData {
   readonly me: ControlMe;
@@ -41,22 +42,14 @@ interface AdminData {
   /** Null when the person's role does not show it. */
   readonly licence: ControlLicenceOverview | null;
   readonly people: ReadonlyArray<ControlPerson> | null;
+  readonly departments: ReadonlyArray<ControlDepartment> | null;
   readonly audit: ControlAuditPage | null;
 }
-
-const ROLE_LABELS: Record<ControlRole, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  "department-admin": "Department admin",
-  member: "Member",
-  restricted: "Restricted",
-  auditor: "Auditor",
-};
 
 const loadAdminData = async (): Promise<AdminData | null> => {
   const me = await fetchControlMe();
   if (me === null) return null;
-  const [sessions, signInMethods, licence, people, audit] = await Promise.all([
+  const [sessions, signInMethods, licence, people, departments, audit] = await Promise.all([
     callControl((client) => client.me.sessions()),
     callControl((client) => client.me.signInMethods()),
     permissionReach(me.role, "licence:read") === null
@@ -65,11 +58,14 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     permissionReach(me.role, "people:manage") === null
       ? null
       : callControl((client) => client.admin.people()),
+    permissionReach(me.role, "departments:manage") === null
+      ? null
+      : callControl((client) => client.admin.departments()),
     permissionReach(me.role, "audit:read") === null
       ? null
       : callControl((client) => client.admin.audit({ query: {} })),
   ]);
-  return { me, sessions, signInMethods, licence, people, audit };
+  return { me, sessions, signInMethods, licence, people, departments, audit };
 };
 
 /** Licence, people and sessions for a business installation. */
@@ -135,18 +131,20 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
     );
   }
 
-  const administers = data.licence !== null || data.people !== null;
+  const shown = [
+    data.licence === null ? null : "the licence",
+    data.people === null ? null : "the people you manage",
+    data.audit === null ? null : "the audit log",
+  ].filter((part) => part !== null);
   return (
     <StandalonePage>
       <StandalonePageHeader
         context={`${data.me.email} · ${ROLE_LABELS[data.me.role]}`}
-        title={administers || data.audit !== null ? "Administration" : "Your account"}
+        title={shown.length > 0 ? "Administration" : "Your account"}
         description={
-          administers
-            ? "The licence, the people who use Codenine, and how and where you are signed in."
-            : data.audit === null
-              ? "How you sign in to Codenine, and where you are signed in."
-              : "The audit log, and how and where you are signed in."
+          shown.length > 0
+            ? `${shown.join(", ").replace(/^t/u, "T")}, and how and where you are signed in.`
+            : "How you sign in to Codenine, and where you are signed in."
         }
       />
       <div className="mt-4 flex flex-wrap gap-2">
@@ -175,7 +173,22 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
         />
       )}
       {data.people === null ? null : (
-        <PeopleSection me={data.me} onAction={act} onChanged={refresh} people={data.people} />
+        <PeopleSection
+          departments={data.departments ?? []}
+          me={data.me}
+          onAction={act}
+          onChanged={refresh}
+          people={data.people}
+        />
+      )}
+
+      {data.departments === null ? null : (
+        <DepartmentsSection
+          canCreate={permissionReach(data.me.role, "departments:manage") === "all"}
+          departments={data.departments}
+          onAction={act}
+          people={data.people ?? []}
+        />
       )}
 
       {data.audit === null ? null : (
@@ -221,10 +234,6 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
       />
     </StandalonePage>
   );
-}
-
-function SectionTitle({ children }: { readonly children: React.ReactNode }) {
-  return <h2 className="mt-8 text-base font-semibold">{children}</h2>;
 }
 
 const LICENCE_STATUS = {
@@ -322,15 +331,24 @@ const PERSON_STATUS = {
 
 function PeopleSection({
   people,
+  departments,
   me,
   onAction,
   onChanged,
 }: {
   readonly people: ReadonlyArray<ControlPerson>;
+  readonly departments: ReadonlyArray<ControlDepartment>;
   readonly me: ControlMe;
   readonly onAction: (change: ControlCall) => Promise<boolean>;
   readonly onChanged: () => Promise<void>;
 }) {
+  // Department admins invite into one of their departments; others may leave it empty.
+  const needsDepartment = permissionReach(me.role, "people:manage") === "own-department";
+  const [department, setDepartment] = useState(needsDepartment ? (departments[0]?.id ?? "") : "");
+  const departmentNames = (personId: string) =>
+    departments
+      .filter((candidate) => candidate.members.includes(personId))
+      .map((candidate) => candidate.name);
   // Someone manages the people whose role they could give, as the control server checks.
   const givable = assignableRoles(me.role);
   const roleItems = Object.fromEntries(givable.map((role) => [role, ROLE_LABELS[role]]));
@@ -366,7 +384,9 @@ function PeopleSection({
     event.preventDefault();
     setIsInviting(true);
     const invited = await issue((client) =>
-      client.admin.invite({ payload: { email, displayName, role } }),
+      client.admin.invite({
+        payload: { email, displayName, role, departments: department === "" ? [] : [department] },
+      }),
     );
     setIsInviting(false);
     if (invited) {
@@ -388,6 +408,9 @@ function PeopleSection({
                 <p className="truncate text-xs text-muted-foreground">
                   {person.email}
                   {manages && person.id !== me.id ? "" : ` · ${ROLE_LABELS[person.role]}`}
+                  {departmentNames(person.id).length === 0
+                    ? ""
+                    : ` · ${departmentNames(person.id).join(", ")}`}
                 </p>
               </div>
               {manages && person.id !== me.id ? (
@@ -544,7 +567,35 @@ function PeopleSection({
               ))}
             </SelectPopup>
           </Select>
-          <Button disabled={isInviting} size="sm" type="submit">
+          {departments.length === 0 ? null : (
+            <Select
+              items={{
+                ...(needsDepartment ? {} : { "": "No department" }),
+                ...Object.fromEntries(departments.map(({ id, name }) => [id, name])),
+              }}
+              onValueChange={(value) => {
+                if (typeof value === "string") setDepartment(value);
+              }}
+              value={department}
+            >
+              <SelectTrigger aria-label="Department" size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {needsDepartment ? null : <SelectItem value="">No department</SelectItem>}
+                {departments.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.name}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          )}
+          <Button
+            disabled={isInviting || (needsDepartment && department === "")}
+            size="sm"
+            type="submit"
+          >
             {isInviting ? "Inviting..." : "Invite"}
           </Button>
         </div>
@@ -568,6 +619,16 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "person.unlock": "unlocked",
   "person.sign-in": "signed in",
   "person.files-deleted": "deleted the workspace files of",
+  "department.create": "created the department",
+  "department.rename": "renamed the department",
+  "department.delete": "deleted the department",
+  "department.add-member": "added to a department",
+  "department.remove-member": "removed from a department",
+  "team.create": "created the team",
+  "team.rename": "renamed the team",
+  "team.delete": "deleted the team",
+  "team.add-member": "added to a team",
+  "team.remove-member": "removed from a team",
 };
 
 const auditValue = (value: string | number | boolean | null | undefined) =>

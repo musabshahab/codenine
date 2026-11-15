@@ -157,6 +157,64 @@ export const controlSessions = pgTable(
   ],
 );
 
+/** People can belong to several departments, and get a workspace in each. */
+export const controlDepartments = pgTable(
+  "control_departments",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    name: varchar("name", { length: 128 }).notNull(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+  },
+  (table) => [uniqueIndex("idx_control_departments_name").on(sql`lower(${table.name})`)],
+);
+
+const departmentId = () =>
+  varchar("department_id", { length: 64 })
+    .notNull()
+    .references(() => controlDepartments.id, { onDelete: "cascade" });
+
+export const controlDepartmentMembers = pgTable(
+  "control_department_members",
+  {
+    departmentId: departmentId(),
+    personId: personId(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.departmentId, table.personId] }),
+    index("idx_control_department_members_person").on(table.personId),
+  ],
+);
+
+/** A group within a department, with its own adjustments to the department's profile. */
+export const controlTeams = pgTable(
+  "control_teams",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    departmentId: departmentId(),
+    name: varchar("name", { length: 128 }).notNull(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_control_teams_name").on(table.departmentId, sql`lower(${table.name})`),
+  ],
+);
+
+/** Team members are members of the team's department too. */
+export const controlTeamMembers = pgTable(
+  "control_team_members",
+  {
+    teamId: varchar("team_id", { length: 64 })
+      .notNull()
+      .references(() => controlTeams.id, { onDelete: "cascade" }),
+    personId: personId(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.teamId, table.personId] })],
+);
+
 /**
  * Keys the control server signs workspace tokens with. The private key is
  * sealed with the server's secret key; workspaces are configured with the

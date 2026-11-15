@@ -374,6 +374,45 @@ export const layerAdminApi = HttpApiBuilder.group(
       .handle("unlock", ({ params }) =>
         Effect.flatMap(actor, (by) => admin.unlock(by, params.personId)).pipe(Effect.as(ok)),
       )
+      .handle("departments", () => Effect.flatMap(actor, admin.departments))
+      .handle("createDepartment", ({ payload }) =>
+        Effect.flatMap(actor, (by) => admin.createDepartment(by, payload.name)),
+      )
+      .handle("renameDepartment", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.renameDepartment(by, params.departmentId, payload.name),
+        ),
+      )
+      .handle("deleteDepartment", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.deleteDepartment(by, params.departmentId)).pipe(
+          Effect.as(ok),
+        ),
+      )
+      .handle("addDepartmentMember", ({ params }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.addDepartmentMember(by, params.departmentId, params.personId),
+        ),
+      )
+      .handle("removeDepartmentMember", ({ params }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.removeDepartmentMember(by, params.departmentId, params.personId),
+        ),
+      )
+      .handle("createTeam", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) => admin.createTeam(by, params.departmentId, payload.name)),
+      )
+      .handle("renameTeam", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) => admin.renameTeam(by, params.teamId, payload.name)),
+      )
+      .handle("deleteTeam", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.deleteTeam(by, params.teamId)),
+      )
+      .handle("addTeamMember", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.addTeamMember(by, params.teamId, params.personId)),
+      )
+      .handle("removeTeamMember", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.removeTeamMember(by, params.teamId, params.personId)),
+      )
       .handle("audit", ({ query }) =>
         Effect.flatMap(actor, (by) => admin.audit(by, query.before ?? null)),
       );

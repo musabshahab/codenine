@@ -1,0 +1,683 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ad4e2616-9f64-46be-9e24-9d77952b1bb7",
+  "prevIds": ["54a0b108-665a-4536-90f0-9c11c9110dcc"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_department_members"],
+      "writes": [
+        "s|tbl|public.control_department_members",
+        "n|tbl|public.control_department_members",
+        "e|tbl|public.control_department_members",
+        "n|rel|public.control_department_members",
+        "n|type|public.control_department_members",
+        "n|rel|public.control_department_members_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_departments"],
+      "writes": [
+        "s|tbl|public.control_departments",
+        "n|tbl|public.control_departments",
+        "e|tbl|public.control_departments",
+        "n|rel|public.control_departments",
+        "n|type|public.control_departments",
+        "n|rel|public.control_departments_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_team_members"],
+      "writes": [
+        "s|tbl|public.control_team_members",
+        "n|tbl|public.control_team_members",
+        "e|tbl|public.control_team_members",
+        "n|rel|public.control_team_members",
+        "n|type|public.control_team_members",
+        "n|rel|public.control_team_members_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_teams"],
+      "writes": [
+        "s|tbl|public.control_teams",
+        "n|tbl|public.control_teams",
+        "e|tbl|public.control_teams",
+        "n|rel|public.control_teams",
+        "n|type|public.control_teams",
+        "n|rel|public.control_teams_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "control_department_members",
+        "idx_control_department_members_person"
+      ],
+      "writes": [
+        "s|idx|public.idx_control_department_members_person",
+        "n|idx|public.idx_control_department_members_person",
+        "e|idx|public.idx_control_department_members_person",
+        "n|rel|public.idx_control_department_members_person"
+      ],
+      "reads": [
+        "n|tbl|public.control_department_members",
+        "n|sch|public",
+        "n|col|public.control_department_members.person_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "control_departments", "idx_control_departments_name"],
+      "writes": [
+        "s|idx|public.idx_control_departments_name",
+        "n|idx|public.idx_control_departments_name",
+        "e|idx|public.idx_control_departments_name",
+        "n|rel|public.idx_control_departments_name"
+      ],
+      "reads": ["n|tbl|public.control_departments", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "control_teams", "idx_control_teams_name"],
+      "writes": [
+        "s|idx|public.idx_control_teams_name",
+        "n|idx|public.idx_control_teams_name",
+        "e|idx|public.idx_control_teams_name",
+        "n|rel|public.idx_control_teams_name"
+      ],
+      "reads": [
+        "n|tbl|public.control_teams",
+        "n|sch|public",
+        "n|col|public.control_teams.department_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_department_members"],
+      "writes": [
+        "s|fk|public.control_department_members.control_department_members_mhI2JCLQYaeZ_fkey",
+        "n|fk|public.control_department_members.control_department_members_mhI2JCLQYaeZ_fkey",
+        "e|fk|public.control_department_members.control_department_members_mhI2JCLQYaeZ_fkey",
+        "n|con|public.control_department_members.control_department_members_mhI2JCLQYaeZ_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_department_members",
+        "n|sch|public",
+        "n|tbl|public.control_departments",
+        "n|sch|public",
+        "n|col|public.control_department_members.department_id",
+        "n|col|public.control_departments.id",
+        "e|uniqueness|public.control_departments.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_department_members"],
+      "writes": [
+        "s|fk|public.control_department_members.control_department_members_person_id_control_people_id_fkey",
+        "n|fk|public.control_department_members.control_department_members_person_id_control_people_id_fkey",
+        "e|fk|public.control_department_members.control_department_members_person_id_control_people_id_fkey",
+        "n|con|public.control_department_members.control_department_members_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_department_members",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_department_members.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_team_members"],
+      "writes": [
+        "s|fk|public.control_team_members.control_team_members_team_id_control_teams_id_fkey",
+        "n|fk|public.control_team_members.control_team_members_team_id_control_teams_id_fkey",
+        "e|fk|public.control_team_members.control_team_members_team_id_control_teams_id_fkey",
+        "n|con|public.control_team_members.control_team_members_team_id_control_teams_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_team_members",
+        "n|sch|public",
+        "n|tbl|public.control_teams",
+        "n|sch|public",
+        "n|col|public.control_team_members.team_id",
+        "n|col|public.control_teams.id",
+        "e|uniqueness|public.control_teams.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_team_members"],
+      "writes": [
+        "s|fk|public.control_team_members.control_team_members_person_id_control_people_id_fkey",
+        "n|fk|public.control_team_members.control_team_members_person_id_control_people_id_fkey",
+        "e|fk|public.control_team_members.control_team_members_person_id_control_people_id_fkey",
+        "n|con|public.control_team_members.control_team_members_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_team_members",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_team_members.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_teams"],
+      "writes": [
+        "s|fk|public.control_teams.control_teams_department_id_control_departments_id_fkey",
+        "n|fk|public.control_teams.control_teams_department_id_control_departments_id_fkey",
+        "e|fk|public.control_teams.control_teams_department_id_control_departments_id_fkey",
+        "n|con|public.control_teams.control_teams_department_id_control_departments_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_teams",
+        "n|sch|public",
+        "n|tbl|public.control_departments",
+        "n|sch|public",
+        "n|col|public.control_teams.department_id",
+        "n|col|public.control_departments.id",
+        "e|uniqueness|public.control_departments.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_department_members",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_departments",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_team_members",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_teams",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_department_members",
+        "name": "department_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_department_members",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_department_members",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_departments",
+        "name": "id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_departments",
+        "name": "name",
+        "type": "varchar(128)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_departments",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_departments",
+        "name": "updated_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_team_members",
+        "name": "team_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_team_members",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_team_members",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "department_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "name",
+        "type": "varchar(128)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "updated_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_department_members",
+        "name": "idx_control_department_members_person",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "person_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_departments",
+        "name": "idx_control_departments_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "lower(\"name\")",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "idx_control_teams_name",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "department_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "lower(\"name\")",
+            "isExpression": true,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_department_members",
+        "name": "control_department_members_mhI2JCLQYaeZ_fkey",
+        "nameExplicit": false,
+        "columns": ["department_id"],
+        "schemaTo": "public",
+        "tableTo": "control_departments",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_department_members",
+        "name": "control_department_members_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_team_members",
+        "name": "control_team_members_team_id_control_teams_id_fkey",
+        "nameExplicit": false,
+        "columns": ["team_id"],
+        "schemaTo": "public",
+        "tableTo": "control_teams",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_team_members",
+        "name": "control_team_members_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "control_teams_department_id_control_departments_id_fkey",
+        "nameExplicit": false,
+        "columns": ["department_id"],
+        "schemaTo": "public",
+        "tableTo": "control_departments",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_department_members",
+        "name": "control_department_members_pkey",
+        "columns": ["department_id", "person_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_team_members",
+        "name": "control_team_members_pkey",
+        "columns": ["team_id", "person_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_departments",
+        "name": "control_departments_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_teams",
+        "name": "control_teams_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}
