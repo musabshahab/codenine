@@ -73,6 +73,10 @@ describe("LicenceService", () => {
         yield* at("2026-12-10");
         const licence = yield* Licence.LicenceService;
         expect((yield* licence.overview).licence).toEqual({ _tag: "missing" });
+        expect(Licence.workspaceAccess((yield* licence.overview).licence)).toEqual({
+          canWork: false,
+          reason: "no-licence",
+        });
 
         const db = yield* ControlDb;
         yield* db
@@ -166,9 +170,14 @@ describe("LicenceService", () => {
 
         yield* at("2027-12-01");
         expect(yield* appliedLicence).toEqual(["lic_renewal", "active"]);
+        expect(Licence.workspaceAccess((yield* licence.overview).licence).canWork).toBe(true);
 
         yield* at("2029-12-31");
         expect(yield* appliedLicence).toEqual(["lic_renewal", "expired"]);
+        expect(Licence.workspaceAccess((yield* licence.overview).licence)).toEqual({
+          canWork: false,
+          reason: "licence-ended",
+        });
       }),
     ),
   );
@@ -185,6 +194,10 @@ describe("LicenceService", () => {
           _tag: "unusable",
           licenceId: "lic_first",
           problem: "unknown-key",
+        });
+        expect(Licence.workspaceAccess((yield* rebuilt.overview).licence)).toEqual({
+          canWork: false,
+          reason: "licence-unusable",
         });
       }),
     ),

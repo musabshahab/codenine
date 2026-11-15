@@ -1,6 +1,5 @@
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeWS from "@effect/platform-node/NodeWS";
-import { licenceAllowsWork } from "@codenine/shared/licence";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -18,7 +17,7 @@ import * as Socket from "effect/socket/Socket";
 import { type AuthenticatedSession, Sessions } from "../accounts/Sessions.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { sessionCookieName } from "../http/ControlHttp.ts";
-import { LicenceService } from "../licence/LicenceService.ts";
+import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
 import { WorkspaceTokens } from "./WorkspaceTokens.ts";
 
 /** The workspace server everyone reaches in this first version; phase 2 gives each person their own. */
@@ -81,11 +80,7 @@ export const makeWorkspaceAuthorizer = Effect.gen(function* () {
   const licence = yield* LicenceService;
   // Licence standing changes daily at most; this spares a query per request.
   const allowsWork = yield* Effect.cachedWithTTL(
-    licence.overview.pipe(
-      Effect.map(
-        ({ licence: applied }) => applied._tag === "installed" && licenceAllowsWork(applied.status),
-      ),
-    ),
+    licence.overview.pipe(Effect.map(({ licence: applied }) => workspaceAccess(applied).canWork)),
     Duration.minutes(1),
   );
   return Effect.fn("WorkspaceProxy.authorize")(function* (

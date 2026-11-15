@@ -1,4 +1,8 @@
-import type { ControlLicenceOverview, ControlLicenceSummary } from "@codenine/contracts/control";
+import type {
+  ControlLicenceOverview,
+  ControlLicenceSummary,
+  ControlWorkspaceAccess,
+} from "@codenine/contracts/control";
 import type { LicenceClaims } from "@codenine/contracts/licence";
 import {
   LicenceError,
@@ -162,6 +166,23 @@ export const make = Effect.gen(function* () {
 export const layer = Layer.effect(LicenceService, make);
 
 /** End times are exclusive, so the last day a licence or its grace covers is the day before. */
+/** Workspaces are read-only unless the licence in use allows work. */
+export const workspaceAccess = (licence: ControlLicenceSummary): ControlWorkspaceAccess => {
+  switch (licence._tag) {
+    case "missing":
+      return { canWork: false, reason: "no-licence" };
+    case "unusable":
+      return { canWork: false, reason: "licence-unusable" };
+    case "installed":
+      return licenceAllowsWork(licence.status)
+        ? { canWork: true, reason: null }
+        : {
+            canWork: false,
+            reason: licence.status === "not-yet-valid" ? "licence-not-started" : "licence-ended",
+          };
+  }
+};
+
 export const lastDay = (iso: string) =>
   DateTime.formatIsoDateUtc(DateTime.makeUnsafe(iso).pipe(DateTime.subtract({ days: 1 })));
 

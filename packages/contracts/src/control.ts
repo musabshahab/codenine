@@ -36,6 +36,15 @@ export const ControlLicenceOverview = Schema.Struct({
 });
 export type ControlLicenceOverview = typeof ControlLicenceOverview.Type;
 
+/** Whether people can change anything in their workspace, and if not, why. */
+export const ControlWorkspaceAccess = Schema.Struct({
+  canWork: Schema.Boolean,
+  reason: Schema.NullOr(
+    Schema.Literals(["no-licence", "licence-unusable", "licence-not-started", "licence-ended"]),
+  ),
+});
+export type ControlWorkspaceAccess = typeof ControlWorkspaceAccess.Type;
+
 export const ControlRole = Schema.Literals(["owner", "admin", "member"]);
 export type ControlRole = typeof ControlRole.Type;
 
@@ -393,6 +402,7 @@ const ControlAccountGroup = HttpApiGroup.make("account").add(
 const ControlMeGroup = HttpApiGroup.make("me")
   .add(
     HttpApiEndpoint.get("me", "/control/api/me", { success: ControlMe }),
+    HttpApiEndpoint.get("access", "/control/api/me/access", { success: ControlWorkspaceAccess }),
     HttpApiEndpoint.post("signOut", "/control/api/sign-out", { success: ControlOk }),
     HttpApiEndpoint.get("sessions", "/control/api/me/sessions", {
       success: Schema.Array(ControlSessionEntry),

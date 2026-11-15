@@ -51,7 +51,7 @@ import { resolveInitialServerAuthGateState } from "../environments/primary";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
-import { fetchControlMe } from "../business/control";
+import { controlStartup } from "../business/control";
 import { isBusinessEdition } from "../env";
 import { useAtomValue } from "@effect/atom-react";
 import { primaryServerConfigAtom, primaryServerWelcomeAtom } from "../state/server";
@@ -80,7 +80,7 @@ export const Route = createRootRoute({
       if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
         return { authGateState: { status: "control-server" } as const };
       }
-      if ((await fetchControlMe()) === null) {
+      if ((await controlStartup()) === null) {
         throw redirect({ to: "/admin/sign-in", replace: true });
       }
     }

@@ -1,4 +1,8 @@
-import { ControlApi, type ControlMe } from "@codenine/contracts/control";
+import {
+  ControlApi,
+  type ControlMe,
+  type ControlWorkspaceAccess,
+} from "@codenine/contracts/control";
 import type { LicenceProblem } from "@codenine/contracts/licence";
 import { layerRemoteHttpClient } from "@codenine/client-runtime/rpc";
 import * as Effect from "effect/Effect";
@@ -30,6 +34,34 @@ export const fetchControlMe = () =>
       Effect.catchTags({ ControlSignedOutError: () => Effect.succeed(null) }),
     ),
   );
+
+interface ControlStartup {
+  readonly me: ControlMe;
+  /** Null when the control server could not say; the workspace still enforces it. */
+  readonly access: ControlWorkspaceAccess | null;
+}
+
+let startup: Promise<ControlStartup | null> | undefined;
+let startupResult: ControlStartup | null = null;
+
+/**
+ * The signed-in person and what the licence allows, asked once per page load.
+ * Signing in and out reload the page, so the answer cannot go stale that way.
+ */
+export const controlStartup = () =>
+  (startup ??= Promise.all([
+    fetchControlMe(),
+    callControl((client) => client.me.access()).then(
+      (access) => access,
+      () => null,
+    ),
+  ]).then(([me, access]) => {
+    startupResult = me === null ? null : { me, access };
+    return startupResult;
+  }));
+
+/** What `controlStartup` found; the app renders only after it resolves. */
+export const currentControlStartup = () => startupResult;
 
 const LICENCE_PROBLEMS: Record<LicenceProblem, string> = {
   malformed: "This is not a Codenine licence key.",

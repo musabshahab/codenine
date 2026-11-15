@@ -29,7 +29,7 @@ import { Accounts, type IssuedLink } from "../accounts/Accounts.ts";
 import { Sessions } from "../accounts/Sessions.ts";
 import { ControlPublicUrl, enrolmentLink } from "../config.ts";
 import { ControlDb } from "../db.ts";
-import { LicenceService } from "../licence/LicenceService.ts";
+import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
 
 const ok = { ok: true as const };
 
@@ -181,9 +181,13 @@ export const layerMeApi = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const sessions = yield* Sessions;
     const accounts = yield* Accounts;
+    const licence = yield* LicenceService;
     const { secure } = yield* ControlPublicUrl;
     return handlers
       .handle("me", () => ControlPrincipal.pipe(Effect.map((principal) => principal.person)))
+      .handle("access", () =>
+        licence.overview.pipe(Effect.map(({ licence: applied }) => workspaceAccess(applied))),
+      )
       .handle(
         "signOut",
         Effect.fn("ControlHttp.signOut")(function* () {

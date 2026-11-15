@@ -11,6 +11,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useAtomValue } from "@effect/atom-react";
 import { isBusinessEdition } from "../../env";
+import { ReadOnlyNotice } from "../business/ReadOnlyNotice";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { shortcutLabelForCommand } from "../../keybindings";
 import {
@@ -301,6 +302,7 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     <SidebarFooter>
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
+      {isBusinessEdition ? <ReadOnlyNotice /> : null}
       <SidebarUtilityMenu />
     </SidebarFooter>
   );
