@@ -203,6 +203,38 @@ const describe = (
     .filter((part) => part !== null)
     .join(" · ") || "nothing of its own";
 
+/** An amount in dollars with its name beside it, so it reads the same once filled in. */
+function DollarField({
+  label,
+  name = label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  readonly label: string;
+  /** What assistive technology reads, where the label leans on a heading. */
+  readonly name?: string;
+  readonly value: string;
+  readonly placeholder: string;
+  readonly onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">{label}</span>
+      <div className="w-28 shrink-0">
+        <Input
+          aria-label={name}
+          inputMode="decimal"
+          onChange={(event) => onChange(event.currentTarget.value)}
+          placeholder={placeholder}
+          size="sm"
+          value={value}
+        />
+      </div>
+    </label>
+  );
+}
+
 function SettingsFields({
   draft,
   onChange,
@@ -283,73 +315,65 @@ function SettingsFields({
           value={draft.codexModels}
         />
       </div>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Select
-          items={EFFORTS}
-          onValueChange={(value) => {
-            if (typeof value === "string" && value in EFFORTS) {
-              onChange({ effort: value as Draft["effort"] });
-            }
-          }}
-          value={draft.effort}
-        >
-          <SelectTrigger aria-label="Highest effort" size="sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopup>
-            {Object.entries(EFFORTS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-        <Input
-          aria-label="Monthly budget for each person"
-          inputMode="decimal"
-          onChange={(event) => onChange({ monthlyUsd: event.currentTarget.value })}
-          placeholder="Each person, $ a month"
-          size="sm"
-          value={draft.monthlyUsd}
-        />
-        <Input
-          aria-label="Daily budget for each person"
-          inputMode="decimal"
-          onChange={(event) => onChange({ dailyUsd: event.currentTarget.value })}
-          placeholder="Each person, $ a day"
-          size="sm"
-          value={draft.dailyUsd}
-        />
-      </div>
-      {sharedBudgets === null ? null : (
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Input
-            aria-label="Company's monthly AI budget"
-            inputMode="decimal"
-            onChange={(event) => onChange({ companyMonthlyUsd: event.currentTarget.value })}
-            placeholder="Everyone together, $ a month"
-            size="sm"
-            value={draft.companyMonthlyUsd}
-          />
-          {sharedBudgets.map((department) => (
-            <Input
-              aria-label={`${department.name}'s monthly AI budget`}
-              inputMode="decimal"
-              key={department.id}
-              onChange={(event) =>
-                onChange({
-                  departmentMonthlyUsd: {
-                    ...draft.departmentMonthlyUsd,
-                    [department.id]: event.currentTarget.value,
-                  },
-                })
-              }
-              placeholder={`${department.name} together, $ a month`}
-              size="sm"
-              value={draft.departmentMonthlyUsd[department.id] ?? ""}
-            />
+      <Select
+        items={EFFORTS}
+        onValueChange={(value) => {
+          if (typeof value === "string" && value in EFFORTS) {
+            onChange({ effort: value as Draft["effort"] });
+          }
+        }}
+        value={draft.effort}
+      >
+        <SelectTrigger aria-label="Highest effort" size="sm">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectPopup>
+          {Object.entries(EFFORTS).map(([value, label]) => (
+            <SelectItem key={value} value={value}>
+              {label}
+            </SelectItem>
           ))}
-        </div>
+        </SelectPopup>
+      </Select>
+      <DollarField
+        label="Each person, $ a month"
+        onChange={(monthlyUsd) => onChange({ monthlyUsd })}
+        placeholder="Not set"
+        value={draft.monthlyUsd}
+      />
+      <DollarField
+        label="Each person, $ a day"
+        onChange={(dailyUsd) => onChange({ dailyUsd })}
+        placeholder="Not set"
+        value={draft.dailyUsd}
+      />
+      {sharedBudgets === null ? null : (
+        <>
+          <p className="pt-1 text-sm">Spent together, $ a month</p>
+          <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+            <DollarField
+              label="Everyone"
+              name="Everyone together, $ a month"
+              onChange={(companyMonthlyUsd) => onChange({ companyMonthlyUsd })}
+              placeholder="No limit"
+              value={draft.companyMonthlyUsd}
+            />
+            {sharedBudgets.map((department) => (
+              <DollarField
+                key={department.id}
+                label={department.name}
+                name={`${department.name} together, $ a month`}
+                onChange={(usd) =>
+                  onChange({
+                    departmentMonthlyUsd: { ...draft.departmentMonthlyUsd, [department.id]: usd },
+                  })
+                }
+                placeholder="No limit"
+                value={draft.departmentMonthlyUsd[department.id] ?? ""}
+              />
+            ))}
+          </div>
+        </>
       )}
       {withLocks ? (
         <div className="flex flex-wrap items-center gap-3 text-sm">
