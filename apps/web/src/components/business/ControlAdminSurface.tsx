@@ -7,6 +7,8 @@ import {
   type ControlLicenceOverview,
   type ControlMe,
   type ControlPerson,
+  type ControlProfile,
+  type ControlProfileException,
   type ControlProvisioning,
   type ControlRole,
   type ControlSession,
@@ -25,6 +27,7 @@ import {
   controlErrorMessage,
   fetchControlMe,
   lastCoveredDay,
+  openWorkspace,
 } from "../../business/control";
 import { createPasskey, passkeyErrorMessage, passkeysAvailable } from "../../business/passkeys";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -37,6 +40,7 @@ import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
 import { Textarea } from "../ui/textarea";
 import { type ControlCall, ROLE_LABELS, SectionTitle } from "./adminParts";
 import { DepartmentsSection } from "./ControlDepartments";
+import { ProfilesSection } from "./ControlProfiles";
 import { ProvisioningSection } from "./ControlProvisioning";
 import { SingleSignOnSection } from "./ControlSingleSignOn";
 
@@ -51,31 +55,49 @@ interface AdminData {
   readonly audit: ControlAuditPage | null;
   readonly provisioning: ControlProvisioning | null;
   readonly ssoConnections: ReadonlyArray<ControlSsoConnection> | null;
+  readonly profiles: ReadonlyArray<ControlProfile> | null;
+  readonly exceptions: ReadonlyArray<ControlProfileException> | null;
 }
 
 const loadAdminData = async (): Promise<AdminData | null> => {
   const me = await fetchControlMe();
   if (me === null) return null;
   const owns = permissionReach(me.role, "security:manage") !== null;
-  const [sessions, signInMethods, licence, people, departments, audit, provisioning, sso] =
-    await Promise.all([
-      callControl((client) => client.me.sessions()),
-      callControl((client) => client.me.signInMethods()),
-      permissionReach(me.role, "licence:read") === null
-        ? null
-        : callControl((client) => client.admin.licence()),
-      permissionReach(me.role, "people:manage") === null
-        ? null
-        : callControl((client) => client.admin.people()),
-      permissionReach(me.role, "departments:manage") === null
-        ? null
-        : callControl((client) => client.admin.departments()),
-      permissionReach(me.role, "audit:read") === null
-        ? null
-        : callControl((client) => client.admin.audit({ query: {} })),
-      owns ? callControl((client) => client.admin.provisioning()) : null,
-      owns ? callControl((client) => client.admin.ssoConnections()) : null,
-    ]);
+  const [
+    sessions,
+    signInMethods,
+    licence,
+    people,
+    departments,
+    audit,
+    provisioning,
+    sso,
+    profiles,
+    exceptions,
+  ] = await Promise.all([
+    callControl((client) => client.me.sessions()),
+    callControl((client) => client.me.signInMethods()),
+    permissionReach(me.role, "licence:read") === null
+      ? null
+      : callControl((client) => client.admin.licence()),
+    permissionReach(me.role, "people:manage") === null
+      ? null
+      : callControl((client) => client.admin.people()),
+    permissionReach(me.role, "departments:manage") === null
+      ? null
+      : callControl((client) => client.admin.departments()),
+    permissionReach(me.role, "audit:read") === null
+      ? null
+      : callControl((client) => client.admin.audit({ query: {} })),
+    owns ? callControl((client) => client.admin.provisioning()) : null,
+    owns ? callControl((client) => client.admin.ssoConnections()) : null,
+    permissionReach(me.role, "departments:manage") === null
+      ? null
+      : callControl((client) => client.admin.profiles()),
+    permissionReach(me.role, "people:manage") === null
+      ? null
+      : callControl((client) => client.admin.exceptions()),
+  ]);
   return {
     me,
     sessions,
@@ -86,6 +108,8 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     audit,
     provisioning,
     ssoConnections: sso,
+    profiles,
+    exceptions,
   };
 };
 
@@ -209,6 +233,16 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
           departments={data.departments}
           onAction={act}
           people={data.people ?? []}
+        />
+      )}
+
+      {data.profiles === null || data.profiles.length === 0 ? null : (
+        <ProfilesSection
+          departments={data.departments ?? []}
+          exceptions={data.exceptions ?? []}
+          onAction={act}
+          people={data.people ?? []}
+          profiles={data.profiles}
         />
       )}
 
@@ -417,6 +451,13 @@ function PeopleSection({
   const [issuedLink, setIssuedLink] = useState<ControlIssuedLink | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
   const [search, setSearch] = useState("");
+  // Owners may look at someone's workspace in an emergency, with a reason the person is told.
+  const canOpenWorkspaces = permissionReach(me.role, "security:manage") !== null;
+  const [opening, setOpening] = useState<{
+    readonly personId: string;
+    readonly departmentId: string | null;
+    readonly reason: string;
+  } | null>(null);
   const [openSessions, setOpenSessions] = useState<{
     readonly personId: string;
     readonly sessions: ReadonlyArray<ControlSession>;
@@ -562,6 +603,27 @@ function PeopleSection({
                   {person.status === "invited" ? "New invitation link" : "Reset sign-in"}
                 </Button>
               )}
+              {!canOpenWorkspaces || person.id === me.id || person.status === "invited" ? null : (
+                <Button
+                  aria-expanded={opening?.personId === person.id}
+                  onClick={() =>
+                    setOpening(
+                      opening?.personId === person.id
+                        ? null
+                        : {
+                            personId: person.id,
+                            departmentId:
+                              departments.find((d) => d.members.includes(person.id))?.id ?? null,
+                            reason: "",
+                          },
+                    )
+                  }
+                  size="xs"
+                  variant="ghost"
+                >
+                  Open workspace
+                </Button>
+              )}
               {!manages || person.id === me.id || person.status === "deactivated" ? null : (
                 <Button
                   aria-expanded={openSessions?.personId === person.id}
@@ -597,6 +659,64 @@ function PeopleSection({
                   Deactivate
                 </Button>
               )}
+              {opening?.personId === person.id ? (
+                <form
+                  className="basis-full space-y-2 rounded-md border border-border/70 p-2 text-xs"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setLinkError("");
+                    openWorkspace(opening.personId, opening.departmentId, opening.reason).catch(
+                      (error: unknown) => setLinkError(controlErrorMessage(error)),
+                    );
+                  }}
+                >
+                  <p className="text-muted-foreground">
+                    You see their workspace as they left it, without changing anything, for an hour.
+                    They get an email with your reason, and the audit log records it.
+                  </p>
+                  {departments.some((d) => d.members.includes(person.id)) ? (
+                    <Select
+                      items={Object.fromEntries(
+                        departments
+                          .filter((d) => d.members.includes(person.id))
+                          .map((d) => [d.id, d.name]),
+                      )}
+                      onValueChange={(value) =>
+                        setOpening({
+                          ...opening,
+                          departmentId: typeof value === "string" ? value : null,
+                        })
+                      }
+                      value={opening.departmentId}
+                    >
+                      <SelectTrigger aria-label="Their workspace in" size="xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectPopup>
+                        {departments
+                          .filter((d) => d.members.includes(person.id))
+                          .map((d) => (
+                            <SelectItem key={d.id} value={d.id}>
+                              {d.name}
+                            </SelectItem>
+                          ))}
+                      </SelectPopup>
+                    </Select>
+                  ) : null}
+                  <Input
+                    aria-label="Why you need it"
+                    onChange={(event) =>
+                      setOpening({ ...opening, reason: event.currentTarget.value })
+                    }
+                    placeholder="Why you need it, which they will read"
+                    size="sm"
+                    value={opening.reason}
+                  />
+                  <Button disabled={opening.reason.trim().length < 10} size="xs" type="submit">
+                    Open their workspace
+                  </Button>
+                </form>
+              ) : null}
               {openSessions?.personId === person.id ? (
                 <div className="basis-full space-y-2 rounded-md border border-border/70 p-2 text-xs">
                   {openSessions.sessions.length === 0 ? (
@@ -784,6 +904,8 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "provisioning.token-revoke": "revoked the token for",
   "person.emergency": "changed whether this owner keeps a password:",
   "person.sign-out": "signed out everywhere",
+  "person.workspace-open": "opened the workspace of",
+  "person.workspace-close": "left the workspace of",
   "sso.create": "set up single sign-on with",
   "sso.update": "changed single sign-on with",
   "sso.delete": "removed single sign-on with",

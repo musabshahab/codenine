@@ -88,8 +88,8 @@ export const makeWorkspaceAuthorizer = Effect.gen(function* () {
     if (Option.isNone(session)) {
       return Option.none<Authorized>();
     }
-    const { person, sessionId, departmentId } = session.value;
-    const key = yield* workplace.keyFor({ sessionId, personId: person.id, departmentId });
+    const { person, sessionId, departmentId, viewing } = session.value;
+    const key = yield* workplace.keyFor({ sessionId, personId: person.id, departmentId, viewing });
     const profile = yield* profiles.effective(key.personId, key.departmentId);
     const target = yield* manager.targetFor(key);
     const token = yield* tokens.mint({
@@ -97,7 +97,8 @@ export const makeWorkspaceAuthorizer = Effect.gen(function* () {
       sessionId: session.value.sessionId,
       name: person.displayName,
       workspaceId: target.workspaceId,
-      scopes: workspaceScopes(person.role, yield* allowsWork, profile),
+      // An owner in someone else's workspace may look but change nothing.
+      scopes: workspaceScopes(person.role, viewing === null && (yield* allowsWork), profile),
     });
     return Option.some<Authorized>({ token, session: session.value, key, target });
   });

@@ -14,6 +14,7 @@ import { Sessions } from "../accounts/Sessions.ts";
 import { AuditLog, ON_THE_SERVER } from "../audit/AuditLog.ts";
 import { ControlDb } from "../db.ts";
 import { LicenceService } from "../licence/LicenceService.ts";
+import { type MailMessage, Mailer } from "../mail/Mailer.ts";
 import { controlPeople } from "../persistence/schema.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
@@ -28,6 +29,7 @@ const withAdministration = <A, E, R>(
     readonly retired: ReadonlyArray<WorkspaceKey>;
     /** The workspaces given new hosts, a batch at a time. */
     readonly rerouted: ReadonlyArray<ReadonlyArray<WorkspaceKey>>;
+    readonly mail: ReadonlyArray<MailMessage>;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -36,6 +38,13 @@ const withAdministration = <A, E, R>(
     const sign = (claims: LicenceClaims) => signTestLicence(claims, keys.privateKey);
     const retired: Array<WorkspaceKey> = [];
     const rerouted: Array<ReadonlyArray<WorkspaceKey>> = [];
+    const mail: Array<MailMessage> = [];
+    const mailer = Mailer.of({
+      enabled: true,
+      send: Effect.fn("test.send")((message: MailMessage) =>
+        Effect.sync(() => void mail.push(message)),
+      ),
+    });
     const manager = WorkspaceManager.of({
       ...WorkspaceManager.none,
       retire: Effect.fn("test.retire")((key: WorkspaceKey) =>
@@ -47,12 +56,12 @@ const withAdministration = <A, E, R>(
     });
     return yield* Effect.gen(function* () {
       yield* (yield* LicenceService).install(yield* sign(testClaims({ seats: 10 })));
-      return yield* body({ sign, retired, rerouted });
+      return yield* body({ sign, retired, rerouted, mail });
     }).pipe(
       Effect.provide(
         Administration.layer.pipe(
           Layer.provideMerge(WorkspaceRetention.layer),
-          Layer.provideMerge(layerTestServices(keys.publicKey)),
+          Layer.provideMerge(layerTestServices(keys.publicKey, Layer.succeed(Mailer, mailer))),
           Layer.provideMerge(Layer.succeed(WorkspaceManager, manager)),
         ),
       ),
@@ -230,6 +239,63 @@ describe("Administration", () => {
           ]);
         }),
       ),
+  );
+
+  it.effect("lets owners look at someone's workspace with a reason, and tells them", () =>
+    withAdministration(({ mail }) =>
+      Effect.gen(function* () {
+        const admin = yield* Administration.Administration;
+        const sessions = yield* Sessions;
+        const ada = yield* person("Ada", "owner");
+        const bea = yield* person("Bea", "admin");
+        const cy = yield* person("Cy", "member");
+        const design = yield* admin.createDepartment(ada, "Design");
+        yield* admin.addDepartmentMember(ada, design.id, cy.id);
+        const { token } = yield* sessions.create({
+          personId: ada.id,
+          source: ON_THE_SERVER,
+          method: "password",
+        });
+        const sessionId = Option.getOrThrow(yield* sessions.authenticate(token)).sessionId;
+        const open = (actor: typeof ada, departmentId: string | null, reason: string) =>
+          admin.openWorkspace(actor, { sessionId, personId: cy.id, departmentId, reason });
+
+        // Only owners, with a real reason, in a department of theirs.
+        expect(yield* refused(open(bea, design.id, "Checking on a stuck build"))).toBe(
+          "ControlForbiddenError",
+        );
+        expect(yield* Effect.flip(open(ada, design.id, "because"))).toMatchObject({
+          reason: "needs-reason",
+        });
+        expect(yield* Effect.flip(open(ada, null, "Checking on a stuck build"))).toMatchObject({
+          reason: "not-in-department",
+        });
+
+        const viewing = yield* open(ada, design.id, "Checking on a stuck build");
+        expect(viewing).toEqual({
+          personId: cy.id,
+          departmentId: design.id,
+          until: "2026-12-10T13:00:00.000Z",
+        });
+        expect(Option.getOrThrow(yield* sessions.authenticate(token)).viewing).toEqual(viewing);
+        expect(mail.map(({ to, subject }) => ({ to, subject }))).toEqual([
+          { to: "cy@acme.test", subject: "An owner opened your Codenine workspace" },
+        ]);
+        expect(mail[0]?.text).toContain("Checking on a stuck build");
+
+        // It ends after an hour, or when they leave, and the audit log has both ends.
+        yield* TestClock.adjust("61 minutes");
+        expect(Option.getOrThrow(yield* sessions.authenticate(token)).viewing).toBeNull();
+        yield* admin.closeWorkspace(ada, sessionId);
+        const { entries } = yield* (yield* AuditLog).list(null);
+        expect(
+          entries.slice(0, 2).map(({ action, after }) => [action, after?.["reason"] ?? null]),
+        ).toEqual([
+          ["person.workspace-close", null],
+          ["person.workspace-open", "Checking on a stuck build"],
+        ]);
+      }),
+    ),
   );
 
   it.effect("writes one audit entry for each change: who, from where, and what changed", () =>

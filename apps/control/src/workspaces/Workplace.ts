@@ -3,7 +3,8 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import { Sessions } from "../accounts/Sessions.ts";
+import { Accounts } from "../accounts/Accounts.ts";
+import { Sessions, type Viewing } from "../accounts/Sessions.ts";
 import { Departments } from "../departments/Departments.ts";
 import type { WorkspaceKey } from "./WorkspaceManager.ts";
 
@@ -12,6 +13,8 @@ export interface WorkplaceSession {
   readonly sessionId: string;
   readonly personId: string;
   readonly departmentId: string | null;
+  /** Someone else's workspace an owner opened in this session. */
+  readonly viewing: Viewing | null;
 }
 
 /**
@@ -35,15 +38,41 @@ export class Workplace extends Context.Service<
 export const make = Effect.gen(function* () {
   const departments = yield* Departments;
   const sessions = yield* Sessions;
+  const accounts = yield* Accounts;
 
   const departmentsOf = Effect.fn("Workplace.departmentsOf")(function* (session: WorkplaceSession) {
     const named = yield* departments.named(session.personId);
     const chosen = named.find(({ id }) => id === session.departmentId) ?? named[0];
-    return { departments: named, current: chosen?.id ?? null };
+    const viewing = session.viewing;
+    return {
+      departments: named,
+      current: chosen?.id ?? null,
+      viewing:
+        viewing === null
+          ? null
+          : {
+              personId: viewing.personId,
+              displayName: yield* accounts.findPerson(viewing.personId).pipe(
+                Effect.map((person) => person.displayName),
+                Effect.orElseSucceed(() => viewing.personId),
+              ),
+              departmentName:
+                viewing.departmentId === null
+                  ? null
+                  : yield* departments.find(viewing.departmentId).pipe(
+                      Effect.map((department) => department.name),
+                      Effect.orElseSucceed(() => viewing.departmentId),
+                    ),
+              until: viewing.until,
+            },
+    };
   });
 
   return Workplace.of({
     keyFor: Effect.fn("Workplace.keyFor")(function* (session: WorkplaceSession) {
+      if (session.viewing !== null) {
+        return { personId: session.viewing.personId, departmentId: session.viewing.departmentId };
+      }
       return {
         personId: session.personId,
         departmentId: yield* departments.pick(session.personId, session.departmentId),

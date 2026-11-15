@@ -1,0 +1,89 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "eb34bff1-6582-4a74-8d4a-13e63228ba2c",
+  "prevIds": ["cb2476e2-bf6b-4dfd-82c4-6c0350024e26"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "control_sessions", "viewing_person_id"],
+      "writes": [
+        "s|col|public.control_sessions.viewing_person_id",
+        "n|col|public.control_sessions.viewing_person_id",
+        "e|col|public.control_sessions.viewing_person_id"
+      ],
+      "reads": ["n|tbl|public.control_sessions", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "control_sessions", "viewing_department_id"],
+      "writes": [
+        "s|col|public.control_sessions.viewing_department_id",
+        "n|col|public.control_sessions.viewing_department_id",
+        "e|col|public.control_sessions.viewing_department_id"
+      ],
+      "reads": ["n|tbl|public.control_sessions", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "control_sessions", "viewing_until"],
+      "writes": [
+        "s|col|public.control_sessions.viewing_until",
+        "n|col|public.control_sessions.viewing_until",
+        "e|col|public.control_sessions.viewing_until"
+      ],
+      "reads": ["n|tbl|public.control_sessions", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "viewing_person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "viewing_department_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "viewing_until",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

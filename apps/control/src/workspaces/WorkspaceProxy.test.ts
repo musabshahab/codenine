@@ -362,6 +362,26 @@ describe("WorkspaceProxy", () => {
           expect((yield* Effect.flip(scopesOf(ada.authorization ?? "", "ws-bea")))._tag).toBe(
             "WorkspaceTokenError",
           );
+          // Looking at Bea's workspace in an emergency, Ada gets there, but may only look.
+          const sessions = yield* Sessions;
+          const adaSession = Option.getOrThrow(
+            yield* sessions.authenticate(cookie.split("=")[1] ?? ""),
+          );
+          const there = { personId: "per_ada", sessionId: adaSession.sessionId };
+          yield* sessions.view({
+            ...there,
+            viewing: { personId: "per_bea", departmentId: null, until: "2100-01-01T00:00:00.000Z" },
+          });
+          const looking = yield* (yield* call(`http://${host}/api/echo`, { cookie })).echo;
+          expect(looking.workspace).toBe("B");
+          expect(yield* scopesOf(looking.authorization ?? "", "ws-bea")).toEqual(
+            workspaceScopes("member", false, { terminal: true }),
+          );
+          yield* sessions.stopViewing(there);
+          expect((yield* (yield* call(`http://${host}/api/echo`, { cookie })).echo).workspace).toBe(
+            "A",
+          );
+
           // A workspace that refuses the token is not Ada's any more, so the proxy looks again.
           expect(forgotten).toEqual([]);
           expect((yield* call(`http://${host}/api/refused`, { cookie })).status).toBe(401);
@@ -415,6 +435,7 @@ describe("WorkspaceProxy", () => {
             sessionId: Option.getOrThrow(session).sessionId,
             personId: "per_ada",
             departmentId: null,
+            viewing: null,
           };
           const workplace = yield* Workplace.Workplace;
           expect(yield* Effect.flip(workplace.choose(here, "dep_elsewhere"))).toMatchObject({

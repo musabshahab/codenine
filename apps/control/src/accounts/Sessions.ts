@@ -18,11 +18,19 @@ const SESSION_DAYS = 30;
 /** `last_seen_at` is written at most this often, to spare the database a write per request. */
 const TOUCH_AFTER_MINUTES = 5;
 
+export interface Viewing {
+  readonly personId: string;
+  readonly departmentId: string | null;
+  readonly until: string;
+}
+
 export interface AuthenticatedSession {
   readonly sessionId: string;
   readonly expiresAt: string;
   /** The department chosen in this session, which may no longer be the person's. */
   readonly departmentId: string | null;
+  /** Someone else's workspace an owner is looking at in this session, until it ends. */
+  readonly viewing: Viewing | null;
   readonly person: {
     readonly id: string;
     readonly email: string;
@@ -52,6 +60,17 @@ export class Sessions extends Context.Service<
     readonly revokeAll: (personId: string) => Effect.Effect<void>;
     /** Ends the person's open connections, which reconnect with what they may do now. */
     readonly reconnect: (personId: string) => Effect.Effect<void>;
+    /** Opens someone else's workspace in this session; its open connections reconnect there. */
+    readonly view: (input: {
+      readonly personId: string;
+      readonly sessionId: string;
+      readonly viewing: Viewing;
+    }) => Effect.Effect<void>;
+    /** Back to the session's own workspace; returns whose it was looking at. */
+    readonly stopViewing: (input: {
+      readonly personId: string;
+      readonly sessionId: string;
+    }) => Effect.Effect<Viewing | null>;
     /** Works in another department from this session on; its open connections reconnect there. */
     readonly chooseDepartment: (input: {
       readonly personId: string;
@@ -122,6 +141,9 @@ export const make = Effect.gen(function* () {
         expiresAt: controlSessions.expiresAt,
         lastSeenAt: controlSessions.lastSeenAt,
         departmentId: controlSessions.departmentId,
+        viewingPersonId: controlSessions.viewingPersonId,
+        viewingDepartmentId: controlSessions.viewingDepartmentId,
+        viewingUntil: controlSessions.viewingUntil,
         id: controlPeople.id,
         email: controlPeople.email,
         displayName: controlPeople.displayName,
@@ -149,8 +171,21 @@ export const make = Effect.gen(function* () {
         .set({ lastSeenAt: DateTime.formatIso(now) })
         .where(eq(controlSessions.id, row.sessionId));
     }
-    const { sessionId, expiresAt, departmentId, lastSeenAt: _lastSeenAt, ...person } = row;
-    return Option.some({ sessionId, expiresAt, departmentId, person });
+    const {
+      sessionId,
+      expiresAt,
+      departmentId,
+      viewingPersonId,
+      viewingDepartmentId,
+      viewingUntil,
+      lastSeenAt: _lastSeenAt,
+      ...person
+    } = row;
+    const viewing =
+      viewingPersonId === null || viewingUntil === null || viewingUntil <= DateTime.formatIso(now)
+        ? null
+        : { personId: viewingPersonId, departmentId: viewingDepartmentId, until: viewingUntil };
+    return Option.some({ sessionId, expiresAt, departmentId, viewing, person });
   }, Effect.orDie);
 
   const list = Effect.fn("Sessions.list")(function* (personId: string) {
@@ -216,6 +251,49 @@ export const make = Effect.gen(function* () {
     yield* PubSub.publish(connectionEnds, { personId: input.personId, sessionId: input.sessionId });
   }, Effect.orDie);
 
+  const view = Effect.fn("Sessions.view")(function* (input: {
+    readonly personId: string;
+    readonly sessionId: string;
+    readonly viewing: Viewing;
+  }) {
+    yield* db
+      .update(controlSessions)
+      .set({
+        viewingPersonId: input.viewing.personId,
+        viewingDepartmentId: input.viewing.departmentId,
+        viewingUntil: input.viewing.until,
+      })
+      .where(
+        and(eq(controlSessions.id, input.sessionId), eq(controlSessions.personId, input.personId)),
+      );
+    yield* PubSub.publish(connectionEnds, { personId: input.personId, sessionId: input.sessionId });
+  }, Effect.orDie);
+
+  const stopViewing = Effect.fn("Sessions.stopViewing")(function* (input: {
+    readonly personId: string;
+    readonly sessionId: string;
+  }) {
+    const [before] = yield* db
+      .select({
+        personId: controlSessions.viewingPersonId,
+        departmentId: controlSessions.viewingDepartmentId,
+        until: controlSessions.viewingUntil,
+      })
+      .from(controlSessions)
+      .where(
+        and(eq(controlSessions.id, input.sessionId), eq(controlSessions.personId, input.personId)),
+      );
+    if (before?.personId == null || before.until === null) {
+      return null;
+    }
+    yield* db
+      .update(controlSessions)
+      .set({ viewingPersonId: null, viewingDepartmentId: null, viewingUntil: null })
+      .where(eq(controlSessions.id, input.sessionId));
+    yield* PubSub.publish(connectionEnds, { personId: input.personId, sessionId: input.sessionId });
+    return { personId: before.personId, departmentId: before.departmentId, until: before.until };
+  }, Effect.orDie);
+
   const awaitEnd = Effect.fn("Sessions.awaitEnd")(
     function* (session: AuthenticatedSession) {
       const subscription = yield* PubSub.subscribe(connectionEnds);
@@ -263,6 +341,8 @@ export const make = Effect.gen(function* () {
     revokeAll,
     reconnect,
     chooseDepartment,
+    view,
+    stopViewing,
     awaitEnd,
   });
 });

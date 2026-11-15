@@ -281,6 +281,7 @@ describe("Accounts", () => {
             sessionId: first.session.id,
             expiresAt: first.session.expiresAt,
             departmentId: null,
+            viewing: null,
             person: { id: personId, email: "ada@acme.test", displayName: "Ada", role: "owner" },
           }),
         );

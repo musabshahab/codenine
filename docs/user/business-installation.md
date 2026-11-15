@@ -234,6 +234,12 @@ Owners, admins and department admins manage people under **Account**:
 
 Search the list by name, email or department; it shows the first 100 matches.
 
+In an emergency, such as someone being away when their work is needed, an owner can choose **Open
+workspace** next to them, say why, and look at their workspace for an hour without changing
+anything. The person gets an email with the owner's reason, the audit log records when it opened
+and closed, and a notice in the sidebar takes the owner back to their own workspace. It works for
+deactivated people too, while their files are kept.
+
 When a mail server is set, people who forget their password can choose **Forgot your password?**
 on the sign-in page. The emailed link works for an hour, and they still need their passkey,
 authenticator app or a recovery code.
@@ -266,6 +272,26 @@ terminal, and the sites they may reach beyond the allowed hosts or may not reach
 template blocks GitHub and the package registries. A change to the terminal or to sites reaches
 workspaces that are awake at once, and people whose terminal changed reconnect; a new size, image
 or sleep time waits until each workspace next wakes.
+
+## Workspace profiles
+
+A profile sets what a department's workspaces are made from: their image, CPUs, memory, how soon
+they sleep, whether there is a terminal, and the sites they may or may not reach. Owners and admins
+change the company's profile under **Account**, in **Workspace profiles**; department admins change
+their departments' and teams'. Workspaces get the company's settings, then their department's, then
+their teams'. A layer cannot change what one above it locked, turn a blocked terminal back on, or
+allow a site one above it blocked.
+
+**Preview** shows how many people a change reaches and what changes for them, before you save it.
+**Give it to everyone** saves a new version for everyone; **Try it first** gives it only to the
+people you name, and you then give it to everyone or drop it. Every version is kept, and **Roll back
+to the version before** gives everyone the previous one again. A change to the terminal or to sites
+reaches workspaces that are awake at once, as in Departments and teams; a new size or image waits
+until each workspace next starts.
+
+An exception gives one person different settings for up to 90 days, in one department or all of
+theirs, with a reason for the audit log. It stays within what the layers above lock or block, and
+ends on its own or when you end it.
 
 ## Sign in with your identity provider
 

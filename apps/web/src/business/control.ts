@@ -84,6 +84,16 @@ export const chooseDepartment = (departmentId: string) =>
     window.location.reload(),
   );
 
+/** Back to your own workspace from someone else's; the page loads again to open it. */
+export const leaveWorkspace = () =>
+  callControl((client) => client.me.leaveWorkspace()).then(() => window.location.assign("/"));
+
+/** Opens someone's workspace in this browser, read-only, after an owner gives the reason. */
+export const openWorkspace = (personId: string, departmentId: string | null, reason: string) =>
+  callControl((client) =>
+    client.admin.openWorkspace({ params: { personId }, payload: { departmentId, reason } }),
+  ).then(() => window.location.assign("/"));
+
 /** What `controlStartup` found; the app renders only after it resolves. */
 export const currentControlStartup = () => startupResult;
 

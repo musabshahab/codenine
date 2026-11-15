@@ -642,6 +642,15 @@ export const ControlMyDepartments = Schema.Struct({
   ),
   /** The one this browser works in; null when they are in none. */
   current: Schema.NullOr(TrimmedNonEmptyString),
+  /** Someone else's workspace an owner opened in this browser, read-only, until it ends. */
+  viewing: Schema.NullOr(
+    Schema.Struct({
+      personId: TrimmedNonEmptyString,
+      displayName: Schema.String,
+      departmentName: Schema.NullOr(Schema.String),
+      until: IsoDateTime,
+    }),
+  ),
 });
 export type ControlMyDepartments = typeof ControlMyDepartments.Type;
 
@@ -714,6 +723,21 @@ export const ControlSsoChoice = Schema.Struct({
   name: TrimmedNonEmptyString,
 });
 export type ControlSsoChoice = typeof ControlSsoChoice.Type;
+
+export class ControlWorkspaceAccessError extends Schema.TaggedError<ControlWorkspaceAccessError>()(
+  "ControlWorkspaceAccessError",
+  { reason: Schema.Literals(["needs-reason", "not-in-department"]) },
+  { httpApiStatus: 400 },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "needs-reason":
+        return "Say why you need their workspace, in at least 10 characters.";
+      case "not-in-department":
+        return "Choose one of the departments they work in.";
+    }
+  }
+}
 
 export class ControlSsoError extends Schema.TaggedError<ControlSsoError>()(
   "ControlSsoError",
@@ -819,6 +843,8 @@ export const ControlAuditAction = Schema.Literals([
   "provisioning.token-revoke",
   "person.emergency",
   "person.sign-out",
+  "person.workspace-open",
+  "person.workspace-close",
   "sso.create",
   "sso.update",
   "sso.delete",
@@ -906,6 +932,12 @@ export class ControlPrincipal extends Context.Service<
     readonly sessionId: string;
     /** The department chosen in this session, which may no longer be the person's. */
     readonly departmentId: string | null;
+    /** Someone else's workspace an owner opened in this session, until it ends. */
+    readonly viewing: {
+      readonly personId: string;
+      readonly departmentId: string | null;
+      readonly until: string;
+    } | null;
     readonly person: ControlMe;
   }
 >()("@codenine/contracts/control/ControlPrincipal") {}
@@ -1005,6 +1037,9 @@ const ControlMeGroup = HttpApiGroup.make("me")
       success: ControlMyDepartments,
       error: ControlDepartmentError,
     }),
+    HttpApiEndpoint.post("leaveWorkspace", "/control/api/me/leave-workspace", {
+      success: ControlMyDepartments,
+    }),
     HttpApiEndpoint.post("createDesktopCode", "/control/api/me/desktop-code", {
       success: ControlDesktopCode,
     }),
@@ -1093,6 +1128,16 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       params: PersonParams,
       success: ControlIssuedLink,
       error: [ControlForbiddenError, ControlAccountError],
+    }),
+    /** Opens their workspace, read-only, in this browser for an hour; they are told why. */
+    HttpApiEndpoint.post("openWorkspace", "/control/api/admin/people/:personId/open-workspace", {
+      params: PersonParams,
+      payload: Schema.Struct({
+        departmentId: Schema.NullOr(TrimmedNonEmptyString),
+        reason: Schema.String,
+      }),
+      success: ControlMyDepartments,
+      error: [ControlForbiddenError, ControlAccountError, ControlWorkspaceAccessError],
     }),
     HttpApiEndpoint.get("personSessions", "/control/api/admin/people/:personId/sessions", {
       params: PersonParams,

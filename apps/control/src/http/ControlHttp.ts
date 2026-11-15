@@ -242,11 +242,13 @@ export const layerMeApi = HttpApiBuilder.group(
     const licence = yield* LicenceService;
     const workspaces = yield* WorkspaceManager;
     const workplace = yield* Workplace;
+    const admin = yield* Administration;
     const { secure } = yield* ControlPublicUrl;
-    const here = Effect.map(ControlPrincipal, ({ sessionId, person, departmentId }) => ({
+    const here = Effect.map(ControlPrincipal, ({ sessionId, person, departmentId, viewing }) => ({
       sessionId,
       personId: person.id,
       departmentId,
+      viewing,
     }));
     const workspaceUnavailable = (error: WorkspaceUnavailableError) =>
       Effect.logError("A workspace could not be reached or started.", error).pipe(
@@ -270,6 +272,20 @@ export const layerMeApi = HttpApiBuilder.group(
         }),
       )
       .handle("departments", () => Effect.flatMap(here, workplace.departmentsOf))
+      .handle(
+        "leaveWorkspace",
+        Effect.fn("ControlHttp.leaveWorkspace")(function* () {
+          const session = yield* here;
+          yield* admin.closeWorkspace(
+            personActor(
+              (yield* ControlPrincipal).person,
+              requestSource(yield* HttpServerRequest.HttpServerRequest),
+            ),
+            session.sessionId,
+          );
+          return yield* workplace.departmentsOf({ ...session, viewing: null });
+        }),
+      )
       .handle("chooseDepartment", ({ payload }) =>
         Effect.flatMap(here, (session) => workplace.choose(session, payload.departmentId)),
       )
@@ -353,6 +369,7 @@ export const layerAdminApi = HttpApiBuilder.group(
   "admin",
   Effect.fnUntraced(function* (handlers) {
     const admin = yield* Administration;
+    const workplace = yield* Workplace;
     const { origin } = yield* ControlPublicUrl;
     const actor = Effect.gen(function* () {
       const { person } = yield* ControlPrincipal;
@@ -468,6 +485,24 @@ export const layerAdminApi = HttpApiBuilder.group(
         Effect.flatMap(actor, (by) => admin.endException(by, params.exceptionId)).pipe(
           Effect.as(ok),
         ),
+      )
+      .handle(
+        "openWorkspace",
+        Effect.fn("ControlHttp.openWorkspace")(function* ({ params, payload }) {
+          const principal = yield* ControlPrincipal;
+          const viewing = yield* admin.openWorkspace(yield* actor, {
+            sessionId: principal.sessionId,
+            personId: params.personId,
+            departmentId: payload.departmentId,
+            reason: payload.reason,
+          });
+          return yield* workplace.departmentsOf({
+            sessionId: principal.sessionId,
+            personId: principal.person.id,
+            departmentId: principal.departmentId,
+            viewing,
+          });
+        }),
       )
       .handle("personSessions", ({ params }) =>
         Effect.flatMap(actor, (by) => admin.personSessions(by, params.personId)),

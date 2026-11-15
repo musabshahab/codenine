@@ -57,3 +57,26 @@ export const passwordResetMail = (mail: LinkMail): MailMessage => ({
     "If it was not you, ignore this email. Your password has not changed.",
   ),
 });
+
+export const workspaceOpenedMail = (mail: {
+  readonly to: string;
+  readonly displayName: string;
+  readonly origin: string;
+  /** Who opened it, by their email. */
+  readonly by: string;
+  readonly reason: string;
+  /** When their look ends, in UTC. */
+  readonly until: string;
+}): MailMessage => ({
+  to: mail.to,
+  subject: "An owner opened your Codenine workspace",
+  text: lines(
+    `Hello ${mail.displayName},`,
+    "",
+    `${mail.by} opened your workspace on Codenine at ${mail.origin} to look at it, without changing anything, until ${mail.until} UTC.`,
+    "",
+    `The reason they gave: ${mail.reason}`,
+    "",
+    "This is in the audit log. If you have questions, ask them or another owner.",
+  ),
+});

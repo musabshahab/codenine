@@ -152,6 +152,10 @@ export const controlSessions = pgTable(
     userAgent: varchar("user_agent", { length: 512 }),
     /** The department this browser works in, while the person is still in it. */
     departmentId: varchar("department_id", { length: 64 }),
+    /** An owner's emergency look at someone else's workspace, until it ends. */
+    viewingPersonId: varchar("viewing_person_id", { length: 64 }),
+    viewingDepartmentId: varchar("viewing_department_id", { length: 64 }),
+    viewingUntil: varchar("viewing_until", { length: 64 }),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     lastSeenAt: varchar("last_seen_at", { length: 64 }).notNull(),
     expiresAt: varchar("expires_at", { length: 64 }).notNull(),

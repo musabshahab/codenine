@@ -128,6 +128,15 @@ creates its token, and `keepAnOwner` still protects the last owner. A user the i
 deletes stays as a deactivated person, so the audit log and file retention keep working, and
 `control_directory_people` hides them from SCIM, which expects a 404 after a delete.
 
+## Emergency access
+
+An owner's look at someone's workspace lives on the owner's own session, not on the person or the
+workspace, so it ends with that browser, its hour or a click, and no other session can reach it.
+The workspace sees the owner in its tokens, with the read-only scopes of a licence that does not
+allow work, so its own checks keep the look read-only and attribute anything to the owner. Opening
+it emails the person and writes an audit entry, as the plan requires; it is owners' alone, like the
+other settings that can reach anyone's data.
+
 ## Sleeping workspaces
 
 Only the workspace knows whether anyone has it open and whether its agents have work, so a

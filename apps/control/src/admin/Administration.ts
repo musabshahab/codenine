@@ -28,16 +28,18 @@ import {
   type ControlSsoConnection,
   type ControlSsoProtocol,
   type ControlSsoSettings,
+  ControlWorkspaceAccessError,
   CONTROL_PROFILE_TEMPLATES,
   permissionReach,
 } from "@codenine/contracts/control";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 
 import { Accounts, type IssuedLink } from "../accounts/Accounts.ts";
-import { Sessions } from "../accounts/Sessions.ts";
+import { Sessions, type Viewing } from "../accounts/Sessions.ts";
 import {
   type AuditActor,
   AuditLog,
@@ -48,6 +50,8 @@ import {
 import { ControlPublicUrl } from "../config.ts";
 import { Departments } from "../departments/Departments.ts";
 import { type LicenceInstallResult, LicenceService } from "../licence/LicenceService.ts";
+import { Mailer } from "../mail/Mailer.ts";
+import { workspaceOpenedMail } from "../mail/messages.ts";
 import { describeLayerChange } from "../profiles/layering.ts";
 import { type ProfileStep, Profiles, type WorkspaceChange } from "../profiles/Profiles.ts";
 import { ProvisioningTokens } from "../provisioning/ProvisioningTokens.ts";
@@ -129,6 +133,18 @@ export class Administration extends Context.Service<
         readonly departments?: ReadonlyArray<string> | undefined;
       },
     ) => Effect.Effect<IssuedLink, PersonError | ControlDepartmentError>;
+    /** An owner looks at someone's workspace in this session, read-only, for an hour. */
+    readonly openWorkspace: (
+      actor: AdminActor,
+      input: {
+        readonly sessionId: string;
+        readonly personId: string;
+        readonly departmentId: string | null;
+        readonly reason: string;
+      },
+    ) => Effect.Effect<Viewing, PersonError | ControlWorkspaceAccessError>;
+    /** Back to their own workspace. */
+    readonly closeWorkspace: (actor: AdminActor, sessionId: string) => Effect.Effect<void>;
     readonly personSessions: (
       actor: AdminActor,
       personId: string,
@@ -326,6 +342,7 @@ export const make = Effect.gen(function* () {
   const workspaces = yield* WorkspaceManager;
   const provisioningTokens = yield* ProvisioningTokens;
   const ssoConnections = yield* SsoConnections;
+  const mailer = yield* Mailer;
   const { origin } = yield* ControlPublicUrl;
 
   const record = (
@@ -593,6 +610,86 @@ export const make = Effect.gen(function* () {
         departments: joining.map((department) => department.name).join(", ") || null,
       });
       return issued;
+    }),
+    openWorkspace: Effect.fn("Administration.openWorkspace")(function* (
+      actor: AdminActor,
+      input: {
+        readonly sessionId: string;
+        readonly personId: string;
+        readonly departmentId: string | null;
+        readonly reason: string;
+      },
+    ) {
+      yield* requireSecurity(actor);
+      const opener = actor.who.kind === "person" ? actor.who.id : null;
+      if (opener === null) {
+        return yield* new ControlForbiddenError({});
+      }
+      const person = yield* requireManaged(actor, input.personId);
+      const reason = input.reason.trim().slice(0, 500);
+      if (reason.length < 10) {
+        return yield* new ControlWorkspaceAccessError({ reason: "needs-reason" });
+      }
+      const theirs = yield* departments.ofPerson(person.id);
+      if (input.departmentId === null ? theirs.length > 0 : !theirs.includes(input.departmentId)) {
+        return yield* new ControlWorkspaceAccessError({ reason: "not-in-department" });
+      }
+      const until = DateTime.formatIso(DateTime.add(yield* DateTime.now, { hours: 1 }));
+      const viewing = { personId: person.id, departmentId: input.departmentId, until };
+      yield* sessions.view({ personId: opener, sessionId: input.sessionId, viewing });
+      // They are told who looked and why, as well as the audit log.
+      const noticeEmailed = mailer.enabled
+        ? yield* mailer
+            .send(
+              workspaceOpenedMail({
+                to: person.email,
+                displayName: person.displayName,
+                origin,
+                by: actor.who.label,
+                reason,
+                until,
+              }),
+            )
+            .pipe(
+              Effect.as(true),
+              Effect.catchTags({
+                MailDeliveryError: (error) =>
+                  Effect.logWarning(
+                    "Could not tell someone their workspace was opened.",
+                    error,
+                  ).pipe(Effect.as(false)),
+              }),
+            )
+        : false;
+      yield* record(actor, "person.workspace-open", personTarget(person), null, {
+        reason,
+        department:
+          input.departmentId === null
+            ? null
+            : (yield* departments.find(input.departmentId).pipe(Effect.orDie)).name,
+        until,
+        noticeEmailed,
+      });
+      return viewing;
+    }),
+    closeWorkspace: Effect.fn("Administration.closeWorkspace")(function* (
+      actor: AdminActor,
+      sessionId: string,
+    ) {
+      const opener = actor.who.kind === "person" ? actor.who.id : null;
+      if (opener === null) return;
+      const viewed = yield* sessions.stopViewing({ personId: opener, sessionId });
+      if (viewed === null) return;
+      const person = yield* accounts.findPerson(viewed.personId).pipe(Effect.option);
+      yield* record(
+        actor,
+        "person.workspace-close",
+        person._tag === "Some"
+          ? personTarget(person.value)
+          : { kind: "person", id: viewed.personId, label: viewed.personId },
+        null,
+        null,
+      );
     }),
     personSessions: Effect.fn("Administration.personSessions")(function* (
       actor: AdminActor,
