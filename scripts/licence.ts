@@ -8,6 +8,7 @@ import {
   LicenceClaims,
   LicenceEdition,
   LicenceFeature,
+  type LicenceStanding,
   licenceStanding,
   signLicence,
   verifyLicence,
@@ -20,6 +21,7 @@ import * as Effect from "effect/Effect";
 import { Hex } from "effect/encoding";
 import * as FileSystem from "effect/FileSystem";
 import * as Jwk from "effect/jose/Jwk";
+import * as Jwt from "effect/jose/Jwt";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -34,6 +36,7 @@ export class LicenceScriptError extends Schema.TaggedError<LicenceScriptError>()
 
 const DAY_SECONDS = 86_400;
 const decodeClaims = Schema.decodeUnknownEffect(LicenceClaims);
+const day = (seconds: number) => DateTime.formatIsoDateUtc(DateTime.makeUnsafe(seconds * 1_000));
 const DATE = /^\d{4}-\d{2}-\d{2}$/u;
 
 const dayStartSeconds = (date: string, flag: string) => {
@@ -156,6 +159,10 @@ const issueCommand = Command.make(
       Flag.optional,
     ),
     licenceId: Flag.String("licence-id").pipe(Flag.optional),
+    ledger: Flag.String("ledger").pipe(
+      Flag.withDescription("Also append the key to this file, the record `list` reads."),
+      Flag.optional,
+    ),
   },
   Effect.fnUntraced(function* (flags) {
     const fs = yield* FileSystem.FileSystem;
@@ -174,7 +181,11 @@ const issueCommand = Command.make(
       issuedAtMs: yield* Clock.currentTimeMillis,
     });
     const privateKey = yield* fs.readFileString(flags.privateKey);
-    yield* Console.log(yield* signLicence({ privateKey, keyId: flags.keyId, claims }));
+    const token = yield* signLicence({ privateKey, keyId: flags.keyId, claims });
+    if (Option.isSome(flags.ledger)) {
+      yield* fs.writeFileString(flags.ledger.value, `${token}\n`, { flag: "a", mode: 0o600 });
+    }
+    yield* Console.log(token);
   }),
 ).pipe(Command.withDescription("Issue a licence key and print it."));
 
@@ -194,8 +205,6 @@ const inspectCommand = Command.make(
       token,
       trustedKeys: new Map([[keyId, yield* fs.readFileString(publicKey)]]),
     });
-    const day = (seconds: number) =>
-      DateTime.formatIsoDateUtc(DateTime.makeUnsafe(seconds * 1_000));
     const standing = licenceStanding(claims, yield* Clock.currentTimeMillis);
     yield* Console.log(
       [
@@ -214,9 +223,93 @@ const inspectCommand = Command.make(
   }),
 ).pipe(Command.withDescription("Check a licence key's signature and show its details."));
 
+export type LedgerEntry =
+  | {
+      readonly line: number;
+      readonly licenceId: string;
+      readonly customer: string;
+      readonly seats: number;
+      readonly startsOn: string;
+      readonly endsOn: string;
+      readonly keyId: string;
+      readonly status: LicenceStanding["status"];
+    }
+  | { readonly line: number; readonly problem: string };
+
+/** Reads a ledger of issued keys, one per line. It is our own record, so signatures are not checked. */
+export const readLicenceLedger = Effect.fn("licence.readLedger")(function* (
+  text: string,
+  nowMs: number,
+) {
+  const lines = text
+    .split("\n")
+    .map((raw, index) => ({ line: index + 1, token: raw.trim() }))
+    .filter(({ token }) => token.length > 0);
+  return yield* Effect.forEach(lines, ({ line, token }) =>
+    Jwt.decodeUnverified(token).pipe(
+      Effect.flatMap(({ protectedHeader, claims }) =>
+        decodeClaims(claims).pipe(
+          Effect.map((licence): LedgerEntry => ({
+            line,
+            licenceId: licence.sub,
+            customer: licence.customer,
+            seats: licence.seats,
+            startsOn: day(licence.nbf),
+            endsOn: day(licence.exp - DAY_SECONDS),
+            keyId: protectedHeader.kid ?? "none",
+            status: licenceStanding(licence, nowMs).status,
+          })),
+        ),
+      ),
+      Effect.orElseSucceed((): LedgerEntry => ({ line, problem: "not a licence key" })),
+    ),
+  );
+});
+
+const formatLedger = (entries: ReadonlyArray<LedgerEntry>) => {
+  const rows = entries.map((entry) =>
+    "problem" in entry
+      ? [`line ${entry.line}`, entry.problem]
+      : [
+          entry.licenceId,
+          entry.customer,
+          `${entry.seats} seats`,
+          `${entry.startsOn} to ${entry.endsOn}`,
+          `key ${entry.keyId}`,
+          entry.status,
+        ],
+  );
+  const widths = rows.reduce<ReadonlyArray<number>>(
+    (sizes, row) => row.map((cell, index) => Math.max(sizes[index] ?? 0, cell.length)),
+    [],
+  );
+  return rows
+    .map((row) =>
+      row
+        .map((cell, index) => (index === row.length - 1 ? cell : cell.padEnd(widths[index] ?? 0)))
+        .join("  "),
+    )
+    .join("\n");
+};
+
+const listCommand = Command.make(
+  "list",
+  { ledger: Flag.String("ledger").pipe(Flag.withDescription("The file `issue --ledger` writes.")) },
+  Effect.fnUntraced(function* ({ ledger }) {
+    const fs = yield* FileSystem.FileSystem;
+    const entries = yield* readLicenceLedger(
+      yield* fs.readFileString(ledger),
+      yield* Clock.currentTimeMillis,
+    );
+    yield* Console.log(
+      entries.length === 0 ? "No licence keys in this ledger." : formatLedger(entries),
+    );
+  }),
+).pipe(Command.withDescription("List the licence keys recorded in a ledger."));
+
 export const licenceCommand = Command.make("licence").pipe(
   Command.withDescription("Create signing keys and issue Codenine business licence keys."),
-  Command.withSubcommands([keygenCommand, issueCommand, inspectCommand]),
+  Command.withSubcommands([keygenCommand, issueCommand, inspectCommand, listCommand]),
 );
 
 if (import.meta.main) {

@@ -1,7 +1,10 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import { signLicence } from "@codenine/shared/licence";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Jwk from "effect/jose/Jwk";
 
-import { buildLicenceClaims } from "./licence.ts";
+import { buildLicenceClaims, readLicenceLedger } from "./licence.ts";
 
 const base = {
   licenceId: "lic_test",
@@ -39,5 +42,52 @@ describe("buildLicenceClaims", () => {
       const error = yield* Effect.flip(buildLicenceClaims({ ...base, ...override }));
       expect(error.message).toContain(message);
     }),
+  );
+});
+
+describe("readLicenceLedger", () => {
+  it.effect("lists each issued key and points at lines that are not keys", () =>
+    Effect.gen(function* () {
+      const pair = yield* Jwk.generateKeyPair({ algorithm: "EdDSA" });
+      const privateKey = yield* Jwk.importPrivate(pair.privateKey, "EdDSA");
+      const issue = (override: Partial<typeof base>) =>
+        buildLicenceClaims({ ...base, ...override }).pipe(
+          Effect.flatMap((claims) => signLicence({ privateKey, keyId: "2026-1", claims })),
+        );
+      const lapsed = yield* issue({
+        licenceId: "lic_old",
+        startsOn: "2025-01-01",
+        endsOn: "2025-06-30",
+      });
+      const current = yield* issue({});
+
+      const entries = yield* readLicenceLedger(
+        `${lapsed}\n\nnot a key\n${current}\n`,
+        Date.parse("2027-01-15T00:00:00Z"),
+      );
+      expect(entries).toEqual([
+        {
+          line: 1,
+          licenceId: "lic_old",
+          customer: "Acme Ltd",
+          seats: 25,
+          startsOn: "2025-01-01",
+          endsOn: "2025-06-30",
+          keyId: "2026-1",
+          status: "expired",
+        },
+        { line: 3, problem: "not a licence key" },
+        {
+          line: 4,
+          licenceId: "lic_test",
+          customer: "Acme Ltd",
+          seats: 25,
+          startsOn: "2026-12-01",
+          endsOn: "2027-11-30",
+          keyId: "2026-1",
+          status: "active",
+        },
+      ]);
+    }).pipe(Effect.provide(NodeCrypto.layer)),
   );
 });

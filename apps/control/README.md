@@ -43,6 +43,9 @@ the public keys listed in [`src/licence/LicenceService.ts`](./src/licence/Licenc
 by key ID. The private key never enters this repository. There is no setting that adds a trusted
 key at run time, because anyone running the server could then mint their own licence.
 
+Pass `--ledger <file>` to `issue` to keep a record of every key, kept with the private key, and
+`list --ledger <file>` shows each one's customer, seats, dates, signing key and status.
+
 ## Database changes
 
 Edit [`src/persistence/schema.ts`](./src/persistence/schema.ts), then run `vp run db:generate`
