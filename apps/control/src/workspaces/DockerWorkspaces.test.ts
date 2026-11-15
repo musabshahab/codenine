@@ -31,15 +31,23 @@ import * as WorkspaceTokens from "./WorkspaceTokens.ts";
 interface CreatedContainer {
   readonly name: string;
   readonly body: {
+    readonly Entrypoint?: ReadonlyArray<string>;
     readonly Env: ReadonlyArray<string>;
     readonly User: string;
     readonly Labels: Readonly<Record<string, string>>;
-    readonly HostConfig: Record<string, unknown>;
+    readonly HostConfig: Record<string, unknown> & { readonly NetworkMode: string };
   };
 }
 
-/** An Engine API that keeps containers in memory; each publishes the same stand-in workspace. */
-const fakeDocker = (workspacePort: number) => {
+interface FakeNetwork {
+  readonly internal: boolean;
+  readonly labels: Readonly<Record<string, string>>;
+  /** Each container on it, with its aliases. */
+  readonly containers: Map<string, ReadonlyArray<string>>;
+}
+
+/** An Engine API that keeps containers and networks in memory, refusing what Docker refuses. */
+const fakeDocker = () => {
   const created: Array<CreatedContainer> = [];
   const starts: Array<string> = [];
   const removed: Array<string> = [];
@@ -47,12 +55,23 @@ const fakeDocker = (workspacePort: number) => {
   const removedVolumes: Array<string> = [];
   const running = new Map<string, boolean>();
   const labels = new Map<string, Readonly<Record<string, string>>>();
+  const networks = new Map<string, FakeNetwork>();
   const image = { id: "sha256:first" };
-  /** Set to make the next start wait: it signals `arrived`, then waits for `release`. */
+  /** Set to make the next start of one container wait: it signals `arrived`, then waits for `release`. */
   const held: {
-    next?: { readonly arrived: Deferred.Deferred<void>; readonly release: Deferred.Deferred<void> };
+    next?: {
+      readonly name: string;
+      readonly arrived: Deferred.Deferred<void>;
+      readonly release: Deferred.Deferred<void>;
+    };
   } = {};
   const nameParam = HttpRouter.params.pipe(Effect.map((params) => params["name"] ?? ""));
+  const body = <A>() =>
+    HttpServerRequest.HttpServerRequest.pipe(
+      Effect.flatMap((request) => request.json),
+      Effect.map((json) => json as A),
+      Effect.orDie,
+    );
   const routes = Layer.mergeAll(
     HttpRouter.add(
       "POST",
@@ -62,7 +81,95 @@ const fakeDocker = (workspacePort: number) => {
     HttpRouter.add(
       "POST",
       "/v1.44/networks/create",
-      Effect.succeed(HttpServerResponse.empty({ status: 201 })),
+      Effect.gen(function* () {
+        const { Name, Internal, Labels } = yield* body<{
+          Name: string;
+          Internal: boolean;
+          Labels: Record<string, string>;
+        }>();
+        if (networks.has(Name)) {
+          return HttpServerResponse.empty({ status: 409 });
+        }
+        networks.set(Name, { internal: Internal, labels: Labels, containers: new Map() });
+        return HttpServerResponse.empty({ status: 201 });
+      }),
+    ),
+    HttpRouter.add(
+      "GET",
+      "/v1.44/networks",
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const filters = JSON.parse(
+          new URL(request.url, "http://docker").searchParams.get("filters") ?? "{}",
+        ) as { label?: Array<string> };
+        const matches = (network: FakeNetwork) =>
+          (filters.label ?? []).every((wanted) => {
+            const [key = "", value] = wanted.split("=");
+            return value === undefined ? key in network.labels : network.labels[key] === value;
+          });
+        return HttpServerResponse.jsonUnsafe(
+          [...networks].flatMap(([Name, network]) => (matches(network) ? [{ Name }] : [])),
+        );
+      }),
+    ),
+    HttpRouter.add(
+      "GET",
+      "/v1.44/networks/:name",
+      Effect.map(nameParam, (name) => {
+        const network = networks.get(name);
+        return network === undefined
+          ? HttpServerResponse.empty({ status: 404 })
+          : HttpServerResponse.jsonUnsafe({
+              Internal: network.internal,
+              Containers: Object.fromEntries([...network.containers.keys()].map((id) => [id, {}])),
+            });
+      }),
+    ),
+    HttpRouter.add(
+      "POST",
+      "/v1.44/networks/:name/connect",
+      Effect.gen(function* () {
+        const network = networks.get(yield* nameParam);
+        const { Container, EndpointConfig } = yield* body<{
+          Container: string;
+          EndpointConfig: { Aliases: Array<string> };
+        }>();
+        if (network === undefined) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        if (network.containers.has(Container)) {
+          return HttpServerResponse.empty({ status: 403 });
+        }
+        network.containers.set(Container, EndpointConfig.Aliases);
+        return HttpServerResponse.empty({ status: 200 });
+      }),
+    ),
+    HttpRouter.add(
+      "POST",
+      "/v1.44/networks/:name/disconnect",
+      Effect.gen(function* () {
+        const network = networks.get(yield* nameParam);
+        const { Container } = yield* body<{ Container: string }>();
+        return HttpServerResponse.empty({
+          status: network?.containers.delete(Container) === true ? 200 : 500,
+        });
+      }),
+    ),
+    HttpRouter.add(
+      "DELETE",
+      "/v1.44/networks/:name",
+      Effect.map(nameParam, (name) => {
+        const network = networks.get(name);
+        if (network === undefined) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
+        if (network.containers.size > 0) {
+          return HttpServerResponse.empty({ status: 403 });
+        }
+        networks.delete(name);
+        removedNetworks.push(name);
+        return HttpServerResponse.empty({ status: 204 });
+      }),
     ),
     HttpRouter.add(
       "GET",
@@ -78,12 +185,13 @@ const fakeDocker = (workspacePort: number) => {
         if (running.has(name)) {
           return HttpServerResponse.empty({ status: 409 });
         }
-        const body = (yield* request.json) as CreatedContainer["body"];
-        created.push({ name, body });
+        const container = yield* body<CreatedContainer["body"]>();
+        created.push({ name, body: container });
         running.set(name, false);
-        labels.set(name, body.Labels);
+        labels.set(name, container.Labels);
+        networks.get(container.HostConfig.NetworkMode)?.containers.set(name, []);
         return HttpServerResponse.empty({ status: 201 });
-      }).pipe(Effect.orDie),
+      }),
     ),
     HttpRouter.add(
       "POST",
@@ -91,9 +199,9 @@ const fakeDocker = (workspacePort: number) => {
       Effect.gen(function* () {
         const name = yield* nameParam;
         starts.push(name);
-        const hold = held.next;
-        delete held.next;
+        const hold = held.next?.name === name ? held.next : undefined;
         if (hold !== undefined) {
+          delete held.next;
           yield* Deferred.succeed(hold.arrived, undefined);
           yield* Deferred.await(hold.release);
         }
@@ -105,22 +213,14 @@ const fakeDocker = (workspacePort: number) => {
     HttpRouter.add(
       "DELETE",
       "/v1.44/containers/:name",
-      Effect.gen(function* () {
-        const name = yield* nameParam;
+      Effect.map(nameParam, (name) => {
         if (!running.has(name)) {
           return HttpServerResponse.empty({ status: 404 });
         }
         removed.push(name);
         running.delete(name);
         labels.delete(name);
-        return HttpServerResponse.empty({ status: 204 });
-      }),
-    ),
-    HttpRouter.add(
-      "DELETE",
-      "/v1.44/networks/:name",
-      Effect.map(nameParam, (name) => {
-        removedNetworks.push(name);
+        for (const network of networks.values()) network.containers.delete(name);
         return HttpServerResponse.empty({ status: 204 });
       }),
     ),
@@ -135,35 +235,47 @@ const fakeDocker = (workspacePort: number) => {
     HttpRouter.add(
       "GET",
       "/v1.44/containers/:name/json",
-      Effect.gen(function* () {
-        const name = yield* nameParam;
+      Effect.map(nameParam, (name) => {
         const state = running.get(name);
+        // Every container answers on loopback, where the stand-in workspace listens.
+        const on = [...networks].filter(([, network]) => network.containers.has(name));
         return state === undefined
           ? HttpServerResponse.empty({ status: 404 })
           : HttpServerResponse.jsonUnsafe({
               State: { Running: state },
               Config: { Labels: labels.get(name) ?? null },
               NetworkSettings: {
-                Ports: state
-                  ? { "3773/tcp": [{ HostIp: "127.0.0.1", HostPort: String(workspacePort) }] }
-                  : null,
+                Networks: Object.fromEntries(
+                  on.map(([network]) => [network, { IPAddress: state ? "127.0.0.1" : "" }]),
+                ),
               },
             });
       }),
     ),
   );
-  const holdNextStart = Effect.gen(function* () {
-    const hold = { arrived: yield* Deferred.make<void>(), release: yield* Deferred.make<void>() };
-    held.next = hold;
-    return hold;
-  });
+  const holdNextStart = (name: string) =>
+    Effect.gen(function* () {
+      const hold = {
+        name,
+        arrived: yield* Deferred.make<void>(),
+        release: yield* Deferred.make<void>(),
+      };
+      held.next = hold;
+      return hold;
+    });
+  /** Workspace containers made, leaving out the egress proxy. */
+  const workspacesCreated = () =>
+    created.filter((container) => container.body.Labels["codenine.person"] !== undefined);
   return {
     created,
+    workspacesCreated,
     starts,
     removed,
     removedNetworks,
     removedVolumes,
     running,
+    labels,
+    networks,
     image,
     holdNextStart,
     routes,
@@ -177,7 +289,7 @@ const serve = <E, R>(routes: Layer.Layer<never, E, R>, listen: NodeHttpServer.Op
     ),
   ).pipe(Effect.map((context) => Context.get(context, HttpServer.HttpServer).address));
 
-/** The Docker manager against a fake Engine API whose containers all publish one stand-in workspace. */
+/** The Docker manager against a fake Engine API whose containers all answer as one stand-in workspace. */
 const withDockerWorkspaces = <A, E>(
   body: (fake: {
     readonly docker: ReturnType<typeof fakeDocker>;
@@ -195,7 +307,7 @@ const withDockerWorkspaces = <A, E>(
       { host: "127.0.0.1", port: 0 },
     );
     const workspacePort = "port" in workspace ? workspace.port : 0;
-    const docker = fakeDocker(workspacePort);
+    const docker = fakeDocker();
     const socketPath = NodePath.join(
       NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "codenine-docker-")),
       "docker.sock",
@@ -205,12 +317,16 @@ const withDockerWorkspaces = <A, E>(
     const manager = Layer.effect(WorkspaceManager, DockerWorkspaces.make).pipe(
       Layer.provide(DockerEngine.layerSocket(socketPath)),
       Layer.provide(NodeHttpClient.layerUndici),
+      Layer.provide(Layer.succeed(DockerWorkspaces.WorkspaceDialPort, workspacePort)),
       Layer.provideMerge(WorkspaceTokens.layer),
       Layer.provideMerge(layerTestServices(keys.publicKey)),
       Layer.provide(
         ConfigProvider.layer(
           ConfigProvider.fromEnv({
-            env: { CODENINE_CONTROL_WORKSPACE_IMAGE: "codenine-workspace:test" },
+            env: {
+              CODENINE_CONTROL_WORKSPACE_IMAGE: "codenine-workspace:test",
+              CODENINE_CONTROL_WORKSPACE_ALLOWED_HOSTS: "git.acme.test, api.github.com",
+            },
           }),
         ),
       ),
@@ -234,8 +350,10 @@ describe("DockerWorkspaces", () => {
         expect(first).toEqual({ url: `http://127.0.0.1:${workspacePort}`, workspaceId: "per_ada" });
         expect(second).toEqual(first);
         expect(yield* workspaces.isAsleep("per_ada")).toBe(false);
-        expect(docker.created.map((container) => container.name)).toEqual([ada.container]);
-        const [container] = docker.created;
+        expect(docker.workspacesCreated().map((container) => container.name)).toEqual([
+          ada.container,
+        ]);
+        const [container] = docker.workspacesCreated();
         expect(container?.body.User).toBe("1000:1000");
         expect(container?.body.Env).toEqual(
           expect.arrayContaining([
@@ -246,7 +364,6 @@ describe("DockerWorkspaces", () => {
         );
         expect(container?.body.HostConfig).toMatchObject({
           Mounts: [{ Type: "volume", Source: ada.volume, Target: DockerWorkspaces.WORKSPACE_HOME }],
-          PortBindings: { "3773/tcp": [{ HostIp: "127.0.0.1", HostPort: "" }] },
           NetworkMode: ada.network,
           ReadonlyRootfs: true,
           SecurityOpt: ["no-new-privileges"],
@@ -260,12 +377,12 @@ describe("DockerWorkspaces", () => {
         expect(yield* workspaces.isAsleep("per_ada")).toBe(true);
         yield* workspaces.forget("per_ada");
         expect(yield* workspaces.targetFor("per_ada")).toEqual(first);
-        expect(docker.starts).toEqual([ada.container, ada.container]);
-        expect(docker.created).toHaveLength(1);
+        expect(docker.starts.filter((name) => name === ada.container)).toHaveLength(2);
+        expect(docker.workspacesCreated()).toHaveLength(1);
 
         const bea = DockerWorkspaces.workspaceNames(installation.id, "per_bea");
         expect((yield* workspaces.targetFor("per_bea")).workspaceId).toBe("per_bea");
-        expect(docker.created.map((created) => created.name)).toEqual([
+        expect(docker.workspacesCreated().map((created) => created.name)).toEqual([
           ada.container,
           bea.container,
         ]);
@@ -286,7 +403,9 @@ describe("DockerWorkspaces", () => {
     withDockerWorkspaces(({ docker }) =>
       Effect.gen(function* () {
         const workspaces = yield* WorkspaceManager;
-        const hold = yield* docker.holdNextStart;
+        const installation = yield* Installation;
+        const ada = DockerWorkspaces.workspaceNames(installation.id, "per_ada");
+        const hold = yield* docker.holdNextStart(ada.container);
         const first = yield* workspaces.targetFor("per_ada").pipe(Effect.forkChild);
         yield* Deferred.await(hold.arrived);
 
@@ -294,7 +413,53 @@ describe("DockerWorkspaces", () => {
         const second = yield* workspaces.targetFor("per_ada").pipe(Effect.forkChild);
         yield* Deferred.succeed(hold.release, undefined);
         expect(yield* Fiber.join(second)).toBe(yield* Fiber.join(first));
-        expect(docker.starts).toHaveLength(1);
+        expect(docker.starts.filter((name) => name === ada.container)).toHaveLength(1);
+      }),
+    ),
+  );
+
+  it.live("keeps each workspace on an internal network, reaching out only through the proxy", () =>
+    withDockerWorkspaces(({ docker }) =>
+      Effect.gen(function* () {
+        const workspaces = yield* WorkspaceManager;
+        const installation = yield* Installation;
+        const ada = DockerWorkspaces.workspaceNames(installation.id, "per_ada");
+        const egress = DockerWorkspaces.egressNames(installation.id);
+        yield* workspaces.targetFor("per_ada");
+
+        expect(docker.networks.get(ada.network)?.internal).toBe(true);
+        expect(docker.networks.get(egress.network)?.internal).toBe(false);
+        expect(docker.networks.get(ada.network)?.containers.get(egress.container)).toEqual([
+          "egress",
+        ]);
+        const [workspace] = docker.workspacesCreated();
+        expect(workspace?.body.Env).toContain("HTTPS_PROXY=http://egress:3128");
+        expect(workspace?.body.HostConfig).not.toHaveProperty("PortBindings");
+        const proxy = docker.created.find((created) => created.name === egress.container);
+        expect(proxy?.body.HostConfig).toMatchObject({
+          NetworkMode: egress.network,
+          RestartPolicy: { Name: "unless-stopped" },
+          ReadonlyRootfs: true,
+          CapDrop: ["ALL"],
+        });
+        // The admin's host joins the defaults; one a default already covers is left out.
+        const squid = proxy?.body.Env.find((entry) => entry.startsWith("SQUID_CONF=")) ?? "";
+        expect(squid).toContain(" .github.com ");
+        expect(squid).toContain(" git.acme.test");
+        expect(squid).not.toContain("api.github.com");
+
+        // A proxy made for other hosts is replaced, and the new one joins every workspace's network.
+        docker.labels.set(egress.container, {
+          ...proxy?.body.Labels,
+          [DockerWorkspaces.SPEC_LABEL]: "older hosts",
+        });
+        docker.running.set(ada.container, false);
+        yield* workspaces.forget("per_ada");
+        yield* workspaces.targetFor("per_ada");
+        expect(docker.removed).toEqual([egress.container]);
+        expect(docker.networks.get(ada.network)?.containers.get(egress.container)).toEqual([
+          "egress",
+        ]);
       }),
     ),
   );
@@ -317,7 +482,7 @@ describe("DockerWorkspaces", () => {
         yield* workspaces.forget("per_ada");
         yield* workspaces.targetFor("per_ada");
         expect(docker.removed).toEqual([ada.container]);
-        const [before, after] = docker.created.map((created) => created.body);
+        const [before, after] = docker.workspacesCreated().map((created) => created.body);
         expect(after?.HostConfig).toMatchObject({ Mounts: [{ Source: ada.volume }] });
         expect(after?.Labels[DockerWorkspaces.SPEC_LABEL]).not.toBe(
           before?.Labels[DockerWorkspaces.SPEC_LABEL],

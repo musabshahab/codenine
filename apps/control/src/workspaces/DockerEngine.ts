@@ -25,46 +25,54 @@ export class DockerEngineError extends Schema.TaggedError<DockerEngineError>()(
   }
 }
 
-const ContainerState = Schema.Struct({
-  State: Schema.Struct({ Running: Schema.Boolean }),
-  Config: Schema.Struct({
-    Labels: Schema.NullOr(Schema.Record(Schema.String, Schema.String)),
-  }),
-  NetworkSettings: Schema.Struct({
-    Ports: Schema.NullOr(
-      Schema.Record(
-        Schema.String,
-        Schema.NullOr(
-          Schema.Array(Schema.Struct({ HostIp: Schema.String, HostPort: Schema.String })),
-        ),
+const Labels = Schema.NullOr(Schema.Record(Schema.String, Schema.String));
+const decodeContainer = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    State: Schema.Struct({ Running: Schema.Boolean }),
+    Config: Schema.Struct({ Labels }),
+    NetworkSettings: Schema.Struct({
+      Networks: Schema.NullOr(
+        Schema.Record(Schema.String, Schema.Struct({ IPAddress: Schema.String })),
       ),
-    ),
+    }),
   }),
-});
-const decodeContainerState = Schema.decodeUnknownEffect(ContainerState);
+);
+const decodeNetwork = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    Internal: Schema.Boolean,
+    Containers: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
+  }),
+);
+const decodeNetworks = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ Name: Schema.String })),
+);
 const decodeImage = Schema.decodeUnknownEffect(Schema.Struct({ Id: Schema.String }));
 
 export interface ContainerState {
   readonly running: boolean;
-  /** The host port its workspace port is published on, while it runs. */
-  readonly hostPort: number | null;
+  /** Its address on each network, while it runs. */
+  readonly addresses: Readonly<Record<string, string>>;
   readonly labels: Readonly<Record<string, string>>;
 }
 
 export interface ContainerSpec {
   readonly image: string;
+  /** Replaces the image's entrypoint. */
+  readonly command?: ReadonlyArray<string>;
   readonly env: Readonly<Record<string, string>>;
   readonly labels: Readonly<Record<string, string>>;
-  /** The port the workspace listens on inside the container. */
-  readonly port: number;
-  readonly volume: string;
-  /** Where the volume is mounted: the person's home. */
-  readonly mountPath: string;
-  readonly network: string;
   readonly user: string;
+  /** The network it joins when created. */
+  readonly network: string;
+  readonly volume?: { readonly name: string; readonly mountPath: string };
   readonly nanoCpus: number;
   readonly memoryBytes: number;
+  /** Whether Docker starts it again when it stops on its own. */
+  readonly restart: "no" | "unless-stopped";
 }
+
+// Label filters are our own IDs; the Engine API takes them as JSON in the query.
+const labelFilter = (labels: ReadonlyArray<string>) => JSON.stringify({ label: labels });
 
 /** The few Engine API calls the workspace manager needs, over Docker's socket. */
 export class DockerEngine extends Context.Service<
@@ -74,10 +82,22 @@ export class DockerEngine extends Context.Service<
       name: string,
       labels: Readonly<Record<string, string>>,
     ) => Effect.Effect<void, DockerEngineError>;
+    /** Creates the network, or makes it again when it exists with the other kind. */
     readonly ensureNetwork: (
       name: string,
       labels: Readonly<Record<string, string>>,
+      options: { readonly internal: boolean },
     ) => Effect.Effect<void, DockerEngineError>;
+    /** Adds a container to a network under an alias, unless it is already there. */
+    readonly connect: (
+      network: string,
+      container: string,
+      alias: string,
+    ) => Effect.Effect<void, DockerEngineError>;
+    /** The names of the networks carrying all of these labels (`key` or `key=value`). */
+    readonly listNetworks: (
+      labels: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<string>, DockerEngineError>;
     /** Creates the container unless one with that name exists. */
     readonly ensureContainer: (
       name: string,
@@ -86,7 +106,6 @@ export class DockerEngine extends Context.Service<
     readonly start: (name: string) => Effect.Effect<void, DockerEngineError>;
     readonly inspect: (
       name: string,
-      port: number,
     ) => Effect.Effect<Option.Option<ContainerState>, DockerEngineError>;
     /** The ID of the image a name or tag points to now. */
     readonly imageId: (image: string) => Effect.Effect<string, DockerEngineError>;
@@ -94,6 +113,7 @@ export class DockerEngine extends Context.Service<
     /** Each removal is true when there was something to remove. */
     readonly removeContainer: (name: string) => Effect.Effect<boolean, DockerEngineError>;
     readonly removeVolume: (name: string) => Effect.Effect<boolean, DockerEngineError>;
+    /** Disconnects whatever is still on the network first. */
     readonly removeNetwork: (name: string) => Effect.Effect<boolean, DockerEngineError>;
   }
 >()("@codenine/control/workspaces/DockerEngine") {
@@ -114,8 +134,61 @@ export class DockerEngine extends Context.Service<
           (response) => new DockerEngineError({ operation, status: response.status }),
         ),
       );
-    const json = (operation: string, response: HttpClientResponse.HttpClientResponse) =>
-      response.json.pipe(Effect.mapError((cause) => new DockerEngineError({ operation, cause })));
+    const read = <A>(
+      operation: string,
+      response: HttpClientResponse.HttpClientResponse,
+      decode: (input: unknown) => Effect.Effect<A, unknown>,
+    ) =>
+      response.json.pipe(
+        Effect.flatMap(decode),
+        Effect.mapError((cause) => new DockerEngineError({ operation, cause })),
+      );
+    const path = (kind: string, name: string, rest = "") =>
+      `${API}/${kind}/${encodeURIComponent(name)}${rest}`;
+
+    const removeNetwork = Effect.fn("DockerEngine.removeNetwork")(function* (name: string) {
+      const found = yield* call(
+        "inspect a network",
+        HttpClientRequest.get(path("networks", name)),
+        [404],
+      );
+      if (found.status === 404) {
+        return false;
+      }
+      const { Containers } = yield* read("read a network", found, decodeNetwork);
+      for (const container of Object.keys(Containers ?? {})) {
+        yield* call(
+          "disconnect a container",
+          HttpClientRequest.post(path("networks", name, "/disconnect")).pipe(
+            HttpClientRequest.bodyJsonUnsafe({ Container: container, Force: true }),
+          ),
+        );
+      }
+      const removed = yield* call(
+        "remove a network",
+        HttpClientRequest.delete(path("networks", name)),
+        [404],
+      );
+      return removed.status !== 404;
+    });
+
+    const createNetwork = (
+      name: string,
+      labels: Readonly<Record<string, string>>,
+      internal: boolean,
+    ) =>
+      call(
+        "create a network",
+        HttpClientRequest.post(`${API}/networks/create`).pipe(
+          HttpClientRequest.bodyJsonUnsafe({
+            Name: name,
+            Labels: labels,
+            Internal: internal,
+            CheckDuplicate: true,
+          }),
+        ),
+        [409],
+      );
 
     return DockerEngine.of({
       ensureVolume: Effect.fn("DockerEngine.ensureVolume")(function* (name, labels) {
@@ -126,31 +199,61 @@ export class DockerEngine extends Context.Service<
           ),
         );
       }),
-      ensureNetwork: Effect.fn("DockerEngine.ensureNetwork")(function* (name, labels) {
+      ensureNetwork: Effect.fn("DockerEngine.ensureNetwork")(function* (name, labels, options) {
+        const created = yield* createNetwork(name, labels, options.internal);
+        if (created.status !== 409) {
+          return;
+        }
+        const existing = yield* call(
+          "inspect a network",
+          HttpClientRequest.get(path("networks", name)),
+        );
+        const { Internal } = yield* read("read a network", existing, decodeNetwork);
+        if (Internal !== options.internal) {
+          yield* removeNetwork(name);
+          yield* createNetwork(name, labels, options.internal);
+        }
+      }),
+      connect: Effect.fn("DockerEngine.connect")(function* (network, container, alias) {
+        // 403 is Docker's answer when the container is already on the network.
         yield* call(
-          "create a network",
-          HttpClientRequest.post(`${API}/networks/create`).pipe(
-            HttpClientRequest.bodyJsonUnsafe({ Name: name, Labels: labels, CheckDuplicate: true }),
+          "connect a container",
+          HttpClientRequest.post(path("networks", network, "/connect")).pipe(
+            HttpClientRequest.bodyJsonUnsafe({
+              Container: container,
+              EndpointConfig: { Aliases: [alias] },
+            }),
           ),
-          [409],
+          [403],
         );
       }),
+      listNetworks: Effect.fn("DockerEngine.listNetworks")(function* (labels) {
+        const response = yield* call(
+          "list networks",
+          HttpClientRequest.get(`${API}/networks`).pipe(
+            HttpClientRequest.setUrlParam("filters", labelFilter(labels)),
+          ),
+        );
+        const networks = yield* read("read networks", response, decodeNetworks);
+        return networks.map((network) => network.Name);
+      }),
       ensureContainer: Effect.fn("DockerEngine.ensureContainer")(function* (name, spec) {
-        const portKey = `${spec.port}/tcp`;
         yield* call(
           "create a container",
           HttpClientRequest.post(`${API}/containers/create`).pipe(
             HttpClientRequest.setUrlParam("name", name),
             HttpClientRequest.bodyJsonUnsafe({
               Image: spec.image,
+              ...(spec.command === undefined ? {} : { Entrypoint: spec.command, Cmd: [] }),
               Env: Object.entries(spec.env).map(([key, value]) => `${key}=${value}`),
               Labels: spec.labels,
               User: spec.user,
-              ExposedPorts: { [portKey]: {} },
               HostConfig: {
-                Mounts: [{ Type: "volume", Source: spec.volume, Target: spec.mountPath }],
-                // Published on loopback only: the control server is the one way in.
-                PortBindings: { [portKey]: [{ HostIp: "127.0.0.1", HostPort: "" }] },
+                Mounts:
+                  spec.volume === undefined
+                    ? []
+                    : [{ Type: "volume", Source: spec.volume.name, Target: spec.volume.mountPath }],
+                // No published ports: the control server reaches it on its network.
                 NetworkMode: spec.network,
                 ReadonlyRootfs: true,
                 Tmpfs: { "/tmp": "rw,nosuid,size=1g" },
@@ -159,7 +262,7 @@ export class DockerEngine extends Context.Service<
                 NanoCpus: spec.nanoCpus,
                 Memory: spec.memoryBytes,
                 PidsLimit: 4096,
-                RestartPolicy: { Name: "no" },
+                RestartPolicy: { Name: spec.restart },
               },
             }),
           ),
@@ -169,29 +272,28 @@ export class DockerEngine extends Context.Service<
       start: Effect.fn("DockerEngine.start")(function* (name) {
         yield* call(
           "start a container",
-          HttpClientRequest.post(`${API}/containers/${encodeURIComponent(name)}/start`),
+          HttpClientRequest.post(path("containers", name, "/start")),
           [304],
         );
       }),
-      inspect: Effect.fn("DockerEngine.inspect")(function* (name, port) {
+      inspect: Effect.fn("DockerEngine.inspect")(function* (name) {
         const response = yield* call(
           "inspect a container",
-          HttpClientRequest.get(`${API}/containers/${encodeURIComponent(name)}/json`),
+          HttpClientRequest.get(path("containers", name, "/json")),
           [404],
         );
         if (response.status === 404) {
           return Option.none();
         }
-        const state = yield* json("inspect a container", response).pipe(
-          Effect.flatMap(decodeContainerState),
-          Effect.mapError(
-            (cause) => new DockerEngineError({ operation: "read a container", cause }),
+        const state = yield* read("read a container", response, decodeContainer);
+        const addresses = Object.fromEntries(
+          Object.entries(state.NetworkSettings.Networks ?? {}).flatMap(
+            ([network, { IPAddress }]) => (IPAddress === "" ? [] : [[network, IPAddress]]),
           ),
         );
-        const published = state.NetworkSettings.Ports?.[`${port}/tcp`]?.[0]?.HostPort;
         return Option.some<ContainerState>({
           running: state.State.Running,
-          hostPort: published === undefined || published === "" ? null : Number(published),
+          addresses,
           labels: state.Config.Labels ?? {},
         });
       }),
@@ -201,18 +303,13 @@ export class DockerEngine extends Context.Service<
           // Registry paths keep their slashes, as the Docker CLI sends them.
           HttpClientRequest.get(`${API}/images/${encodeURI(image)}/json`),
         );
-        const { Id } = yield* json("find the workspace image", response).pipe(
-          Effect.flatMap(decodeImage),
-          Effect.mapError(
-            (cause) => new DockerEngineError({ operation: "read the workspace image", cause }),
-          ),
-        );
+        const { Id } = yield* read("read the workspace image", response, decodeImage);
         return Id;
       }),
       stop: Effect.fn("DockerEngine.stop")(function* (name) {
         yield* call(
           "stop a container",
-          HttpClientRequest.post(`${API}/containers/${encodeURIComponent(name)}/stop`).pipe(
+          HttpClientRequest.post(path("containers", name, "/stop")).pipe(
             HttpClientRequest.setUrlParam("t", "20"),
           ),
           [304, 404],
@@ -221,7 +318,7 @@ export class DockerEngine extends Context.Service<
       removeContainer: Effect.fn("DockerEngine.removeContainer")(function* (name) {
         const response = yield* call(
           "remove a container",
-          HttpClientRequest.delete(`${API}/containers/${encodeURIComponent(name)}`).pipe(
+          HttpClientRequest.delete(path("containers", name)).pipe(
             HttpClientRequest.setUrlParam("force", "true"),
           ),
           [404],
@@ -231,19 +328,12 @@ export class DockerEngine extends Context.Service<
       removeVolume: Effect.fn("DockerEngine.removeVolume")(function* (name) {
         const response = yield* call(
           "remove a volume",
-          HttpClientRequest.delete(`${API}/volumes/${encodeURIComponent(name)}`),
+          HttpClientRequest.delete(path("volumes", name)),
           [404],
         );
         return response.status !== 404;
       }),
-      removeNetwork: Effect.fn("DockerEngine.removeNetwork")(function* (name) {
-        const response = yield* call(
-          "remove a network",
-          HttpClientRequest.delete(`${API}/networks/${encodeURIComponent(name)}`),
-          [404],
-        );
-        return response.status !== 404;
-      }),
+      removeNetwork,
     });
   });
 

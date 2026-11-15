@@ -32,9 +32,10 @@ checks key ID, signature, type, issuer, audience and time.
 - **The workspace port is internal.** The control server forwards only `/api`, `/ws` and the
   workspace descriptor under `/.well-known/codenine`, each with a token. The workspace still
   serves `/mcp` with its own sessions so its agent processes can reach their tools, so the
-  workspace must be reachable only from the control server. The Docker driver publishes each
-  workspace's port on the host's loopback only and gives each workspace its own network, which
-  is why the control server must run on the Docker host.
+  workspace must be reachable only from the control server. The Docker driver publishes no port:
+  each workspace sits alone on an internal network that only the Docker host can reach, which is
+  why the control server must run there, and it reaches out only through the installation's egress
+  proxy, which allows the hosts on a list by name and never a bare address.
 - **The control server answers its own routes under `/control`**, so it never shadows a
   workspace route.
 - **Forwarding keeps compression.** HTTP bodies pass through as the workspace compressed them
@@ -48,9 +49,9 @@ Only the workspace knows whether anyone has it open and whether its agents have 
 managed workspace given `CODENINE_MANAGED_SLEEP_MINUTES` stops itself
 ([`WorkspaceSleep`](../../apps/server/src/background/WorkspaceSleep.ts)), and the control server
 starts it on the next request. Any thread that `mayBeLive` keeps it up, because sleeping would kill
-a turn waiting for an answer or stall a pull request watch. A stopped container's port can pass to
-another container, so the proxy looks for a person's workspace again whenever the address it knew
-stops answering or refuses their token.
+a turn waiting for an answer or stall a pull request watch. A workspace that starts again can have
+a new address, so the proxy looks for a person's workspace again whenever the address it knew stops
+answering or refuses their token.
 
 ## Keys and secrets
 

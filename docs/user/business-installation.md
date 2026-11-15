@@ -54,13 +54,16 @@ in a shared workspace, anyone's agents can reach everyone's files.
 The control server starts a person's workspace the first time they open Codenine, which takes a
 few seconds. Each has its own volume for the person's projects, settings and agent sign-ins, its
 own network, and CPU and memory limits. Agents run as an ordinary user on a read-only system, so
-even with full access they cannot reach another person's files or workspace. They can reach the
-internet and anything the Docker host serves on its network addresses, so keep the database and
-other services on the host bound to `127.0.0.1`.
+even with full access they cannot reach another person's files or workspace. A workspace's
+network leads only to an egress proxy, which lets agents reach the model providers, GitHub and the
+main package registries over HTTPS and nothing else: not the Docker host, not your company
+network, not the rest of the internet. Git therefore needs HTTPS remotes; SSH remotes do not work.
 
-Run the control server on the machine that runs Docker, since each workspace answers only there.
-Build the workspace image on that machine, from the checkout marked for business use. Besides
-Docker, it needs `patchelf`:
+Run the control server on the machine that runs Docker, which must be Docker Engine on Linux run
+as root: the control server reaches each workspace at its address on the workspace's own network,
+and rootless Docker and Docker Desktop keep those addresses from the host. Build the workspace
+image on that machine, from the checkout marked for business use. Besides Docker, it needs
+`patchelf`:
 
 ```bash
 vp run --filter codenine build
@@ -90,6 +93,10 @@ on the control server:
   workspaces awake.
 - `CODENINE_CONTROL_WORKSPACE_RETENTION_DAYS` (optional): how long a deactivated person's files
   are kept before they are deleted. 30 unless set.
+- `CODENINE_CONTROL_WORKSPACE_ALLOWED_HOSTS` (optional): more hosts agents may reach, separated by
+  commas, such as `git.example.com, .registry.example.com`; a leading dot also allows everything
+  under that domain. Agents can always reach Anthropic and OpenAI, GitHub, npm, PyPI, crates.io,
+  the Go module proxy and Maven Central.
 - `CODENINE_CONTROL_DOCKER_SOCKET` (optional): the Docker socket, `/var/run/docker.sock` unless
   set. The control server's user needs access to it.
 
@@ -98,10 +105,12 @@ few seconds. An agent that is working, waiting for an answer or watching a pull 
 workspace awake. Terminals and anything else still running in it stop when it sleeps.
 
 Each workspace is a container named `codenine-<installation ID>-<person ID>`, and its files live
-on the volume of the same name ending in `-home`. Back up those volumes. A new image, including
+on the volume of the same name ending in `-home`. Back up those volumes. The egress proxy runs
+beside them as `codenine-<installation ID>-egress`, from the same image. A new image, including
 one rebuilt under the same tag, and changes to these settings reach each workspace the next time
 it wakes; one that is awake keeps running as it is. To move someone sooner, stop their container
-with `docker stop` while their agents are idle.
+with `docker stop` while their agents are idle. A change to the allowed hosts replaces the proxy
+the next time any workspace starts, which interrupts downloads under way.
 
 ### One shared workspace server
 

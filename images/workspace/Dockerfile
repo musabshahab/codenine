@@ -2,9 +2,10 @@
 # this file, which downloads and checks the pinned tools this copies in.
 FROM ubuntu:24.04
 
+# Squid runs as the egress proxy, from this same image, beside the workspaces.
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends \
-    ca-certificates git gh openssh-client ripgrep procps \
+    ca-certificates git gh openssh-client ripgrep procps squid \
   && rm -rf /var/lib/apt/lists/*
 
 # Ubuntu ships a user 1000; the person works as their own ordinary user instead.
