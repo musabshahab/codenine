@@ -40,6 +40,7 @@ import {
 import { SsoConnections } from "../sso/SsoConnections.ts";
 import { Workplace } from "../workspaces/Workplace.ts";
 import { BudgetRequests } from "../gateway/BudgetRequests.ts";
+import { UsageReports } from "../gateway/UsageReports.ts";
 
 const ok = { ok: true as const };
 
@@ -245,6 +246,7 @@ export const layerMeApi = HttpApiBuilder.group(
     const workplace = yield* Workplace;
     const admin = yield* Administration;
     const budgetRequests = yield* BudgetRequests;
+    const usageReports = yield* UsageReports;
     const { secure } = yield* ControlPublicUrl;
     const here = Effect.map(ControlPrincipal, ({ sessionId, person, departmentId, viewing }) => ({
       sessionId,
@@ -278,6 +280,12 @@ export const layerMeApi = HttpApiBuilder.group(
         here.pipe(
           Effect.flatMap((session) => workplace.keyFor({ ...session, viewing: null })),
           Effect.flatMap(budgetRequests.mine),
+        ),
+      )
+      .handle("usage", () =>
+        here.pipe(
+          Effect.flatMap((session) => workplace.keyFor({ ...session, viewing: null })),
+          Effect.flatMap(usageReports.mine),
         ),
       )
       .handle("askForBudget", ({ payload }) =>

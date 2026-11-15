@@ -929,6 +929,41 @@ export const ControlMyBudget = Schema.Struct({
 });
 export type ControlMyBudget = typeof ControlMyBudget.Type;
 
+const AiProvider = Schema.Literals(["claude", "codex"]);
+
+/** What a person's agents spent on AI this month, in US dollars, for their usage page. */
+export const ControlMyUsage = Schema.Struct({
+  departmentId: Schema.NullOr(TrimmedNonEmptyString),
+  /** Such as `2026-11`, in the company's time zone. */
+  month: Schema.String,
+  budgets: Schema.Array(ControlBudgetUse),
+  /** The month's spend at its pace so far; null in its first day. */
+  forecastUsd: Schema.NullOr(Schema.Number),
+  /** Days with spend, such as `2026-11-15`, oldest first. */
+  days: Schema.Array(Schema.Struct({ day: Schema.String, spentUsd: Schema.Number })),
+  models: Schema.Array(
+    Schema.Struct({
+      provider: AiProvider,
+      model: Schema.String,
+      spentUsd: Schema.Number,
+      calls: NonNegativeInt,
+    }),
+  ),
+  /** The costliest agent sessions, by the ID the CLI gave them, for the app to name by thread. */
+  sessions: Schema.Array(
+    Schema.Struct({
+      provider: AiProvider,
+      sessionId: Schema.String,
+      spentUsd: Schema.Number,
+      calls: NonNegativeInt,
+      lastAt: IsoDateTime,
+    }),
+  ),
+  /** Calls the gateway turned away this month, for a budget or a rule. */
+  refusedCalls: NonNegativeInt,
+});
+export type ControlMyUsage = typeof ControlMyUsage.Type;
+
 export const ControlBudgetAsk = Schema.Struct({
   level: ControlBudgetRequestLevel,
   amountUsd: Schema.Number.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(1_000_000)),
@@ -1302,6 +1337,7 @@ const ControlMeGroup = HttpApiGroup.make("me")
       success: ControlDesktopCode,
     }),
     HttpApiEndpoint.get("budget", "/control/api/me/budget", { success: ControlMyBudget }),
+    HttpApiEndpoint.get("usage", "/control/api/me/usage", { success: ControlMyUsage }),
     HttpApiEndpoint.post("askForBudget", "/control/api/me/budget/requests", {
       payload: ControlBudgetAsk,
       success: ControlBudgetRequest,

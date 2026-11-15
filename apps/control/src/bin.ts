@@ -25,6 +25,7 @@ import * as BudgetRequests from "./gateway/BudgetRequests.ts";
 import * as Budgets from "./gateway/Budgets.ts";
 import * as Gateway from "./gateway/Gateway.ts";
 import * as GatewayHttp from "./gateway/GatewayHttp.ts";
+import * as UsageReports from "./gateway/UsageReports.ts";
 import * as Profiles from "./profiles/Profiles.ts";
 import * as Directory from "./provisioning/Directory.ts";
 import * as ProvisioningTokens from "./provisioning/ProvisioningTokens.ts";
@@ -71,9 +72,11 @@ const layerAccounts = Profiles.layer.pipe(
   Layer.provideMerge(ControlPublicUrl.layer),
 );
 
-const layerBudgets = Layer.mergeAll(BudgetRequests.layer, BudgetAlerts.layer).pipe(
-  Layer.provideMerge(Budgets.layer),
-);
+const layerBudgets = Layer.mergeAll(
+  BudgetRequests.layer,
+  BudgetAlerts.layer,
+  UsageReports.layer,
+).pipe(Layer.provideMerge(Budgets.layer));
 
 /** For commands, which change people and the licence but never touch workspaces. */
 const layerCommandAdministration = Administration.layer.pipe(

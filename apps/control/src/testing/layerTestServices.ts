@@ -9,6 +9,7 @@ import * as Departments from "../departments/Departments.ts";
 import * as AiAccounts from "../gateway/AiAccounts.ts";
 import * as BudgetAlerts from "../gateway/BudgetAlerts.ts";
 import * as BudgetRequests from "../gateway/BudgetRequests.ts";
+import * as UsageReports from "../gateway/UsageReports.ts";
 import * as Budgets from "../gateway/Budgets.ts";
 import * as Profiles from "../profiles/Profiles.ts";
 import * as ProvisioningTokens from "../provisioning/ProvisioningTokens.ts";
@@ -31,7 +32,7 @@ export const layerTestServices = (
   licencePublicKey: string,
   mailer: Layer.Layer<Mailer> = Layer.succeed(Mailer, Mailer.off),
 ) =>
-  Layer.mergeAll(BudgetRequests.layer, BudgetAlerts.layer).pipe(
+  Layer.mergeAll(BudgetRequests.layer, BudgetAlerts.layer, UsageReports.layer).pipe(
     Layer.provideMerge(Budgets.layer),
     Layer.provideMerge(Profiles.layer),
     Layer.provideMerge(AiAccounts.layer),
