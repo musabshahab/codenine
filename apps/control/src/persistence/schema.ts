@@ -1,3 +1,4 @@
+import type { ControlRole } from "@codenine/contracts/control";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -41,7 +42,7 @@ export const controlPeople = pgTable(
     id: varchar("id", { length: 64 }).primaryKey(),
     email: varchar("email", { length: 320 }).notNull(),
     displayName: varchar("display_name", { length: 255 }).notNull(),
-    role: varchar("role", { length: 16 }).notNull().$type<"owner" | "admin" | "member">(),
+    role: varchar("role", { length: 16 }).notNull().$type<ControlRole>(),
     /** Invited and active people hold a seat; deactivated people do not. */
     status: varchar("status", { length: 16 })
       .notNull()

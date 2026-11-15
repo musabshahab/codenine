@@ -4,6 +4,7 @@ import {
   type ControlEnrolment,
   type ControlPasskey,
   type ControlPerson,
+  type ControlRole,
   ControlSignInError,
   type ControlSignInMethods,
   type PasskeyAssertion,
@@ -101,8 +102,14 @@ export class Accounts extends Context.Service<
     readonly invite: (input: {
       readonly email: string;
       readonly displayName: string;
-      readonly role: "admin" | "member";
+      readonly role: ControlRole;
     }) => Effect.Effect<IssuedLink, ControlAccountError>;
+    readonly findPerson: (personId: string) => Effect.Effect<ControlPerson, ControlAccountError>;
+    /** Their open connections reconnect, so a new role applies at once. */
+    readonly setRole: (input: {
+      readonly personId: string;
+      readonly role: ControlRole;
+    }) => Effect.Effect<ControlPerson, ControlAccountError>;
     readonly listPeople: Effect.Effect<ReadonlyArray<ControlPerson>>;
     /** Everyone deactivated, and since when. */
     readonly listDeactivated: Effect.Effect<
@@ -234,7 +241,7 @@ export const make = Effect.gen(function* () {
       return yield* new ControlAccountError({ reason: "not-found" });
     }
     return toPerson(row, yield* nowIso);
-  });
+  }, dieOnDatabaseError);
 
   const requireFreeSeat = Effect.gen(function* () {
     const { licence: applied } = yield* licence.overview;
@@ -435,7 +442,7 @@ export const make = Effect.gen(function* () {
   const invite = Effect.fn("Accounts.invite")(function* (input: {
     readonly email: string;
     readonly displayName: string;
-    readonly role: "admin" | "member";
+    readonly role: ControlRole;
   }) {
     const email = input.email.trim();
     if (!isEmail(email)) {
@@ -480,27 +487,61 @@ export const make = Effect.gen(function* () {
     );
   }).pipe(Effect.orDie, Effect.withSpan("Accounts.listDeactivated"));
 
+  /**
+   * Refuses a change that would leave no active owner. Run it in the change's
+   * transaction: it locks the owners, so two owners cannot remove each other at once.
+   */
+  const keepAnOwner = Effect.fn("Accounts.keepAnOwner")(function* (personId: string) {
+    const owners = yield* db
+      .select({ id: controlPeople.id })
+      .from(controlPeople)
+      .where(and(eq(controlPeople.role, "owner"), eq(controlPeople.status, "active")))
+      .for("update");
+    if (owners.length <= 1 && owners.some((owner) => owner.id === personId)) {
+      return yield* new ControlAccountError({ reason: "last-owner" });
+    }
+  });
+
   const deactivate = Effect.fn("Accounts.deactivate")(function* (personId: string) {
     const person = yield* findPerson(personId);
     if (person.status === "deactivated") {
       return;
     }
-    if (person.role === "owner" && person.status === "active") {
-      const owners = yield* db
-        .select({ id: controlPeople.id })
-        .from(controlPeople)
-        .where(and(eq(controlPeople.role, "owner"), eq(controlPeople.status, "active")));
-      if (owners.length <= 1) {
-        return yield* new ControlAccountError({ reason: "last-owner" });
-      }
-    }
     const now = yield* nowIso;
-    yield* db
-      .update(controlPeople)
-      .set({ status: "deactivated", deactivatedAt: now, updatedAt: now })
-      .where(eq(controlPeople.id, personId));
+    yield* db.transaction(() =>
+      Effect.gen(function* () {
+        yield* keepAnOwner(personId);
+        yield* db
+          .update(controlPeople)
+          .set({ status: "deactivated", deactivatedAt: now, updatedAt: now })
+          .where(eq(controlPeople.id, personId));
+      }),
+    );
     yield* retireTickets(personId, ["invitation", "reset", "password", "sign-in", "desktop"]);
     yield* sessions.revokeAll(personId);
+  }, dieOnDatabaseError);
+
+  const setRole = Effect.fn("Accounts.setRole")(function* (input: {
+    readonly personId: string;
+    readonly role: ControlRole;
+  }) {
+    const person = yield* findPerson(input.personId);
+    if (person.role === input.role) {
+      return person;
+    }
+    yield* db.transaction(() =>
+      Effect.gen(function* () {
+        if (input.role !== "owner") {
+          yield* keepAnOwner(input.personId);
+        }
+        yield* db
+          .update(controlPeople)
+          .set({ role: input.role, updatedAt: yield* nowIso })
+          .where(eq(controlPeople.id, input.personId));
+      }),
+    );
+    yield* sessions.reconnect(input.personId);
+    return yield* findPerson(input.personId);
   }, dieOnDatabaseError);
 
   const reactivate = Effect.fn("Accounts.reactivate")(function* (personId: string) {
@@ -1079,6 +1120,8 @@ export const make = Effect.gen(function* () {
   return Accounts.of({
     inviteOwner,
     invite,
+    findPerson,
+    setRole,
     listPeople,
     listDeactivated,
     deactivate,

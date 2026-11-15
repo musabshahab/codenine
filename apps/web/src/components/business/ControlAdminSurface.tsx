@@ -1,10 +1,13 @@
-import type {
-  ControlIssuedLink,
-  ControlLicenceOverview,
-  ControlMe,
-  ControlPerson,
-  ControlSessionEntry,
-  ControlSignInMethods,
+import {
+  assignableRoles,
+  type ControlIssuedLink,
+  type ControlLicenceOverview,
+  type ControlMe,
+  type ControlPerson,
+  type ControlRole,
+  type ControlSessionEntry,
+  type ControlSignInMethods,
+  permissionReach,
 } from "@codenine/contracts/control";
 import { Link } from "@tanstack/react-router";
 import type * as Effect from "effect/Effect";
@@ -33,28 +36,34 @@ interface AdminData {
   readonly me: ControlMe;
   readonly sessions: ReadonlyArray<ControlSessionEntry>;
   readonly signInMethods: ControlSignInMethods;
-  /** Only owners and admins see the licence and people. */
-  readonly admin: {
-    readonly licence: ControlLicenceOverview;
-    readonly people: ReadonlyArray<ControlPerson>;
-  } | null;
+  /** Null when the person's role does not show it. */
+  readonly licence: ControlLicenceOverview | null;
+  readonly people: ReadonlyArray<ControlPerson> | null;
 }
+
+const ROLE_LABELS: Record<ControlRole, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  "department-admin": "Department admin",
+  member: "Member",
+  restricted: "Restricted",
+  auditor: "Auditor",
+};
 
 const loadAdminData = async (): Promise<AdminData | null> => {
   const me = await fetchControlMe();
   if (me === null) return null;
-  const isAdmin = me.role === "owner" || me.role === "admin";
-  const [sessions, signInMethods, admin] = await Promise.all([
+  const [sessions, signInMethods, licence, people] = await Promise.all([
     callControl((client) => client.me.sessions()),
     callControl((client) => client.me.signInMethods()),
-    isAdmin
-      ? Promise.all([
-          callControl((client) => client.admin.licence()),
-          callControl((client) => client.admin.people()),
-        ]).then(([licence, people]) => ({ licence, people }))
-      : Promise.resolve(null),
+    permissionReach(me.role, "licence:read") === null
+      ? null
+      : callControl((client) => client.admin.licence()),
+    permissionReach(me.role, "people:manage") === null
+      ? null
+      : callControl((client) => client.admin.people()),
   ]);
-  return { me, sessions, signInMethods, admin };
+  return { me, sessions, signInMethods, licence, people };
 };
 
 /** Licence, people and sessions for a business installation. */
@@ -120,15 +129,16 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
     );
   }
 
+  const administers = data.licence !== null || data.people !== null;
   return (
     <StandalonePage>
       <StandalonePageHeader
-        context={data.me.email}
-        title={data.admin === null ? "Your account" : "Administration"}
+        context={`${data.me.email} · ${ROLE_LABELS[data.me.role]}`}
+        title={administers ? "Administration" : "Your account"}
         description={
-          data.admin === null
-            ? "How you sign in to Codenine, and where you are signed in."
-            : "The licence, the people who use Codenine, and how and where you are signed in."
+          administers
+            ? "The licence, the people who use Codenine, and how and where you are signed in."
+            : "How you sign in to Codenine, and where you are signed in."
         }
       />
       <div className="mt-4 flex flex-wrap gap-2">
@@ -146,21 +156,18 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
         </Alert>
       ) : null}
 
-      {data.admin === null ? null : (
-        <>
-          <LicenceSection
-            licence={data.admin.licence}
-            onInstall={(token) =>
-              act((client) => client.admin.installLicence({ payload: { token } }))
-            }
-          />
-          <PeopleSection
-            meId={data.me.id}
-            onAction={act}
-            onChanged={refresh}
-            people={data.admin.people}
-          />
-        </>
+      {data.licence === null ? null : (
+        <LicenceSection
+          licence={data.licence}
+          onInstall={
+            permissionReach(data.me.role, "licence:manage") === null
+              ? null
+              : (token) => act((client) => client.admin.installLicence({ payload: { token } }))
+          }
+        />
+      )}
+      {data.people === null ? null : (
+        <PeopleSection me={data.me} onAction={act} onChanged={refresh} people={data.people} />
       )}
 
       <SignInMethodsSection
@@ -221,7 +228,8 @@ function LicenceSection({
   onInstall,
 }: {
   readonly licence: ControlLicenceOverview;
-  readonly onInstall: (token: string) => Promise<boolean>;
+  /** Null for people who may see the licence but not install one. */
+  readonly onInstall: ((token: string) => Promise<boolean>) | null;
 }) {
   const [token, setToken] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);
@@ -229,6 +237,7 @@ function LicenceSection({
 
   const install = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (onInstall === null) return;
     setIsInstalling(true);
     const installed = await onInstall(token.trim());
     setIsInstalling(false);
@@ -270,23 +279,25 @@ function LicenceSection({
           </AlertDescription>
         </Alert>
       )}
-      <form className="mt-4 space-y-2" onSubmit={(event) => void install(event)}>
-        <label className="text-sm font-medium" htmlFor="licence-key">
-          Install a licence key
-        </label>
-        <Textarea
-          id="licence-key"
-          disabled={isInstalling}
-          onChange={(event) => setToken(event.currentTarget.value)}
-          placeholder="Paste the key you received"
-          size="sm"
-          spellCheck={false}
-          value={token}
-        />
-        <Button disabled={isInstalling || token.trim() === ""} size="sm" type="submit">
-          {isInstalling ? "Installing..." : "Install key"}
-        </Button>
-      </form>
+      {onInstall === null ? null : (
+        <form className="mt-4 space-y-2" onSubmit={(event) => void install(event)}>
+          <label className="text-sm font-medium" htmlFor="licence-key">
+            Install a licence key
+          </label>
+          <Textarea
+            id="licence-key"
+            disabled={isInstalling}
+            onChange={(event) => setToken(event.currentTarget.value)}
+            placeholder="Paste the key you received"
+            size="sm"
+            spellCheck={false}
+            value={token}
+          />
+          <Button disabled={isInstalling || token.trim() === ""} size="sm" type="submit">
+            {isInstalling ? "Installing..." : "Install key"}
+          </Button>
+        </form>
+      )}
     </section>
   );
 }
@@ -299,18 +310,23 @@ const PERSON_STATUS = {
 
 function PeopleSection({
   people,
-  meId,
+  me,
   onAction,
   onChanged,
 }: {
   readonly people: ReadonlyArray<ControlPerson>;
-  readonly meId: string;
+  readonly me: ControlMe;
   readonly onAction: (change: ControlCall) => Promise<boolean>;
   readonly onChanged: () => Promise<void>;
 }) {
+  // Someone manages the people whose role they could give, as the control server checks.
+  const givable = assignableRoles(me.role);
+  const roleItems = Object.fromEntries(givable.map((role) => [role, ROLE_LABELS[role]]));
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [role, setRole] = useState<"member" | "admin">("member");
+  const [role, setRole] = useState<ControlRole>(
+    givable.includes("member") ? "member" : (givable[0] ?? "member"),
+  );
   const [isInviting, setIsInviting] = useState(false);
   const [linkError, setLinkError] = useState("");
   const [issuedLink, setIssuedLink] = useState<ControlIssuedLink | null>(null);
@@ -351,68 +367,101 @@ function PeopleSection({
     <section>
       <SectionTitle>People</SectionTitle>
       <ul className="mt-3 divide-y divide-border/70">
-        {people.map((person) => (
-          <li className="flex flex-wrap items-center gap-2 py-2" key={person.id}>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm">{person.displayName}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {person.email} · {person.role}
-              </p>
-            </div>
-            <Badge variant={PERSON_STATUS[person.status].variant}>
-              {PERSON_STATUS[person.status].label}
-            </Badge>
-            {person.lockedUntil === null ? null : (
-              <Button
-                onClick={() =>
-                  void onAction((client) =>
-                    client.admin.unlock({ params: { personId: person.id } }),
-                  )
-                }
-                size="xs"
-                variant="outline"
-              >
-                Unlock
-              </Button>
-            )}
-            {person.status === "deactivated" ? null : (
-              <Button
-                onClick={() =>
-                  void issue((client) => client.admin.reset({ params: { personId: person.id } }))
-                }
-                size="xs"
-                variant="outline"
-              >
-                {person.status === "invited" ? "New invitation link" : "Reset sign-in"}
-              </Button>
-            )}
-            {person.id === meId ? null : person.status === "deactivated" ? (
-              <Button
-                onClick={() =>
-                  void onAction((client) =>
-                    client.admin.reactivate({ params: { personId: person.id } }),
-                  )
-                }
-                size="xs"
-                variant="outline"
-              >
-                Reactivate
-              </Button>
-            ) : (
-              <Button
-                onClick={() =>
-                  void onAction((client) =>
-                    client.admin.deactivate({ params: { personId: person.id } }),
-                  )
-                }
-                size="xs"
-                variant="destructive-outline"
-              >
-                Deactivate
-              </Button>
-            )}
-          </li>
-        ))}
+        {people.map((person) => {
+          const manages = givable.includes(person.role);
+          return (
+            <li className="flex flex-wrap items-center gap-2 py-2" key={person.id}>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm">{person.displayName}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {person.email}
+                  {manages && person.id !== me.id ? "" : ` · ${ROLE_LABELS[person.role]}`}
+                </p>
+              </div>
+              {manages && person.id !== me.id ? (
+                <div className="w-40">
+                  <Select
+                    items={roleItems}
+                    onValueChange={(value) => {
+                      const chosen = givable.find((candidate) => candidate === value);
+                      if (chosen === undefined || chosen === person.role) return;
+                      void onAction((client) =>
+                        client.admin.setRole({
+                          params: { personId: person.id },
+                          payload: { role: chosen },
+                        }),
+                      );
+                    }}
+                    value={person.role}
+                  >
+                    <SelectTrigger aria-label={`Role of ${person.displayName}`} size="xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {givable.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {ROLE_LABELS[option]}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
+              ) : null}
+              <Badge variant={PERSON_STATUS[person.status].variant}>
+                {PERSON_STATUS[person.status].label}
+              </Badge>
+              {!manages ? null : person.lockedUntil === null ? null : (
+                <Button
+                  onClick={() =>
+                    void onAction((client) =>
+                      client.admin.unlock({ params: { personId: person.id } }),
+                    )
+                  }
+                  size="xs"
+                  variant="outline"
+                >
+                  Unlock
+                </Button>
+              )}
+              {!manages || person.status === "deactivated" ? null : (
+                <Button
+                  onClick={() =>
+                    void issue((client) => client.admin.reset({ params: { personId: person.id } }))
+                  }
+                  size="xs"
+                  variant="outline"
+                >
+                  {person.status === "invited" ? "New invitation link" : "Reset sign-in"}
+                </Button>
+              )}
+              {!manages || person.id === me.id ? null : person.status === "deactivated" ? (
+                <Button
+                  onClick={() =>
+                    void onAction((client) =>
+                      client.admin.reactivate({ params: { personId: person.id } }),
+                    )
+                  }
+                  size="xs"
+                  variant="outline"
+                >
+                  Reactivate
+                </Button>
+              ) : (
+                <Button
+                  onClick={() =>
+                    void onAction((client) =>
+                      client.admin.deactivate({ params: { personId: person.id } }),
+                    )
+                  }
+                  size="xs"
+                  variant="destructive-outline"
+                >
+                  Deactivate
+                </Button>
+              )}
+            </li>
+          );
+        })}
       </ul>
 
       {issuedLink === null ? null : (
@@ -465,9 +514,10 @@ function PeopleSection({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            items={{ member: "Member", admin: "Admin" }}
+            items={roleItems}
             onValueChange={(value) => {
-              if (value === "member" || value === "admin") setRole(value);
+              const chosen = givable.find((candidate) => candidate === value);
+              if (chosen !== undefined) setRole(chosen);
             }}
             value={role}
           >
@@ -475,8 +525,11 @@ function PeopleSection({
               <SelectValue />
             </SelectTrigger>
             <SelectPopup>
-              <SelectItem value="member">Member</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
+              {givable.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {ROLE_LABELS[option]}
+                </SelectItem>
+              ))}
             </SelectPopup>
           </Select>
           <Button disabled={isInviting} size="sm" type="submit">

@@ -49,8 +49,76 @@ export type ControlWorkspaceAccess = typeof ControlWorkspaceAccess.Type;
 export const ControlWorkspaceState = Schema.Struct({ asleep: Schema.Boolean });
 export type ControlWorkspaceState = typeof ControlWorkspaceState.Type;
 
-export const ControlRole = Schema.Literals(["owner", "admin", "member"]);
+export const ControlRole = Schema.Literals([
+  "owner",
+  "admin",
+  "department-admin",
+  "member",
+  "restricted",
+  "auditor",
+]);
 export type ControlRole = typeof ControlRole.Type;
+
+/** What a role may do on the control server. Workspace abilities are separate scopes. */
+export const ControlPermission = Schema.Literals([
+  "licence:manage",
+  "licence:read",
+  "security:manage",
+  "people:manage",
+  "departments:manage",
+  "audit:read",
+]);
+export type ControlPermission = typeof ControlPermission.Type;
+
+/** `own-department` reaches only the departments the person belongs to. */
+export type ControlPermissionReach = "all" | "own-department";
+
+const ROLE_PERMISSIONS: Record<
+  ControlRole,
+  Partial<Record<ControlPermission, ControlPermissionReach>>
+> = {
+  owner: {
+    "licence:manage": "all",
+    "licence:read": "all",
+    "security:manage": "all",
+    "people:manage": "all",
+    "departments:manage": "all",
+    "audit:read": "all",
+  },
+  admin: {
+    "licence:read": "all",
+    "security:manage": "all",
+    "people:manage": "all",
+    "departments:manage": "all",
+    "audit:read": "all",
+  },
+  "department-admin": {
+    "people:manage": "own-department",
+    "departments:manage": "own-department",
+    "audit:read": "own-department",
+  },
+  member: {},
+  restricted: {},
+  auditor: { "audit:read": "all" },
+};
+
+/** How far a role's permission reaches, or null when it has none. */
+export const permissionReach = (role: ControlRole, permission: ControlPermission) =>
+  ROLE_PERMISSIONS[role][permission] ?? null;
+
+/** The roles a role may give: owners any, admins any but owner, department admins two. */
+export const assignableRoles = (role: ControlRole): ReadonlyArray<ControlRole> => {
+  switch (role) {
+    case "owner":
+      return ControlRole.literals;
+    case "admin":
+      return ControlRole.literals.filter((assignable) => assignable !== "owner");
+    case "department-admin":
+      return ["member", "restricted"];
+    default:
+      return [];
+  }
+};
 
 /** Invited and active people hold a seat; deactivated people do not. */
 export const ControlPersonStatus = Schema.Literals(["invited", "active", "deactivated"]);
@@ -215,7 +283,7 @@ export class ControlAccountError extends Schema.TaggedError<ControlAccountError>
       case "owner-exists":
         return "This installation already has an owner. Ask them to invite you.";
       case "last-owner":
-        return "The last owner cannot be deactivated.";
+        return "Codenine needs at least one owner. Make someone else an owner first.";
       case "no-free-seat":
         return "Every seat on the licence is taken, or no working licence is installed.";
       case "invalid-link":
@@ -331,7 +399,7 @@ export class ControlForbiddenError extends Schema.TaggedError<ControlForbiddenEr
   { httpApiStatus: 403 },
 ) {
   override get message(): string {
-    return "Only owners and admins can do this.";
+    return "Your role does not allow this.";
   }
 }
 
@@ -488,9 +556,15 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       payload: Schema.Struct({
         email: Schema.String,
         displayName: Schema.String,
-        role: Schema.Literals(["admin", "member"]),
+        role: ControlRole,
       }),
       success: ControlIssuedLink,
+      error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.put("setRole", "/control/api/admin/people/:personId/role", {
+      params: PersonParams,
+      payload: Schema.Struct({ role: ControlRole }),
+      success: ControlPerson,
       error: [ControlForbiddenError, ControlAccountError],
     }),
     HttpApiEndpoint.post("deactivate", "/control/api/admin/people/:personId/deactivate", {

@@ -12,6 +12,7 @@ import * as Layer from "effect/Layer";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { Accounts } from "./accounts/Accounts.ts";
+import * as Administration from "./admin/Administration.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
 import * as Sessions from "./accounts/Sessions.ts";
@@ -83,6 +84,7 @@ const serveCommand = Command.make("serve", {}, () =>
         Licence.layerDailyCheck,
         WorkspaceRetention.layerHourlySweep,
       ).pipe(
+        Layer.provide(Administration.layer),
         Layer.provide(WorkspaceRetention.layer),
         // One manager for the API, forwarding and retention, so all see the same workspaces.
         Layer.provide(WorkspaceDriver.layer),

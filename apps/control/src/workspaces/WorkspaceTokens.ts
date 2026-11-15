@@ -1,4 +1,4 @@
-import { AuthStandardClientScopes, type AuthGrantScope } from "@codenine/contracts";
+import type { AuthGrantScope } from "@codenine/contracts";
 import { signWorkspaceToken } from "@codenine/shared/workspaceToken";
 import { desc } from "drizzle-orm";
 import * as Clock from "effect/Clock";
@@ -19,30 +19,6 @@ import { controlSigningKeys } from "../persistence/schema.ts";
 
 const TOKEN_SECONDS = 120;
 
-const CONTROL_SERVER_SCOPES: ReadonlyArray<AuthGrantScope> = [
-  "access:read",
-  "access:write",
-  "relay:read",
-  "relay:write",
-  "environment:maintain",
-];
-
-/**
- * What a person may do in a managed workspace. Who gets in, Codenine Connect
- * and server upkeep belong to the control server and the operator.
- */
-export const WORKSPACE_SCOPES: ReadonlyArray<AuthGrantScope> = AuthStandardClientScopes.filter(
-  (scope) => !CONTROL_SERVER_SCOPES.includes(scope),
-);
-
-/** What everyone can still do while the licence does not allow work: look, not change. */
-export const READ_ONLY_WORKSPACE_SCOPES: ReadonlyArray<AuthGrantScope> = [
-  "orchestration:read",
-  "terminal:read",
-  "filesystem:read",
-  "diagnostics:read",
-];
-
 export class WorkspaceTokens extends Context.Service<
   WorkspaceTokens,
   {
@@ -57,7 +33,7 @@ export class WorkspaceTokens extends Context.Service<
       readonly sessionId: string;
       readonly name: string;
       readonly workspaceId: string;
-      readonly readOnly: boolean;
+      readonly scopes: ReadonlyArray<AuthGrantScope>;
     }) => Effect.Effect<string>;
   }
 >()("@codenine/control/workspaces/WorkspaceTokens") {}
@@ -107,7 +83,7 @@ export const make = Effect.gen(function* () {
     readonly sessionId: string;
     readonly name: string;
     readonly workspaceId: string;
-    readonly readOnly: boolean;
+    readonly scopes: ReadonlyArray<AuthGrantScope>;
   }) {
     const now = Math.floor((yield* Clock.currentTimeMillis) / 1_000);
     return yield* signWorkspaceToken({
@@ -119,7 +95,7 @@ export const make = Effect.gen(function* () {
         sub: input.personId,
         sid: input.sessionId,
         name: input.name,
-        scopes: input.readOnly ? READ_ONLY_WORKSPACE_SCOPES : WORKSPACE_SCOPES,
+        scopes: input.scopes,
         iat: now,
         exp: now + TOKEN_SECONDS,
         jti: `tok_${Hex.encode(yield* random.randomBytes(8))}`,

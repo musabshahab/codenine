@@ -43,7 +43,12 @@ export class Sessions extends Context.Service<
       readonly sessionId: string;
     }) => Effect.Effect<void>;
     readonly revokeAll: (personId: string) => Effect.Effect<void>;
-    /** Completes when the session is revoked or expires, for connections it keeps open. */
+    /** Ends the person's open connections, which reconnect with what they may do now. */
+    readonly reconnect: (personId: string) => Effect.Effect<void>;
+    /**
+     * Completes when the session is revoked or expires, or its person must
+     * reconnect, for connections it keeps open.
+     */
     readonly awaitEnd: (session: AuthenticatedSession) => Effect.Effect<void>;
   }
 >()("@codenine/control/accounts/Sessions") {}
@@ -56,8 +61,8 @@ export const make = Effect.gen(function* () {
   const digest = yield* Digest.Digest;
 
   const hashToken = (token: string) => digest.digestHex(Digest.sha256, encoder.encode(token));
-  // Revocations within this server; a forwarded socket ends as soon as its session does.
-  const revocations = yield* PubSub.unbounded<{
+  // Within this server; a forwarded socket ends as soon as its session does.
+  const connectionEnds = yield* PubSub.unbounded<{
     readonly personId: string;
     readonly sessionId?: string;
   }>();
@@ -154,7 +159,7 @@ export const make = Effect.gen(function* () {
           isNull(controlSessions.revokedAt),
         ),
       );
-    yield* PubSub.publish(revocations, input);
+    yield* PubSub.publish(connectionEnds, input);
   }, Effect.orDie);
 
   const revokeAll = Effect.fn("Sessions.revokeAll")(function* (personId: string) {
@@ -162,12 +167,16 @@ export const make = Effect.gen(function* () {
       .update(controlSessions)
       .set({ revokedAt: yield* nowIso })
       .where(and(eq(controlSessions.personId, personId), isNull(controlSessions.revokedAt)));
-    yield* PubSub.publish(revocations, { personId });
+    yield* PubSub.publish(connectionEnds, { personId });
   }, Effect.orDie);
+
+  const reconnect = Effect.fn("Sessions.reconnect")(function* (personId: string) {
+    yield* PubSub.publish(connectionEnds, { personId });
+  });
 
   const awaitEnd = Effect.fn("Sessions.awaitEnd")(
     function* (session: AuthenticatedSession) {
-      const subscription = yield* PubSub.subscribe(revocations);
+      const subscription = yield* PubSub.subscribe(connectionEnds);
       // Checked after subscribing, so a revocation in between is not missed.
       const [current] = yield* db
         .select({ id: controlSessions.id })
@@ -176,7 +185,7 @@ export const make = Effect.gen(function* () {
       if (current === undefined) {
         return;
       }
-      const revoked = Effect.gen(function* () {
+      const ended = Effect.gen(function* () {
         while (true) {
           const event = yield* PubSub.take(subscription);
           if (
@@ -198,13 +207,13 @@ export const make = Effect.gen(function* () {
           ),
         ),
       );
-      yield* Effect.raceFirst(revoked, untilExpiry);
+      yield* Effect.raceFirst(ended, untilExpiry);
     },
     Effect.scoped,
     Effect.orDie,
   );
 
-  return Sessions.of({ create, authenticate, list, revoke, revokeAll, awaitEnd });
+  return Sessions.of({ create, authenticate, list, revoke, revokeAll, reconnect, awaitEnd });
 });
 
 export const layer = Layer.effect(Sessions, make);

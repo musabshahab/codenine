@@ -13,6 +13,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Socket from "effect/socket/Socket";
 
 import { type AuthenticatedSession, Sessions } from "../accounts/Sessions.ts";
+import { workspaceScopes } from "../admin/roles.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { sessionCookieName } from "../http/ControlHttp.ts";
 import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
@@ -60,7 +61,7 @@ interface Authorized {
 
 /**
  * Who is asking, their workspace, and the token to forward with their request.
- * The licence decides whether the token can change anything.
+ * Their role decides what the token allows, and the licence whether it can change anything.
  */
 export const makeWorkspaceAuthorizer = Effect.gen(function* () {
   const sessions = yield* Sessions;
@@ -87,7 +88,7 @@ export const makeWorkspaceAuthorizer = Effect.gen(function* () {
       sessionId: session.value.sessionId,
       name: session.value.person.displayName,
       workspaceId: target.workspaceId,
-      readOnly: !(yield* allowsWork),
+      scopes: workspaceScopes(session.value.person.role, yield* allowsWork),
     });
     return Option.some<Authorized>({ token, session: session.value, target });
   });

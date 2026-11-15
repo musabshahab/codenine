@@ -12,6 +12,7 @@ import {
   type WorkspaceTokenError,
 } from "@codenine/shared/workspaceToken";
 import type { AuthGrantScope } from "@codenine/contracts";
+import type { ControlRole } from "@codenine/contracts/control";
 import { describe, expect, it } from "@effect/vitest";
 import * as Arr from "effect/Array";
 import * as Clock from "effect/Clock";
@@ -30,6 +31,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Socket from "effect/socket/Socket";
 
 import { Sessions } from "../accounts/Sessions.ts";
+import { workspaceScopes } from "../admin/roles.ts";
 import { ControlDb } from "../db.ts";
 import { sessionCookieName } from "../http/ControlHttp.ts";
 import { LicenceService } from "../licence/LicenceService.ts";
@@ -181,12 +183,16 @@ const withProxy = <A, E, R>(
         yield* (yield* LicenceService).install(token);
       }
       const now = DateTime.formatIso(yield* DateTime.now);
-      const cookieFor = Effect.fn("test.cookieFor")(function* (id: string, name: string) {
+      const cookieFor = Effect.fn("test.cookieFor")(function* (
+        id: string,
+        name: string,
+        role: ControlRole,
+      ) {
         yield* (yield* ControlDb).insert(controlPeople).values({
           id,
           email: `${name.toLowerCase()}@acme.test`,
           displayName: name,
-          role: "member",
+          role,
           status: "active",
           createdAt: now,
           updatedAt: now,
@@ -194,8 +200,8 @@ const withProxy = <A, E, R>(
         const { token } = yield* (yield* Sessions).create({ personId: id, userAgent: null });
         return `${sessionCookieName(true)}=${token}`;
       });
-      const cookie = yield* cookieFor("per_ada", "Ada");
-      const beaCookie = yield* cookieFor("per_bea", "Bea");
+      const cookie = yield* cookieFor("per_ada", "Ada", "member");
+      const beaCookie = yield* cookieFor("per_bea", "Bea", "restricted");
       const host = yield* listen(
         Layer.mergeAll(WorkspaceProxy.layerHttpForwarding, WorkspaceProxy.layerSocketForwarding),
       );
@@ -263,7 +269,7 @@ describe("WorkspaceProxy", () => {
           const echo = yield* forwarded.echo;
           expect(echo).toMatchObject({ method: "GET", url: "/api/echo?x=1", cookie: null });
           expect(yield* scopesOf(echo.authorization ?? "")).toEqual(
-            WorkspaceTokens.WORKSPACE_SCOPES,
+            workspaceScopes("member", true),
           );
 
           const descriptor = yield* call(`http://${host}/.well-known/codenine/environment`, {
@@ -308,7 +314,7 @@ describe("WorkspaceProxy", () => {
             const greeting = yield* next;
             expect(greeting).toMatch(/^A authorization Bearer /u);
             expect(yield* scopesOf(greeting.replace(/^A authorization /u, ""))).toEqual(
-              WorkspaceTokens.READ_ONLY_WORKSPACE_SCOPES,
+              workspaceScopes("member", false),
             );
             yield* writer.write("ping");
             expect(yield* next).toBe("echo ping");
@@ -330,8 +336,9 @@ describe("WorkspaceProxy", () => {
           const ada = yield* (yield* call(`http://${host}/api/echo`, { cookie })).echo;
           const bea = yield* (yield* call(`http://${host}/api/echo`, { cookie: beaCookie })).echo;
           expect([ada.workspace, bea.workspace]).toEqual(["A", "B"]);
+          // Bea is restricted, and her token says so.
           expect(yield* scopesOf(bea.authorization ?? "", "ws-bea")).toEqual(
-            WorkspaceTokens.WORKSPACE_SCOPES,
+            workspaceScopes("restricted", true),
           );
           // A token minted for Ada's workspace is refused by Bea's.
           expect((yield* Effect.flip(scopesOf(ada.authorization ?? "", "ws-bea")))._tag).toBe(

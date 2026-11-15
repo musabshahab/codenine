@@ -3,8 +3,6 @@ import * as NodeHttp from "node:http";
 
 import {
   ControlApi,
-  ControlForbiddenError,
-  ControlLicenceInstallError,
   ControlPrincipal,
   ControlSessionAuth,
   ControlSignedOutError,
@@ -26,6 +24,7 @@ import * as HttpStaticServer from "effect/http/HttpStaticServer";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import { Accounts, type IssuedLink } from "../accounts/Accounts.ts";
+import { Administration } from "../admin/Administration.ts";
 import { Sessions } from "../accounts/Sessions.ts";
 import { ControlPublicUrl, enrolmentLink } from "../config.ts";
 import { ControlDb } from "../db.ts";
@@ -34,7 +33,6 @@ import {
   WorkspaceManager,
   type WorkspaceUnavailableError,
 } from "../workspaces/WorkspaceManager.ts";
-import { WorkspaceRetention } from "../workspaces/WorkspaceRetention.ts";
 
 const ok = { ok: true as const };
 
@@ -292,21 +290,13 @@ export const layerMeApi = HttpApiBuilder.group(
   }),
 );
 
-const requireAdmin = Effect.gen(function* () {
-  const { person } = yield* ControlPrincipal;
-  if (person.role !== "owner" && person.role !== "admin") {
-    return yield* new ControlForbiddenError({});
-  }
-});
-
 export const layerAdminApi = HttpApiBuilder.group(
   ControlApi,
   "admin",
   Effect.fnUntraced(function* (handlers) {
-    const accounts = yield* Accounts;
-    const licence = yield* LicenceService;
-    const retention = yield* WorkspaceRetention;
+    const admin = yield* Administration;
     const { origin } = yield* ControlPublicUrl;
+    const actor = Effect.map(ControlPrincipal, ({ person }) => ({ person }));
     const withLink = <E, R>(issued: Effect.Effect<IssuedLink, E, R>) =>
       Effect.map(issued, ({ person, token, emailed }) => ({
         person,
@@ -315,34 +305,30 @@ export const layerAdminApi = HttpApiBuilder.group(
       }));
 
     return handlers
-      .handle("licence", () => Effect.andThen(requireAdmin, licence.overview))
-      .handle(
-        "installLicence",
-        Effect.fn("ControlHttp.installLicence")(function* ({ payload }) {
-          yield* requireAdmin;
-          const { overview } = yield* licence
-            .install(payload.token)
-            .pipe(
-              Effect.mapError((error) => new ControlLicenceInstallError({ problem: error.reason })),
-            );
-          return overview;
-        }),
+      .handle("licence", () => Effect.flatMap(actor, admin.licence))
+      .handle("installLicence", ({ payload }) =>
+        Effect.flatMap(actor, (by) => admin.installLicence(by, payload.token)),
       )
-      .handle("people", () => Effect.andThen(requireAdmin, accounts.listPeople))
+      .handle("people", () => Effect.flatMap(actor, admin.people))
       .handle("invite", ({ payload }) =>
-        Effect.andThen(requireAdmin, withLink(accounts.invite(payload))),
+        withLink(Effect.flatMap(actor, (by) => admin.invite(by, payload))),
+      )
+      .handle("setRole", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.setRole(by, { personId: params.personId, role: payload.role }),
+        ),
       )
       .handle("deactivate", ({ params }) =>
-        Effect.andThen(requireAdmin, Effect.as(retention.deactivate(params.personId), ok)),
+        Effect.flatMap(actor, (by) => admin.deactivate(by, params.personId)).pipe(Effect.as(ok)),
       )
       .handle("reactivate", ({ params }) =>
-        Effect.andThen(requireAdmin, accounts.reactivate(params.personId)),
+        Effect.flatMap(actor, (by) => admin.reactivate(by, params.personId)),
       )
       .handle("reset", ({ params }) =>
-        Effect.andThen(requireAdmin, withLink(accounts.issueReset(params.personId))),
+        withLink(Effect.flatMap(actor, (by) => admin.issueReset(by, params.personId))),
       )
       .handle("unlock", ({ params }) =>
-        Effect.andThen(requireAdmin, Effect.as(accounts.unlock(params.personId), ok)),
+        Effect.flatMap(actor, (by) => admin.unlock(by, params.personId)).pipe(Effect.as(ok)),
       );
   }),
 );

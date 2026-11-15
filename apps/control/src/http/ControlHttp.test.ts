@@ -21,6 +21,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import { Accounts } from "../accounts/Accounts.ts";
 import { Sessions } from "../accounts/Sessions.ts";
+import * as Administration from "../admin/Administration.ts";
 import { codeNow, fromBase32 } from "../testing/authenticator.ts";
 import { layerTestServices, TEST_PUBLIC_URL } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
@@ -61,7 +62,8 @@ const withApi = <A, E, R>(
     }).pipe(
       Effect.scoped,
       Effect.provide(
-        WorkspaceRetention.layer.pipe(
+        Administration.layer.pipe(
+          Layer.provideMerge(WorkspaceRetention.layer),
           Layer.provideMerge(
             layerTestServices(keys.publicKey).pipe(
               Layer.provideMerge(HttpServer.layerServices),

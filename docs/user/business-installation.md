@@ -198,10 +198,26 @@ when it starts.
 
 ## Manage people
 
-Owners and admins manage people under **Account**:
+Each person has a role, which decides what they can do in their workspace and under **Account**:
 
-- **Invite** someone to get a one-time link for them, which Codenine also emails when a mail server
-  is set. Each invited or active person takes a seat on the licence.
+| Role             | In their workspace                                                           | Under **Account**                                                    |
+| ---------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Owner            | Everything                                                                   | Everything, including installing the licence and making other owners |
+| Admin            | Everything                                                                   | People, and the licence without installing one                       |
+| Department admin | Everything                                                                   | Members and restricted members of their own departments              |
+| Member           | Everything                                                                   | Their own sign-in                                                    |
+| Restricted       | Agents and previews, with no terminal, no source control and read-only files | Their own sign-in                                                    |
+| Auditor          | Looking only                                                                 | Their own sign-in                                                    |
+
+Someone can change only the people whose role they could give, so an admin cannot change, reset or
+deactivate an owner. A new role applies at once: the person's open windows reconnect with it. There
+is always at least one owner; make someone else an owner before stepping down.
+
+Owners, admins and department admins manage people under **Account**:
+
+- **Invite** someone with a role to get a one-time link for them, which Codenine also emails when a
+  mail server is set. Each invited or active person takes a seat on the licence.
+- **Change a role** from the list next to their name.
 - **Deactivate** someone to sign them out everywhere and free their seat. With one workspace per
   person, their workspace stops too. Their files are kept for 30 days and come back if you
   reactivate them in that time; after that they are deleted.
@@ -215,8 +231,8 @@ on the sign-in page. The emailed link works for an hour, and they still need the
 authenticator app or a recovery code.
 
 Everyone can open **Account** at the bottom of the sidebar to add or remove passkeys, see where they
-are signed in, and sign out of any browser or everywhere at once. Owners and admins manage the
-licence and people from the same page.
+are signed in, and sign out of any browser or everywhere at once. The licence and people are on the
+same page for the roles that manage them.
 
 If the only owner is locked out, someone with access to the control server can run:
 

@@ -18,12 +18,18 @@ checks key ID, signature, type, issuer, audience and time.
   cookie, and it refuses cookies, its own sessions, pairing, bootstrap exchange and DPoP. It
   also issues no sessions or pairing links, so `codenine auth` and `codenine pair` fail plainly.
   Revocation therefore happens on the control server: sign-out, a reset or deactivation ends
-  that person's forwarded sockets at once, and the next HTTP request has no token. Local
+  that person's forwarded sockets at once, and the next HTTP request has no token. A role change
+  ends their sockets too, so they reconnect with the new role's scopes. Local
   socket invalidation is skipped for managed sessions, because there is no local row to watch.
 - **The control server decides scopes.** People get the standard scopes minus access, relay and
-  environment upkeep, which belong to the control server and the operator. While the licence
-  does not allow work, tokens carry only read scopes, so the workspace's existing per-call
-  checks make it read-only without the proxy reading any traffic.
+  environment upkeep, which belong to the control server and the operator, and their role
+  narrows that ([`roles.ts`](../../apps/control/src/admin/roles.ts)). While the licence does not
+  allow work, tokens carry only read scopes, so the workspace's existing per-call checks make it
+  read-only without the proxy reading any traffic.
+- **Control server permissions live in contracts** ([`control.ts`](../../packages/contracts/src/control.ts)),
+  so the admin pages show what the server allows. The server checks every change, and someone
+  manages only the people whose role they could give: otherwise an admin could reset an owner's
+  sign-in and take the account over with the link.
 - **Scopes are not isolation.** As [Environment authentication](./environment-auth.md)
   explains, `terminal:operate` and `orchestration:operate` reach everything the workspace's
   user can. Separate people get separate workspaces; one shared workspace is for a team that
