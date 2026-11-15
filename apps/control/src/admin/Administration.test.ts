@@ -1,6 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type { ControlRole } from "@codenine/contracts/control";
+import type { ControlProfileSettings, ControlRole } from "@codenine/contracts/control";
 import type { LicenceClaims } from "@codenine/contracts/licence";
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
@@ -26,6 +26,8 @@ const withAdministration = <A, E, R>(
     readonly sign: (claims: LicenceClaims) => ReturnType<typeof signTestLicence>;
     /** The workspaces stopped one at a time. */
     readonly retired: ReadonlyArray<WorkspaceKey>;
+    /** The workspaces given new hosts, a batch at a time. */
+    readonly rerouted: ReadonlyArray<ReadonlyArray<WorkspaceKey>>;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -33,15 +35,19 @@ const withAdministration = <A, E, R>(
     yield* TestClock.setTime(Date.parse("2026-12-10T12:00:00Z"));
     const sign = (claims: LicenceClaims) => signTestLicence(claims, keys.privateKey);
     const retired: Array<WorkspaceKey> = [];
+    const rerouted: Array<ReadonlyArray<WorkspaceKey>> = [];
     const manager = WorkspaceManager.of({
       ...WorkspaceManager.none,
       retire: Effect.fn("test.retire")((key: WorkspaceKey) =>
         Effect.sync(() => retired.push(key) > 0),
       ),
+      applyNetwork: Effect.fn("test.applyNetwork")((keys: ReadonlyArray<WorkspaceKey>) =>
+        Effect.sync(() => void rerouted.push(keys)),
+      ),
     });
     return yield* Effect.gen(function* () {
       yield* (yield* LicenceService).install(yield* sign(testClaims({ seats: 10 })));
-      return yield* body({ sign, retired });
+      return yield* body({ sign, retired, rerouted });
     }).pipe(
       Effect.provide(
         Administration.layer.pipe(
@@ -139,6 +145,73 @@ describe("Administration", () => {
         expect(after.person.role).toBe("restricted");
       }),
     ),
+  );
+
+  it.effect(
+    "puts terminal and host changes into effect at once for the workspaces they reach",
+    () =>
+      withAdministration(({ rerouted }) =>
+        Effect.gen(function* () {
+          const admin = yield* Administration.Administration;
+          const sessions = yield* Sessions;
+          const ada = yield* person("Ada", "owner");
+          const cy = yield* person("Cy", "member");
+          const fay = yield* person("Fay", "member");
+          const design = yield* admin.createDepartment(ada, "Design");
+          const sales = yield* admin.createDepartment(ada, "Sales");
+          yield* admin.addDepartmentMember(ada, design.id, cy.id);
+          yield* admin.addDepartmentMember(ada, sales.id, fay.id);
+          const cyInDesign = { personId: cy.id, departmentId: design.id };
+          const { token } = yield* sessions.create({
+            personId: cy.id,
+            source: ON_THE_SERVER,
+            method: "password",
+          });
+          const session = Option.getOrThrow(yield* sessions.authenticate(token));
+          const ended = yield* Effect.forkChild(sessions.awaitEnd(session), {
+            startImmediately: true,
+          });
+          const saveDesign = (settings: ControlProfileSettings) =>
+            admin.saveProfile(ada, {
+              profileId: `department:${design.id}`,
+              settings,
+              note: "",
+              testWith: null,
+            });
+
+          // Blocking the terminal reconnects Cy without it; her hosts are as they were.
+          yield* saveDesign({ terminal: "block" });
+          yield* Fiber.join(ended);
+          expect(rerouted).toEqual([]);
+
+          // New hosts reach Design's workspaces only, whichever change brings them.
+          yield* saveDesign({ terminal: "block", blockHosts: [".github.com"] });
+          const brand = (yield* admin.createTeam(ada, design.id, "Brand")).teams[0]?.id ?? "";
+          yield* admin.saveProfile(ada, {
+            profileId: `team:${brand}`,
+            settings: { allowHosts: ["figma.com"] },
+            note: "",
+            testWith: null,
+          });
+          yield* admin.addTeamMember(ada, brand, cy.id);
+          const exception = yield* admin.addException(ada, {
+            personId: cy.id,
+            departmentId: design.id,
+            settings: { allowHosts: ["sentry.io"] },
+            reason: "Tracing a crash",
+            endsAt: "2026-12-17T12:00:00.000Z",
+          });
+          yield* admin.endException(ada, exception.id);
+          yield* admin.deleteTeam(ada, brand);
+          expect(rerouted).toEqual([
+            [cyInDesign],
+            [cyInDesign],
+            [cyInDesign],
+            [cyInDesign],
+            [cyInDesign],
+          ]);
+        }),
+      ),
   );
 
   it.effect("writes one audit entry for each change: who, from where, and what changed", () =>

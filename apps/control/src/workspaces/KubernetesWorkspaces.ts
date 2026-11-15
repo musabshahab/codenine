@@ -210,6 +210,8 @@ export const make = Effect.gen(function* () {
     forget: Effect.fn("WorkspaceManager.forget")(function* (key: WorkspaceKey) {
       yield* targets.forget(key);
     }),
+    // Every pod reaches out through the installation's one proxy, so profiles' hosts do not apply.
+    applyNetwork: Effect.fn("WorkspaceManager.applyNetwork")(() => Effect.void),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(
       function* (key: WorkspaceKey) {
         const pod = yield* api.getPod(podNames(workspaceIdOf(key)).pod);

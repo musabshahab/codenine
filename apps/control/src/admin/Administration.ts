@@ -26,6 +26,7 @@ import {
 } from "@codenine/contracts/control";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 
 import { Accounts, type IssuedLink } from "../accounts/Accounts.ts";
@@ -40,7 +41,8 @@ import {
 import { Departments } from "../departments/Departments.ts";
 import { type LicenceInstallResult, LicenceService } from "../licence/LicenceService.ts";
 import { describeLayerChange } from "../profiles/layering.ts";
-import { type ProfileStep, Profiles } from "../profiles/Profiles.ts";
+import { type ProfileStep, Profiles, type WorkspaceChange } from "../profiles/Profiles.ts";
+import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
 import { WorkspaceRetention } from "../workspaces/WorkspaceRetention.ts";
 
 /** Who asks for an admin action: their role decides what they may do, and the audit log names them. */
@@ -237,6 +239,7 @@ export const make = Effect.gen(function* () {
   const departments = yield* Departments;
   const profiles = yield* Profiles;
   const sessions = yield* Sessions;
+  const workspaces = yield* WorkspaceManager;
 
   const record = (
     actor: AdminActor,
@@ -319,13 +322,46 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const recordStep = (
+  /**
+   * Puts into effect at once what can change while a workspace runs: whether its
+   * person may use the terminal, which their connections pick up as they
+   * reconnect, and the hosts it reaches. The rest waits for its next start.
+   */
+  const takeEffect = Effect.fn("Administration.takeEffect")(function* (
+    changed: ReadonlyArray<WorkspaceChange>,
+  ) {
+    const reconnecting = new Set(
+      changed
+        .filter(({ before, after }) => before.terminal !== after.terminal)
+        .map(({ key }) => key.personId),
+    );
+    for (const personId of reconnecting) {
+      yield* sessions.reconnect(personId);
+    }
+    const rerouted = changed.filter(
+      ({ before, after }) =>
+        !Equal.equals(before.allowHosts, after.allowHosts) ||
+        !Equal.equals(before.blockHosts, after.blockHosts),
+    );
+    if (rerouted.length > 0) {
+      yield* workspaces.applyNetwork(rerouted.map(({ key }) => key)).pipe(
+        // The change stands: each workspace gets its hosts when it next starts.
+        Effect.catchTags({
+          WorkspaceUnavailableError: (error) =>
+            Effect.logWarning("Running workspaces could not get their new hosts.", error),
+        }),
+      );
+    }
+  });
+
+  /** Records a profile step and puts what it changed into effect. */
+  const finishStep = Effect.fn("Administration.finishStep")(function* (
     actor: AdminActor,
     action: ControlAuditAction,
     step: ProfileStep,
     extra: ControlAuditValues = {},
-  ) =>
-    record(
+  ) {
+    yield* record(
       actor,
       action,
       { kind: "profile", id: step.profile.id, label: step.profile.name },
@@ -338,6 +374,9 @@ export const make = Effect.gen(function* () {
             ...extra,
           },
     );
+    yield* takeEffect(step.changed);
+    return step.profile;
+  });
 
   /** Where an exception applies, for the audit log. */
   const exceptionPlace = (departmentId: string | null) =>
@@ -684,7 +723,11 @@ export const make = Effect.gen(function* () {
     ) {
       const department = yield* departments.ofTeam(teamId);
       yield* requireDepartment(actor, department.id);
-      const after = yield* departments.removeTeam(teamId);
+      const members = teamOf(department, teamId)?.members ?? [];
+      const { result: after, changed } = yield* profiles.measure(
+        members.map((personId) => ({ personId, departmentId: department.id })),
+        departments.removeTeam(teamId),
+      );
       yield* record(
         actor,
         "team.delete",
@@ -692,6 +735,7 @@ export const make = Effect.gen(function* () {
         { name: teamOf(department, teamId)?.name ?? null },
         null,
       );
+      yield* takeEffect(changed);
       return after;
     }),
     addTeamMember: Effect.fn("Administration.addTeamMember")(function* (
@@ -702,11 +746,16 @@ export const make = Effect.gen(function* () {
       const department = yield* departments.ofTeam(teamId);
       yield* requireDepartment(actor, department.id);
       const person = yield* requireManaged(actor, personId);
-      if (yield* departments.addTeamMember(teamId, personId)) {
+      const { result: added, changed } = yield* profiles.measure(
+        [{ personId, departmentId: department.id }],
+        departments.addTeamMember(teamId, personId),
+      );
+      if (added) {
         yield* record(actor, "team.add-member", personTarget(person), null, {
           team: teamTarget(department, teamId).label,
         });
       }
+      yield* takeEffect(changed);
       return yield* departments.find(department.id);
     }),
     removeTeamMember: Effect.fn("Administration.removeTeamMember")(function* (
@@ -717,7 +766,11 @@ export const make = Effect.gen(function* () {
       const department = yield* departments.ofTeam(teamId);
       yield* requireDepartment(actor, department.id);
       const person = yield* requireManaged(actor, personId);
-      if (yield* departments.removeTeamMember(teamId, personId)) {
+      const { result: removed, changed } = yield* profiles.measure(
+        [{ personId, departmentId: department.id }],
+        departments.removeTeamMember(teamId, personId),
+      );
+      if (removed) {
         yield* record(
           actor,
           "team.remove-member",
@@ -726,6 +779,7 @@ export const make = Effect.gen(function* () {
           null,
         );
       }
+      yield* takeEffect(changed);
       return yield* departments.find(department.id);
     }),
     profiles: Effect.fn("Administration.profiles")(function* (actor: AdminActor) {
@@ -764,7 +818,7 @@ export const make = Effect.gen(function* () {
         testWith: input.testWith,
         by: actor.who.label,
       });
-      yield* recordStep(
+      return yield* finishStep(
         actor,
         input.testWith === null ? "profile.publish" : "profile.test",
         step,
@@ -772,7 +826,6 @@ export const make = Effect.gen(function* () {
           ? { note: input.note.trim() || null }
           : { note: input.note.trim() || null, testers: input.testWith.length },
       );
-      return step.profile;
     }),
     publishTest: Effect.fn("Administration.publishTest")(function* (
       actor: AdminActor,
@@ -780,8 +833,7 @@ export const make = Effect.gen(function* () {
     ) {
       yield* requireProfile(actor, profileId);
       const step = yield* profiles.publishTest(profileId);
-      yield* recordStep(actor, "profile.publish", step);
-      return step.profile;
+      return yield* finishStep(actor, "profile.publish", step);
     }),
     discardTest: Effect.fn("Administration.discardTest")(function* (
       actor: AdminActor,
@@ -789,8 +841,7 @@ export const make = Effect.gen(function* () {
     ) {
       yield* requireProfile(actor, profileId);
       const step = yield* profiles.discardTest(profileId);
-      yield* recordStep(actor, "profile.discard", step);
-      return step.profile;
+      return yield* finishStep(actor, "profile.discard", step);
     }),
     rollBackProfile: Effect.fn("Administration.rollBackProfile")(function* (
       actor: AdminActor,
@@ -799,8 +850,9 @@ export const make = Effect.gen(function* () {
       yield* requireProfile(actor, profileId);
       const step = yield* profiles.rollBack(profileId, actor.who.label);
       const restored = step.profile.versions.find(({ version }) => version === step.to?.version);
-      yield* recordStep(actor, "profile.rollback", step, { note: restored?.note ?? null });
-      return step.profile;
+      return yield* finishStep(actor, "profile.rollback", step, {
+        note: restored?.note ?? null,
+      });
     }),
     personProfile: Effect.fn("Administration.personProfile")(function* (
       actor: AdminActor,
@@ -834,13 +886,17 @@ export const make = Effect.gen(function* () {
     ) {
       const person = yield* requireManaged(actor, input.personId);
       yield* requireExceptionPlace(actor, input.departmentId);
-      const exception = yield* profiles.addException({ ...input, by: actor.who.label });
+      const { exception, changed } = yield* profiles.addException({
+        ...input,
+        by: actor.who.label,
+      });
       yield* record(actor, "exception.create", personTarget(person), null, {
         department: yield* exceptionPlace(exception.departmentId),
         reason: exception.reason,
         endsAt: exception.endsAt,
         changes: describeLayerChange(null, exception.settings) || null,
       });
+      yield* takeEffect(changed);
       return exception;
     }),
     endException: Effect.fn("Administration.endException")(function* (
@@ -853,7 +909,7 @@ export const make = Effect.gen(function* () {
       }
       const person = yield* requireManaged(actor, exception.personId);
       yield* requireExceptionPlace(actor, exception.departmentId);
-      yield* profiles.endException(exceptionId);
+      const { changed } = yield* profiles.endException(exceptionId);
       yield* record(
         actor,
         "exception.end",
@@ -865,6 +921,7 @@ export const make = Effect.gen(function* () {
         },
         null,
       );
+      yield* takeEffect(changed);
     }),
     audit: Effect.fn("Administration.audit")(function* (actor: AdminActor, before: number | null) {
       const reached = yield* reachedDepartments(actor, "audit:read");

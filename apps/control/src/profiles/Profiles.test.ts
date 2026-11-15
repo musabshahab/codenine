@@ -78,9 +78,18 @@ describe("Profiles", () => {
             test: { version: 2, people: ["bea"] },
           });
           expect([yield* cpus("ada"), yield* cpus("bea")]).toEqual([4, 8]);
+          // Each step names the workspaces it changed, as they were and are now.
+          expect(tried.changed).toMatchObject([
+            {
+              key: { personId: "bea", departmentId: design },
+              before: { cpus: 4 },
+              after: { cpus: 8 },
+            },
+          ]);
 
-          yield* profiles.publishTest(designProfile);
+          const published = yield* profiles.publishTest(designProfile);
           expect([yield* cpus("ada"), yield* cpus("bea")]).toEqual([8, 8]);
+          expect(published.changed.map(({ key }) => key.personId)).toEqual(["ada"]);
           expect(yield* Effect.flip(profiles.discardTest(designProfile))).toMatchObject({
             reason: "nothing-to-test",
           });
@@ -121,13 +130,14 @@ describe("Profiles", () => {
         });
 
         // Once the company locks memory, the same department change affects nobody.
-        yield* profiles.save({
+        const locked = yield* profiles.save({
           id: "company",
           settings: { lock: ["memoryGb"] },
           note: "",
           testWith: null,
           by: "ada@acme.test",
         });
+        expect(locked.changed).toEqual([]);
         expect(yield* profiles.preview(designProfile, { memoryGb: 8 })).toEqual({
           people: 2,
           affected: 0,
@@ -163,7 +173,10 @@ describe("Profiles", () => {
           yield* Effect.flip(profiles.addException({ ...exception, departmentId: sales })),
         ).toMatchObject({ reason: "outside-profile" });
 
-        yield* profiles.addException(exception);
+        const added = yield* profiles.addException(exception);
+        expect(added.changed).toMatchObject([
+          { key: { personId: "ada", departmentId: design }, after: { cpus: 16 } },
+        ]);
         expect((yield* profiles.effective("ada", design)).cpus).toBe(16);
         expect((yield* profiles.effective("bea", design)).cpus).toBe(2);
 
@@ -175,7 +188,8 @@ describe("Profiles", () => {
           ...exception,
           endsAt: DateTime.formatIso(DateTime.add(yield* DateTime.now, { days: 7 })),
         });
-        yield* profiles.endException(again.id);
+        const ended = yield* profiles.endException(again.exception.id);
+        expect(ended.changed).toMatchObject([{ before: { cpus: 16 }, after: { cpus: 2 } }]);
         expect((yield* profiles.effective("ada", design)).cpus).toBe(2);
       }),
     ),

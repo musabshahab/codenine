@@ -40,8 +40,8 @@ checks key ID, signature, type, issuer, audience and time.
   serves `/mcp` with its own sessions so its agent processes can reach their tools, so the
   workspace must be reachable only from the control server. The Docker driver publishes no port:
   each workspace sits alone on an internal network that only the Docker host can reach, which is
-  why the control server must run there, and it reaches out only through the installation's egress
-  proxy, which allows the hosts on a list by name and never a bare address. On Kubernetes, the
+  why the control server must run there, and it reaches out only through an egress proxy, which
+  allows the hosts on a list by name and never a bare address. On Kubernetes, the
   NetworkPolicies in [`kubernetes.yaml`](../../images/workspace/kubernetes.yaml) hold workspaces to
   the same rules, so they depend on a network plugin that enforces them.
 - **The control server answers its own routes under `/control`**, so it never shadows a
@@ -91,6 +91,17 @@ reconnects to the other workspace instead of carrying a token from one into the 
 Each layer keeps its versions. A new one goes to everyone or first to a test group; rolling back
 publishes a copy of the version everyone had before, so the history only grows and the audit log
 names every step. Previews load all layers once and resolve every affected workspace in memory.
+
+A running workspace is never made again, since that would end its agents' work, so a new size or
+image waits for its next start. The terminal and hosts apply at once, because neither needs a
+restart: the terminal lives in each connection's token scopes, so the people whose terminal changed
+reconnect, and on Docker each set of hosts has its own egress proxy, with a workspace's network
+carrying exactly one under the name `egress`, so new hosts swap the proxy on that network. Every
+admin action that changes a layer, an exception or a team puts its changes into effect through
+[`Administration`](../../apps/control/src/admin/Administration.ts); the Docker driver also checks
+every workspace's proxy at start-up and hourly, for what changes without one: the installation's
+hosts, a change made while it was down, an exception that ran out. Kubernetes workspaces share the
+installation's one proxy, so profiles' hosts do not apply there yet.
 
 ## Sleeping workspaces
 

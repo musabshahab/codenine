@@ -28,6 +28,7 @@ const withRetention = <A, E>(
     const manager = WorkspaceManager.of({
       targetFor: Effect.fn("test.targetFor")(() => Effect.die("Not used here.")),
       forget: Effect.fn("test.forget")(() => Effect.void),
+      applyNetwork: Effect.fn("test.applyNetwork")(() => Effect.void),
       isAsleep: Effect.fn("test.isAsleep")(() => Effect.succeed(true)),
       retire: Effect.fn("test.retire")(() => Effect.succeed(false)),
       retireAll: Effect.fn("test.retireAll")((personId: string) =>

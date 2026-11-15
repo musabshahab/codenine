@@ -51,6 +51,10 @@ export class WorkspaceManager extends Context.Service<
     ) => Effect.Effect<WorkspaceTarget, WorkspaceUnavailableError>;
     /** Drops what is known about a workspace that stopped answering, so the next request checks. */
     readonly forget: (key: WorkspaceKey) => Effect.Effect<void>;
+    /** Gives those workspaces already made the network their profiles now set. */
+    readonly applyNetwork: (
+      keys: ReadonlyArray<WorkspaceKey>,
+    ) => Effect.Effect<void, WorkspaceUnavailableError>;
     /** Whether the workspace is stopped or not made yet, so the next request starts it. */
     readonly isAsleep: (key: WorkspaceKey) => Effect.Effect<boolean, WorkspaceUnavailableError>;
     /** Stops and removes one workspace, keeping its files; true when there was one. */
@@ -66,6 +70,8 @@ export class WorkspaceManager extends Context.Service<
     WorkspaceManager.of({
       targetFor: Effect.fn("WorkspaceManager.targetFor")(() => Effect.succeed(target)),
       forget: Effect.fn("WorkspaceManager.forget")(() => Effect.void),
+      // It reaches out however its own server allows.
+      applyNetwork: Effect.fn("WorkspaceManager.applyNetwork")(() => Effect.void),
       isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
       // People share it, so leaving removes nothing.
       retire: Effect.fn("WorkspaceManager.retire")(() => Effect.succeed(false)),
@@ -79,6 +85,7 @@ export class WorkspaceManager extends Context.Service<
       Effect.fail(new WorkspaceUnavailableError({ cause: "No workspace is set up." })),
     ),
     forget: Effect.fn("WorkspaceManager.forget")(() => Effect.void),
+    applyNetwork: Effect.fn("WorkspaceManager.applyNetwork")(() => Effect.void),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
     retire: Effect.fn("WorkspaceManager.retire")(() => Effect.succeed(false)),
     retireAll: Effect.fn("WorkspaceManager.retireAll")(() => Effect.succeed(false)),

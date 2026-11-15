@@ -1,3 +1,4 @@
+import type { ControlEffectiveProfile } from "@codenine/contracts/control";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Digest from "effect/crypto/Digest";
 import * as Duration from "effect/Duration";
@@ -23,6 +24,7 @@ import { WorkspaceTokens } from "./WorkspaceTokens.ts";
 import {
   allowedHostsFromConfig,
   EGRESS_PORT,
+  egressHosts,
   egressProxyConfig,
   WORKSPACE_HOME,
   WORKSPACE_UID,
@@ -48,10 +50,10 @@ export const workspaceNames = (installationId: string, workspaceId: string) => {
   return { container: base, volume: `${base}-home`, network: base };
 };
 
-/** Names for the installation's egress proxy and the network it reaches out on. */
+/** The network every egress proxy reaches out on, and each proxy's name by its settings' digest. */
 export const egressNames = (installationId: string) => {
-  const base = `codenine-${installationId}-egress`;
-  return { container: base, network: base };
+  const network = `codenine-${installationId}-egress`;
+  return { network, proxy: (digest: string) => `${network}-${digest.slice(0, 12)}` };
 };
 
 const encoder = new TextEncoder();
@@ -73,54 +75,114 @@ export const make = Effect.gen(function* () {
   const dialPort = yield* WorkspaceDialPort;
   const sha256 = (text: string) => digest.digestHex(Digest.sha256, encoder.encode(text));
 
+  const installationHosts = yield* allowedHostsFromConfig;
+  const egressLabels = { "codenine.installation": installation.id, "codenine.role": "egress" };
+  const egressFilter = Object.entries(egressLabels).map(([key, value]) => `${key}=${value}`);
   const egress = egressNames(installation.id);
-  const egressConfig = egressProxyConfig(yield* allowedHostsFromConfig);
-  const proxy: ContainerSpec = {
-    image: config.image,
-    command: [
-      "/bin/sh",
-      "-c",
-      'printf "%s\\n" "$SQUID_CONF" > /tmp/squid.conf && exec /usr/sbin/squid -N -f /tmp/squid.conf',
-    ],
-    env: { SQUID_CONF: egressConfig },
-    labels: {
-      "codenine.installation": installation.id,
-      "codenine.role": "egress",
-      // Only a change of hosts replaces the proxy, which cuts the connections it carries.
-      [SPEC_LABEL]: yield* sha256(egressConfig),
-    },
-    user: WORKSPACE_USER,
-    network: egress.network,
-    nanoCpus: 1e9,
-    memoryBytes: 256 * 1024 ** 2,
-    restart: "unless-stopped",
-  };
 
+  /** The proxy allowing what one profile may reach, shared by every workspace with the same hosts. */
+  const proxyFor = Effect.fn("DockerWorkspaces.proxyFor")(function* (
+    profile: ControlEffectiveProfile,
+  ) {
+    const hosts = egressHosts(installationHosts, profile);
+    const settings = egressProxyConfig(hosts.allowed, hosts.blocked);
+    const name = egress.proxy(yield* sha256(settings));
+    const spec: ContainerSpec = {
+      image: config.image,
+      command: [
+        "/bin/sh",
+        "-c",
+        'printf "%s\\n" "$SQUID_CONF" > /tmp/squid.conf && exec /usr/sbin/squid -N -f /tmp/squid.conf',
+      ],
+      env: { SQUID_CONF: settings },
+      labels: egressLabels,
+      user: WORKSPACE_USER,
+      network: egress.network,
+      nanoCpus: 1e9,
+      memoryBytes: 256 * 1024 ** 2,
+      restart: "unless-stopped",
+    };
+    return { name, spec };
+  });
+
+  // Every change to which proxy serves which network holds this, so none sees another's half.
   const egressLock = yield* Semaphore.make(1);
-  const ensureEgress = egressLock.withPermit(
-    Effect.gen(function* () {
-      const found = yield* engine.inspect(egress.container);
-      const replaced =
-        Option.isSome(found) && found.value.labels[SPEC_LABEL] !== proxy.labels[SPEC_LABEL];
-      if (replaced) {
-        yield* engine.removeContainer(egress.container);
+
+  /**
+   * Puts the proxy for the workspace's hosts on its network as the only one
+   * answering to the egress name. The profile is read here, under the lock, so
+   * the last change to land is the one that stays.
+   */
+  const attachEgress = Effect.fn("DockerWorkspaces.attachEgress")(function* (
+    network: string,
+    key: WorkspaceKey,
+  ) {
+    const proxy = yield* proxyFor(yield* profiles.effective(key.personId, key.departmentId));
+    const found = yield* engine.inspect(proxy.name);
+    if (Option.isNone(found)) {
+      yield* engine.ensureNetwork(egress.network, egressLabels, { internal: false });
+      yield* engine.ensureContainer(proxy.name, proxy.spec);
+    }
+    if (Option.isNone(found) || !found.value.running) {
+      yield* engine.start(proxy.name);
+    }
+    // The old proxy leaves first: for a moment nothing answers, rather than both.
+    for (const other of yield* engine.listContainers(egressFilter)) {
+      if (other.name !== proxy.name && other.networks.includes(network)) {
+        yield* engine.disconnect(network, other.name);
       }
-      if (Option.isNone(found) || replaced) {
-        yield* engine.ensureNetwork(egress.network, proxy.labels, { internal: false });
-        yield* engine.ensureContainer(egress.container, proxy);
-        // A new proxy joins every workspace's network.
-        const networks = yield* engine.listNetworks([
-          `codenine.installation=${installation.id}`,
-          "codenine.person",
-        ]);
-        for (const network of networks) {
-          yield* engine.connect(network, egress.container, EGRESS_ALIAS);
-        }
+    }
+    yield* engine.connect(network, proxy.name, EGRESS_ALIAS);
+  });
+
+  /** Removes the proxies no workspace's network carries any more. */
+  const pruneEgress = Effect.gen(function* () {
+    for (const proxy of yield* engine.listContainers(egressFilter)) {
+      if (proxy.networks.every((network) => network === egress.network)) {
+        yield* engine.removeContainer(proxy.name);
       }
-      if (Option.isNone(found) || replaced || !found.value.running) {
-        yield* engine.start(egress.container);
-      }
-    }),
+    }
+  }).pipe(Effect.withSpan("DockerWorkspaces.pruneEgress"));
+
+  /** Gives each of these workspaces that is made the proxy for its hosts now. */
+  const reroute = Effect.fn("DockerWorkspaces.reroute")(function* (
+    keys: ReadonlyArray<WorkspaceKey>,
+  ) {
+    for (const key of keys) {
+      const names = workspaceNames(installation.id, workspaceIdOf(key));
+      // A start in between takes the lock too, and no network goes while its container is there.
+      yield* egressLock.withPermit(
+        Effect.gen(function* () {
+          if (Option.isSome(yield* engine.inspect(names.container))) {
+            yield* attachEgress(names.network, key);
+          }
+        }),
+      );
+    }
+    yield* egressLock.withPermit(pruneEgress);
+  });
+
+  // At start and every hour after, for what changed with no admin action: the installation's
+  // hosts, a change made while the server was down, or an exception that ran out.
+  yield* Effect.gen(function* () {
+    const made = yield* engine.listContainers([
+      `codenine.installation=${installation.id}`,
+      "codenine.person",
+    ]);
+    yield* reroute(
+      made.flatMap(({ labels }) => {
+        const personId = labels["codenine.person"];
+        return personId === undefined
+          ? []
+          : [{ personId, departmentId: labels["codenine.department"] ?? null }];
+      }),
+    );
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError("Workspaces' egress proxies could not be brought up to date.", cause),
+    ),
+    Effect.repeat(Schedule.spaced(Duration.hours(1))),
+    Effect.forkScoped,
   );
 
   const answers = (url: string) =>
@@ -170,7 +232,6 @@ export const make = Effect.gen(function* () {
 
   const start = Effect.fn("DockerWorkspaces.start")(
     function* (key: WorkspaceKey) {
-      yield* ensureEgress;
       const { names, owner, container, workspaceId } = yield* desired(key);
       const found = yield* engine.inspect(names.container);
       const outdated =
@@ -186,7 +247,9 @@ export const make = Effect.gen(function* () {
         yield* engine.ensureNetwork(names.network, owner, { internal: true });
         yield* engine.ensureContainer(names.container, container);
       }
-      yield* engine.connect(names.network, egress.container, EGRESS_ALIAS);
+      yield* egressLock.withPermit(
+        attachEgress(names.network, key).pipe(Effect.andThen(pruneEgress)),
+      );
       if (Option.isNone(existing) || !existing.value.running) {
         yield* engine.start(names.container);
       }
@@ -222,6 +285,12 @@ export const make = Effect.gen(function* () {
     forget: Effect.fn("WorkspaceManager.forget")(function* (key: WorkspaceKey) {
       yield* targets.forget(key);
     }),
+    applyNetwork: Effect.fn("WorkspaceManager.applyNetwork")(
+      function* (keys: ReadonlyArray<WorkspaceKey>) {
+        yield* reroute(keys);
+      },
+      Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
+    ),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(
       function* (key: WorkspaceKey) {
         const found = yield* engine.inspect(
@@ -236,7 +305,9 @@ export const make = Effect.gen(function* () {
         const workspaceId = workspaceIdOf(key);
         const names = workspaceNames(installation.id, workspaceId);
         const removed = yield* engine.removeContainer(names.container);
-        yield* engine.removeNetwork(names.network);
+        yield* egressLock.withPermit(
+          engine.removeNetwork(names.network).pipe(Effect.andThen(pruneEgress)),
+        );
         yield* targets.drop(workspaceId);
         return removed;
       },
@@ -247,10 +318,17 @@ export const make = Effect.gen(function* () {
         const containers = yield* engine.listContainers(ownedBy(personId));
         for (const container of containers) {
           yield* engine.removeContainer(container.name);
-          // Each workspace's network has its container's name.
-          yield* engine.removeNetwork(container.name);
           yield* targets.drop(container.labels["codenine.workspace"] ?? personId);
         }
+        yield* egressLock.withPermit(
+          Effect.gen(function* () {
+            for (const container of containers) {
+              // Each workspace's network has its container's name.
+              yield* engine.removeNetwork(container.name);
+            }
+            yield* pruneEgress;
+          }),
+        );
         return containers.length > 0;
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),

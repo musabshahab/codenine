@@ -48,7 +48,17 @@ const decodeNetworks = Schema.decodeUnknownEffect(
 );
 const decodeImage = Schema.decodeUnknownEffect(Schema.Struct({ Id: Schema.String }));
 const decodeContainers = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Struct({ Names: Schema.Array(Schema.String), Labels })),
+  Schema.Array(
+    Schema.Struct({
+      Names: Schema.Array(Schema.String),
+      Labels,
+      NetworkSettings: Schema.optionalKey(
+        Schema.Struct({
+          Networks: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
+        }),
+      ),
+    }),
+  ),
 );
 const decodeVolumes = Schema.decodeUnknownEffect(
   Schema.Struct({ Volumes: Schema.NullOr(Schema.Array(Schema.Struct({ Name: Schema.String }))) }),
@@ -100,15 +110,22 @@ export class DockerEngine extends Context.Service<
       container: string,
       alias: string,
     ) => Effect.Effect<void, DockerEngineError>;
+    /** Takes a container off a network it is on. */
+    readonly disconnect: (
+      network: string,
+      container: string,
+    ) => Effect.Effect<void, DockerEngineError>;
     /** The names of the networks carrying all of these labels (`key` or `key=value`). */
     readonly listNetworks: (
       labels: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<string>, DockerEngineError>;
     /** The containers, running or not, carrying all of these labels. */
-    readonly listContainers: (
-      labels: ReadonlyArray<string>,
-    ) => Effect.Effect<
-      ReadonlyArray<{ readonly name: string; readonly labels: Readonly<Record<string, string>> }>,
+    readonly listContainers: (labels: ReadonlyArray<string>) => Effect.Effect<
+      ReadonlyArray<{
+        readonly name: string;
+        readonly labels: Readonly<Record<string, string>>;
+        readonly networks: ReadonlyArray<string>;
+      }>,
       DockerEngineError
     >;
     /** The names of the volumes carrying all of these labels. */
@@ -163,6 +180,18 @@ export class DockerEngine extends Context.Service<
     const path = (kind: string, name: string, rest = "") =>
       `${API}/${kind}/${encodeURIComponent(name)}${rest}`;
 
+    const disconnect = Effect.fn("DockerEngine.disconnect")(function* (
+      network: string,
+      container: string,
+    ) {
+      yield* call(
+        "disconnect a container",
+        HttpClientRequest.post(path("networks", network, "/disconnect")).pipe(
+          HttpClientRequest.bodyJsonUnsafe({ Container: container, Force: true }),
+        ),
+      );
+    });
+
     const removeNetwork = Effect.fn("DockerEngine.removeNetwork")(function* (name: string) {
       const found = yield* call(
         "inspect a network",
@@ -174,12 +203,7 @@ export class DockerEngine extends Context.Service<
       }
       const { Containers } = yield* read("read a network", found, decodeNetwork);
       for (const container of Object.keys(Containers ?? {})) {
-        yield* call(
-          "disconnect a container",
-          HttpClientRequest.post(path("networks", name, "/disconnect")).pipe(
-            HttpClientRequest.bodyJsonUnsafe({ Container: container, Force: true }),
-          ),
-        );
+        yield* disconnect(name, container);
       }
       const removed = yield* call(
         "remove a network",
@@ -244,6 +268,7 @@ export class DockerEngine extends Context.Service<
           [403],
         );
       }),
+      disconnect,
       listNetworks: Effect.fn("DockerEngine.listNetworks")(function* (labels) {
         const response = yield* call(
           "list networks",
@@ -266,6 +291,7 @@ export class DockerEngine extends Context.Service<
         return containers.map((container) => ({
           name: (container.Names[0] ?? "").replace(/^\//u, ""),
           labels: container.Labels ?? {},
+          networks: Object.keys(container.NetworkSettings?.Networks ?? {}),
         }));
       }),
       listVolumes: Effect.fn("DockerEngine.listVolumes")(function* (labels) {

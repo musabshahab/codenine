@@ -29,7 +29,7 @@ import { layerTestServices } from "../testing/layerTestServices.ts";
 import { testKeyPair } from "../testing/testLicence.ts";
 import { DockerEngine } from "./DockerEngine.ts";
 import * as DockerWorkspaces from "./DockerWorkspaces.ts";
-import { WorkspaceManager } from "./WorkspaceManager.ts";
+import { WorkspaceManager, workspaceIdOf } from "./WorkspaceManager.ts";
 import * as WorkspaceTokens from "./WorkspaceTokens.ts";
 import { WORKSPACE_HOME, WorkspaceDialPort } from "./workspaceSpec.ts";
 
@@ -73,6 +73,10 @@ const fakeDocker = () => {
     };
   } = {};
   const nameParam = HttpRouter.params.pipe(Effect.map((params) => params["name"] ?? ""));
+  const networksOf = (container: string) =>
+    [...networks].flatMap(([network, { containers }]) =>
+      containers.has(container) ? [[network, {}] as const] : [],
+    );
   const body = <A>() =>
     HttpServerRequest.HttpServerRequest.pipe(
       Effect.flatMap((request) => request.json),
@@ -116,7 +120,15 @@ const fakeDocker = () => {
       Effect.map(matching, (matches) =>
         HttpServerResponse.jsonUnsafe(
           [...labels].flatMap(([name, carried]) =>
-            matches(carried) ? [{ Names: [`/${name}`], Labels: carried }] : [],
+            matches(carried)
+              ? [
+                  {
+                    Names: [`/${name}`],
+                    Labels: carried,
+                    NetworkSettings: { Networks: Object.fromEntries(networksOf(name)) },
+                  },
+                ]
+              : [],
           ),
         ),
       ),
@@ -300,12 +312,25 @@ const fakeDocker = () => {
       held.next = hold;
       return hold;
     });
-  /** Workspace containers made, leaving out the egress proxy. */
+  /** Workspace containers made, leaving out the egress proxies. */
   const workspacesCreated = () =>
     created.filter((container) => container.body.Labels["codenine.person"] !== undefined);
+  /** The egress proxies on a network now. */
+  const proxiesOn = (network: string) =>
+    [...(networks.get(network)?.containers.keys() ?? [])].filter(
+      (name) => labels.get(name)?.["codenine.role"] === "egress",
+    );
+  /** What a proxy lets through: its Squid settings. */
+  const proxySettings = (name: string) =>
+    created
+      .find((container) => container.name === name)
+      ?.body.Env.find((entry) => entry.startsWith("SQUID_CONF="))
+      ?.slice("SQUID_CONF=".length) ?? "";
   return {
     created,
     workspacesCreated,
+    proxiesOn,
+    proxySettings,
     starts,
     removed,
     removedNetworks,
@@ -370,6 +395,14 @@ const withDockerWorkspaces = <A, E>(
     );
     return yield* body({ docker, workspacePort }).pipe(Effect.provide(manager));
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
+
+/** The hosts on one of a proxy's Squid lists. */
+const listed = (squid: string, list: "allowed" | "blocked") =>
+  squid
+    .split("\n")
+    .find((line) => line.startsWith(`acl ${list} `))
+    ?.split(" ")
+    .slice(4) ?? [];
 
 const ADA = { personId: "per_ada", departmentId: null };
 const BEA = { personId: "per_bea", departmentId: null };
@@ -469,39 +502,107 @@ describe("DockerWorkspaces", () => {
 
         expect(docker.networks.get(ada.network)?.internal).toBe(true);
         expect(docker.networks.get(egress.network)?.internal).toBe(false);
-        expect(docker.networks.get(ada.network)?.containers.get(egress.container)).toEqual([
-          "egress",
-        ]);
+        const [proxy = "", ...others] = docker.proxiesOn(ada.network);
+        expect(others).toEqual([]);
+        expect(docker.networks.get(ada.network)?.containers.get(proxy)).toEqual(["egress"]);
         const [workspace] = docker.workspacesCreated();
         expect(workspace?.body.Env).toContain("HTTPS_PROXY=http://egress:3128");
         expect(workspace?.body.HostConfig).not.toHaveProperty("PortBindings");
-        const proxy = docker.created.find((created) => created.name === egress.container);
-        expect(proxy?.body.HostConfig).toMatchObject({
+        expect(
+          docker.created.find((created) => created.name === proxy)?.body.HostConfig,
+        ).toMatchObject({
           NetworkMode: egress.network,
           RestartPolicy: { Name: "unless-stopped" },
           ReadonlyRootfs: true,
           CapDrop: ["ALL"],
         });
         // The admin's host joins the defaults; one a default already covers is left out.
-        const squid = proxy?.body.Env.find((entry) => entry.startsWith("SQUID_CONF=")) ?? "";
+        const squid = docker.proxySettings(proxy);
         expect(squid).toContain(" .github.com ");
         expect(squid).toContain(" git.acme.test");
         expect(squid).not.toContain("api.github.com");
+        expect(squid).not.toContain("acl blocked");
 
-        // A proxy made for other hosts is replaced, and the new one joins every workspace's network.
-        docker.labels.set(egress.container, {
-          ...proxy?.body.Labels,
-          [DockerWorkspaces.SPEC_LABEL]: "older hosts",
-        });
-        docker.running.set(ada.container, false);
-        yield* workspaces.forget(ADA);
-        yield* workspaces.targetFor(ADA);
-        expect(docker.removed).toEqual([egress.container]);
-        expect(docker.networks.get(ada.network)?.containers.get(egress.container)).toEqual([
-          "egress",
-        ]);
+        // Bea's workspace reaches the same hosts, so it shares the proxy.
+        yield* workspaces.targetFor(BEA);
+        const bea = DockerWorkspaces.workspaceNames(installation.id, "per_bea");
+        expect(docker.proxiesOn(bea.network)).toEqual([proxy]);
       }),
     ),
+  );
+
+  it.live(
+    "gives a department's workspaces a proxy for its own hosts, swapped at once on change",
+    () =>
+      withDockerWorkspaces(({ docker }) =>
+        Effect.gen(function* () {
+          const workspaces = yield* WorkspaceManager;
+          const installation = yield* Installation;
+          const departments = yield* Departments;
+          const profiles = yield* Profiles;
+          for (const id of ["per_ada", "per_bea"]) {
+            yield* (yield* ControlDb).insert(controlPeople).values({
+              id,
+              email: `${id}@acme.test`,
+              displayName: id,
+              role: "member",
+              status: "active",
+              createdAt: "2026-12-10T12:00:00.000Z",
+              updatedAt: "2026-12-10T12:00:00.000Z",
+            });
+          }
+          const hr = yield* departments.create("HR");
+          const sales = yield* departments.create("Sales");
+          yield* departments.addMember(hr.id, "per_ada");
+          yield* departments.addMember(sales.id, "per_bea");
+          const setHrHosts = (settings: {
+            readonly allowHosts?: ReadonlyArray<string>;
+            readonly blockHosts?: ReadonlyArray<string>;
+          }) =>
+            profiles.save({
+              id: `department:${hr.id}`,
+              settings,
+              note: "",
+              testWith: null,
+              by: "test",
+            });
+          yield* setHrHosts({ allowHosts: ["figma.com"], blockHosts: [".github.com"] });
+
+          const adaKey = { personId: "per_ada", departmentId: hr.id };
+          const beaKey = { personId: "per_bea", departmentId: sales.id };
+          const ada = DockerWorkspaces.workspaceNames(installation.id, workspaceIdOf(adaKey));
+          const bea = DockerWorkspaces.workspaceNames(installation.id, workspaceIdOf(beaKey));
+          yield* workspaces.targetFor(adaKey);
+          yield* workspaces.targetFor(beaKey);
+          const [hrProxy = ""] = docker.proxiesOn(ada.network);
+          const [salesProxy = ""] = docker.proxiesOn(bea.network);
+          expect(hrProxy).not.toBe(salesProxy);
+          // HR's blocked domain leaves the allowed list, and the proxy refuses it first.
+          const hrSquid = docker.proxySettings(hrProxy);
+          expect(listed(hrSquid, "allowed")).toContain("figma.com");
+          expect(listed(hrSquid, "allowed")).not.toContain(".github.com");
+          expect(listed(hrSquid, "blocked")).toEqual([".github.com"]);
+          expect(hrSquid.indexOf("http_access deny blocked")).toBeLessThan(
+            hrSquid.indexOf("http_access allow allowed"),
+          );
+          expect(listed(docker.proxySettings(salesProxy), "allowed")).toContain(".github.com");
+
+          // HR goes back to the installation's hosts: Ada's running workspace moves to the proxy
+          // Sales uses, without a restart, and HR's own proxy goes. One not made yet is left alone.
+          yield* setHrHosts({});
+          yield* workspaces.applyNetwork([adaKey, { personId: "per_cy", departmentId: null }]);
+          expect(docker.proxiesOn(ada.network)).toEqual([salesProxy]);
+          expect(docker.removed).toEqual([hrProxy]);
+          expect(docker.starts.filter((name) => name === ada.container)).toHaveLength(1);
+          expect(docker.workspacesCreated()).toHaveLength(2);
+
+          // A proxy goes with the last workspace it serves.
+          yield* workspaces.retire(adaKey);
+          expect(docker.removed).not.toContain(salesProxy);
+          yield* workspaces.retireAll("per_bea");
+          expect(docker.removed).toContain(salesProxy);
+        }),
+      ),
   );
 
   it.live("makes a stopped workspace again from a new image, keeping its volume", () =>
@@ -583,10 +684,12 @@ describe("DockerWorkspaces", () => {
           ]),
         );
 
-        // When Ada leaves, both her workspaces stop; their files stay until they are removed.
+        // When Ada leaves, both her workspaces stop, and the proxy they used; their files stay
+        // until they are removed.
+        const proxies = docker.proxiesOn(outside.network);
         expect(yield* workspaces.retireAll("per_ada")).toBe(true);
         expect(docker.removed.toSorted()).toEqual(
-          [outside.container, inDesign.container].toSorted(),
+          [outside.container, inDesign.container, ...proxies].toSorted(),
         );
         expect(docker.removedVolumes).toEqual([]);
         expect(yield* workspaces.removeFiles("per_ada")).toBe(true);

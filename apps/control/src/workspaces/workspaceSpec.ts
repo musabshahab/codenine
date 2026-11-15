@@ -2,6 +2,7 @@ import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
+import { coversHost } from "../profiles/layering.ts";
 import { type WorkspaceKey, workspaceIdOf } from "./WorkspaceManager.ts";
 import type { WorkspaceTokens } from "./WorkspaceTokens.ts";
 
@@ -89,13 +90,15 @@ export const DEFAULT_ALLOWED_HOSTS: ReadonlyArray<string> = [
 /** A host name, or with a leading dot, a domain and everything under it. */
 const HOST = /^\.?[a-z0-9-]+(\.[a-z0-9-]+)+$/u;
 
-/** The default hosts and an admin's own, leaving out any that a wider entry covers. */
-export const allowedHosts = (extra: ReadonlyArray<string>) => {
-  const all = [...new Set([...DEFAULT_ALLOWED_HOSTS, ...extra])];
-  const covers = (wide: string, host: string) =>
-    wide !== host && wide.startsWith(".") && (host === wide.slice(1) || host.endsWith(wide));
-  return all.filter((host) => !all.some((other) => covers(other, host)));
+/** Without any a wider entry covers, as Squid wants its lists. */
+const withoutCovered = (hosts: ReadonlyArray<string>) => {
+  const all = [...new Set(hosts)];
+  return all.filter((host) => !all.some((other) => other !== host && coversHost(other, host)));
 };
+
+/** The default hosts and an admin's own, leaving out any that a wider entry covers. */
+export const allowedHosts = (extra: ReadonlyArray<string>) =>
+  withoutCovered([...DEFAULT_ALLOWED_HOSTS, ...extra]);
 
 /** The hosts allowed with `CODENINE_CONTROL_WORKSPACE_ALLOWED_HOSTS`, refusing anything else. */
 export const allowedHostsFromConfig = Effect.gen(function* () {
@@ -114,8 +117,34 @@ export const allowedHostsFromConfig = Effect.gen(function* () {
   return allowedHosts(extra);
 });
 
-/** Squid allowing only those hosts, on the usual web ports, with no cache. */
-export const egressProxyConfig = (hosts: ReadonlyArray<string>) =>
+/**
+ * What a workspace may reach: the installation's hosts and its profile's, less
+ * those its profile blocks. A blocked host under an allowed domain stays on the
+ * deny list, which the proxy checks first.
+ */
+export const egressHosts = (
+  installationHosts: ReadonlyArray<string>,
+  profile: {
+    readonly allowHosts: ReadonlyArray<string>;
+    readonly blockHosts: ReadonlyArray<string>;
+  },
+) => {
+  // Checked when saved, and again here: each one becomes part of the proxy's settings.
+  const valid = (hosts: ReadonlyArray<string>) => hosts.filter((host) => HOST.test(host));
+  const blocked = withoutCovered(valid(profile.blockHosts));
+  return {
+    allowed: allowedHosts([...installationHosts, ...valid(profile.allowHosts)]).filter(
+      (host) => !blocked.some((wide) => coversHost(wide, host)),
+    ),
+    blocked,
+  };
+};
+
+/** Squid allowing only those hosts and none of `blocked`, on the usual web ports, with no cache. */
+export const egressProxyConfig = (
+  hosts: ReadonlyArray<string>,
+  blocked: ReadonlyArray<string> = [],
+) =>
   [
     `http_port ${EGRESS_PORT}`,
     "pid_filename none",
@@ -126,12 +155,14 @@ export const egressProxyConfig = (hosts: ReadonlyArray<string>) =>
     "access_log stdio:/dev/stdout",
     "cache_log /dev/stderr",
     // -n matches names only, so a request for a bare address never matches.
-    `acl allowed dstdomain -n ${hosts.join(" ")}`,
+    ...(hosts.length === 0 ? [] : [`acl allowed dstdomain -n ${hosts.join(" ")}`]),
+    ...(blocked.length === 0 ? [] : [`acl blocked dstdomain -n ${blocked.join(" ")}`]),
     "acl SSL_ports port 443",
     "acl Safe_ports port 80 443",
     "acl CONNECT method CONNECT",
     "http_access deny !Safe_ports",
     "http_access deny CONNECT !SSL_ports",
-    "http_access allow allowed",
+    ...(blocked.length === 0 ? [] : ["http_access deny blocked"]),
+    ...(hosts.length === 0 ? [] : ["http_access allow allowed"]),
     "http_access deny all",
   ].join("\n");

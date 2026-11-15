@@ -106,12 +106,13 @@ workspace awake. Terminals and anything else still running in it stop when it sl
 
 Each workspace is a container named `codenine-<installation ID>-<person ID>`, followed by
 `.<department ID>` for a department's workspace, and its files live on the volume of the same name
-ending in `-home`. Back up those volumes. The egress proxy runs
-beside them as `codenine-<installation ID>-egress`, from the same image. A new image, including
-one rebuilt under the same tag, and changes to these settings reach each workspace the next time
-it wakes; one that is awake keeps running as it is. To move someone sooner, stop their container
-with `docker stop` while their agents are idle. A change to the allowed hosts replaces the proxy
-the next time any workspace starts, which interrupts downloads under way.
+ending in `-home`. Back up those volumes. Egress proxies run beside them from the same image, one
+for each set of hosts in use, named `codenine-<installation ID>-egress-` and a code for that set;
+one that no workspace uses any more is removed. A new image, including one rebuilt under the same
+tag, and changes to these settings reach each workspace the next time it wakes; one that is awake
+keeps running as it is. To move someone sooner, stop their container with `docker stop` while
+their agents are idle. A change to the allowed hosts reaches every workspace, awake or not, when
+the control server restarts with it, and interrupts downloads under way.
 
 ### One workspace per person on Kubernetes
 
@@ -153,7 +154,8 @@ Pods are named `codenine-<person ID>`, followed by `-<department ID>` for a depa
 and claims end in `-home`, with dashes for underscores. A
 workspace that sleeps ends its pod, and the next visit starts a new pod from the current image and
 settings. To change the allowed hosts, print the settings again, replace the ConfigMap, and run
-`kubectl -n codenine rollout restart deployment/codenine-egress`.
+`kubectl -n codenine rollout restart deployment/codenine-egress`. Every workspace shares that one
+proxy, so the sites a department's profile allows or blocks do not apply on Kubernetes yet.
 
 ### One shared workspace server
 
@@ -255,8 +257,11 @@ Someone in several departments has a workspace in each and switches between them
 the sidebar, or with **Work in…** in the command palette; their work stays in the workspace where
 they did it. Leaving a department stops that workspace; its files stay while the person does, and
 come back if they rejoin. A new department can start from the Coder, Infrastructure, Marketing, HR
-or Product template, which sets its workspaces' size, how soon they sleep and whether members get a
-terminal.
+or Product template, which sets its workspaces' size, how soon they sleep, whether members get a
+terminal, and the sites they may reach beyond the allowed hosts or may not reach at all: the HR
+template blocks GitHub and the package registries. A change to the terminal or to sites reaches
+workspaces that are awake at once, and people whose terminal changed reconnect; a new size, image
+or sleep time waits until each workspace next wakes.
 
 ## Read the audit log
 

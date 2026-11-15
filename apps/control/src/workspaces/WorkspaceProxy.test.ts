@@ -173,6 +173,7 @@ const withProxy = <A, E, R>(
       forget: Effect.fn("test.forget")((key: WorkspaceKey) =>
         Effect.sync(() => void forgotten.push(key.personId)),
       ),
+      applyNetwork: Effect.fn("test.applyNetwork")(() => Effect.void),
       isAsleep: Effect.fn("test.isAsleep")(() => Effect.succeed(false)),
       retire: Effect.fn("test.retire")(() => Effect.succeed(false)),
       retireAll: Effect.fn("test.retireAll")(() => Effect.succeed(false)),

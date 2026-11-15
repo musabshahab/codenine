@@ -14,6 +14,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import { Hex } from "effect/encoding";
+import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
 
 import { Accounts } from "../accounts/Accounts.ts";
@@ -24,16 +25,30 @@ import {
   controlProfiles,
   controlProfileVersions,
 } from "../persistence/schema.ts";
+import type { WorkspaceKey } from "../workspaces/WorkspaceManager.ts";
 import { WorkspaceSizeConfig } from "../workspaces/workspaceSpec.ts";
 import { type ProfileDefaults, resolveProfile, summarizeChanges } from "./layering.ts";
 
 const EXCEPTION_DAYS = 90;
+
+/** A workspace a change made different, as it was and as it is now. */
+export interface WorkspaceChange {
+  readonly key: WorkspaceKey;
+  readonly before: ControlEffectiveProfile;
+  readonly after: ControlEffectiveProfile;
+}
 
 /** A version that took effect or stopped, for the audit log. */
 export interface ProfileStep {
   readonly profile: ControlProfile;
   readonly from: { readonly version: number; readonly settings: ControlProfileSettings } | null;
   readonly to: { readonly version: number; readonly settings: ControlProfileSettings } | null;
+  readonly changed: ReadonlyArray<WorkspaceChange>;
+}
+
+export interface ExceptionStep {
+  readonly exception: ControlProfileException;
+  readonly changed: ReadonlyArray<WorkspaceChange>;
 }
 
 /**
@@ -83,10 +98,19 @@ export class Profiles extends Context.Service<
       readonly reason: string;
       readonly endsAt: string;
       readonly by: string;
-    }) => Effect.Effect<ControlProfileException, ControlProfileError>;
+    }) => Effect.Effect<ExceptionStep, ControlProfileError>;
     readonly endException: (
       exceptionId: string,
-    ) => Effect.Effect<ControlProfileException, ControlProfileError>;
+    ) => Effect.Effect<ExceptionStep, ControlProfileError>;
+    /** Runs a change made elsewhere, such as to a team, and finds which of these workspaces it made different. */
+    readonly measure: <A, E, R>(
+      keys: ReadonlyArray<WorkspaceKey>,
+      change: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<
+      { readonly result: A; readonly changed: ReadonlyArray<WorkspaceChange> },
+      E,
+      R
+    >;
   }
 >()("@codenine/control/profiles/Profiles") {}
 
@@ -144,6 +168,28 @@ const effectiveIn = (
     defaults,
   );
 };
+
+/** What a step does to a profile, given where its versions stand. */
+type ProfileChange<E> = (current: {
+  readonly published: number | null;
+  readonly testVersion: number | null;
+  readonly latest: number;
+  readonly now: string;
+}) => Effect.Effect<
+  {
+    readonly insert?: {
+      readonly settings: ControlProfileSettings;
+      readonly note: string;
+      readonly by: string;
+      readonly published: boolean;
+    };
+    readonly set: Partial<typeof controlProfiles.$inferInsert>;
+    readonly publish?: number;
+    readonly from: number | null;
+    readonly to: number | null;
+  },
+  E
+>;
 
 export const make = Effect.gen(function* () {
   const db = yield* ControlDb;
@@ -329,29 +375,7 @@ export const make = Effect.gen(function* () {
   });
 
   /** Adds a version under the profile's lock and applies `apply` to its pointers. */
-  const changeProfile = <E>(
-    id: ControlProfileId,
-    change: (current: {
-      readonly published: number | null;
-      readonly testVersion: number | null;
-      readonly latest: number;
-      readonly now: string;
-    }) => Effect.Effect<
-      {
-        readonly insert?: {
-          readonly settings: ControlProfileSettings;
-          readonly note: string;
-          readonly by: string;
-          readonly published: boolean;
-        };
-        readonly set: Partial<typeof controlProfiles.$inferInsert>;
-        readonly publish?: number;
-        readonly from: number | null;
-        readonly to: number | null;
-      },
-      E
-    >,
-  ) =>
+  const changeProfile = <E>(id: ControlProfileId, change: ProfileChange<E>) =>
     db.transaction(() =>
       Effect.gen(function* () {
         const now = yield* nowIso;
@@ -406,17 +430,59 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  /** A person's workspaces a layer reaches: the one in its department, or all of theirs. */
+  const workspacesOf = (
+    loaded: Snapshot,
+    personId: string,
+    departmentId: string | null,
+  ): ReadonlyArray<WorkspaceKey> => {
+    if (departmentId !== null) return [{ personId, departmentId }];
+    const theirs = loaded.departments
+      .filter((department) => department.members.includes(personId))
+      .map((department) => department.id);
+    return (theirs.length === 0 ? [null] : theirs).map((id) => ({ personId, departmentId: id }));
+  };
+
+  /** Runs `change`, then finds which of the workspaces `reach` names it made different. */
+  const measured = Effect.fn("Profiles.measured")(function* <A, E, R>(
+    change: Effect.Effect<A, E, R>,
+    reach: (result: A, loaded: Snapshot) => ReadonlyArray<WorkspaceKey>,
+  ) {
+    const before = yield* dieOnDatabaseError(snapshot());
+    const result = yield* change;
+    const after = yield* dieOnDatabaseError(snapshot());
+    const changed = reach(result, after).flatMap((key): ReadonlyArray<WorkspaceChange> => {
+      const was = effectiveIn(before, defaults, key.personId, key.departmentId);
+      const now = effectiveIn(after, defaults, key.personId, key.departmentId);
+      return Equal.equals(was, now) ? [] : [{ key, before: was, after: now }];
+    });
+    return { result, changed };
+  });
+
+  /** Moves a profile between versions, finding whose workspaces that changed. */
+  const step = Effect.fn("Profiles.step")(function* <E>(
+    id: ControlProfileId,
+    change: ProfileChange<E>,
+  ) {
+    const scope = yield* scopeOf(id);
+    const { result, changed } = yield* measured(changeProfile(id, change), (_, loaded) =>
+      scope.people.flatMap((personId) => workspacesOf(loaded, personId, scope.departmentId)),
+    );
+    return yield* stepped(id, result, changed);
+  });
+
   /** The profile after a change, with the settings of the versions it went between. */
   const stepped = Effect.fn("Profiles.stepped")(function* (
     id: ControlProfileId,
     moved: { readonly from: number | null; readonly to: number | null },
+    changed: ReadonlyArray<WorkspaceChange>,
   ) {
     const profile = yield* get(id);
     const at = (version: number | null) => {
       const found = profile.versions.find((candidate) => candidate.version === version);
       return found === undefined ? null : { version: found.version, settings: found.settings };
     };
-    return { profile, from: at(moved.from), to: at(moved.to) } satisfies ProfileStep;
+    return { profile, from: at(moved.from), to: at(moved.to), changed };
   });
 
   return Profiles.of({
@@ -444,7 +510,7 @@ export const make = Effect.gen(function* () {
       ) {
         return yield* new ControlProfileError({ reason: "outside-profile" });
       }
-      const moved = yield* changeProfile(input.id, (current) =>
+      return yield* step(input.id, (current) =>
         Effect.succeed({
           insert: {
             settings: input.settings,
@@ -460,11 +526,9 @@ export const make = Effect.gen(function* () {
           to: current.latest + 1,
         }),
       );
-      return yield* stepped(input.id, moved);
     }, dieOnDatabaseError),
     publishTest: Effect.fn("Profiles.publishTest")(function* (id: ControlProfileId) {
-      yield* scopeOf(id);
-      const moved = yield* changeProfile(id, (current) =>
+      return yield* step(id, (current) =>
         current.testVersion === null
           ? Effect.fail(new ControlProfileError({ reason: "nothing-to-test" }))
           : Effect.succeed({
@@ -474,11 +538,9 @@ export const make = Effect.gen(function* () {
               to: current.testVersion,
             }),
       );
-      return yield* stepped(id, moved);
     }, dieOnDatabaseError),
     discardTest: Effect.fn("Profiles.discardTest")(function* (id: ControlProfileId) {
-      yield* scopeOf(id);
-      const moved = yield* changeProfile(id, (current) =>
+      return yield* step(id, (current) =>
         current.testVersion === null
           ? Effect.fail(new ControlProfileError({ reason: "nothing-to-test" }))
           : Effect.succeed({
@@ -487,11 +549,9 @@ export const make = Effect.gen(function* () {
               to: null,
             }),
       );
-      return yield* stepped(id, moved);
     }, dieOnDatabaseError),
     rollBack: Effect.fn("Profiles.rollBack")(function* (id: ControlProfileId, by: string) {
-      yield* scopeOf(id);
-      const moved = yield* changeProfile(id, (current) =>
+      return yield* step(id, (current) =>
         Effect.gen(function* () {
           const [published] = yield* db
             .select()
@@ -542,7 +602,6 @@ export const make = Effect.gen(function* () {
           };
         }),
       );
-      return yield* stepped(id, moved);
     }, dieOnDatabaseError),
     preview: Effect.fn("Profiles.preview")(function* (
       id: ControlProfileId,
@@ -550,16 +609,9 @@ export const make = Effect.gen(function* () {
     ) {
       const scope = yield* scopeOf(id);
       const loaded = yield* snapshot();
-      const workspacesOf = (personId: string) => {
-        if (scope.departmentId !== null) return [scope.departmentId];
-        const theirs = loaded.departments
-          .filter((department) => department.members.includes(personId))
-          .map((department) => department.id);
-        return theirs.length === 0 ? [null] : theirs;
-      };
       return summarizeChanges(
         scope.people.map((personId) =>
-          workspacesOf(personId).map((departmentId) => ({
+          workspacesOf(loaded, personId, scope.departmentId).map(({ departmentId }) => ({
             before: effectiveIn(loaded, defaults, personId, departmentId),
             after: effectiveIn(loaded, defaults, personId, departmentId, { id, settings }),
           })),
@@ -618,26 +670,43 @@ export const make = Effect.gen(function* () {
         createdBy: input.by.slice(0, 512),
         createdAt: DateTime.formatIso(now),
       };
-      yield* db.insert(controlProfileExceptions).values(exception);
-      return exception;
+      const { changed } = yield* measured(
+        db.insert(controlProfileExceptions).values(exception),
+        (_, loaded) => workspacesOf(loaded, exception.personId, exception.departmentId),
+      );
+      return { exception, changed } satisfies ExceptionStep;
     }, dieOnDatabaseError),
     endException: Effect.fn("Profiles.endException")(function* (exceptionId: string) {
-      const [ended] = yield* db
-        .update(controlProfileExceptions)
-        .set({ endedAt: yield* nowIso })
-        .where(
-          and(
-            eq(controlProfileExceptions.id, exceptionId),
-            isNull(controlProfileExceptions.endedAt),
-          ),
-        )
-        .returning();
+      const { result: ended, changed } = yield* measured(
+        Effect.gen(function* () {
+          const [row] = yield* db
+            .update(controlProfileExceptions)
+            .set({ endedAt: yield* nowIso })
+            .where(
+              and(
+                eq(controlProfileExceptions.id, exceptionId),
+                isNull(controlProfileExceptions.endedAt),
+              ),
+            )
+            .returning();
+          return row;
+        }),
+        (row, loaded) =>
+          row === undefined ? [] : workspacesOf(loaded, row.personId, row.departmentId),
+      );
       if (ended === undefined) {
         return yield* notFound();
       }
       const { id, personId, departmentId, settings, reason, endsAt, createdBy, createdAt } = ended;
-      return { id, personId, departmentId, settings, reason, endsAt, createdBy, createdAt };
+      return {
+        exception: { id, personId, departmentId, settings, reason, endsAt, createdBy, createdAt },
+        changed,
+      } satisfies ExceptionStep;
     }, dieOnDatabaseError),
+    measure: Effect.fn("Profiles.measure")(
+      <A, E, R>(keys: ReadonlyArray<WorkspaceKey>, change: Effect.Effect<A, E, R>) =>
+        measured(change, () => keys),
+    ),
   });
 });
 
