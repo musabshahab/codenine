@@ -24,7 +24,7 @@ import * as WorkspaceTokens from "./WorkspaceTokens.ts";
 import { WorkspaceDialPort } from "./workspaceSpec.ts";
 
 interface PodManifest {
-  readonly metadata: { readonly name: string };
+  readonly metadata: { readonly name: string; readonly labels: Readonly<Record<string, string>> };
   readonly spec: {
     readonly containers: ReadonlyArray<{
       readonly env: ReadonlyArray<{ readonly name: string; readonly value: string }>;
@@ -38,8 +38,11 @@ const NAMESPACE = "codenine";
 const fakeKubernetes = () => {
   const created: Array<PodManifest> = [];
   const deleted: Array<{ readonly name: string; readonly now: boolean }> = [];
-  const pods = new Map<string, { phase: string; checked: number }>();
-  const claims = new Map<string, unknown>();
+  const pods = new Map<
+    string,
+    { phase: string; checked: number; labels?: Readonly<Record<string, string>> }
+  >();
+  const claims = new Map<string, { metadata: { labels?: Readonly<Record<string, string>> } }>();
   const base = `/api/v1/namespaces/${NAMESPACE}`;
   const nameParam = HttpRouter.params.pipe(Effect.map((params) => params["name"] ?? ""));
   const body = <A>() =>
@@ -48,7 +51,39 @@ const fakeKubernetes = () => {
       Effect.map((json) => json as A),
       Effect.orDie,
     );
+  /** Items whose labels match the request's `a=b,c=d` selector. */
+  const listed = (
+    entries: Iterable<
+      readonly [string, { readonly labels?: Readonly<Record<string, string>> | undefined }]
+    >,
+  ) =>
+    Effect.map(HttpServerRequest.HttpServerRequest, (request) => {
+      const selector =
+        new URL(request.url, "http://kubernetes").searchParams.get("labelSelector") ?? "";
+      const wanted = selector.split(",").map((pair) => pair.split("="));
+      return HttpServerResponse.jsonUnsafe({
+        items: [...entries].flatMap(([name, { labels = {} }]) =>
+          wanted.every(([key = "", value]) => labels[key] === value)
+            ? [{ metadata: { name } }]
+            : [],
+        ),
+      });
+    });
   const routes = Layer.mergeAll(
+    HttpRouter.add(
+      "GET",
+      `${base}/pods`,
+      Effect.suspend(() => listed(pods)),
+    ),
+    HttpRouter.add(
+      "GET",
+      `${base}/persistentvolumeclaims`,
+      Effect.suspend(() =>
+        listed(
+          [...claims].map(([name, claim]) => [name, { labels: claim.metadata.labels }] as const),
+        ),
+      ),
+    ),
     HttpRouter.add(
       "GET",
       `${base}/pods/:name`,
@@ -74,7 +109,11 @@ const fakeKubernetes = () => {
           return HttpServerResponse.empty({ status: 409 });
         }
         created.push(manifest);
-        pods.set(manifest.metadata.name, { phase: "Pending", checked: 0 });
+        pods.set(manifest.metadata.name, {
+          phase: "Pending",
+          checked: 0,
+          labels: manifest.metadata.labels,
+        });
         return HttpServerResponse.jsonUnsafe(manifest, { status: 201 });
       }),
     ),
@@ -98,7 +137,9 @@ const fakeKubernetes = () => {
       "POST",
       `${base}/persistentvolumeclaims`,
       Effect.gen(function* () {
-        const manifest = yield* body<{ metadata: { name: string } }>();
+        const manifest = yield* body<{
+          metadata: { name: string; labels?: Readonly<Record<string, string>> };
+        }>();
         if (claims.has(manifest.metadata.name)) {
           return HttpServerResponse.empty({ status: 409 });
         }
@@ -132,6 +173,8 @@ const listen = <E, R>(routes: Layer.Layer<never, E, R>) =>
       return "port" in address ? address.port : 0;
     }),
   );
+
+const ADA = { personId: "per_ada", departmentId: null };
 
 describe("KubernetesWorkspaces", () => {
   it.live(
@@ -167,10 +210,10 @@ describe("KubernetesWorkspaces", () => {
           const workspaces = yield* WorkspaceManager;
           const ada = KubernetesWorkspaces.podNames("per_ada");
           expect(ada).toEqual({ pod: "codenine-per-ada", claim: "codenine-per-ada-home" });
-          expect(yield* workspaces.isAsleep("per_ada")).toBe(true);
+          expect(yield* workspaces.isAsleep(ADA)).toBe(true);
 
           const [first, second] = yield* Effect.all(
-            [workspaces.targetFor("per_ada"), workspaces.targetFor("per_ada")],
+            [workspaces.targetFor(ADA), workspaces.targetFor(ADA)],
             { concurrency: "unbounded" },
           );
           expect(first).toEqual({
@@ -219,14 +262,14 @@ describe("KubernetesWorkspaces", () => {
 
           // It slept: the finished pod gives way at once to a new one on the same claim.
           api.pods.set(ada.pod, { phase: "Succeeded", checked: 0 });
-          expect(yield* workspaces.isAsleep("per_ada")).toBe(true);
-          yield* workspaces.forget("per_ada");
-          expect(yield* workspaces.targetFor("per_ada")).toEqual(first);
+          expect(yield* workspaces.isAsleep(ADA)).toBe(true);
+          yield* workspaces.forget(ADA);
+          expect(yield* workspaces.targetFor(ADA)).toEqual(first);
           expect(api.deleted).toEqual([{ name: ada.pod, now: true }]);
           expect(api.created).toHaveLength(2);
 
           // Leaving stops the pod with the usual grace; the files go when they are removed.
-          expect(yield* workspaces.retire("per_ada")).toBe(true);
+          expect(yield* workspaces.retire(ADA)).toBe(true);
           expect(api.deleted.at(-1)).toEqual({ name: ada.pod, now: false });
           expect(api.claims.has(ada.claim)).toBe(true);
           expect(yield* workspaces.removeFiles("per_ada")).toBe(true);

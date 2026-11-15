@@ -47,6 +47,12 @@ const decodeNetworks = Schema.decodeUnknownEffect(
   Schema.Array(Schema.Struct({ Name: Schema.String })),
 );
 const decodeImage = Schema.decodeUnknownEffect(Schema.Struct({ Id: Schema.String }));
+const decodeContainers = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ Names: Schema.Array(Schema.String), Labels })),
+);
+const decodeVolumes = Schema.decodeUnknownEffect(
+  Schema.Struct({ Volumes: Schema.NullOr(Schema.Array(Schema.Struct({ Name: Schema.String }))) }),
+);
 
 export interface ContainerState {
   readonly running: boolean;
@@ -96,6 +102,17 @@ export class DockerEngine extends Context.Service<
     ) => Effect.Effect<void, DockerEngineError>;
     /** The names of the networks carrying all of these labels (`key` or `key=value`). */
     readonly listNetworks: (
+      labels: ReadonlyArray<string>,
+    ) => Effect.Effect<ReadonlyArray<string>, DockerEngineError>;
+    /** The containers, running or not, carrying all of these labels. */
+    readonly listContainers: (
+      labels: ReadonlyArray<string>,
+    ) => Effect.Effect<
+      ReadonlyArray<{ readonly name: string; readonly labels: Readonly<Record<string, string>> }>,
+      DockerEngineError
+    >;
+    /** The names of the volumes carrying all of these labels. */
+    readonly listVolumes: (
       labels: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<string>, DockerEngineError>;
     /** Creates the container unless one with that name exists. */
@@ -236,6 +253,30 @@ export class DockerEngine extends Context.Service<
         );
         const networks = yield* read("read networks", response, decodeNetworks);
         return networks.map((network) => network.Name);
+      }),
+      listContainers: Effect.fn("DockerEngine.listContainers")(function* (labels) {
+        const response = yield* call(
+          "list containers",
+          HttpClientRequest.get(`${API}/containers/json`).pipe(
+            HttpClientRequest.setUrlParam("all", "true"),
+            HttpClientRequest.setUrlParam("filters", labelFilter(labels)),
+          ),
+        );
+        const containers = yield* read("read containers", response, decodeContainers);
+        return containers.map((container) => ({
+          name: (container.Names[0] ?? "").replace(/^\//u, ""),
+          labels: container.Labels ?? {},
+        }));
+      }),
+      listVolumes: Effect.fn("DockerEngine.listVolumes")(function* (labels) {
+        const response = yield* call(
+          "list volumes",
+          HttpClientRequest.get(`${API}/volumes`).pipe(
+            HttpClientRequest.setUrlParam("filters", labelFilter(labels)),
+          ),
+        );
+        const { Volumes } = yield* read("read volumes", response, decodeVolumes);
+        return (Volumes ?? []).map((volume) => volume.Name);
       }),
       ensureContainer: Effect.fn("DockerEngine.ensureContainer")(function* (name, spec) {
         yield* call(

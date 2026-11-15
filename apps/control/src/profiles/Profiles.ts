@@ -248,8 +248,33 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  const snapshot = Effect.gen(function* () {
-    const rows = yield* db.select().from(controlProfiles);
+  /** The layers, departments and exceptions; with `only`, just what one workspace needs. */
+  const snapshot = Effect.fn("Profiles.snapshot")(function* (only?: {
+    readonly personId: string;
+    readonly departmentId: string | null;
+  }) {
+    const department =
+      only?.departmentId === null || only === undefined
+        ? null
+        : yield* departments.find(only.departmentId).pipe(Effect.option);
+    const ids =
+      only === undefined
+        ? null
+        : [
+            "company",
+            ...(department === null || department._tag === "None"
+              ? []
+              : [
+                  `department:${department.value.id}`,
+                  ...department.value.teams
+                    .filter((team) => team.members.includes(only.personId))
+                    .map((team) => `team:${team.id}`),
+                ]),
+          ];
+    const rows = yield* db
+      .select()
+      .from(controlProfiles)
+      .where(ids === null ? undefined : inArray(controlProfiles.id, ids));
     const wanted = rows.flatMap((row) =>
       [row.published, row.testVersion].flatMap((version) =>
         version === null
@@ -287,10 +312,19 @@ export const make = Effect.gen(function* () {
         },
       ]),
     );
+    const exceptions = yield* activeExceptions;
     return {
       layers,
-      departments: yield* departments.list,
-      exceptions: yield* activeExceptions,
+      departments:
+        only === undefined
+          ? yield* departments.list
+          : department === null || department._tag === "None"
+            ? []
+            : [department.value],
+      exceptions:
+        only === undefined
+          ? exceptions
+          : exceptions.filter((exception) => exception.personId === only.personId),
     } satisfies Snapshot;
   });
 
@@ -515,7 +549,7 @@ export const make = Effect.gen(function* () {
       settings: ControlProfileSettings,
     ) {
       const scope = yield* scopeOf(id);
-      const loaded = yield* snapshot;
+      const loaded = yield* snapshot();
       const workspacesOf = (personId: string) => {
         if (scope.departmentId !== null) return [scope.departmentId];
         const theirs = loaded.departments
@@ -536,7 +570,12 @@ export const make = Effect.gen(function* () {
       personId: string,
       departmentId: string | null,
     ) {
-      return effectiveIn(yield* snapshot, defaults, personId, departmentId);
+      return effectiveIn(
+        yield* snapshot({ personId, departmentId }),
+        defaults,
+        personId,
+        departmentId,
+      );
     }, dieOnDatabaseError),
     exceptions: activeExceptions.pipe(dieOnDatabaseError, Effect.withSpan("Profiles.exceptions")),
     addException: Effect.fn("Profiles.addException")(function* (input: {

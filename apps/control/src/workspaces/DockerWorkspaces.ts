@@ -10,8 +10,15 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 import { Installation } from "../installation/Installation.ts";
+import { Profiles } from "../profiles/Profiles.ts";
 import { type ContainerSpec, DockerEngine } from "./DockerEngine.ts";
-import { cachedTargets, WorkspaceManager, WorkspaceUnavailableError } from "./WorkspaceManager.ts";
+import {
+  cachedTargets,
+  type WorkspaceKey,
+  workspaceIdOf,
+  WorkspaceManager,
+  WorkspaceUnavailableError,
+} from "./WorkspaceManager.ts";
 import { WorkspaceTokens } from "./WorkspaceTokens.ts";
 import {
   allowedHostsFromConfig,
@@ -22,6 +29,7 @@ import {
   WorkspaceConfig,
   WorkspaceDialPort,
   workspaceEnv,
+  workspaceLabels,
 } from "./workspaceSpec.ts";
 
 const WORKSPACE_USER = `${WORKSPACE_UID}:${WORKSPACE_UID}`;
@@ -34,9 +42,9 @@ export const SPEC_LABEL = "codenine.spec";
 const EGRESS_ALIAS = "egress";
 const EGRESS_URL = `http://${EGRESS_ALIAS}:${EGRESS_PORT}`;
 
-/** Names for a person's container, volume and network, unique to this installation. */
-export const workspaceNames = (installationId: string, personId: string) => {
-  const base = `codenine-${installationId}-${personId}`;
+/** Names for a workspace's container, volume and network, unique to this installation. */
+export const workspaceNames = (installationId: string, workspaceId: string) => {
+  const base = `codenine-${installationId}-${workspaceId}`;
   return { container: base, volume: `${base}-home`, network: base };
 };
 
@@ -49,14 +57,16 @@ export const egressNames = (installationId: string) => {
 const encoder = new TextEncoder();
 
 /**
- * One container per person, made on their first request: their own volume, internal network and
- * limits, and a token audience no other workspace accepts. A stopped one starts on the next
- * request, made again first if its image or settings changed; a running one is never replaced.
+ * One container per person and department, made on its first request from the profile it
+ * gets: its own volume, internal network and limits, and a token audience no other workspace
+ * accepts. A stopped one starts on the next request, made again first if its image or settings
+ * changed; a running one is never replaced.
  */
 export const make = Effect.gen(function* () {
   const engine = yield* DockerEngine;
   const installation = yield* Installation;
   const { verifier } = yield* WorkspaceTokens;
+  const profiles = yield* Profiles;
   const config = yield* WorkspaceConfig;
   const client = yield* HttpClient.HttpClient;
   const digest = yield* Digest.Digest;
@@ -118,21 +128,24 @@ export const make = Effect.gen(function* () {
       .get(`${url}/.well-known/codenine/environment`)
       .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk), Effect.asVoid);
 
-  /** What the person's container should be made from now. */
-  const desired = Effect.fn("DockerWorkspaces.desired")(function* (personId: string) {
-    const names = workspaceNames(installation.id, personId);
-    const owner = { "codenine.installation": installation.id, "codenine.person": personId };
+  /** What the workspace's container should be made from now. */
+  const desired = Effect.fn("DockerWorkspaces.desired")(function* (key: WorkspaceKey) {
+    const workspaceId = workspaceIdOf(key);
+    const names = workspaceNames(installation.id, workspaceId);
+    const owner = workspaceLabels(installation.id, key);
+    const plan = yield* profiles.effective(key.personId, key.departmentId);
+    const image = plan.image ?? config.image;
     const env = workspaceEnv({
       verifier,
-      personId,
-      sleepMinutes: config.sleepMinutes,
+      workspaceId,
+      sleepMinutes: plan.sleepMinutes,
       proxyUrl: EGRESS_URL,
     });
-    const nanoCpus = Math.round(config.cpus * 1e9);
-    const memoryBytes = Math.round(config.memoryGb * 1024 ** 3);
+    const nanoCpus = Math.round(plan.cpus * 1e9);
+    const memoryBytes = Math.round(plan.memoryGb * 1024 ** 3);
     // The image by its ID, not its tag, so rebuilding the same tag counts as a change.
     const madeFrom = [
-      yield* engine.imageId(config.image),
+      yield* engine.imageId(image),
       ...Object.entries(env).map(([key, value]) => `${key}=${value}`),
       WORKSPACE_USER,
       names.network,
@@ -142,7 +155,7 @@ export const make = Effect.gen(function* () {
       memoryBytes,
     ];
     const container: ContainerSpec = {
-      image: config.image,
+      image,
       env,
       labels: { ...owner, [SPEC_LABEL]: yield* sha256(madeFrom.join("\n")) },
       user: WORKSPACE_USER,
@@ -152,13 +165,13 @@ export const make = Effect.gen(function* () {
       memoryBytes,
       restart: "no",
     };
-    return { names, owner, container };
+    return { names, owner, container, workspaceId };
   });
 
   const start = Effect.fn("DockerWorkspaces.start")(
-    function* (personId: string) {
+    function* (key: WorkspaceKey) {
       yield* ensureEgress;
-      const { names, owner, container } = yield* desired(personId);
+      const { names, owner, container, workspaceId } = yield* desired(key);
       const found = yield* engine.inspect(names.container);
       const outdated =
         Option.isSome(found) &&
@@ -190,40 +203,65 @@ export const make = Effect.gen(function* () {
         Effect.retry(Schedule.spaced("250 millis")),
         Effect.timeout(START_TIMEOUT),
       );
-      return { url, workspaceId: personId };
+      return { url, workspaceId };
     },
     Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
   );
 
   const targets = yield* cachedTargets(start);
 
+  const ownedBy = (personId: string) => [
+    `codenine.installation=${installation.id}`,
+    `codenine.person=${personId}`,
+  ];
+
   return WorkspaceManager.of({
-    targetFor: Effect.fn("WorkspaceManager.targetFor")(function* (personId: string) {
-      return yield* targets.targetFor(personId);
+    targetFor: Effect.fn("WorkspaceManager.targetFor")(function* (key: WorkspaceKey) {
+      return yield* targets.targetFor(key);
     }),
-    forget: Effect.fn("WorkspaceManager.forget")(function* (personId: string) {
-      yield* targets.forget(personId);
+    forget: Effect.fn("WorkspaceManager.forget")(function* (key: WorkspaceKey) {
+      yield* targets.forget(key);
     }),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(
-      function* (personId: string) {
-        const found = yield* engine.inspect(workspaceNames(installation.id, personId).container);
+      function* (key: WorkspaceKey) {
+        const found = yield* engine.inspect(
+          workspaceNames(installation.id, workspaceIdOf(key)).container,
+        );
         return Option.isNone(found) || !found.value.running;
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
     ),
     retire: Effect.fn("WorkspaceManager.retire")(
-      function* (personId: string) {
-        const names = workspaceNames(installation.id, personId);
+      function* (key: WorkspaceKey) {
+        const workspaceId = workspaceIdOf(key);
+        const names = workspaceNames(installation.id, workspaceId);
         const removed = yield* engine.removeContainer(names.container);
         yield* engine.removeNetwork(names.network);
-        yield* targets.drop(personId);
+        yield* targets.drop(workspaceId);
         return removed;
+      },
+      Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
+    ),
+    retireAll: Effect.fn("WorkspaceManager.retireAll")(
+      function* (personId: string) {
+        const containers = yield* engine.listContainers(ownedBy(personId));
+        for (const container of containers) {
+          yield* engine.removeContainer(container.name);
+          // Each workspace's network has its container's name.
+          yield* engine.removeNetwork(container.name);
+          yield* targets.drop(container.labels["codenine.workspace"] ?? personId);
+        }
+        return containers.length > 0;
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
     ),
     removeFiles: Effect.fn("WorkspaceManager.removeFiles")(
       function* (personId: string) {
-        return yield* engine.removeVolume(workspaceNames(installation.id, personId).volume);
+        const volumes = yield* engine.listVolumes(ownedBy(personId));
+        for (const volume of volumes) {
+          yield* engine.removeVolume(volume);
+        }
+        return volumes.length > 0;
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
     ),

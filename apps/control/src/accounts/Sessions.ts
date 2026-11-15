@@ -21,6 +21,8 @@ const TOUCH_AFTER_MINUTES = 5;
 export interface AuthenticatedSession {
   readonly sessionId: string;
   readonly expiresAt: string;
+  /** The department chosen in this session, which may no longer be the person's. */
+  readonly departmentId: string | null;
   readonly person: {
     readonly id: string;
     readonly email: string;
@@ -50,6 +52,12 @@ export class Sessions extends Context.Service<
     readonly revokeAll: (personId: string) => Effect.Effect<void>;
     /** Ends the person's open connections, which reconnect with what they may do now. */
     readonly reconnect: (personId: string) => Effect.Effect<void>;
+    /** Works in another department from this session on; its open connections reconnect there. */
+    readonly chooseDepartment: (input: {
+      readonly personId: string;
+      readonly sessionId: string;
+      readonly departmentId: string | null;
+    }) => Effect.Effect<void>;
     /**
      * Completes when the session is revoked or expires, or its person must
      * reconnect, for connections it keeps open.
@@ -113,6 +121,7 @@ export const make = Effect.gen(function* () {
         sessionId: controlSessions.id,
         expiresAt: controlSessions.expiresAt,
         lastSeenAt: controlSessions.lastSeenAt,
+        departmentId: controlSessions.departmentId,
         id: controlPeople.id,
         email: controlPeople.email,
         displayName: controlPeople.displayName,
@@ -140,8 +149,8 @@ export const make = Effect.gen(function* () {
         .set({ lastSeenAt: DateTime.formatIso(now) })
         .where(eq(controlSessions.id, row.sessionId));
     }
-    const { sessionId, expiresAt, lastSeenAt: _lastSeenAt, ...person } = row;
-    return Option.some({ sessionId, expiresAt, person });
+    const { sessionId, expiresAt, departmentId, lastSeenAt: _lastSeenAt, ...person } = row;
+    return Option.some({ sessionId, expiresAt, departmentId, person });
   }, Effect.orDie);
 
   const list = Effect.fn("Sessions.list")(function* (personId: string) {
@@ -193,6 +202,20 @@ export const make = Effect.gen(function* () {
     yield* PubSub.publish(connectionEnds, { personId });
   });
 
+  const chooseDepartment = Effect.fn("Sessions.chooseDepartment")(function* (input: {
+    readonly personId: string;
+    readonly sessionId: string;
+    readonly departmentId: string | null;
+  }) {
+    yield* db
+      .update(controlSessions)
+      .set({ departmentId: input.departmentId })
+      .where(
+        and(eq(controlSessions.id, input.sessionId), eq(controlSessions.personId, input.personId)),
+      );
+    yield* PubSub.publish(connectionEnds, { personId: input.personId, sessionId: input.sessionId });
+  }, Effect.orDie);
+
   const awaitEnd = Effect.fn("Sessions.awaitEnd")(
     function* (session: AuthenticatedSession) {
       const subscription = yield* PubSub.subscribe(connectionEnds);
@@ -232,7 +255,16 @@ export const make = Effect.gen(function* () {
     Effect.orDie,
   );
 
-  return Sessions.of({ create, authenticate, list, revoke, revokeAll, reconnect, awaitEnd });
+  return Sessions.of({
+    create,
+    authenticate,
+    list,
+    revoke,
+    revokeAll,
+    reconnect,
+    chooseDepartment,
+    awaitEnd,
+  });
 });
 
 export const layer = Layer.effect(Sessions, make);

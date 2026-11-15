@@ -36,6 +36,12 @@ const decodePod = Schema.decodeUnknownEffect(
   }),
 );
 
+const decodeList = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    items: Schema.Array(Schema.Struct({ metadata: Schema.Struct({ name: Schema.String }) })),
+  }),
+);
+
 export interface PodState {
   /** `Pending`, `Running`, `Succeeded`, `Failed` or `Unknown`. */
   readonly phase: string;
@@ -57,6 +63,11 @@ export class KubernetesApi extends Context.Service<
     /** Creates the claim unless one with that name exists. */
     readonly createClaim: (manifest: object) => Effect.Effect<void, KubernetesApiError>;
     readonly deleteClaim: (name: string) => Effect.Effect<boolean, KubernetesApiError>;
+    /** The names of the pods or claims matching a label selector such as `a=b,c=d`. */
+    readonly list: (
+      kind: "pods" | "persistentvolumeclaims",
+      selector: string,
+    ) => Effect.Effect<ReadonlyArray<string>, KubernetesApiError>;
   }
 >()("@codenine/control/workspaces/KubernetesApi") {
   static readonly make = Effect.fn("KubernetesApi.make")(function* (options: {
@@ -134,6 +145,19 @@ export class KubernetesApi extends Context.Service<
           ),
           [409],
         );
+      }),
+      list: Effect.fn("KubernetesApi.list")(function* (kind, selector) {
+        const response = yield* call(
+          `list ${kind}`,
+          HttpClientRequest.get(`${base}/${kind}`).pipe(
+            HttpClientRequest.setUrlParam("labelSelector", selector),
+          ),
+        );
+        const { items } = yield* response.json.pipe(
+          Effect.flatMap(decodeList),
+          Effect.mapError((cause) => new KubernetesApiError({ operation: `read ${kind}`, cause })),
+        );
+        return items.map((item) => item.metadata.name);
       }),
       deleteClaim: Effect.fn("KubernetesApi.deleteClaim")(function* (name) {
         const response = yield* call(

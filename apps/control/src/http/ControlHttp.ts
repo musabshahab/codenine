@@ -37,6 +37,7 @@ import {
   WorkspaceManager,
   type WorkspaceUnavailableError,
 } from "../workspaces/WorkspaceManager.ts";
+import { Workplace } from "../workspaces/Workplace.ts";
 
 const ok = { ok: true as const };
 
@@ -232,7 +233,13 @@ export const layerMeApi = HttpApiBuilder.group(
     const accounts = yield* Accounts;
     const licence = yield* LicenceService;
     const workspaces = yield* WorkspaceManager;
+    const workplace = yield* Workplace;
     const { secure } = yield* ControlPublicUrl;
+    const here = Effect.map(ControlPrincipal, ({ sessionId, person, departmentId }) => ({
+      sessionId,
+      personId: person.id,
+      departmentId,
+    }));
     const workspaceUnavailable = (error: WorkspaceUnavailableError) =>
       Effect.logError("A workspace could not be reached or started.", error).pipe(
         Effect.andThen(
@@ -247,12 +254,16 @@ export const layerMeApi = HttpApiBuilder.group(
       .handle(
         "workspace",
         Effect.fn("ControlHttp.workspace")(function* () {
-          const { person } = yield* ControlPrincipal;
+          const key = yield* workplace.keyFor(yield* here);
           const asleep = yield* workspaces
-            .isAsleep(person.id)
+            .isAsleep(key)
             .pipe(Effect.catchTags({ WorkspaceUnavailableError: workspaceUnavailable }));
           return { asleep };
         }),
+      )
+      .handle("departments", () => Effect.flatMap(here, workplace.departmentsOf))
+      .handle("chooseDepartment", ({ payload }) =>
+        Effect.flatMap(here, (session) => workplace.choose(session, payload.departmentId)),
       )
       .handle(
         "createDesktopCode",
@@ -264,11 +275,11 @@ export const layerMeApi = HttpApiBuilder.group(
       .handle(
         "wakeWorkspace",
         Effect.fn("ControlHttp.wakeWorkspace")(function* () {
-          const { person } = yield* ControlPrincipal;
+          const key = yield* workplace.keyFor(yield* here);
           // Where it answered before it slept is out of date.
-          yield* workspaces.forget(person.id);
+          yield* workspaces.forget(key);
           yield* workspaces
-            .targetFor(person.id)
+            .targetFor(key)
             .pipe(Effect.catchTags({ WorkspaceUnavailableError: workspaceUnavailable }));
           return ok;
         }),

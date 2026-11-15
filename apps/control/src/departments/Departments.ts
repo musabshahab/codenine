@@ -28,8 +28,17 @@ export class Departments extends Context.Service<
     ) => Effect.Effect<ControlDepartment, ControlDepartmentError>;
     /** The department a team belongs to. */
     readonly ofTeam: (teamId: string) => Effect.Effect<ControlDepartment, ControlDepartmentError>;
-    /** The IDs of the departments a person is in. */
+    /** The IDs of the departments a person is in, the one they joined first first. */
     readonly ofPerson: (personId: string) => Effect.Effect<ReadonlyArray<string>>;
+    /**
+     * The department a person works in: `preferred` while they are in it,
+     * otherwise the one they joined first, or none when they are in none.
+     */
+    readonly pick: (personId: string, preferred: string | null) => Effect.Effect<string | null>;
+    /** The departments a person is in, by name, the one they joined first first. */
+    readonly named: (
+      personId: string,
+    ) => Effect.Effect<ReadonlyArray<{ readonly id: string; readonly name: string }>>;
     readonly create: (name: string) => Effect.Effect<ControlDepartment, ControlDepartmentError>;
     readonly rename: (
       departmentId: string,
@@ -170,7 +179,8 @@ export const make = Effect.gen(function* () {
     const rows = yield* db
       .select({ departmentId: controlDepartmentMembers.departmentId })
       .from(controlDepartmentMembers)
-      .where(eq(controlDepartmentMembers.personId, personId));
+      .where(eq(controlDepartmentMembers.personId, personId))
+      .orderBy(asc(controlDepartmentMembers.createdAt), asc(controlDepartmentMembers.departmentId));
     return rows.map((row) => row.departmentId);
   });
 
@@ -189,6 +199,21 @@ export const make = Effect.gen(function* () {
     }, dieOnDatabaseError),
     ofPerson: Effect.fn("Departments.personDepartments")(function* (personId: string) {
       return yield* ofPerson(personId);
+    }, dieOnDatabaseError),
+    named: Effect.fn("Departments.named")(function* (personId: string) {
+      return yield* db
+        .select({ id: controlDepartments.id, name: controlDepartments.name })
+        .from(controlDepartmentMembers)
+        .innerJoin(
+          controlDepartments,
+          eq(controlDepartments.id, controlDepartmentMembers.departmentId),
+        )
+        .where(eq(controlDepartmentMembers.personId, personId))
+        .orderBy(asc(controlDepartmentMembers.createdAt), asc(controlDepartments.id));
+    }, dieOnDatabaseError),
+    pick: Effect.fn("Departments.pick")(function* (personId: string, preferred: string | null) {
+      const theirs = yield* ofPerson(personId);
+      return preferred !== null && theirs.includes(preferred) ? preferred : (theirs[0] ?? null);
     }, dieOnDatabaseError),
     create: Effect.fn("Departments.create")(function* (raw: string) {
       const name = yield* validName(raw);

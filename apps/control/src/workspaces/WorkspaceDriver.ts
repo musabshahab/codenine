@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import type { Installation } from "../installation/Installation.ts";
+import type { Profiles } from "../profiles/Profiles.ts";
 import * as DockerWorkspaces from "./DockerWorkspaces.ts";
 import * as KubernetesWorkspaces from "./KubernetesWorkspaces.ts";
 import { WorkspaceManager } from "./WorkspaceManager.ts";
@@ -14,13 +15,13 @@ import type { WorkspaceTokens } from "./WorkspaceTokens.ts";
 type DriverLayer = Layer.Layer<
   WorkspaceManager,
   Config.ConfigError,
-  Digest.Digest | Installation | WorkspaceTokens
+  Digest.Digest | Installation | Profiles | WorkspaceTokens
 >;
 
 /**
  * The workspace manager `CODENINE_CONTROL_WORKSPACE_DRIVER` chooses: a Docker
- * container or a Kubernetes pod for each person, or one shared workspace
- * server at `CODENINE_CONTROL_WORKSPACE_URL`.
+ * container or a Kubernetes pod for each person in each of their departments,
+ * or one shared workspace server at `CODENINE_CONTROL_WORKSPACE_URL`.
  */
 export const layer = Layer.unwrap(
   Effect.gen(function* () {

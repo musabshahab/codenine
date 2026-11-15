@@ -1,0 +1,1 @@
+ALTER TABLE "control_sessions" ADD COLUMN "department_id" varchar(64);

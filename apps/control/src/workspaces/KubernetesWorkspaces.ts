@@ -10,9 +10,18 @@ import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
+import type { ControlEffectiveProfile } from "@codenine/contracts/control";
+
 import { Installation } from "../installation/Installation.ts";
+import { Profiles } from "../profiles/Profiles.ts";
 import { KubernetesApi, type PodState } from "./KubernetesApi.ts";
-import { cachedTargets, WorkspaceManager, WorkspaceUnavailableError } from "./WorkspaceManager.ts";
+import {
+  cachedTargets,
+  type WorkspaceKey,
+  workspaceIdOf,
+  WorkspaceManager,
+  WorkspaceUnavailableError,
+} from "./WorkspaceManager.ts";
 import { WorkspaceTokens } from "./WorkspaceTokens.ts";
 import {
   EGRESS_PORT,
@@ -22,6 +31,7 @@ import {
   WorkspaceConfig,
   WorkspaceDialPort,
   workspaceEnv,
+  workspaceLabels,
 } from "./workspaceSpec.ts";
 
 /** A first start pulls the image, which can take minutes on a fresh node. */
@@ -35,39 +45,40 @@ const KubernetesConfig = Config.all({
   storageClass: Config.option(Config.String("CODENINE_CONTROL_WORKSPACE_STORAGE_CLASS")),
 });
 
-/** Names for a person's pod and claim; Kubernetes names allow no underscores. */
-export const podNames = (personId: string) => {
-  const pod = `codenine-${personId.replaceAll("_", "-").toLowerCase()}`;
+/** Names for a workspace's pod and claim; Kubernetes names allow no underscores or dots. */
+export const podNames = (workspaceId: string) => {
+  const pod = `codenine-${workspaceId.replaceAll(/[_.]/gu, "-").toLowerCase()}`;
   return { pod, claim: `${pod}-home` };
 };
 
 class PodNotReady extends Schema.TaggedError<PodNotReady>()("PodNotReady", {}) {}
 
 /**
- * One pod per person on their own claim, made on their first request. A pod
- * that slept or stopped cannot start again, so the next request replaces it;
- * a running one is never replaced, and the new one takes the current settings.
+ * One pod per person and department on its own claim, made on its first
+ * request. A pod that slept or stopped cannot start again, so the next request
+ * replaces it; a running one is never replaced, and the new one takes the
+ * current settings and profile.
  */
 export const make = Effect.gen(function* () {
   const api = yield* KubernetesApi;
   const installation = yield* Installation;
   const { verifier } = yield* WorkspaceTokens;
+  const profiles = yield* Profiles;
   const config = yield* WorkspaceConfig;
   const kubernetes = yield* KubernetesConfig;
   const client = yield* HttpClient.HttpClient;
   const dialPort = yield* WorkspaceDialPort;
 
-  const labels = (personId: string) => ({
+  const labels = (key: WorkspaceKey) => ({
     "app.kubernetes.io/name": "codenine-workspace",
     "app.kubernetes.io/part-of": "codenine",
-    "codenine.installation": installation.id,
-    "codenine.person": personId,
+    ...workspaceLabels(installation.id, key),
   });
 
-  const claimManifest = (personId: string) => ({
+  const claimManifest = (key: WorkspaceKey) => ({
     apiVersion: "v1",
     kind: "PersistentVolumeClaim",
-    metadata: { name: podNames(personId).claim, labels: labels(personId) },
+    metadata: { name: podNames(workspaceIdOf(key)).claim, labels: labels(key) },
     spec: {
       accessModes: ["ReadWriteOnce"],
       resources: { requests: { storage: `${kubernetes.diskGb}Gi` } },
@@ -78,17 +89,18 @@ export const make = Effect.gen(function* () {
     },
   });
 
-  const podManifest = (personId: string) => {
+  const podManifest = (key: WorkspaceKey, plan: ControlEffectiveProfile) => {
+    const names = podNames(workspaceIdOf(key));
     const env = workspaceEnv({
       verifier,
-      personId,
-      sleepMinutes: config.sleepMinutes,
+      workspaceId: workspaceIdOf(key),
+      sleepMinutes: plan.sleepMinutes,
       proxyUrl: EGRESS_URL,
     });
     return {
       apiVersion: "v1",
       kind: "Pod",
-      metadata: { name: podNames(personId).pod, labels: labels(personId) },
+      metadata: { name: names.pod, labels: labels(key) },
       spec: {
         // It stops itself to sleep, and the next request makes a new pod.
         restartPolicy: "Never",
@@ -104,13 +116,13 @@ export const make = Effect.gen(function* () {
         containers: [
           {
             name: "workspace",
-            image: config.image,
+            image: plan.image ?? config.image,
             env: Object.entries(env).map(([name, value]) => ({ name, value })),
             ports: [{ containerPort: WORKSPACE_PORT }],
             // Requests are a quarter of the limits, so idle workspaces pack onto fewer nodes.
             resources: {
-              limits: { cpu: String(config.cpus), memory: `${config.memoryGb}Gi` },
-              requests: { cpu: String(config.cpus / 4), memory: `${config.memoryGb / 4}Gi` },
+              limits: { cpu: String(plan.cpus), memory: `${plan.memoryGb}Gi` },
+              requests: { cpu: String(plan.cpus / 4), memory: `${plan.memoryGb / 4}Gi` },
             },
             securityContext: {
               allowPrivilegeEscalation: false,
@@ -124,7 +136,7 @@ export const make = Effect.gen(function* () {
           },
         ],
         volumes: [
-          { name: "home", persistentVolumeClaim: { claimName: podNames(personId).claim } },
+          { name: "home", persistentVolumeClaim: { claimName: names.claim } },
           { name: "tmp", emptyDir: { sizeLimit: "1Gi" } },
         ],
       },
@@ -150,8 +162,9 @@ export const make = Effect.gen(function* () {
       .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk), Effect.asVoid);
 
   const start = Effect.fn("KubernetesWorkspaces.start")(
-    function* (personId: string) {
-      const names = podNames(personId);
+    function* (key: WorkspaceKey) {
+      const workspaceId = workspaceIdOf(key);
+      const names = podNames(workspaceId);
       const found = yield* api.getPod(names.pod);
       if (Option.isSome(found) && finished(found.value.phase)) {
         yield* api.deletePod(names.pod, { now: true });
@@ -163,8 +176,9 @@ export const make = Effect.gen(function* () {
           );
       }
       if (Option.isNone(found) || finished(found.value.phase)) {
-        yield* api.createClaim(claimManifest(personId));
-        yield* api.createPod(podManifest(personId));
+        const plan = yield* profiles.effective(key.personId, key.departmentId);
+        yield* api.createClaim(claimManifest(key));
+        yield* api.createPod(podManifest(key, plan));
       }
       // Pending while it is scheduled and its image is pulled.
       const address = yield* api.getPod(names.pod).pipe(
@@ -176,7 +190,7 @@ export const make = Effect.gen(function* () {
       );
       const url = `http://${address}:${dialPort}`;
       yield* answers(url).pipe(Effect.retry(Schedule.spaced("250 millis")));
-      return { url, workspaceId: personId };
+      return { url, workspaceId };
     },
     Effect.timeout(START_TIMEOUT),
     Effect.mapError((cause) =>
@@ -186,32 +200,54 @@ export const make = Effect.gen(function* () {
 
   const targets = yield* cachedTargets(start);
 
+  const ownedBy = (personId: string) =>
+    `codenine.installation=${installation.id},codenine.person=${personId}`;
+
   return WorkspaceManager.of({
-    targetFor: Effect.fn("WorkspaceManager.targetFor")(function* (personId: string) {
-      return yield* targets.targetFor(personId);
+    targetFor: Effect.fn("WorkspaceManager.targetFor")(function* (key: WorkspaceKey) {
+      return yield* targets.targetFor(key);
     }),
-    forget: Effect.fn("WorkspaceManager.forget")(function* (personId: string) {
-      yield* targets.forget(personId);
+    forget: Effect.fn("WorkspaceManager.forget")(function* (key: WorkspaceKey) {
+      yield* targets.forget(key);
     }),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(
-      function* (personId: string) {
-        const pod = yield* api.getPod(podNames(personId).pod);
+      function* (key: WorkspaceKey) {
+        const pod = yield* api.getPod(podNames(workspaceIdOf(key)).pod);
         return Option.isNone(pod) || finished(pod.value.phase);
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
     ),
     retire: Effect.fn("WorkspaceManager.retire")(
-      function* (personId: string) {
+      function* (key: WorkspaceKey) {
+        const workspaceId = workspaceIdOf(key);
         // Its agents get the usual grace period to stop.
-        const removed = yield* api.deletePod(podNames(personId).pod);
-        yield* targets.drop(personId);
+        const removed = yield* api.deletePod(podNames(workspaceId).pod);
+        yield* targets.drop(workspaceId);
         return removed;
+      },
+      Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
+    ),
+    retireAll: Effect.fn("WorkspaceManager.retireAll")(
+      function* (personId: string) {
+        const pods = yield* api.list("pods", ownedBy(personId));
+        for (const pod of pods) {
+          yield* api.deletePod(pod);
+        }
+        const workspaces = yield* api.list("persistentvolumeclaims", ownedBy(personId));
+        for (const claim of workspaces) {
+          yield* targets.drop(claim.replace(/^codenine-|-home$/gu, ""));
+        }
+        return pods.length > 0;
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
     ),
     removeFiles: Effect.fn("WorkspaceManager.removeFiles")(
       function* (personId: string) {
-        return yield* api.deleteClaim(podNames(personId).claim);
+        const claims = yield* api.list("persistentvolumeclaims", ownedBy(personId));
+        for (const claim of claims) {
+          yield* api.deleteClaim(claim);
+        }
+        return claims.length > 0;
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
     ),

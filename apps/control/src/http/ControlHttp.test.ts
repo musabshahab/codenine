@@ -28,6 +28,7 @@ import { layerTestServices, TEST_PUBLIC_URL } from "../testing/layerTestServices
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
 import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
 import * as WorkspaceRetention from "../workspaces/WorkspaceRetention.ts";
+import * as Workplace from "../workspaces/Workplace.ts";
 import * as ControlHttp from "./ControlHttp.ts";
 
 const PASSWORD = "correct horse battery staple";
@@ -64,6 +65,7 @@ const withApi = <A, E, R>(
       Effect.scoped,
       Effect.provide(
         Administration.layer.pipe(
+          Layer.provideMerge(Workplace.layer),
           Layer.provideMerge(WorkspaceRetention.layer),
           Layer.provideMerge(
             layerTestServices(keys.publicKey).pipe(

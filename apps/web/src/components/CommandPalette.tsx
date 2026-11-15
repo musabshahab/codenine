@@ -107,6 +107,7 @@ import { useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
+import { chooseDepartment, currentControlStartup } from "../business/control";
 import { isBusinessEdition } from "../env";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
@@ -1639,6 +1640,20 @@ function OpenCommandPaletteDialog(props: {
         await navigate({ to: "/admin" });
       },
     });
+    const mine = currentControlStartup()?.departments;
+    for (const department of mine?.departments ?? []) {
+      if (department.id === mine?.current) continue;
+      actionItems.push({
+        kind: "action",
+        value: `action:department:${department.id}`,
+        searchTerms: ["department", "switch", "workspace", department.name],
+        title: `Work in ${department.name}`,
+        icon: <CircleUserRoundIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await chooseDepartment(department.id);
+        },
+      });
+    }
   }
 
   for (const direction of [1, -1] as const) {

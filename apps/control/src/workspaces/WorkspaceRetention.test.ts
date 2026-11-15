@@ -29,7 +29,8 @@ const withRetention = <A, E>(
       targetFor: Effect.fn("test.targetFor")(() => Effect.die("Not used here.")),
       forget: Effect.fn("test.forget")(() => Effect.void),
       isAsleep: Effect.fn("test.isAsleep")(() => Effect.succeed(true)),
-      retire: Effect.fn("test.retire")((personId: string) =>
+      retire: Effect.fn("test.retire")(() => Effect.succeed(false)),
+      retireAll: Effect.fn("test.retireAll")((personId: string) =>
         Effect.sync(() => workspaces.push(personId) > 0),
       ),
       removeFiles: Effect.fn("test.removeFiles")((personId: string) =>

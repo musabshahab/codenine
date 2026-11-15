@@ -17,28 +17,37 @@ import { LicenceService } from "../licence/LicenceService.ts";
 import { controlPeople } from "../persistence/schema.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
-import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
+import { type WorkspaceKey, WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
 import * as WorkspaceRetention from "../workspaces/WorkspaceRetention.ts";
 import * as Administration from "./Administration.ts";
 
 const withAdministration = <A, E, R>(
-  body: (licences: {
+  body: (context: {
     readonly sign: (claims: LicenceClaims) => ReturnType<typeof signTestLicence>;
+    /** The workspaces stopped one at a time. */
+    readonly retired: ReadonlyArray<WorkspaceKey>;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const keys = yield* testKeyPair;
     yield* TestClock.setTime(Date.parse("2026-12-10T12:00:00Z"));
     const sign = (claims: LicenceClaims) => signTestLicence(claims, keys.privateKey);
+    const retired: Array<WorkspaceKey> = [];
+    const manager = WorkspaceManager.of({
+      ...WorkspaceManager.none,
+      retire: Effect.fn("test.retire")((key: WorkspaceKey) =>
+        Effect.sync(() => retired.push(key) > 0),
+      ),
+    });
     return yield* Effect.gen(function* () {
       yield* (yield* LicenceService).install(yield* sign(testClaims({ seats: 10 })));
-      return yield* body({ sign });
+      return yield* body({ sign, retired });
     }).pipe(
       Effect.provide(
         Administration.layer.pipe(
           Layer.provideMerge(WorkspaceRetention.layer),
           Layer.provideMerge(layerTestServices(keys.publicKey)),
-          Layer.provideMerge(Layer.succeed(WorkspaceManager, WorkspaceManager.none)),
+          Layer.provideMerge(Layer.succeed(WorkspaceManager, manager)),
         ),
       ),
     );
@@ -342,7 +351,7 @@ describe("Administration", () => {
   );
 
   it.effect("lets department admins manage the people and teams of their own departments", () =>
-    withAdministration(() =>
+    withAdministration(({ retired }) =>
       Effect.gen(function* () {
         const admin = yield* Administration.Administration;
         const ada = yield* person("Ada", "owner");
@@ -420,6 +429,8 @@ describe("Administration", () => {
 
         const left = yield* admin.removeDepartmentMember(dee, design.id, cy.id);
         expect(left.teams[0]?.members).toEqual([]);
+        // Cy's workspace in Design stops; her files stay in case she comes back.
+        expect(retired).toEqual([{ personId: cy.id, departmentId: design.id }]);
         expect(yield* Effect.flip(admin.deleteDepartment(ada, design.id))).toMatchObject({
           reason: "not-empty",
         });

@@ -52,6 +52,8 @@ import { cn } from "../../lib/utils";
 import { AgentSetupCard, agentSetupName } from "./AgentSetupCard";
 import AgentSetupDialog from "./AgentSetupDialog";
 import { WelcomeProjectStep, WelcomeSteps } from "./WelcomeProjectStep";
+import { isBusinessEdition } from "../../env";
+import { DepartmentSwitcher } from "../business/DepartmentSwitcher";
 
 /** Opens the page setup ends on. False sends the user to the app's home instead. */
 export type WelcomeLanding = () => Promise<boolean>;
@@ -177,12 +179,22 @@ export function WelcomePage({
         {/* Keyed by step, so each step opens at its top. */}
         <div key={step} className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
           <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-6 pt-12 pb-8 sm:pt-20">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-              Welcome to Codenine
-            </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Setting up <span className="text-foreground">{label}</span>.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Welcome to Codenine
+                </h1>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  Setting up <span className="text-foreground">{label}</span>.
+                </p>
+              </div>
+              {/* A new department's workspace starts here; another department may be wanted. */}
+              {isBusinessEdition ? (
+                <div className="w-56 shrink-0">
+                  <DepartmentSwitcher />
+                </div>
+              ) : null}
+            </div>
             <WelcomeSteps step={step} />
             {step === "agents" ? (
               <>

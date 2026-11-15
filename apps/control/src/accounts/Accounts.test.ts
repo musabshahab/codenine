@@ -280,6 +280,7 @@ describe("Accounts", () => {
           Option.some({
             sessionId: first.session.id,
             expiresAt: first.session.expiresAt,
+            departmentId: null,
             person: { id: personId, email: "ada@acme.test", displayName: "Ada", role: "owner" },
           }),
         );

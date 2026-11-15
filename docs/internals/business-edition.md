@@ -83,6 +83,11 @@ above left open, as Claude's and Codex's own admin settings do: it cannot change
 locked, lift a blocked terminal, or reach a blocked host. Without that rule, a department admin, who
 edits their own department's layer, could undo the company's limits.
 
+A workspace belongs to a person in one department, so its ID, and the audience of its tokens, is
+`<person>.<department>`; outside departments it is the person's ID alone. A browser session remembers
+the department chosen in it, and choosing another ends that session's forwarded sockets, so the app
+reconnects to the other workspace instead of carrying a token from one into the other.
+
 Each layer keeps its versions. A new one goes to everyone or first to a test group; rolling back
 publishes a copy of the version everyone had before, so the history only grows and the audit log
 names every step. Previews load all layers once and resolve every affected workspace in memory.

@@ -12,15 +12,18 @@ import { AuditLog, CODENINE, ON_THE_SERVER } from "../audit/AuditLog.ts";
 import { WorkspaceManager } from "./WorkspaceManager.ts";
 
 /**
- * When someone is deactivated their workspace stops at once, and its files are
+ * When someone is deactivated their workspaces stop at once, and their files are
  * kept for `CODENINE_CONTROL_WORKSPACE_RETENTION_DAYS` in case they come back,
- * then deleted.
+ * then deleted. Leaving one department stops that workspace and keeps its files
+ * while the person stays, so they are back if they rejoin.
  */
 export class WorkspaceRetention extends Context.Service<
   WorkspaceRetention,
   {
-    /** Deactivates the person and retires their workspace. */
+    /** Deactivates the person and retires their workspaces. */
     readonly deactivate: (personId: string) => Effect.Effect<void, ControlAccountError>;
+    /** Retires someone's workspace in a department they left; its files stay for now. */
+    readonly leaveDepartment: (personId: string, departmentId: string) => Effect.Effect<void>;
     /** Retires workspaces still left and deletes files kept past the retention time. */
     readonly sweep: Effect.Effect<void>;
   }
@@ -36,7 +39,7 @@ export const make = Effect.gen(function* () {
 
   // A failure waits for the next sweep, so it never undoes the deactivation.
   const retire = (personId: string) =>
-    workspaces.retire(personId).pipe(
+    workspaces.retireAll(personId).pipe(
       Effect.tap((removed) =>
         removed
           ? Effect.logInfo(
@@ -80,6 +83,20 @@ export const make = Effect.gen(function* () {
     deactivate: Effect.fn("WorkspaceRetention.deactivate")(function* (personId: string) {
       yield* accounts.deactivate(personId);
       yield* retire(personId);
+    }),
+    leaveDepartment: Effect.fn("WorkspaceRetention.leaveDepartment")(function* (
+      personId: string,
+      departmentId: string,
+    ) {
+      yield* workspaces.retire({ personId, departmentId }).pipe(
+        Effect.catchTags({
+          WorkspaceUnavailableError: (error) =>
+            Effect.logWarning(
+              `Could not stop the workspace of ${personId} in ${departmentId}, which they left.`,
+              error,
+            ),
+        }),
+      );
     }),
     sweep: Effect.gen(function* () {
       const keptSince = DateTime.subtract(yield* DateTime.now, { days: retentionDays });

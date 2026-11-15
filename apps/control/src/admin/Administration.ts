@@ -29,6 +29,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { Accounts, type IssuedLink } from "../accounts/Accounts.ts";
+import { Sessions } from "../accounts/Sessions.ts";
 import {
   type AuditActor,
   AuditLog,
@@ -235,6 +236,7 @@ export const make = Effect.gen(function* () {
   const auditLog = yield* AuditLog;
   const departments = yield* Departments;
   const profiles = yield* Profiles;
+  const sessions = yield* Sessions;
 
   const record = (
     actor: AdminActor,
@@ -625,6 +627,9 @@ export const make = Effect.gen(function* () {
       const person = yield* requireManaged(actor, personId);
       const department = yield* departments.find(departmentId);
       if (yield* departments.removeMember(departmentId, personId)) {
+        // Their open windows move to another department, and that workspace stops.
+        yield* sessions.reconnect(personId);
+        yield* retention.leaveDepartment(personId, departmentId);
         yield* record(
           actor,
           "department.remove-member",

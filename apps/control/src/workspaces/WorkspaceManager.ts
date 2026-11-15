@@ -8,6 +8,24 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+/** One person's workspace in one of their departments, or outside any department. */
+export interface WorkspaceKey {
+  readonly personId: string;
+  readonly departmentId: string | null;
+}
+
+/**
+ * The workspace's ID, which its tokens are for: the person's ID, and the
+ * department's after a dot. Neither kind of ID has dots of its own.
+ */
+export const workspaceIdOf = (key: WorkspaceKey) =>
+  key.departmentId === null ? key.personId : `${key.personId}.${key.departmentId}`;
+
+const keyOf = (workspaceId: string): WorkspaceKey => {
+  const [personId = workspaceId, departmentId] = workspaceId.split(".");
+  return { personId, departmentId: departmentId ?? null };
+};
+
 /** Where the control server reaches one person's workspace server. */
 export interface WorkspaceTarget {
   readonly url: string;
@@ -24,20 +42,22 @@ export class WorkspaceUnavailableError extends Schema.TaggedError<WorkspaceUnava
   }
 }
 
-/** Finds each person's workspace server, starting it when it is not running. */
+/** Finds each workspace server, starting it when it is not running. */
 export class WorkspaceManager extends Context.Service<
   WorkspaceManager,
   {
     readonly targetFor: (
-      personId: string,
+      key: WorkspaceKey,
     ) => Effect.Effect<WorkspaceTarget, WorkspaceUnavailableError>;
     /** Drops what is known about a workspace that stopped answering, so the next request checks. */
-    readonly forget: (personId: string) => Effect.Effect<void>;
-    /** Whether the person's workspace is stopped or not made yet, so their next request starts it. */
-    readonly isAsleep: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
-    /** Stops and removes the person's workspace, keeping their files; true when there was one. */
-    readonly retire: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
-    /** Deletes the files of a retired workspace; true when there were some. */
+    readonly forget: (key: WorkspaceKey) => Effect.Effect<void>;
+    /** Whether the workspace is stopped or not made yet, so the next request starts it. */
+    readonly isAsleep: (key: WorkspaceKey) => Effect.Effect<boolean, WorkspaceUnavailableError>;
+    /** Stops and removes one workspace, keeping its files; true when there was one. */
+    readonly retire: (key: WorkspaceKey) => Effect.Effect<boolean, WorkspaceUnavailableError>;
+    /** Stops and removes all of a person's workspaces, keeping their files. */
+    readonly retireAll: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
+    /** Deletes the files of all of a person's workspaces; true when there were some. */
     readonly removeFiles: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
   }
 >()("@codenine/control/workspaces/WorkspaceManager") {
@@ -49,6 +69,7 @@ export class WorkspaceManager extends Context.Service<
       isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
       // People share it, so leaving removes nothing.
       retire: Effect.fn("WorkspaceManager.retire")(() => Effect.succeed(false)),
+      retireAll: Effect.fn("WorkspaceManager.retireAll")(() => Effect.succeed(false)),
       removeFiles: Effect.fn("WorkspaceManager.removeFiles")(() => Effect.succeed(false)),
     });
 
@@ -60,6 +81,7 @@ export class WorkspaceManager extends Context.Service<
     forget: Effect.fn("WorkspaceManager.forget")(() => Effect.void),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
     retire: Effect.fn("WorkspaceManager.retire")(() => Effect.succeed(false)),
+    retireAll: Effect.fn("WorkspaceManager.retireAll")(() => Effect.succeed(false)),
     removeFiles: Effect.fn("WorkspaceManager.removeFiles")(() => Effect.succeed(false)),
   });
 
@@ -80,26 +102,27 @@ export const layerShared = (target: WorkspaceTarget) =>
   Layer.succeed(WorkspaceManager, WorkspaceManager.shared(target));
 
 /**
- * Where each person's workspace answers, found by `start`. Concurrent requests share one start
- * and a failed start is tried again next time.
+ * Where each workspace answers, found by `start`. Concurrent requests share one start and a
+ * failed start is tried again next time.
  */
 export const cachedTargets = Effect.fn("WorkspaceManager.cachedTargets")(function* (
-  start: (personId: string) => Effect.Effect<WorkspaceTarget, WorkspaceUnavailableError>,
+  start: (key: WorkspaceKey) => Effect.Effect<WorkspaceTarget, WorkspaceUnavailableError>,
 ) {
-  const targets = yield* Cache.makeWith(start, {
+  const targets = yield* Cache.makeWith((workspaceId: string) => start(keyOf(workspaceId)), {
     capacity: 10_000,
     timeToLive: (exit) => (Exit.isFailure(exit) ? Duration.zero : Duration.infinity),
   });
   return {
-    targetFor: (personId: string) => Cache.get(targets, personId),
+    targetFor: (key: WorkspaceKey) => Cache.get(targets, workspaceIdOf(key)),
     /** Drops a known target; a start under way finds the workspace afresh, so it stays. */
-    forget: Effect.fnUntraced(function* (personId: string) {
-      const known = yield* Cache.getSuccess(targets, personId);
+    forget: Effect.fnUntraced(function* (key: WorkspaceKey) {
+      const workspaceId = workspaceIdOf(key);
+      const known = yield* Cache.getSuccess(targets, workspaceId);
       if (Option.isSome(known)) {
-        yield* Cache.invalidateWhen(targets, personId, (target) => target === known.value);
+        yield* Cache.invalidateWhen(targets, workspaceId, (target) => target === known.value);
       }
     }),
     /** Drops whatever is known, for a workspace that was just removed. */
-    drop: (personId: string) => Cache.invalidate(targets, personId),
+    drop: (workspaceId: string) => Cache.invalidate(targets, workspaceId),
   };
 });

@@ -20,7 +20,11 @@ import * as HttpServer from "effect/http/HttpServer";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
+import { ControlDb } from "../db.ts";
+import { Departments } from "../departments/Departments.ts";
 import { Installation } from "../installation/Installation.ts";
+import { controlPeople } from "../persistence/schema.ts";
+import { Profiles } from "../profiles/Profiles.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { testKeyPair } from "../testing/testLicence.ts";
 import { DockerEngine } from "./DockerEngine.ts";
@@ -32,6 +36,7 @@ import { WORKSPACE_HOME, WorkspaceDialPort } from "./workspaceSpec.ts";
 interface CreatedContainer {
   readonly name: string;
   readonly body: {
+    readonly Image: string;
     readonly Entrypoint?: ReadonlyArray<string>;
     readonly Env: ReadonlyArray<string>;
     readonly User: string;
@@ -57,6 +62,7 @@ const fakeDocker = () => {
   const running = new Map<string, boolean>();
   const labels = new Map<string, Readonly<Record<string, string>>>();
   const networks = new Map<string, FakeNetwork>();
+  const volumes = new Map<string, Readonly<Record<string, string>>>();
   const image = { id: "sha256:first" };
   /** Set to make the next start of one container wait: it signals `arrived`, then waits for `release`. */
   const held: {
@@ -73,11 +79,47 @@ const fakeDocker = () => {
       Effect.map((json) => json as A),
       Effect.orDie,
     );
+  /** Whether labels carry every `key` or `key=value` of the request's label filter. */
+  const matching = Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const filters = JSON.parse(
+      new URL(request.url, "http://docker").searchParams.get("filters") ?? "{}",
+    ) as { label?: Array<string> };
+    return (carried: Readonly<Record<string, string>>) =>
+      (filters.label ?? []).every((wanted) => {
+        const [key = "", value] = wanted.split("=");
+        return value === undefined ? key in carried : carried[key] === value;
+      });
+  });
   const routes = Layer.mergeAll(
     HttpRouter.add(
       "POST",
       "/v1.44/volumes/create",
-      Effect.succeed(HttpServerResponse.empty({ status: 201 })),
+      Effect.gen(function* () {
+        const { Name, Labels } = yield* body<{ Name: string; Labels: Record<string, string> }>();
+        if (!volumes.has(Name)) volumes.set(Name, Labels);
+        return HttpServerResponse.empty({ status: 201 });
+      }),
+    ),
+    HttpRouter.add(
+      "GET",
+      "/v1.44/volumes",
+      Effect.map(matching, (matches) =>
+        HttpServerResponse.jsonUnsafe({
+          Volumes: [...volumes].flatMap(([Name, carried]) => (matches(carried) ? [{ Name }] : [])),
+        }),
+      ),
+    ),
+    HttpRouter.add(
+      "GET",
+      "/v1.44/containers/json",
+      Effect.map(matching, (matches) =>
+        HttpServerResponse.jsonUnsafe(
+          [...labels].flatMap(([name, carried]) =>
+            matches(carried) ? [{ Names: [`/${name}`], Labels: carried }] : [],
+          ),
+        ),
+      ),
     ),
     HttpRouter.add(
       "POST",
@@ -98,20 +140,11 @@ const fakeDocker = () => {
     HttpRouter.add(
       "GET",
       "/v1.44/networks",
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const filters = JSON.parse(
-          new URL(request.url, "http://docker").searchParams.get("filters") ?? "{}",
-        ) as { label?: Array<string> };
-        const matches = (network: FakeNetwork) =>
-          (filters.label ?? []).every((wanted) => {
-            const [key = "", value] = wanted.split("=");
-            return value === undefined ? key in network.labels : network.labels[key] === value;
-          });
-        return HttpServerResponse.jsonUnsafe(
-          [...networks].flatMap(([Name, network]) => (matches(network) ? [{ Name }] : [])),
-        );
-      }),
+      Effect.map(matching, (matches) =>
+        HttpServerResponse.jsonUnsafe(
+          [...networks].flatMap(([Name, network]) => (matches(network.labels) ? [{ Name }] : [])),
+        ),
+      ),
     ),
     HttpRouter.add(
       "GET",
@@ -229,6 +262,9 @@ const fakeDocker = () => {
       "DELETE",
       "/v1.44/volumes/:name",
       Effect.map(nameParam, (name) => {
+        if (!volumes.delete(name)) {
+          return HttpServerResponse.empty({ status: 404 });
+        }
         removedVolumes.push(name);
         return HttpServerResponse.empty({ status: 204 });
       }),
@@ -295,7 +331,7 @@ const withDockerWorkspaces = <A, E>(
   body: (fake: {
     readonly docker: ReturnType<typeof fakeDocker>;
     readonly workspacePort: number;
-  }) => Effect.Effect<A, E, WorkspaceManager | Installation>,
+  }) => Effect.Effect<A, E, WorkspaceManager | Installation | ControlDb | Departments | Profiles>,
 ) =>
   Effect.gen(function* () {
     const keys = yield* testKeyPair;
@@ -335,6 +371,9 @@ const withDockerWorkspaces = <A, E>(
     return yield* body({ docker, workspacePort }).pipe(Effect.provide(manager));
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
+const ADA = { personId: "per_ada", departmentId: null };
+const BEA = { personId: "per_bea", departmentId: null };
+
 describe("DockerWorkspaces", () => {
   it.live("starts one hardened container per person, once, and restarts it after it stops", () =>
     withDockerWorkspaces(({ docker, workspacePort }) =>
@@ -342,15 +381,15 @@ describe("DockerWorkspaces", () => {
         const workspaces = yield* WorkspaceManager;
         const installation = yield* Installation;
         const ada = DockerWorkspaces.workspaceNames(installation.id, "per_ada");
-        expect(yield* workspaces.isAsleep("per_ada")).toBe(true);
+        expect(yield* workspaces.isAsleep(ADA)).toBe(true);
 
         const [first, second] = yield* Effect.all(
-          [workspaces.targetFor("per_ada"), workspaces.targetFor("per_ada")],
+          [workspaces.targetFor(ADA), workspaces.targetFor(ADA)],
           { concurrency: "unbounded" },
         );
         expect(first).toEqual({ url: `http://127.0.0.1:${workspacePort}`, workspaceId: "per_ada" });
         expect(second).toEqual(first);
-        expect(yield* workspaces.isAsleep("per_ada")).toBe(false);
+        expect(yield* workspaces.isAsleep(ADA)).toBe(false);
         expect(docker.workspacesCreated().map((container) => container.name)).toEqual([
           ada.container,
         ]);
@@ -375,25 +414,25 @@ describe("DockerWorkspaces", () => {
 
         // A stopped container is asleep, and is started again, not created again.
         docker.running.set(ada.container, false);
-        expect(yield* workspaces.isAsleep("per_ada")).toBe(true);
-        yield* workspaces.forget("per_ada");
-        expect(yield* workspaces.targetFor("per_ada")).toEqual(first);
+        expect(yield* workspaces.isAsleep(ADA)).toBe(true);
+        yield* workspaces.forget(ADA);
+        expect(yield* workspaces.targetFor(ADA)).toEqual(first);
         expect(docker.starts.filter((name) => name === ada.container)).toHaveLength(2);
         expect(docker.workspacesCreated()).toHaveLength(1);
 
         const bea = DockerWorkspaces.workspaceNames(installation.id, "per_bea");
-        expect((yield* workspaces.targetFor("per_bea")).workspaceId).toBe("per_bea");
+        expect((yield* workspaces.targetFor(BEA)).workspaceId).toBe("per_bea");
         expect(docker.workspacesCreated().map((created) => created.name)).toEqual([
           ada.container,
           bea.container,
         ]);
 
         // When Bea leaves, her container and network go; her files stay until they are removed.
-        expect(yield* workspaces.retire("per_bea")).toBe(true);
-        expect(yield* workspaces.retire("per_bea")).toBe(false);
+        expect(yield* workspaces.retire(BEA)).toBe(true);
+        expect(yield* workspaces.retire(BEA)).toBe(false);
         expect([docker.removed, docker.removedVolumes]).toEqual([[bea.container], []]);
         expect(docker.removedNetworks).toContain(bea.network);
-        expect(yield* workspaces.isAsleep("per_bea")).toBe(true);
+        expect(yield* workspaces.isAsleep(BEA)).toBe(true);
         yield* workspaces.removeFiles("per_bea");
         expect(docker.removedVolumes).toEqual([bea.volume]);
       }),
@@ -407,11 +446,11 @@ describe("DockerWorkspaces", () => {
         const installation = yield* Installation;
         const ada = DockerWorkspaces.workspaceNames(installation.id, "per_ada");
         const hold = yield* docker.holdNextStart(ada.container);
-        const first = yield* workspaces.targetFor("per_ada").pipe(Effect.forkChild);
+        const first = yield* workspaces.targetFor(ADA).pipe(Effect.forkChild);
         yield* Deferred.await(hold.arrived);
 
-        yield* workspaces.forget("per_ada");
-        const second = yield* workspaces.targetFor("per_ada").pipe(Effect.forkChild);
+        yield* workspaces.forget(ADA);
+        const second = yield* workspaces.targetFor(ADA).pipe(Effect.forkChild);
         yield* Deferred.succeed(hold.release, undefined);
         expect(yield* Fiber.join(second)).toBe(yield* Fiber.join(first));
         expect(docker.starts.filter((name) => name === ada.container)).toHaveLength(1);
@@ -426,7 +465,7 @@ describe("DockerWorkspaces", () => {
         const installation = yield* Installation;
         const ada = DockerWorkspaces.workspaceNames(installation.id, "per_ada");
         const egress = DockerWorkspaces.egressNames(installation.id);
-        yield* workspaces.targetFor("per_ada");
+        yield* workspaces.targetFor(ADA);
 
         expect(docker.networks.get(ada.network)?.internal).toBe(true);
         expect(docker.networks.get(egress.network)?.internal).toBe(false);
@@ -455,8 +494,8 @@ describe("DockerWorkspaces", () => {
           [DockerWorkspaces.SPEC_LABEL]: "older hosts",
         });
         docker.running.set(ada.container, false);
-        yield* workspaces.forget("per_ada");
-        yield* workspaces.targetFor("per_ada");
+        yield* workspaces.forget(ADA);
+        yield* workspaces.targetFor(ADA);
         expect(docker.removed).toEqual([egress.container]);
         expect(docker.networks.get(ada.network)?.containers.get(egress.container)).toEqual([
           "egress",
@@ -471,24 +510,89 @@ describe("DockerWorkspaces", () => {
         const workspaces = yield* WorkspaceManager;
         const installation = yield* Installation;
         const ada = DockerWorkspaces.workspaceNames(installation.id, "per_ada");
-        yield* workspaces.targetFor("per_ada");
+        yield* workspaces.targetFor(ADA);
 
         // The tag now points at a rebuilt image. A running workspace keeps working as it is.
         docker.image.id = "sha256:second";
-        yield* workspaces.forget("per_ada");
-        yield* workspaces.targetFor("per_ada");
+        yield* workspaces.forget(ADA);
+        yield* workspaces.targetFor(ADA);
         expect(docker.removed).toEqual([]);
 
         docker.running.set(ada.container, false);
-        yield* workspaces.forget("per_ada");
-        yield* workspaces.targetFor("per_ada");
+        yield* workspaces.forget(ADA);
+        yield* workspaces.targetFor(ADA);
         expect(docker.removed).toEqual([ada.container]);
         const [before, after] = docker.workspacesCreated().map((created) => created.body);
         expect(after?.HostConfig).toMatchObject({ Mounts: [{ Source: ada.volume }] });
         expect(after?.Labels[DockerWorkspaces.SPEC_LABEL]).not.toBe(
           before?.Labels[DockerWorkspaces.SPEC_LABEL],
         );
-        expect(yield* workspaces.isAsleep("per_ada")).toBe(false);
+        expect(yield* workspaces.isAsleep(ADA)).toBe(false);
+      }),
+    ),
+  );
+  it.live("makes a workspace per department from its profile, and retires them all at once", () =>
+    withDockerWorkspaces(({ docker }) =>
+      Effect.gen(function* () {
+        const workspaces = yield* WorkspaceManager;
+        const installation = yield* Installation;
+        const departments = yield* Departments;
+        yield* (yield* ControlDb).insert(controlPeople).values({
+          id: "per_ada",
+          email: "ada@acme.test",
+          displayName: "Ada",
+          role: "member",
+          status: "active",
+          createdAt: "2026-12-10T12:00:00.000Z",
+          updatedAt: "2026-12-10T12:00:00.000Z",
+        });
+        const design = yield* departments.create("Design");
+        yield* departments.addMember(design.id, "per_ada");
+        yield* (yield* Profiles).save({
+          id: `department:${design.id}`,
+          settings: { image: "codenine-workspace:design", cpus: 4, memoryGb: 8, sleepMinutes: 60 },
+          note: "",
+          testWith: null,
+          by: "test",
+        });
+
+        yield* workspaces.targetFor(ADA);
+        const target = yield* workspaces.targetFor({
+          personId: "per_ada",
+          departmentId: design.id,
+        });
+        expect(target.workspaceId).toBe(`per_ada.${design.id}`);
+        const outside = DockerWorkspaces.workspaceNames(installation.id, "per_ada");
+        const inDesign = DockerWorkspaces.workspaceNames(installation.id, target.workspaceId);
+        const container = docker
+          .workspacesCreated()
+          .find((created) => created.name === inDesign.container);
+        expect(container?.body).toMatchObject({
+          Image: "codenine-workspace:design",
+          Labels: { "codenine.person": "per_ada", "codenine.department": design.id },
+          HostConfig: {
+            NanoCpus: 4e9,
+            Memory: 8 * 1024 ** 3,
+            Mounts: [{ Source: inDesign.volume }],
+          },
+        });
+        expect(container?.body.Env).toEqual(
+          expect.arrayContaining([
+            `CODENINE_MANAGED_WORKSPACE_ID=per_ada.${design.id}`,
+            "CODENINE_MANAGED_SLEEP_MINUTES=60",
+          ]),
+        );
+
+        // When Ada leaves, both her workspaces stop; their files stay until they are removed.
+        expect(yield* workspaces.retireAll("per_ada")).toBe(true);
+        expect(docker.removed.toSorted()).toEqual(
+          [outside.container, inDesign.container].toSorted(),
+        );
+        expect(docker.removedVolumes).toEqual([]);
+        expect(yield* workspaces.removeFiles("per_ada")).toBe(true);
+        expect(docker.removedVolumes.toSorted()).toEqual(
+          [outside.volume, inDesign.volume].toSorted(),
+        );
       }),
     ),
   );

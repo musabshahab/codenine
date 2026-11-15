@@ -631,6 +631,16 @@ export const ControlSessionEntry = Schema.Struct({
 });
 export type ControlSessionEntry = typeof ControlSessionEntry.Type;
 
+/** The departments someone works in, each with its own workspace. */
+export const ControlMyDepartments = Schema.Struct({
+  departments: Schema.Array(
+    Schema.Struct({ id: TrimmedNonEmptyString, name: TrimmedNonEmptyString }),
+  ),
+  /** The one this browser works in; null when they are in none. */
+  current: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ControlMyDepartments = typeof ControlMyDepartments.Type;
+
 /** A set-up link for an admin to pass on. It works once. */
 export const ControlIssuedLink = Schema.Struct({
   person: ControlPerson,
@@ -748,7 +758,12 @@ export class ControlLicenceInstallError extends Schema.TaggedError<ControlLicenc
 
 export class ControlPrincipal extends Context.Service<
   ControlPrincipal,
-  { readonly sessionId: string; readonly person: ControlMe }
+  {
+    readonly sessionId: string;
+    /** The department chosen in this session, which may no longer be the person's. */
+    readonly departmentId: string | null;
+    readonly person: ControlMe;
+  }
 >()("@codenine/contracts/control/ControlPrincipal") {}
 
 /** Reads the session cookie. */
@@ -834,6 +849,14 @@ const ControlMeGroup = HttpApiGroup.make("me")
     HttpApiEndpoint.post("wakeWorkspace", "/control/api/me/workspace/wake", {
       success: ControlOk,
       error: ControlUnavailableError,
+    }),
+    HttpApiEndpoint.get("departments", "/control/api/me/departments", {
+      success: ControlMyDepartments,
+    }),
+    HttpApiEndpoint.put("chooseDepartment", "/control/api/me/department", {
+      payload: Schema.Struct({ departmentId: TrimmedNonEmptyString }),
+      success: ControlMyDepartments,
+      error: ControlDepartmentError,
     }),
     HttpApiEndpoint.post("createDesktopCode", "/control/api/me/desktop-code", {
       success: ControlDesktopCode,

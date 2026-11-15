@@ -1,6 +1,7 @@
 import {
   ControlApi,
   type ControlMe,
+  type ControlMyDepartments,
   type ControlWorkspaceAccess,
   type ControlWorkspaceState,
 } from "@codenine/contracts/control";
@@ -38,6 +39,8 @@ export const fetchControlMe = () =>
 
 interface ControlStartup {
   readonly me: ControlMe;
+  /** Null when the control server could not say. */
+  readonly departments: ControlMyDepartments | null;
   /** Null when the control server could not say; the workspace still enforces it. */
   readonly access: ControlWorkspaceAccess | null;
   /** Null when the control server could not say; the first request starts it anyway. */
@@ -63,10 +66,23 @@ export const controlStartup = () =>
       (workspace) => workspace,
       () => null,
     ),
-  ]).then(([me, access, workspace]) => {
-    startupResult = me === null ? null : { me, access, workspace };
+    callControl((client) => client.me.departments()).then(
+      (departments) => departments,
+      () => null,
+    ),
+  ]).then(([me, access, workspace, departments]) => {
+    startupResult = me === null ? null : { me, access, workspace, departments };
     return startupResult;
   }));
+
+/**
+ * Works in another department in this browser. Each department has its own
+ * workspace, so the page loads again to open it.
+ */
+export const chooseDepartment = (departmentId: string) =>
+  callControl((client) => client.me.chooseDepartment({ payload: { departmentId } })).then(() =>
+    window.location.reload(),
+  );
 
 /** What `controlStartup` found; the app renders only after it resolves. */
 export const currentControlStartup = () => startupResult;

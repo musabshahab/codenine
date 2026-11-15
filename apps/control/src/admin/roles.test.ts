@@ -39,6 +39,8 @@ const ROLES: Record<
   {
     readonly workspace: ReadonlyArray<AuthGrantScope>;
     readonly withoutLicence: ReadonlyArray<AuthGrantScope>;
+    /** Where their department's profile blocks the terminal; only members lose it. */
+    readonly withoutTerminal?: ReadonlyArray<AuthGrantScope>;
     readonly permissions: Partial<Record<ControlPermission, ControlPermissionReach>>;
     readonly gives: ReadonlyArray<ControlRole>;
   }
@@ -78,7 +80,13 @@ const ROLES: Record<
     },
     gives: ["member", "restricted"],
   },
-  member: { workspace: EVERYTHING, withoutLicence: LOOK, permissions: {}, gives: [] },
+  member: {
+    workspace: EVERYTHING,
+    withoutLicence: LOOK,
+    withoutTerminal: EVERYTHING.filter((scope) => !scope.startsWith("terminal:")),
+    permissions: {},
+    gives: [],
+  },
   restricted: {
     workspace: [
       "orchestration:read",
@@ -103,8 +111,14 @@ const ROLES: Record<
 describe("roles", () => {
   it.each(ControlRole.literals)("%s", (role) => {
     const expected = ROLES[role];
-    expect(workspaceScopes(role, true).toSorted()).toEqual(expected.workspace.toSorted());
-    expect(workspaceScopes(role, false).toSorted()).toEqual(expected.withoutLicence.toSorted());
+    const terminal = { terminal: true };
+    expect(workspaceScopes(role, true, terminal).toSorted()).toEqual(expected.workspace.toSorted());
+    expect(workspaceScopes(role, false, terminal).toSorted()).toEqual(
+      expected.withoutLicence.toSorted(),
+    );
+    expect(workspaceScopes(role, true, { terminal: false }).toSorted()).toEqual(
+      (expected.withoutTerminal ?? expected.workspace).toSorted(),
+    );
     for (const permission of ControlPermission.literals) {
       expect([permission, permissionReach(role, permission)]).toEqual([
         permission,

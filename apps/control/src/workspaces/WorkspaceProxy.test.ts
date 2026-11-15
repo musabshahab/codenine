@@ -20,6 +20,7 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
@@ -32,6 +33,8 @@ import * as Socket from "effect/socket/Socket";
 
 import { ON_THE_SERVER } from "../audit/AuditLog.ts";
 import { Sessions } from "../accounts/Sessions.ts";
+import { Departments } from "../departments/Departments.ts";
+import { Profiles } from "../profiles/Profiles.ts";
 import { workspaceScopes } from "../admin/roles.ts";
 import { ControlDb } from "../db.ts";
 import { sessionCookieName } from "../http/ControlHttp.ts";
@@ -39,9 +42,10 @@ import { LicenceService } from "../licence/LicenceService.ts";
 import { controlPeople } from "../persistence/schema.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
-import { WorkspaceManager } from "./WorkspaceManager.ts";
+import { type WorkspaceKey, WorkspaceManager } from "./WorkspaceManager.ts";
 import * as WorkspaceProxy from "./WorkspaceProxy.ts";
 import * as WorkspaceTokens from "./WorkspaceTokens.ts";
+import * as Workplace from "./Workplace.ts";
 
 const echo = (workspace: string) =>
   Effect.gen(function* () {
@@ -146,6 +150,8 @@ const withProxy = <A, E, R>(
     ) => Effect.Effect<ReadonlyArray<AuthGrantScope>, WorkspaceTokenError>;
     /** People whose workspace the proxy was told to look for again. */
     readonly forgotten: ReadonlyArray<string>;
+    /** The workspaces the proxy asked for, in order. */
+    readonly asked: ReadonlyArray<WorkspaceKey>;
   }) => Effect.Effect<A, E, R>,
   options: { readonly licensed: boolean },
 ) =>
@@ -156,18 +162,24 @@ const withProxy = <A, E, R>(
       per_bea: { url: `http://${yield* listen(fakeWorkspace("B"))}`, workspaceId: "ws-bea" },
     };
     const forgotten: Array<string> = [];
+    const asked: Array<WorkspaceKey> = [];
     const manager = WorkspaceManager.of({
-      targetFor: Effect.fn("test.targetFor")((personId: string) =>
-        Effect.succeed(personId === "per_bea" ? workspaces.per_bea : workspaces.per_ada),
+      targetFor: Effect.fn("test.targetFor")((key: WorkspaceKey) =>
+        Effect.sync(() => {
+          asked.push(key);
+          return key.personId === "per_bea" ? workspaces.per_bea : workspaces.per_ada;
+        }),
       ),
-      forget: Effect.fn("test.forget")((personId: string) =>
-        Effect.sync(() => void forgotten.push(personId)),
+      forget: Effect.fn("test.forget")((key: WorkspaceKey) =>
+        Effect.sync(() => void forgotten.push(key.personId)),
       ),
       isAsleep: Effect.fn("test.isAsleep")(() => Effect.succeed(false)),
       retire: Effect.fn("test.retire")(() => Effect.succeed(false)),
+      retireAll: Effect.fn("test.retireAll")(() => Effect.succeed(false)),
       removeFiles: Effect.fn("test.removeFiles")(() => Effect.succeed(false)),
     });
-    const services = WorkspaceTokens.layer.pipe(
+    const services = Workplace.layer.pipe(
+      Layer.provideMerge(WorkspaceTokens.layer),
       Layer.provideMerge(Layer.succeed(WorkspaceManager, manager)),
       Layer.provideMerge(layerTestServices(keys.publicKey)),
       Layer.provideMerge(
@@ -224,7 +236,7 @@ const withProxy = <A, E, R>(
           Effect.map((claims) => claims.scopes),
           Effect.provide(NodeCrypto.layerSignature),
         );
-      return yield* body({ host, cookie, beaCookie, scopesOf, forgotten });
+      return yield* body({ host, cookie, beaCookie, scopesOf, forgotten, asked });
     }).pipe(Effect.provide(services));
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
@@ -274,7 +286,7 @@ describe("WorkspaceProxy", () => {
           const echo = yield* forwarded.echo;
           expect(echo).toMatchObject({ method: "GET", url: "/api/echo?x=1", cookie: null });
           expect(yield* scopesOf(echo.authorization ?? "")).toEqual(
-            workspaceScopes("member", true),
+            workspaceScopes("member", true, { terminal: true }),
           );
 
           const descriptor = yield* call(`http://${host}/.well-known/codenine/environment`, {
@@ -319,7 +331,7 @@ describe("WorkspaceProxy", () => {
             const greeting = yield* next;
             expect(greeting).toMatch(/^A authorization Bearer /u);
             expect(yield* scopesOf(greeting.replace(/^A authorization /u, ""))).toEqual(
-              workspaceScopes("member", false),
+              workspaceScopes("member", false, { terminal: true }),
             );
             yield* writer.write("ping");
             expect(yield* next).toBe("echo ping");
@@ -343,7 +355,7 @@ describe("WorkspaceProxy", () => {
           expect([ada.workspace, bea.workspace]).toEqual(["A", "B"]);
           // Bea is restricted, and her token says so.
           expect(yield* scopesOf(bea.authorization ?? "", "ws-bea")).toEqual(
-            workspaceScopes("restricted", true),
+            workspaceScopes("restricted", true, { terminal: true }),
           );
           // A token minted for Ada's workspace is refused by Bea's.
           expect((yield* Effect.flip(scopesOf(ada.authorization ?? "", "ws-bea")))._tag).toBe(
@@ -361,6 +373,59 @@ describe("WorkspaceProxy", () => {
             Effect.map((chunks) => String(chunks[0])),
           );
           expect(greeting).toMatch(/^B authorization Bearer /u);
+        }).pipe(Effect.scoped, Effect.provide(NodeSocket.layerWebSocketConstructor)),
+      { licensed: true },
+    ),
+  );
+  it.live("works in the department chosen in the browser, with that department's profile", () =>
+    withProxy(
+      ({ host, cookie, scopesOf, asked }) =>
+        Effect.gen(function* () {
+          const departments = yield* Departments;
+          const design = yield* departments.create("Design");
+          const sales = yield* departments.create("Sales");
+          yield* departments.addMember(design.id, "per_ada");
+          yield* departments.addMember(sales.id, "per_ada");
+          yield* (yield* Profiles).save({
+            id: `department:${design.id}`,
+            settings: { terminal: "block" },
+            note: "",
+            testWith: null,
+            by: "test",
+          });
+          const echoed = Effect.flatMap(
+            call(`http://${host}/api/echo`, { cookie }),
+            ({ echo }) => echo,
+          );
+
+          // Ada joined Design first, so she works there, without a terminal.
+          const inDesign = yield* echoed;
+          expect(asked.at(-1)).toEqual({ personId: "per_ada", departmentId: design.id });
+          expect(yield* scopesOf(inDesign.authorization ?? "")).toEqual(
+            workspaceScopes("member", true, { terminal: false }),
+          );
+
+          // Choosing Sales in this browser ends its sockets, and its next requests go there.
+          const socket = yield* Socket.makeWebSocket(`ws://${host}/ws`, { headers: { cookie } });
+          const reader = yield* socket.reader;
+          yield* reader.pull;
+          const session = yield* (yield* Sessions).authenticate(cookie.split("=")[1] ?? "");
+          const here = {
+            sessionId: Option.getOrThrow(session).sessionId,
+            personId: "per_ada",
+            departmentId: null,
+          };
+          const workplace = yield* Workplace.Workplace;
+          expect(yield* Effect.flip(workplace.choose(here, "dep_elsewhere"))).toMatchObject({
+            reason: "not-found",
+          });
+          expect((yield* workplace.choose(here, sales.id)).current).toBe(sales.id);
+          expect((yield* Effect.flip(reader.pull))._tag).toBe("SocketError");
+          const inSales = yield* echoed;
+          expect(asked.at(-1)).toEqual({ personId: "per_ada", departmentId: sales.id });
+          expect(yield* scopesOf(inSales.authorization ?? "")).toEqual(
+            workspaceScopes("member", true, { terminal: true }),
+          );
         }).pipe(Effect.scoped, Effect.provide(NodeSocket.layerWebSocketConstructor)),
       { licensed: true },
     ),

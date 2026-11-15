@@ -35,6 +35,7 @@ import * as WorkspaceProxy from "./workspaces/WorkspaceProxy.ts";
 import * as WorkspaceRetention from "./workspaces/WorkspaceRetention.ts";
 import { allowedHostsFromConfig, egressProxyConfig } from "./workspaces/workspaceSpec.ts";
 import * as WorkspaceTokensModule from "./workspaces/WorkspaceTokens.ts";
+import * as Workplace from "./workspaces/Workplace.ts";
 
 const layerControl = Licence.layer.pipe(
   Layer.provideMerge(Installation.layer),
@@ -112,6 +113,7 @@ const serveCommand = Command.make("serve", {}, () =>
         AuditExport.layer,
       ).pipe(
         Layer.provide(Administration.layer),
+        Layer.provide(Workplace.layer),
         Layer.provide(WorkspaceRetention.layer),
         // One manager for the API, forwarding and retention, so all see the same workspaces.
         Layer.provide(WorkspaceDriver.layer),

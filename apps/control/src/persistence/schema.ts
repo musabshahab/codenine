@@ -147,6 +147,8 @@ export const controlSessions = pgTable(
     tokenHash: varchar("token_hash", { length: 64 }).notNull(),
     personId: personId(),
     userAgent: varchar("user_agent", { length: 512 }),
+    /** The department this browser works in, while the person is still in it. */
+    departmentId: varchar("department_id", { length: 64 }),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     lastSeenAt: varchar("last_seen_at", { length: 64 }).notNull(),
     expiresAt: varchar("expires_at", { length: 64 }).notNull(),

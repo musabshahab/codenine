@@ -2,6 +2,7 @@ import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
+import { type WorkspaceKey, workspaceIdOf } from "./WorkspaceManager.ts";
 import type { WorkspaceTokens } from "./WorkspaceTokens.ts";
 
 /** The port the workspace server listens on inside its container. */
@@ -38,7 +39,7 @@ export const WorkspaceConfig = Config.all({
 /** What a managed workspace needs: whom to trust, when to sleep, how to reach out. */
 export const workspaceEnv = (input: {
   readonly verifier: WorkspaceTokens["Service"]["verifier"];
-  readonly personId: string;
+  readonly workspaceId: string;
   readonly sleepMinutes: number;
   readonly proxyUrl: string;
 }) => ({
@@ -46,7 +47,7 @@ export const workspaceEnv = (input: {
   CODENINE_MANAGED_ISSUER: input.verifier.issuer,
   CODENINE_MANAGED_KEY_ID: input.verifier.keyId,
   CODENINE_MANAGED_PUBLIC_KEY: input.verifier.publicKey,
-  CODENINE_MANAGED_WORKSPACE_ID: input.personId,
+  CODENINE_MANAGED_WORKSPACE_ID: input.workspaceId,
   CODENINE_MANAGED_SLEEP_MINUTES: String(input.sleepMinutes),
   // Its network leads nowhere else: everything outside goes through the proxy.
   HTTP_PROXY: input.proxyUrl,
@@ -56,6 +57,14 @@ export const workspaceEnv = (input: {
   NO_PROXY: "localhost,127.0.0.1",
   no_proxy: "localhost,127.0.0.1",
   NODE_USE_ENV_PROXY: "1",
+});
+
+/** The labels marking whose workspace a container, pod, volume or network is. */
+export const workspaceLabels = (installationId: string, key: WorkspaceKey) => ({
+  "codenine.installation": installationId,
+  "codenine.person": key.personId,
+  "codenine.workspace": workspaceIdOf(key),
+  ...(key.departmentId === null ? {} : { "codenine.department": key.departmentId }),
 });
 
 /** What every workspace may reach: model providers and their sign-in, GitHub, package registries. */

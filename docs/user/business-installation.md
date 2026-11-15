@@ -104,8 +104,9 @@ A sleeping workspace frees its memory and CPU, and the person's next visit wakes
 few seconds. An agent that is working, waiting for an answer or watching a pull request keeps the
 workspace awake. Terminals and anything else still running in it stop when it sleeps.
 
-Each workspace is a container named `codenine-<installation ID>-<person ID>`, and its files live
-on the volume of the same name ending in `-home`. Back up those volumes. The egress proxy runs
+Each workspace is a container named `codenine-<installation ID>-<person ID>`, followed by
+`.<department ID>` for a department's workspace, and its files live on the volume of the same name
+ending in `-home`. Back up those volumes. The egress proxy runs
 beside them as `codenine-<installation ID>-egress`, from the same image. A new image, including
 one rebuilt under the same tag, and changes to these settings reach each workspace the next time
 it wakes; one that is awake keeps running as it is. To move someone sooner, stop their container
@@ -148,7 +149,8 @@ Set the same settings as for Docker on the control server, with
   own namespace unless set.
 
 Each workspace requests a quarter of its CPU and memory limits, so idle ones pack onto fewer nodes.
-Pods are named `codenine-<person ID>` and claims end in `-home`, with dashes for underscores. A
+Pods are named `codenine-<person ID>`, followed by `-<department ID>` for a department's workspace,
+and claims end in `-home`, with dashes for underscores. A
 workspace that sleeps ends its pod, and the next visit starts a new pod from the current image and
 settings. To change the allowed hosts, print the settings again, replace the ConfigMap, and run
 `kubectl -n codenine rollout restart deployment/codenine-egress`.
@@ -247,6 +249,14 @@ several. A department admin manages the members and restricted members of their 
 they invite people into one of them, reset and deactivate those people, and see only their
 departments' entries in the audit log. Teams group people within a department; a department admin
 can add teams to their departments. A department can be deleted once nobody is left in it.
+
+Each department gives its members a workspace of their own, made from the department's profile.
+Someone in several departments has a workspace in each and switches between them at the bottom of
+the sidebar, or with **Work in…** in the command palette; their work stays in the workspace where
+they did it. Leaving a department stops that workspace; its files stay while the person does, and
+come back if they rejoin. A new department can start from the Coder, Infrastructure, Marketing, HR
+or Product template, which sets its workspaces' size, how soon they sleep and whether members get a
+terminal.
 
 ## Read the audit log
 

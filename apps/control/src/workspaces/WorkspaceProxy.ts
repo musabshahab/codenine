@@ -17,8 +17,10 @@ import { workspaceScopes } from "../admin/roles.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { sessionCookieName } from "../http/ControlHttp.ts";
 import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
-import { type WorkspaceTarget, WorkspaceManager } from "./WorkspaceManager.ts";
+import { Profiles } from "../profiles/Profiles.ts";
+import { type WorkspaceKey, type WorkspaceTarget, WorkspaceManager } from "./WorkspaceManager.ts";
 import { WorkspaceTokens } from "./WorkspaceTokens.ts";
+import { Workplace } from "./Workplace.ts";
 
 // Hop-by-hop headers and our own cookie and credentials. Encodings pass through untouched.
 const REQUEST_HEADERS_DROPPED = new Set([
@@ -55,18 +57,22 @@ const signedOut = HttpServerResponse.jsonUnsafe(
 interface Authorized {
   readonly token: string;
   readonly session: AuthenticatedSession;
-  /** The person's own workspace; their token works there and nowhere else. */
+  readonly key: WorkspaceKey;
+  /** The person's workspace in their department; their token works there and nowhere else. */
   readonly target: WorkspaceTarget;
 }
 
 /**
- * Who is asking, their workspace, and the token to forward with their request.
- * Their role decides what the token allows, and the licence whether it can change anything.
+ * Who is asking, their workspace in the department they work in, and the token
+ * to forward with their request. Their role and that department's profile
+ * decide what the token allows, and the licence whether it can change anything.
  */
 export const makeWorkspaceAuthorizer = Effect.gen(function* () {
   const sessions = yield* Sessions;
   const tokens = yield* WorkspaceTokens;
   const manager = yield* WorkspaceManager;
+  const workplace = yield* Workplace;
+  const profiles = yield* Profiles;
   const { secure } = yield* ControlPublicUrl;
   const licence = yield* LicenceService;
   // Licence standing changes daily at most; this spares a query per request.
@@ -82,15 +88,18 @@ export const makeWorkspaceAuthorizer = Effect.gen(function* () {
     if (Option.isNone(session)) {
       return Option.none<Authorized>();
     }
-    const target = yield* manager.targetFor(session.value.person.id);
+    const { person, sessionId, departmentId } = session.value;
+    const key = yield* workplace.keyFor({ sessionId, personId: person.id, departmentId });
+    const profile = yield* profiles.effective(key.personId, key.departmentId);
+    const target = yield* manager.targetFor(key);
     const token = yield* tokens.mint({
-      personId: session.value.person.id,
+      personId: person.id,
       sessionId: session.value.sessionId,
-      name: session.value.person.displayName,
+      name: person.displayName,
       workspaceId: target.workspaceId,
-      scopes: workspaceScopes(session.value.person.role, yield* allowsWork),
+      scopes: workspaceScopes(person.role, yield* allowsWork, profile),
     });
-    return Option.some<Authorized>({ token, session: session.value, target });
+    return Option.some<Authorized>({ token, session: session.value, key, target });
   });
 });
 
@@ -110,7 +119,7 @@ export const layerHttpForwarding = HttpRouter.use((router) =>
       if (Option.isNone(authorized)) {
         return signedOut;
       }
-      const { target, session } = authorized.value;
+      const { target, key } = authorized.value;
       const hasBody = request.method !== "GET" && request.method !== "HEAD";
       const forwarded = HttpClientRequest.make(request.method as "GET")(
         `${target.url}${request.url}`,
@@ -123,11 +132,11 @@ export const layerHttpForwarding = HttpRouter.use((router) =>
       );
       const response = yield* client
         .execute(forwarded)
-        .pipe(Effect.tapError(() => manager.forget(session.person.id)));
+        .pipe(Effect.tapError(() => manager.forget(key)));
       // Whatever answers there refuses this person's token, such as another workspace that took
       // the port after theirs stopped, so the next request looks for their workspace again.
       if (response.status === 401) {
-        yield* manager.forget(session.person.id);
+        yield* manager.forget(key);
       }
       return HttpServerResponse.stream(response.stream, {
         status: response.status,
@@ -210,7 +219,7 @@ export const layerSocketForwarding = HttpRouter.use((router) =>
         // Taking the reader opens the connection, so a refusal is a 502 before the browser upgrades.
         const fromWorkspace = yield* workspace.reader.pipe(Effect.option);
         if (Option.isNone(fromWorkspace)) {
-          yield* manager.forget(authorized.value.session.person.id);
+          yield* manager.forget(authorized.value.key);
           return unavailable;
         }
         const browser = yield* request.upgrade;

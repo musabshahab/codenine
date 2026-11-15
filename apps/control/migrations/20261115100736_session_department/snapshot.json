@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "a2963e1f-5878-403f-9635-9738b69a9593",
+  "prevIds": ["d4dc8178-c4c0-47cc-909f-b11c1fd65432"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "control_sessions", "department_id"],
+      "writes": [
+        "s|col|public.control_sessions.department_id",
+        "n|col|public.control_sessions.department_id",
+        "e|col|public.control_sessions.department_id"
+      ],
+      "reads": ["n|tbl|public.control_sessions", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_sessions",
+        "name": "department_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

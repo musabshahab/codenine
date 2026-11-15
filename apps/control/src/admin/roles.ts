@@ -42,8 +42,19 @@ const ROLE_WORKSPACE_SCOPES: Record<ControlRole, ReadonlyArray<AuthGrantScope>> 
   auditor: READ_ONLY_WORKSPACE_SCOPES,
 };
 
-/** What a role may do in its workspace, which is only looking while the licence does not allow work. */
-export const workspaceScopes = (role: ControlRole, canWork: boolean) =>
-  canWork
-    ? ROLE_WORKSPACE_SCOPES[role]
-    : ROLE_WORKSPACE_SCOPES[role].filter((scope) => READ_ONLY_WORKSPACE_SCOPES.includes(scope));
+const TERMINAL_SCOPES: ReadonlyArray<AuthGrantScope> = ["terminal:read", "terminal:operate"];
+
+/**
+ * What a role may do in its workspace: only looking while the licence does not
+ * allow work, and members without a terminal where their profile blocks it.
+ */
+export const workspaceScopes = (
+  role: ControlRole,
+  canWork: boolean,
+  profile: { readonly terminal: boolean },
+) =>
+  ROLE_WORKSPACE_SCOPES[role].filter(
+    (scope) =>
+      (canWork || READ_ONLY_WORKSPACE_SCOPES.includes(scope)) &&
+      (profile.terminal || role !== "member" || !TERMINAL_SCOPES.includes(scope)),
+  );
