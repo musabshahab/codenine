@@ -147,6 +147,35 @@ a turn waiting for an answer or stall a pull request watch. A workspace that sta
 a new address, so the proxy looks for a person's workspace again whenever the address it knew stops
 answering or refuses their token.
 
+## The AI gateway
+
+Workspaces call AI providers through the control server's gateway
+([`gateway/`](../../apps/control/src/gateway)), which holds the company's keys and records every
+call's tokens and cost, never what was said. It listens on its own address
+(`CODENINE_CONTROL_GATEWAY_HOST` and `_PORT`) that only workspaces should reach, apart from the pages
+and API people use.
+
+- **A workspace's token is stable and checked on every call.** It is signed with the workspace
+  token key but has its own type, so neither kind passes for the other. It names only the person
+  and department, so it stays the same while the workspace is made from the same settings and is
+  not a reason to make the container again. Revocation happens at the gateway: a deactivated
+  person, or one no longer in the department, is refused within 30 seconds.
+- **Refusals use statuses the CLIs do not retry.** Claude Code and Codex retry 408, 409, 429 and
+  5xx, so the gateway's own refusals are 401, 403 or 404 in Anthropic's error shape. A provider's
+  errors pass through unchanged.
+- **Bodies pass through as they arrive.** The gateway asks the provider for uncompressed replies
+  and reads usage from the stream as it passes, so a stream is never held back to be metered. A
+  reply cut off by the workspace is recorded with what it used so far.
+- **Usage comes from `usage.iterations` when a reply has it.** With server-side fallbacks or
+  compaction, the top-level usage covers only the attempt that produced the reply; each iteration
+  is priced at its own model.
+- **Prices are an estimate.** They come from a table in the source
+  ([`claudePricing.ts`](../../apps/control/src/gateway/claudePricing.ts)), versioned on every
+  usage row, adjusted by each account's percentage. The provider's invoice is what the company
+  pays. Bedrock and Vertex AI set their own prices; the adjustment covers regional endpoints.
+- **The gateway honours `HTTPS_PROXY` and `NO_PROXY`** when it calls providers, as company
+  networks often require.
+
 ## Keys and secrets
 
 Licence keys verify against public keys built into the control server; there is no setting

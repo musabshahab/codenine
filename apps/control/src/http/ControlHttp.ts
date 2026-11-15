@@ -524,6 +524,18 @@ export const layerAdminApi = HttpApiBuilder.group(
           Effect.as(ok),
         ),
       )
+      .handle("aiAccounts", () => Effect.flatMap(actor, admin.aiAccounts))
+      .handle("createAiAccount", ({ payload }) =>
+        Effect.flatMap(actor, (by) => admin.createAiAccount(by, payload)),
+      )
+      .handle("updateAiAccount", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) => admin.updateAiAccount(by, params.accountId, payload)),
+      )
+      .handle("deleteAiAccount", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.deleteAiAccount(by, params.accountId)).pipe(
+          Effect.as(ok),
+        ),
+      )
       .handle("setEmergency", ({ params, payload }) =>
         Effect.flatMap(actor, (by) =>
           admin.setEmergency(by, { personId: params.personId, emergency: payload.emergency }),

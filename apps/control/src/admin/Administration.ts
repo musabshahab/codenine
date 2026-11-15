@@ -1,4 +1,7 @@
 import {
+  type ControlAiAccount,
+  type ControlAiAccountSettings,
+  type ControlAiError,
   assignableRoles,
   type ControlAccountError,
   type ControlAuditAction,
@@ -49,6 +52,7 @@ import {
 } from "../audit/AuditLog.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { Departments } from "../departments/Departments.ts";
+import { AiAccounts } from "../gateway/AiAccounts.ts";
 import { type LicenceInstallResult, LicenceService } from "../licence/LicenceService.ts";
 import { Mailer } from "../mail/Mailer.ts";
 import { workspaceOpenedMail } from "../mail/messages.ts";
@@ -309,6 +313,22 @@ export class Administration extends Context.Service<
       actor: AdminActor,
       connectionId: string,
     ) => Effect.Effect<void, ControlForbiddenError | ControlSsoError>;
+    readonly aiAccounts: (
+      actor: AdminActor,
+    ) => Effect.Effect<ReadonlyArray<ControlAiAccount>, ControlForbiddenError>;
+    readonly createAiAccount: (
+      actor: AdminActor,
+      settings: ControlAiAccountSettings,
+    ) => Effect.Effect<ControlAiAccount, ControlForbiddenError | ControlAiError>;
+    readonly updateAiAccount: (
+      actor: AdminActor,
+      accountId: string,
+      settings: ControlAiAccountSettings,
+    ) => Effect.Effect<ControlAiAccount, ControlForbiddenError | ControlAiError>;
+    readonly deleteAiAccount: (
+      actor: AdminActor,
+      accountId: string,
+    ) => Effect.Effect<void, ControlForbiddenError | ControlAiError>;
     /** Owners only; it lets them sign in with a password while single sign-on is required. */
     readonly setEmergency: (
       actor: AdminActor,
@@ -342,6 +362,7 @@ export const make = Effect.gen(function* () {
   const workspaces = yield* WorkspaceManager;
   const provisioningTokens = yield* ProvisioningTokens;
   const ssoConnections = yield* SsoConnections;
+  const aiAccounts = yield* AiAccounts;
   const mailer = yield* Mailer;
   const { origin } = yield* ControlPublicUrl;
 
@@ -524,6 +545,24 @@ export const make = Effect.gen(function* () {
     if ((yield* reachOf(actor, "security:manage")) !== "all") {
       return yield* new ControlForbiddenError({});
     }
+  });
+
+  /** Company AI keys spend the company's money, so only owners and admins hold them. */
+  const requireAi = Effect.fn("Administration.requireAi")(function* (actor: AdminActor) {
+    if ((yield* reachOf(actor, "ai:manage")) !== "all") {
+      return yield* new ControlForbiddenError({});
+    }
+  });
+  const aiAccountTarget = (account: ControlAiAccount) =>
+    ({ kind: "ai-account", id: account.id, label: account.name }) as const;
+  // The key's last characters show that it changed, never the key.
+  const aiAccountValues = (account: ControlAiAccount): ControlAuditValues => ({
+    name: account.name,
+    kind: account.kind,
+    baseUrl: account.baseUrl,
+    priceAdjustment: account.priceAdjustment,
+    isDefault: account.isDefault,
+    key: `…${account.keyHint}`,
   });
 
   const ssoTarget = (connection: ControlSsoConnection) =>
@@ -1233,6 +1272,56 @@ export const make = Effect.gen(function* () {
       yield* requireSecurity(actor);
       const removed = yield* ssoConnections.remove(connectionId);
       yield* record(actor, "sso.delete", ssoTarget(removed), ssoValues(removed), null);
+    }),
+    aiAccounts: Effect.fn("Administration.aiAccounts")(function* (actor: AdminActor) {
+      yield* requireAi(actor);
+      return yield* aiAccounts.list;
+    }),
+    createAiAccount: Effect.fn("Administration.createAiAccount")(function* (
+      actor: AdminActor,
+      settings: ControlAiAccountSettings,
+    ) {
+      yield* requireAi(actor);
+      const created = yield* aiAccounts.create(settings);
+      yield* record(
+        actor,
+        "ai-account.create",
+        aiAccountTarget(created),
+        null,
+        aiAccountValues(created),
+      );
+      return created;
+    }),
+    updateAiAccount: Effect.fn("Administration.updateAiAccount")(function* (
+      actor: AdminActor,
+      accountId: string,
+      settings: ControlAiAccountSettings,
+    ) {
+      yield* requireAi(actor);
+      const before = (yield* aiAccounts.list).find(({ id }) => id === accountId);
+      const updated = yield* aiAccounts.update(accountId, settings);
+      yield* record(
+        actor,
+        "ai-account.update",
+        aiAccountTarget(updated),
+        before === undefined ? null : aiAccountValues(before),
+        aiAccountValues(updated),
+      );
+      return updated;
+    }),
+    deleteAiAccount: Effect.fn("Administration.deleteAiAccount")(function* (
+      actor: AdminActor,
+      accountId: string,
+    ) {
+      yield* requireAi(actor);
+      const removed = yield* aiAccounts.remove(accountId);
+      yield* record(
+        actor,
+        "ai-account.delete",
+        aiAccountTarget(removed),
+        aiAccountValues(removed),
+        null,
+      );
     }),
     setEmergency: Effect.fn("Administration.setEmergency")(function* (
       actor: AdminActor,

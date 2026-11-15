@@ -909,6 +909,9 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "sso.create": "set up single sign-on with",
   "sso.update": "changed single sign-on with",
   "sso.delete": "removed single sign-on with",
+  "ai-account.create": "added the AI account",
+  "ai-account.update": "changed the AI account",
+  "ai-account.delete": "removed the AI account",
 };
 
 const auditValue = (value: string | number | boolean | null | undefined) =>

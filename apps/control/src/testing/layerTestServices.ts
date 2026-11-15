@@ -6,6 +6,7 @@ import { SecretBox } from "../accounts/SecretBox.ts";
 import * as Sessions from "../accounts/Sessions.ts";
 import * as AuditLog from "../audit/AuditLog.ts";
 import * as Departments from "../departments/Departments.ts";
+import * as AiAccounts from "../gateway/AiAccounts.ts";
 import * as Profiles from "../profiles/Profiles.ts";
 import * as ProvisioningTokens from "../provisioning/ProvisioningTokens.ts";
 import * as SsoConnections from "../sso/SsoConnections.ts";
@@ -28,6 +29,7 @@ export const layerTestServices = (
   mailer: Layer.Layer<Mailer> = Layer.succeed(Mailer, Mailer.off),
 ) =>
   Profiles.layer.pipe(
+    Layer.provideMerge(AiAccounts.layer),
     Layer.provideMerge(ProvisioningTokens.layer),
     Layer.provideMerge(SsoConnections.layer),
     Layer.provideMerge(Accounts.layer),

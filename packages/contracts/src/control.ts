@@ -67,6 +67,7 @@ export const ControlPermission = Schema.Literals([
   "people:manage",
   "departments:manage",
   "audit:read",
+  "ai:manage",
 ]);
 export type ControlPermission = typeof ControlPermission.Type;
 
@@ -84,12 +85,14 @@ const ROLE_PERMISSIONS: Record<
     "people:manage": "all",
     "departments:manage": "all",
     "audit:read": "all",
+    "ai:manage": "all",
   },
   admin: {
     "licence:read": "all",
     "people:manage": "all",
     "departments:manage": "all",
     "audit:read": "all",
+    "ai:manage": "all",
   },
   "department-admin": {
     "people:manage": "own-department",
@@ -717,6 +720,50 @@ export const ControlSsoConnection = Schema.Struct({
 });
 export type ControlSsoConnection = typeof ControlSsoConnection.Type;
 
+/** Where the gateway sends Claude's calls: Anthropic's API, or another gateway that speaks it. */
+export const ControlAiAccountKind = Schema.Literals(["anthropic", "anthropic-compatible"]);
+export type ControlAiAccountKind = typeof ControlAiAccountKind.Type;
+
+const AiAccountCommon = {
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  kind: ControlAiAccountKind,
+  /** Null for the provider's own address; needed for another gateway. */
+  baseUrl: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(2048))),
+  /** A percentage added to every price: -15 for a negotiated discount, 10 for a regional endpoint. */
+  priceAdjustment: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(-100),
+    Schema.isLessThanOrEqualTo(100),
+  ),
+  /** Whether workspaces use it for its provider unless a rule picks another. */
+  isDefault: Schema.Boolean,
+};
+
+/** What an admin sets for a company AI account. Its key is write-only. */
+export const ControlAiAccountSettings = Schema.Struct({
+  ...AiAccountCommon,
+  /** Left out to keep the saved one; a new account needs it. */
+  apiKey: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))),
+});
+export type ControlAiAccountSettings = typeof ControlAiAccountSettings.Type;
+
+/** A company AI account the gateway calls the provider with. */
+export const ControlAiAccount = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  ...AiAccountCommon,
+  /** The key's last four characters, to tell keys apart. */
+  keyHint: Schema.String,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type ControlAiAccount = typeof ControlAiAccount.Type;
+
+export class ControlAiError extends Schema.TaggedError<ControlAiError>()(
+  "ControlAiError",
+  { reason: Schema.Literals(["not-found", "needs-key", "needs-address", "bad-address"]) },
+  { httpApiStatus: 400 },
+) {}
+
 /** An identity provider the sign-in page offers. */
 export const ControlSsoChoice = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -848,6 +895,9 @@ export const ControlAuditAction = Schema.Literals([
   "sso.create",
   "sso.update",
   "sso.delete",
+  "ai-account.create",
+  "ai-account.update",
+  "ai-account.delete",
 ]);
 export type ControlAuditAction = typeof ControlAuditAction.Type;
 
@@ -859,6 +909,7 @@ export const ControlAuditTargetKind = Schema.Literals([
   "profile",
   "provisioning",
   "sso",
+  "ai-account",
 ]);
 export type ControlAuditTargetKind = typeof ControlAuditTargetKind.Type;
 
@@ -1308,6 +1359,26 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       params: Schema.Struct({ connectionId: TrimmedNonEmptyString }),
       success: ControlOk,
       error: [ControlForbiddenError, ControlSsoError],
+    }),
+    HttpApiEndpoint.get("aiAccounts", "/control/api/admin/ai/accounts", {
+      success: Schema.Array(ControlAiAccount),
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.post("createAiAccount", "/control/api/admin/ai/accounts", {
+      payload: ControlAiAccountSettings,
+      success: ControlAiAccount,
+      error: [ControlForbiddenError, ControlAiError],
+    }),
+    HttpApiEndpoint.put("updateAiAccount", "/control/api/admin/ai/accounts/:accountId", {
+      params: Schema.Struct({ accountId: TrimmedNonEmptyString }),
+      payload: ControlAiAccountSettings,
+      success: ControlAiAccount,
+      error: [ControlForbiddenError, ControlAiError],
+    }),
+    HttpApiEndpoint.delete("deleteAiAccount", "/control/api/admin/ai/accounts/:accountId", {
+      params: Schema.Struct({ accountId: TrimmedNonEmptyString }),
+      success: ControlOk,
+      error: [ControlForbiddenError, ControlAiError],
     }),
     HttpApiEndpoint.put("setEmergency", "/control/api/admin/people/:personId/emergency", {
       params: PersonParams,

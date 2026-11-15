@@ -498,6 +498,37 @@ describe("Administration", () => {
           after: null,
         });
 
+        // Company AI accounts: owners and admins only, and the log shows a key's last
+        // characters, never the key.
+        const claudeApi = {
+          name: "Claude API",
+          kind: "anthropic",
+          baseUrl: null,
+          priceAdjustment: -10,
+          isDefault: true,
+        } as const;
+        expect(
+          yield* refused(admin.createAiAccount(cy, { ...claudeApi, apiKey: "sk-ant-cy-1111" })),
+        ).toBe("ControlForbiddenError");
+        const account = yield* writesOne(
+          admin.createAiAccount(ada, { ...claudeApi, apiKey: "sk-ant-first-1234" }),
+          {
+            action: "ai-account.create",
+            target: { kind: "ai-account", label: "Claude API" },
+            before: null,
+            after: { kind: "anthropic", priceAdjustment: -10, isDefault: true, key: "…1234" },
+          },
+        );
+        yield* writesOne(
+          admin.updateAiAccount(ada, account.id, { ...claudeApi, apiKey: "sk-ant-second-5678" }),
+          { action: "ai-account.update", before: { key: "…1234" }, after: { key: "…5678" } },
+        );
+        yield* writesOne(admin.deleteAiAccount(ada, account.id), {
+          action: "ai-account.delete",
+          after: null,
+        });
+        expect(JSON.stringify(yield* newest)).not.toContain("sk-ant-");
+
         // Nothing changed, nothing written: the same role again, or a refused change.
         const latest = (yield* newest)[0]?.id;
         yield* admin.setRole(ada, { personId: cy.id, role: "restricted" });

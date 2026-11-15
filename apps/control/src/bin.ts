@@ -18,6 +18,10 @@ import * as Administration from "./admin/Administration.ts";
 import * as AuditExport from "./audit/AuditExport.ts";
 import * as AuditLog from "./audit/AuditLog.ts";
 import * as Departments from "./departments/Departments.ts";
+import * as AiAccounts from "./gateway/AiAccounts.ts";
+import * as AiUsage from "./gateway/AiUsage.ts";
+import * as Gateway from "./gateway/Gateway.ts";
+import * as GatewayHttp from "./gateway/GatewayHttp.ts";
 import * as Profiles from "./profiles/Profiles.ts";
 import * as Directory from "./provisioning/Directory.ts";
 import * as ProvisioningTokens from "./provisioning/ProvisioningTokens.ts";
@@ -50,6 +54,7 @@ const layerControl = Licence.layer.pipe(
 );
 
 const layerAccounts = Profiles.layer.pipe(
+  Layer.provideMerge(AiAccounts.layer),
   Layer.provideMerge(ProvisioningTokens.layer),
   Layer.provideMerge(SsoConnections.layer),
   Layer.provideMerge(AccountsModule.layer),
@@ -82,6 +87,9 @@ const operator = Effect.sync(() => {
 const ServeConfig = Config.all({
   host: Config.String("CODENINE_CONTROL_HOST").pipe(Config.withDefault("127.0.0.1")),
   port: Config.Port("CODENINE_CONTROL_PORT").pipe(Config.withDefault(3780)),
+  // Workspaces reach the AI gateway here, apart from the pages and API people use.
+  gatewayHost: Config.String("CODENINE_CONTROL_GATEWAY_HOST").pipe(Config.withDefault("127.0.0.1")),
+  gatewayPort: Config.Port("CODENINE_CONTROL_GATEWAY_PORT").pipe(Config.withDefault(3781)),
 });
 
 const formatOverview = ({ installationId, licence }: ControlLicenceOverview) => {
@@ -109,7 +117,7 @@ const formatOverview = ({ installationId, licence }: ControlLicenceOverview) => 
 
 const serveCommand = Command.make("serve", {}, () =>
   Effect.gen(function* () {
-    const { host, port } = yield* ServeConfig;
+    const { host, port, gatewayHost, gatewayPort } = yield* ServeConfig;
     return yield* Layer.launch(
       Layer.mergeAll(
         ControlHttp.layerServer(
@@ -121,10 +129,17 @@ const serveCommand = Command.make("serve", {}, () =>
             ControlHttp.layerWebApp,
           ),
         ),
+        GatewayHttp.layerServer({ host: gatewayHost, port: gatewayPort }),
         Licence.layerDailyCheck,
         WorkspaceRetention.layerHourlySweep,
         AuditExport.layer,
       ).pipe(
+        Layer.provide(
+          Gateway.layer.pipe(
+            Layer.provide(AiUsage.layer),
+            Layer.provide(GatewayHttp.layerProviderClient),
+          ),
+        ),
         Layer.provide(Directory.layer),
         Layer.provide(SingleSignOn.layer),
         Layer.provide(Administration.layer),
@@ -248,6 +263,50 @@ const workspaceKeyCommand = Command.make("key", {}, () =>
   Command.withDescription("Print what a workspace server needs to trust this control server."),
 );
 
+const gatewayTokenCommand = Command.make(
+  "token",
+  {
+    email: Flag.String("email").pipe(Flag.withDescription("The person's email address.")),
+    department: Flag.String("department").pipe(
+      Flag.withDescription("The department whose workspace it is; their first one if left out."),
+      Flag.withDefault(""),
+    ),
+  },
+  Effect.fnUntraced(
+    function* ({ email, department }) {
+      const person = (yield* (yield* Accounts).listPeople).find(
+        (candidate) => candidate.email.toLowerCase() === email.trim().toLowerCase(),
+      );
+      if (person === undefined) {
+        return yield* new ControlAccountError({ reason: "not-found" });
+      }
+      const departments = yield* Departments.Departments;
+      const named = (yield* departments.list).find(
+        (candidate) => candidate.name.toLowerCase() === department.trim().toLowerCase(),
+      );
+      if (department.trim() !== "" && named === undefined) {
+        return yield* Console.error(`No department is called ${department}.`);
+      }
+      const departmentId = yield* departments.pick(person.id, named?.id ?? null);
+      const token = yield* (yield* WorkspaceTokensModule.WorkspaceTokens).gatewayToken({
+        personId: person.id,
+        departmentId,
+      });
+      yield* Console.log(
+        [
+          `The AI gateway token for ${person.displayName}'s workspace${named === undefined ? "" : ` in ${named.name}`}.`,
+          "It works only while they are active and in that department:",
+          "",
+          `  ${token}`,
+        ].join("\n"),
+      );
+    },
+    Effect.provide(WorkspaceTokensModule.layer.pipe(Layer.provideMerge(layerAccounts))),
+  ),
+).pipe(
+  Command.withDescription("Print a person's AI gateway token, to check the gateway with curl."),
+);
+
 const workspaceEgressConfigCommand = Command.make("egress-config", {}, () =>
   Effect.gen(function* () {
     yield* Console.log(egressProxyConfig(yield* allowedHostsFromConfig));
@@ -269,6 +328,10 @@ const controlCommand = Command.make("codenine-control").pipe(
     Command.make("workspace").pipe(
       Command.withDescription("Connect workspace servers to this control server."),
       Command.withSubcommands([workspaceKeyCommand, workspaceEgressConfigCommand]),
+    ),
+    Command.make("gateway").pipe(
+      Command.withDescription("Check the AI gateway workspaces call."),
+      Command.withSubcommands([gatewayTokenCommand]),
     ),
     Command.make("people").pipe(
       Command.withDescription("Invite the first owner and recover locked-out people."),

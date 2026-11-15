@@ -1,4 +1,5 @@
 import type {
+  ControlAiAccountKind,
   ControlAuditAction,
   ControlAuditActorKind,
   ControlAuditTargetKind,
@@ -414,3 +415,56 @@ export const controlAuditExports = pgTable("control_audit_exports", {
   sink: varchar("sink", { length: 16 }).primaryKey().$type<"syslog" | "otlp">(),
   lastId: bigint("last_id", { mode: "number" }).notNull(),
 });
+
+/** Company accounts the AI gateway calls providers with. Keys are sealed with the server's secret key. */
+export const controlAiAccounts = pgTable("control_ai_accounts", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  kind: varchar("kind", { length: 32 }).notNull().$type<ControlAiAccountKind>(),
+  baseUrl: varchar("base_url", { length: 2048 }),
+  priceAdjustment: integer("price_adjustment").notNull().default(0),
+  isDefault: boolean("is_default").notNull().default(false),
+  apiKey: text("api_key").notNull(),
+  keyHint: varchar("key_hint", { length: 16 }).notNull(),
+  createdAt: varchar("created_at", { length: 64 }).notNull(),
+  updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+});
+
+/**
+ * One row per AI call through the gateway: who, which model, the tokens and
+ * what they cost, never what was said. People and departments are kept by ID
+ * without a reference, so usage outlives them.
+ */
+export const controlAiUsage = pgTable(
+  "control_ai_usage",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    at: varchar("at", { length: 64 }).notNull(),
+    personId: varchar("person_id", { length: 64 }).notNull(),
+    departmentId: varchar("department_id", { length: 64 }),
+    accountId: varchar("account_id", { length: 64 }),
+    provider: varchar("provider", { length: 16 }).notNull().$type<"claude">(),
+    model: varchar("model", { length: 255 }).notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    cacheWriteTokens: integer("cache_write_tokens").notNull(),
+    cacheReadTokens: integer("cache_read_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    webSearches: integer("web_searches").notNull(),
+    /** Millionths of a US dollar, at the prices in `priceVersion` and the account's adjustment. */
+    costMicros: bigint("cost_micros", { mode: "number" }).notNull(),
+    /** False when a model had no price, so its cost is missing from `costMicros`. */
+    priced: boolean("priced").notNull(),
+    priceVersion: varchar("price_version", { length: 64 }).notNull(),
+    outcome: varchar("outcome", { length: 16 }).notNull().$type<"ok" | "failed" | "cancelled">(),
+    status: integer("status").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    /** The agent session the call came from, as the CLI names it, to tell threads apart. */
+    sessionId: varchar("session_id", { length: 128 }),
+    requestId: varchar("request_id", { length: 128 }),
+  },
+  (table) => [
+    index("idx_control_ai_usage_at").on(table.at),
+    index("idx_control_ai_usage_person").on(table.personId, table.at),
+    index("idx_control_ai_usage_department").on(table.departmentId, table.at),
+  ],
+);
