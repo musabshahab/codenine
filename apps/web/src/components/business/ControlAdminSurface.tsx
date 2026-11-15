@@ -1,4 +1,5 @@
 import {
+  type ControlAiAccount,
   assignableRoles,
   type ControlAuditEntry,
   type ControlAuditPage,
@@ -41,6 +42,7 @@ import { Textarea } from "../ui/textarea";
 import { type ControlCall, ROLE_LABELS, SectionTitle } from "./adminParts";
 import { DepartmentsSection } from "./ControlDepartments";
 import { ProfilesSection } from "./ControlProfiles";
+import { AiAccountsSection } from "./ControlAiAccounts";
 import { ProvisioningSection } from "./ControlProvisioning";
 import { SingleSignOnSection } from "./ControlSingleSignOn";
 
@@ -55,6 +57,7 @@ interface AdminData {
   readonly audit: ControlAuditPage | null;
   readonly provisioning: ControlProvisioning | null;
   readonly ssoConnections: ReadonlyArray<ControlSsoConnection> | null;
+  readonly aiAccounts: ReadonlyArray<ControlAiAccount> | null;
   readonly profiles: ReadonlyArray<ControlProfile> | null;
   readonly exceptions: ReadonlyArray<ControlProfileException> | null;
 }
@@ -74,6 +77,7 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     sso,
     profiles,
     exceptions,
+    aiAccounts,
   ] = await Promise.all([
     callControl((client) => client.me.sessions()),
     callControl((client) => client.me.signInMethods()),
@@ -97,6 +101,9 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     permissionReach(me.role, "people:manage") === null
       ? null
       : callControl((client) => client.admin.exceptions()),
+    permissionReach(me.role, "ai:manage") === null
+      ? null
+      : callControl((client) => client.admin.aiAccounts()),
   ]);
   return {
     me,
@@ -110,6 +117,7 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     ssoConnections: sso,
     profiles,
     exceptions,
+    aiAccounts,
   };
 };
 
@@ -244,6 +252,10 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
           people={data.people ?? []}
           profiles={data.profiles}
         />
+      )}
+
+      {data.aiAccounts === null ? null : (
+        <AiAccountsSection accounts={data.aiAccounts} onAction={act} />
       )}
 
       {data.ssoConnections === null ? null : (

@@ -108,8 +108,23 @@ spec:
     - port: 3128
       targetPort: 3128
 ---
+# Workspaces call AI through the control server's gateway at this name. Its
+# target is CODENINE_CONTROL_GATEWAY_PORT, with CODENINE_CONTROL_GATEWAY_HOST
+# set to 0.0.0.0 on the control server.
+apiVersion: v1
+kind: Service
+metadata:
+  name: codenine-gateway
+  namespace: codenine
+spec:
+  selector:
+    app.kubernetes.io/name: codenine-control
+  ports:
+    - port: 8080
+      targetPort: 3781
+---
 # Workspaces take connections only from the control server, and reach only the
-# egress proxy and DNS.
+# egress proxy, the AI gateway and DNS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -135,6 +150,13 @@ spec:
               app.kubernetes.io/name: codenine-egress
       ports:
         - port: 3128
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: codenine-control
+      ports:
+        - port: 3781
           protocol: TCP
     - to:
         - namespaceSelector:

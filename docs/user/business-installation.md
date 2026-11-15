@@ -55,9 +55,9 @@ The control server starts a person's workspace the first time they open Codenine
 few seconds. Each has its own volume for the person's projects, settings and agent sign-ins, its
 own network, and CPU and memory limits. Agents run as an ordinary user on a read-only system, so
 even with full access they cannot reach another person's files or workspace. A workspace's
-network leads only to an egress proxy, which lets agents reach the model providers, GitHub and the
-main package registries over HTTPS and nothing else: not the Docker host, not your company
-network, not the rest of the internet. Git therefore needs HTTPS remotes; SSH remotes do not work.
+network leads only to an egress proxy, which lets agents reach Codenine's AI gateway, OpenAI, GitHub
+and the main package registries over HTTPS and nothing else: not Anthropic directly, not the Docker
+host, not your company network, not the rest of the internet. Git therefore needs HTTPS remotes; SSH remotes do not work.
 
 Run the control server on the machine that runs Docker, which must be Docker Engine on Linux run
 as root: the control server reaches each workspace at its address on the workspace's own network,
@@ -95,8 +95,15 @@ on the control server:
   are kept before they are deleted. 30 unless set.
 - `CODENINE_CONTROL_WORKSPACE_ALLOWED_HOSTS` (optional): more hosts agents may reach, separated by
   commas, such as `git.example.com, .registry.example.com`; a leading dot also allows everything
-  under that domain. Agents can always reach Anthropic and OpenAI, GitHub, npm, PyPI, crates.io,
-  the Go module proxy and Maven Central.
+  under that domain. Agents can always reach OpenAI, GitHub, npm, PyPI, crates.io, the Go module
+  proxy and Maven Central.
+- `CODENINE_CONTROL_GATEWAY_HOST` and `CODENINE_CONTROL_GATEWAY_PORT` (optional): where the AI
+  gateway listens, apart from the address people use; `127.0.0.1` and `3781` unless set. The egress
+  proxies must reach it, so on the Docker host set the host to an address they can reach, such as
+  `0.0.0.0` with your firewall closing the port to other machines.
+- `CODENINE_CONTROL_GATEWAY_UPSTREAM` (optional): how the egress proxies reach the gateway, as a
+  host and port; `host.docker.internal` and the gateway's port unless set, which is the Docker
+  host itself.
 - `CODENINE_CONTROL_DOCKER_SOCKET` (optional): the Docker socket, `/var/run/docker.sock` unless
   set. The control server's user needs access to it.
 
@@ -142,7 +149,9 @@ kubectl -n codenine create configmap codenine-egress --from-file=squid.conf
 ```
 
 Set the same settings as for Docker on the control server, with
-`CODENINE_CONTROL_WORKSPACE_DRIVER` set to `kubernetes` and the image's registry path, plus:
+`CODENINE_CONTROL_WORKSPACE_DRIVER` set to `kubernetes`, the image's registry path, and
+`CODENINE_CONTROL_GATEWAY_HOST` set to `0.0.0.0` so workspaces reach the AI gateway through the
+`codenine-gateway` service, plus:
 
 - `CODENINE_CONTROL_WORKSPACE_DISK_GB` (optional): each person's volume claim, 20 GB unless set.
 - `CODENINE_CONTROL_WORKSPACE_STORAGE_CLASS` (optional): the storage class for those claims.
@@ -199,6 +208,31 @@ Until a working licence is installed, Codenine is read-only: people can look at 
 agents cannot change anything. The licence page warns 30 days before the licence ends, and work
 continues through the grace period after it. A renewal can be installed early; it takes over
 when it starts.
+
+## Connect your AI accounts
+
+Agents in workspaces call AI through Codenine's gateway, with your company's account rather than
+each person's. The keys stay on the control server, so nobody can copy them out of a workspace, and
+nobody signs in to Claude: it shows as **Company account**. Codex still signs in on its own for
+now.
+
+In **Admin**, under **AI accounts**, owners and admins choose **Add an AI account**:
+
+- **Claude API**: an API key from your company's Anthropic account. Leave the address empty to use
+  `api.anthropic.com`.
+- **Gateway with Anthropic's API**: the address and key of another gateway your company runs, such
+  as LiteLLM, which then reaches the provider.
+
+The account marked **Use it for Claude** serves every workspace. Codenine records each call with
+who made it, the model, the tokens and what they cost, never what was said. Costs are estimates
+from the provider's list prices: set a **price adjustment**, such as `-15` for a negotiated
+discount or `10` for a regional endpoint, and check them against the provider's invoice.
+
+To check the gateway from the control server, print someone's token and send a request with it:
+
+```bash
+node apps/control/src/bin.ts gateway token --email ada@example.com
+```
 
 ## Manage people
 

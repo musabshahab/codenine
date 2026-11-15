@@ -441,7 +441,10 @@ function AgentsSection({
           />
         ))}
       </div>
-      {canManageProviders && ![...found, ...available].some(isOpenRouterProvider) ? (
+      {/* A business workspace calls AI with its company's accounts only. */}
+      {canManageProviders &&
+      !isBusinessEdition &&
+      ![...found, ...available].some(isOpenRouterProvider) ? (
         <div className="pb-1 text-xs">
           <InlineButton tone="muted" onClick={() => setAddingOpenRouter(true)}>
             Have an OpenRouter API key? Use it instead of signing in

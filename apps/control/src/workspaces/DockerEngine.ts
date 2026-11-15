@@ -85,6 +85,8 @@ export interface ContainerSpec {
   readonly memoryBytes: number;
   /** Whether Docker starts it again when it stops on its own. */
   readonly restart: "no" | "unless-stopped";
+  /** Extra `/etc/hosts` lines, such as `host.docker.internal:host-gateway`. */
+  readonly extraHosts?: ReadonlyArray<string>;
 }
 
 // Label filters are our own IDs; the Engine API takes them as JSON in the query.
@@ -104,11 +106,11 @@ export class DockerEngine extends Context.Service<
       labels: Readonly<Record<string, string>>,
       options: { readonly internal: boolean },
     ) => Effect.Effect<void, DockerEngineError>;
-    /** Adds a container to a network under an alias, unless it is already there. */
+    /** Adds a container to a network under these names, unless it is already there. */
     readonly connect: (
       network: string,
       container: string,
-      alias: string,
+      aliases: ReadonlyArray<string>,
     ) => Effect.Effect<void, DockerEngineError>;
     /** Takes a container off a network it is on. */
     readonly disconnect: (
@@ -255,14 +257,14 @@ export class DockerEngine extends Context.Service<
           yield* createNetwork(name, labels, options.internal);
         }
       }),
-      connect: Effect.fn("DockerEngine.connect")(function* (network, container, alias) {
+      connect: Effect.fn("DockerEngine.connect")(function* (network, container, aliases) {
         // 403 is Docker's answer when the container is already on the network.
         yield* call(
           "connect a container",
           HttpClientRequest.post(path("networks", network, "/connect")).pipe(
             HttpClientRequest.bodyJsonUnsafe({
               Container: container,
-              EndpointConfig: { Aliases: [alias] },
+              EndpointConfig: { Aliases: aliases },
             }),
           ),
           [403],
@@ -330,6 +332,7 @@ export class DockerEngine extends Context.Service<
                 Memory: spec.memoryBytes,
                 PidsLimit: 4096,
                 RestartPolicy: { Name: spec.restart },
+                ...(spec.extraHosts === undefined ? {} : { ExtraHosts: spec.extraHosts }),
               },
             }),
           ),

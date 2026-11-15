@@ -1,3 +1,4 @@
+import { isBusinessEdition } from "../../env";
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import {
@@ -535,7 +536,8 @@ export function EnvironmentProviderSettings({
   readonly readOnly?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
-  const canAddProvider = !readOnly;
+  // A business workspace calls AI with its company's accounts only.
+  const canAddProvider = !readOnly && !isBusinessEdition;
   const canWriteSettings = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const canRefreshProviders = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);

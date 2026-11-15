@@ -762,7 +762,20 @@ export class ControlAiError extends Schema.TaggedError<ControlAiError>()(
   "ControlAiError",
   { reason: Schema.Literals(["not-found", "needs-key", "needs-address", "bad-address"]) },
   { httpApiStatus: 400 },
-) {}
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "not-found":
+        return "That AI account does not exist.";
+      case "needs-key":
+        return "Give the account's API key.";
+      case "needs-address":
+        return "Give the address of the gateway, such as https://litellm.acme.internal.";
+      case "bad-address":
+        return "The address must start with http:// or https:// and have no query or password.";
+    }
+  }
+}
 
 /** An identity provider the sign-in page offers. */
 export const ControlSsoChoice = Schema.Struct({

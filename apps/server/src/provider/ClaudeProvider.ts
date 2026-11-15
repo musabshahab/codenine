@@ -817,10 +817,21 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
+  // A managed workspace's Claude goes through its company's AI gateway.
+  const companyGateway = resolvedEnvironment.CODENINE_MANAGED_AI_GATEWAY?.trim();
+  const throughCompanyGateway =
+    companyGateway !== undefined &&
+    companyGateway !== "" &&
+    endpoint.baseUrl?.trim().startsWith(companyGateway) === true;
   // A proxy's ANTHROPIC_AUTH_TOKEN reads as an API key; the endpoint is what the token is for.
   const authMetadata =
     apiProviderAuthMetadata(capabilities.apiProvider) ??
-    (customApiEndpoint ? { type: "customEndpoint", label: "Custom API endpoint" } : undefined) ??
+    (customApiEndpoint
+      ? {
+          type: "customEndpoint",
+          label: throughCompanyGateway ? "Company account" : "Custom API endpoint",
+        }
+      : undefined) ??
     claudeAuthMetadata({
       subscriptionType: capabilities.subscriptionType,
       authMethod: capabilities.tokenSource,

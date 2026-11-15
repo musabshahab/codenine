@@ -15,6 +15,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServer from "effect/http/HttpServer";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
@@ -356,7 +357,16 @@ const withDockerWorkspaces = <A, E>(
   body: (fake: {
     readonly docker: ReturnType<typeof fakeDocker>;
     readonly workspacePort: number;
-  }) => Effect.Effect<A, E, WorkspaceManager | Installation | ControlDb | Departments | Profiles>,
+  }) => Effect.Effect<
+    A,
+    E,
+    | WorkspaceManager
+    | Installation
+    | ControlDb
+    | Departments
+    | Profiles
+    | WorkspaceTokens.WorkspaceTokens
+  >,
 ) =>
   Effect.gen(function* () {
     const keys = yield* testKeyPair;
@@ -504,9 +514,27 @@ describe("DockerWorkspaces", () => {
         expect(docker.networks.get(egress.network)?.internal).toBe(false);
         const [proxy = "", ...others] = docker.proxiesOn(ada.network);
         expect(others).toEqual([]);
-        expect(docker.networks.get(ada.network)?.containers.get(proxy)).toEqual(["egress"]);
+        expect(docker.networks.get(ada.network)?.containers.get(proxy)).toEqual([
+          "egress",
+          "codenine-gateway",
+        ]);
         const [workspace] = docker.workspacesCreated();
-        expect(workspace?.body.Env).toContain("HTTPS_PROXY=http://egress:3128");
+        expect(workspace?.body.Env).toEqual(
+          expect.arrayContaining([
+            "HTTPS_PROXY=http://egress:3128",
+            "NO_PROXY=localhost,127.0.0.1,codenine-gateway",
+            "ANTHROPIC_BASE_URL=http://codenine-gateway:8080/anthropic",
+          ]),
+        );
+        // Claude calls the gateway with a token naming Ada's workspace, which the gateway checks.
+        const aiToken = workspace?.body.Env.find((entry) =>
+          entry.startsWith("ANTHROPIC_AUTH_TOKEN="),
+        );
+        expect(
+          yield* (yield* WorkspaceTokens.WorkspaceTokens).verifyGatewayToken(
+            aiToken?.slice("ANTHROPIC_AUTH_TOKEN=".length) ?? "",
+          ),
+        ).toEqual(Option.some(ADA));
         expect(workspace?.body.HostConfig).not.toHaveProperty("PortBindings");
         expect(
           docker.created.find((created) => created.name === proxy)?.body.HostConfig,
@@ -515,6 +543,7 @@ describe("DockerWorkspaces", () => {
           RestartPolicy: { Name: "unless-stopped" },
           ReadonlyRootfs: true,
           CapDrop: ["ALL"],
+          ExtraHosts: ["host.docker.internal:host-gateway"],
         });
         // The admin's host joins the defaults; one a default already covers is left out.
         const squid = docker.proxySettings(proxy);
@@ -522,6 +551,10 @@ describe("DockerWorkspaces", () => {
         expect(squid).toContain(" git.acme.test");
         expect(squid).not.toContain("api.github.com");
         expect(squid).not.toContain("acl blocked");
+        // The gateway's name leads to the control server, and Anthropic is not on the list.
+        expect(squid).toContain("http_port 8080 accel defaultsite=codenine-gateway name=gateway");
+        expect(squid).toContain("cache_peer host.docker.internal parent 3781 0 no-query");
+        expect(listed(squid, "allowed")).not.toContain(".anthropic.com");
 
         // Bea's workspace reaches the same hosts, so it shares the proxy.
         yield* workspaces.targetFor(BEA);

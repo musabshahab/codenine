@@ -2549,41 +2549,59 @@ it.layer(
     );
 
     it.effect.each([
-      { source: "inherited HTTPS endpoint", baseUrl: "https://proxy.example/api", overrides: [] },
+      {
+        source: "inherited HTTPS endpoint",
+        baseUrl: "https://proxy.example/api",
+        overrides: [],
+        gateway: undefined,
+        label: "Custom API endpoint",
+      },
       {
         source: "instance HTTP endpoint overriding Anthropic",
         baseUrl: "https://api.anthropic.com",
         overrides: [
           { name: "ANTHROPIC_BASE_URL", value: "http://localhost:8080", sensitive: false },
         ],
+        gateway: undefined,
+        label: "Custom API endpoint",
       },
-    ])("keeps Claude ready with an empty first-party account: $source", ({ baseUrl, overrides }) =>
-      Effect.gen(function* () {
-        const environment = yield* mergeProviderInstanceEnvironment(overrides, {
-          ANTHROPIC_BASE_URL: baseUrl,
-        });
-        const status = yield* checkClaudeProviderStatus(
-          defaultClaudeSettings,
-          claudeCapabilities({
-            tokenSource: "none",
-            apiKeySource: "none",
-            apiProvider: "firstParty",
-          }),
-          environment,
-        );
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.auth.status, "authenticated");
-        assert.strictEqual(status.auth.type, "customEndpoint");
-        assert.strictEqual(status.auth.label, "Custom API endpoint");
-      }).pipe(
-        Effect.provide(
-          layerMockSpawner((args) => {
-            const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
-            throw new Error(`Unexpected args: ${joined}`);
-          }),
+      {
+        source: "a managed workspace's company gateway",
+        baseUrl: "http://codenine-gateway:8080/anthropic",
+        overrides: [],
+        gateway: "http://codenine-gateway:8080",
+        label: "Company account",
+      },
+    ])(
+      "keeps Claude ready with an empty first-party account: $source",
+      ({ baseUrl, overrides, gateway, label }) =>
+        Effect.gen(function* () {
+          const environment = yield* mergeProviderInstanceEnvironment(overrides, {
+            ANTHROPIC_BASE_URL: baseUrl,
+            ...(gateway === undefined ? {} : { CODENINE_MANAGED_AI_GATEWAY: gateway }),
+          });
+          const status = yield* checkClaudeProviderStatus(
+            defaultClaudeSettings,
+            claudeCapabilities({
+              tokenSource: "none",
+              apiKeySource: "none",
+              apiProvider: "firstParty",
+            }),
+            environment,
+          );
+          assert.strictEqual(status.status, "ready");
+          assert.strictEqual(status.auth.status, "authenticated");
+          assert.strictEqual(status.auth.type, "customEndpoint");
+          assert.strictEqual(status.auth.label, label);
+        }).pipe(
+          Effect.provide(
+            layerMockSpawner((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
         ),
-      ),
     );
 
     it.effect.each([

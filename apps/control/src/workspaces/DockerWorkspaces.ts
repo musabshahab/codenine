@@ -26,6 +26,8 @@ import {
   EGRESS_PORT,
   egressHosts,
   egressProxyConfig,
+  GATEWAY_ALIAS,
+  GatewayUpstreamConfig,
   WORKSPACE_HOME,
   WORKSPACE_UID,
   WorkspaceConfig,
@@ -67,7 +69,7 @@ const encoder = new TextEncoder();
 export const make = Effect.gen(function* () {
   const engine = yield* DockerEngine;
   const installation = yield* Installation;
-  const { verifier } = yield* WorkspaceTokens;
+  const tokens = yield* WorkspaceTokens;
   const profiles = yield* Profiles;
   const config = yield* WorkspaceConfig;
   const client = yield* HttpClient.HttpClient;
@@ -76,6 +78,7 @@ export const make = Effect.gen(function* () {
   const sha256 = (text: string) => digest.digestHex(Digest.sha256, encoder.encode(text));
 
   const installationHosts = yield* allowedHostsFromConfig;
+  const gateway = yield* GatewayUpstreamConfig;
   const egressLabels = { "codenine.installation": installation.id, "codenine.role": "egress" };
   const egressFilter = Object.entries(egressLabels).map(([key, value]) => `${key}=${value}`);
   const egress = egressNames(installation.id);
@@ -85,7 +88,7 @@ export const make = Effect.gen(function* () {
     profile: ControlEffectiveProfile,
   ) {
     const hosts = egressHosts(installationHosts, profile);
-    const settings = egressProxyConfig(hosts.allowed, hosts.blocked);
+    const settings = egressProxyConfig(hosts.allowed, hosts.blocked, gateway);
     const name = egress.proxy(yield* sha256(settings));
     const spec: ContainerSpec = {
       image: config.image,
@@ -101,6 +104,8 @@ export const make = Effect.gen(function* () {
       nanoCpus: 1e9,
       memoryBytes: 256 * 1024 ** 2,
       restart: "unless-stopped",
+      // The control server, when it runs on the Docker host itself.
+      extraHosts: ["host.docker.internal:host-gateway"],
     };
     return { name, spec };
   });
@@ -132,7 +137,7 @@ export const make = Effect.gen(function* () {
         yield* engine.disconnect(network, other.name);
       }
     }
-    yield* engine.connect(network, proxy.name, EGRESS_ALIAS);
+    yield* engine.connect(network, proxy.name, [EGRESS_ALIAS, GATEWAY_ALIAS]);
   });
 
   /** Removes the proxies no workspace's network carries any more. */
@@ -198,10 +203,11 @@ export const make = Effect.gen(function* () {
     const plan = yield* profiles.effective(key.personId, key.departmentId);
     const image = plan.image ?? config.image;
     const env = workspaceEnv({
-      verifier,
+      verifier: tokens.verifier,
       workspaceId,
       sleepMinutes: plan.sleepMinutes,
       proxyUrl: EGRESS_URL,
+      gatewayToken: yield* tokens.gatewayToken(key),
     });
     const nanoCpus = Math.round(plan.cpus * 1e9);
     const memoryBytes = Math.round(plan.memoryGb * 1024 ** 3);

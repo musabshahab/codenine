@@ -19,6 +19,13 @@ export const WORKSPACE_HOME = "/home/codenine";
 export const WORKSPACE_UID = 1000;
 /** Where the egress proxy listens. */
 export const EGRESS_PORT = 3128;
+/**
+ * Workspaces reach the AI gateway at this name and port: on Docker the egress
+ * proxy answers to it on each workspace's network, on Kubernetes a service.
+ */
+export const GATEWAY_ALIAS = "codenine-gateway";
+export const GATEWAY_PORT = 8080;
+export const GATEWAY_URL = `http://${GATEWAY_ALIAS}:${GATEWAY_PORT}`;
 
 const sizeConfig = {
   cpus: Config.Number("CODENINE_CONTROL_WORKSPACE_CPUS").pipe(Config.withDefault(2)),
@@ -37,12 +44,15 @@ export const WorkspaceConfig = Config.all({
   ...sizeConfig,
 });
 
+const NO_PROXY = `localhost,127.0.0.1,${GATEWAY_ALIAS}`;
+
 /** What a managed workspace needs: whom to trust, when to sleep, how to reach out. */
 export const workspaceEnv = (input: {
   readonly verifier: WorkspaceTokens["Service"]["verifier"];
   readonly workspaceId: string;
   readonly sleepMinutes: number;
   readonly proxyUrl: string;
+  readonly gatewayToken: string;
 }) => ({
   CODENINE_MODE: "managed",
   CODENINE_MANAGED_ISSUER: input.verifier.issuer,
@@ -55,9 +65,14 @@ export const workspaceEnv = (input: {
   HTTPS_PROXY: input.proxyUrl,
   http_proxy: input.proxyUrl,
   https_proxy: input.proxyUrl,
-  NO_PROXY: "localhost,127.0.0.1",
-  no_proxy: "localhost,127.0.0.1",
+  NO_PROXY,
+  no_proxy: NO_PROXY,
   NODE_USE_ENV_PROXY: "1",
+  // Claude, in the app and in a terminal alike, goes through the company's gateway.
+  CODENINE_MANAGED_AI_GATEWAY: GATEWAY_URL,
+  ANTHROPIC_BASE_URL: `${GATEWAY_URL}/anthropic`,
+  ANTHROPIC_AUTH_TOKEN: input.gatewayToken,
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
 });
 
 /** The labels marking whose workspace a container, pod, volume or network is. */
@@ -68,11 +83,11 @@ export const workspaceLabels = (installationId: string, key: WorkspaceKey) => ({
   ...(key.departmentId === null ? {} : { "codenine.department": key.departmentId }),
 });
 
-/** What every workspace may reach: model providers and their sign-in, GitHub, package registries. */
+/**
+ * What every workspace may reach: OpenAI for Codex, GitHub and package
+ * registries. Claude goes through the gateway, never straight to Anthropic.
+ */
 export const DEFAULT_ALLOWED_HOSTS: ReadonlyArray<string> = [
-  ".anthropic.com",
-  ".claude.ai",
-  ".claude.com",
   ".openai.com",
   ".chatgpt.com",
   ".github.com",
@@ -140,13 +155,43 @@ export const egressHosts = (
   };
 };
 
-/** Squid allowing only those hosts and none of `blocked`, on the usual web ports, with no cache. */
+/** Where the egress proxies reach the AI gateway, from `CODENINE_CONTROL_GATEWAY_UPSTREAM`. */
+export const GatewayUpstreamConfig = Effect.gen(function* () {
+  const port = yield* Config.Port("CODENINE_CONTROL_GATEWAY_PORT").pipe(Config.withDefault(3781));
+  const raw = yield* Config.String("CODENINE_CONTROL_GATEWAY_UPSTREAM").pipe(
+    Config.withDefault(`host.docker.internal:${port}`),
+  );
+  const match = /^([a-z0-9.-]+):(\d{1,5})$/iu.exec(raw.trim());
+  if (match === null) {
+    return yield* Effect.die(
+      "CODENINE_CONTROL_GATEWAY_UPSTREAM must be a host and port, such as codenine-control:3781.",
+    );
+  }
+  return { host: match[1] ?? "", port: Number(match[2]) };
+});
+
+/**
+ * Squid allowing only those hosts and none of `blocked`, on the usual web
+ * ports, with no cache. With a gateway, it also answers to the gateway's name
+ * and passes those requests to the control server as they are.
+ */
 export const egressProxyConfig = (
   hosts: ReadonlyArray<string>,
   blocked: ReadonlyArray<string> = [],
+  gateway?: { readonly host: string; readonly port: number },
 ) =>
   [
     `http_port ${EGRESS_PORT}`,
+    ...(gateway === undefined
+      ? []
+      : [
+          `http_port ${GATEWAY_PORT} accel defaultsite=${GATEWAY_ALIAS} name=gateway`,
+          `cache_peer ${gateway.host} parent ${gateway.port} 0 no-query originserver login=PASSTHRU name=control`,
+          "acl to_gateway myportname gateway",
+          "cache_peer_access control allow to_gateway",
+          "cache_peer_access control deny all",
+          "never_direct allow to_gateway",
+        ]),
     "pid_filename none",
     "pinger_enable off",
     "netdb_filename none",
@@ -160,6 +205,7 @@ export const egressProxyConfig = (
     "acl SSL_ports port 443",
     "acl Safe_ports port 80 443",
     "acl CONNECT method CONNECT",
+    ...(gateway === undefined ? [] : ["http_access allow to_gateway"]),
     "http_access deny !Safe_ports",
     "http_access deny CONNECT !SSL_ports",
     ...(blocked.length === 0 ? [] : ["http_access deny blocked"]),

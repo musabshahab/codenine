@@ -155,6 +155,12 @@ call's tokens and cost, never what was said. It listens on its own address
 (`CODENINE_CONTROL_GATEWAY_HOST` and `_PORT`) that only workspaces should reach, apart from the pages
 and API people use.
 
+- **Every workspace reaches it as `http://codenine-gateway:8080`,** set in its environment with its
+  token, so Claude in the app and in a terminal use it alike. On Docker the egress proxy answers to
+  that name on each workspace's network and passes those requests, and only those, to the control
+  server; on Kubernetes it is a service. Anthropic is off the egress allow list, so the gateway is
+  the only way to Claude.
+
 - **A workspace's token is stable and checked on every call.** It is signed with the workspace
   token key but has its own type, so neither kind passes for the other. It names only the person
   and department, so it stays the same while the workspace is made from the same settings and is

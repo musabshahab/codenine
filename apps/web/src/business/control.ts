@@ -146,19 +146,14 @@ export function controlErrorMessage(error: unknown): string {
         LICENCE_PROBLEMS[error.problem as LicenceProblem] ?? "This licence key cannot be used."
       );
     }
-    if (
-      (error._tag === "ControlAccountError" ||
-        error._tag === "ControlSignInError" ||
-        error._tag === "ControlSignedOutError" ||
-        error._tag === "ControlForbiddenError") &&
-      error instanceof Error
-    ) {
-      return error.message;
-    }
     if (error._tag === "ControlUnavailableError" && "reason" in error) {
       return error.reason === "workspace-unavailable"
         ? "Your workspace did not start. Try again in a moment, and if it keeps failing, ask your admin to check the control server's log."
         : "The control server cannot reach its database. Try again in a moment.";
+    }
+    // The control server's own errors word their messages for people.
+    if (String(error._tag).startsWith("Control") && error instanceof Error && error.message) {
+      return error.message;
     }
   }
   return "The control server did not answer. Check your connection and try again.";

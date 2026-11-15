@@ -62,7 +62,7 @@ class PodNotReady extends Schema.TaggedError<PodNotReady>()("PodNotReady", {}) {
 export const make = Effect.gen(function* () {
   const api = yield* KubernetesApi;
   const installation = yield* Installation;
-  const { verifier } = yield* WorkspaceTokens;
+  const tokens = yield* WorkspaceTokens;
   const profiles = yield* Profiles;
   const config = yield* WorkspaceConfig;
   const kubernetes = yield* KubernetesConfig;
@@ -89,13 +89,14 @@ export const make = Effect.gen(function* () {
     },
   });
 
-  const podManifest = (key: WorkspaceKey, plan: ControlEffectiveProfile) => {
+  const podManifest = (key: WorkspaceKey, plan: ControlEffectiveProfile, gatewayToken: string) => {
     const names = podNames(workspaceIdOf(key));
     const env = workspaceEnv({
-      verifier,
+      verifier: tokens.verifier,
       workspaceId: workspaceIdOf(key),
       sleepMinutes: plan.sleepMinutes,
       proxyUrl: EGRESS_URL,
+      gatewayToken,
     });
     return {
       apiVersion: "v1",
@@ -178,7 +179,7 @@ export const make = Effect.gen(function* () {
       if (Option.isNone(found) || finished(found.value.phase)) {
         const plan = yield* profiles.effective(key.personId, key.departmentId);
         yield* api.createClaim(claimManifest(key));
-        yield* api.createPod(podManifest(key, plan));
+        yield* api.createPod(podManifest(key, plan, yield* tokens.gatewayToken(key)));
       }
       // Pending while it is scheduled and its image is pulled.
       const address = yield* api.getPod(names.pod).pipe(

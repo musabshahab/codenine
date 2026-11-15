@@ -6,6 +6,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { EnvHttpProxyAgent } from "undici";
 import * as ByteSize from "effect/ByteSize";
 import * as Effect from "effect/Effect";
+import * as HttpClient from "effect/http/HttpClient";
 import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
@@ -77,18 +78,19 @@ export const layerServer = (options: { readonly host: string; readonly port: num
   );
 
 /**
- * How the gateway calls providers: through the proxy `HTTPS_PROXY` names
- * unless `NO_PROXY` exempts the host, as company networks often require.
- * Undici leaves bodies as sent, so streams pass through as they arrive.
+ * Calls providers through `HTTPS_PROXY` unless `NO_PROXY` exempts the host.
+ * Built here, not from NodeHttpClient's layers: Effect shares layers by
+ * reference, so another undici client would hand this one its dispatcher.
  */
-export const layerProviderClient = NodeHttpClient.layerUndiciNoDispatcher.pipe(
-  Layer.provide(
-    Layer.effect(
-      NodeHttpClient.Dispatcher,
-      Effect.acquireRelease(
-        Effect.sync(() => new EnvHttpProxyAgent()),
-        (agent) => Effect.promise(() => agent.destroy()),
-      ),
-    ),
-  ),
+export const layerProviderClient = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.gen(function* () {
+    const dispatcher = yield* Effect.acquireRelease(
+      Effect.sync(() => new EnvHttpProxyAgent()),
+      (agent) => Effect.promise(() => agent.destroy()),
+    );
+    return yield* NodeHttpClient.makeUndici.pipe(
+      Effect.provideService(NodeHttpClient.Dispatcher, dispatcher),
+    );
+  }),
 );
