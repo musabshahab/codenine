@@ -51,6 +51,29 @@ describe("loadRepoEnv", () => {
       VITE_CODENINE_RELAY_URL: "https://ci.example.test",
     });
   });
+
+  it("leaves Connect, its sign-in service and the update feed out of business builds", () => {
+    const repoRoot = makeTemporaryDirectory();
+    NodeFS.writeFileSync(
+      NodePath.join(repoRoot, ".env"),
+      "CODENINE_BUSINESS_EDITION=true\nCODENINE_CLERK_PUBLISHABLE_KEY=pk_root\nCODENINE_RELAY_URL=https://root.example.test\nCODENINE_DESKTOP_UPDATE_REPOSITORY=owner/repo\n",
+    );
+
+    expect(
+      loadRepoEnv({
+        baseEnv: { VITE_RELAY_OTLP_TRACES_URL: "https://traces.example.test" },
+        repoRoot,
+      }),
+    ).toMatchObject({
+      CODENINE_BUSINESS_EDITION: "1",
+      CODENINE_CLERK_PUBLISHABLE_KEY: "",
+      VITE_CLERK_PUBLISHABLE_KEY: "",
+      CODENINE_RELAY_URL: "",
+      VITE_CODENINE_RELAY_URL: "",
+      VITE_RELAY_OTLP_TRACES_URL: "",
+      CODENINE_DESKTOP_UPDATE_REPOSITORY: "",
+    });
+  });
 });
 
 function makeTemporaryDirectory() {

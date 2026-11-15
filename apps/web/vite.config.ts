@@ -48,7 +48,7 @@ const configuredAppVersion = process.env.APP_VERSION?.trim() || pkg.version;
 const configuredDesktopUpdateRepository =
   process.env.CODENINE_DESKTOP_UPDATE_REPOSITORY?.trim() || "";
 const configuredFeatureSecrets = process.env.CODENINE_FEATURE_SECRETS?.trim() || "";
-const configuredBusinessEdition = process.env.CODENINE_BUSINESS_EDITION?.trim() || "";
+const configuredBusinessEdition = repoEnv.CODENINE_BUSINESS_EDITION ?? "";
 const configuredHostedAppUrl = (() => {
   const explicitHostedAppUrl = process.env.VITE_HOSTED_APP_URL?.trim();
   if (explicitHostedAppUrl) {

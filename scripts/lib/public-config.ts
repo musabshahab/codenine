@@ -5,6 +5,7 @@ import * as NodeURL from "node:url";
 import * as NodeUtil from "node:util";
 
 export interface CodeninePublicConfig {
+  readonly businessEdition: boolean;
   readonly clerkPublishableKey: string | undefined;
   readonly clerkJwtTemplate: string | undefined;
   readonly clerkCliOAuthClientId: string | undefined;
@@ -19,6 +20,31 @@ export interface CodeninePublicConfig {
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
+/**
+ * A business build reaches only the company's own control server, so it must
+ * not carry Codenine Connect, its sign-in service, relay tracing or the desktop
+ * update feed, whatever the build machine's environment holds.
+ */
+const BUSINESS_EDITION_EXCLUDED_KEYS = [
+  "CODENINE_CLERK_PUBLISHABLE_KEY",
+  "VITE_CLERK_PUBLISHABLE_KEY",
+  "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY",
+  "CODENINE_CLERK_JWT_TEMPLATE",
+  "VITE_CLERK_JWT_TEMPLATE",
+  "EXPO_PUBLIC_CLERK_JWT_TEMPLATE",
+  "CODENINE_CLERK_CLI_OAUTH_CLIENT_ID",
+  "VITE_CLERK_CLI_OAUTH_CLIENT_ID",
+  "CODENINE_RELAY_URL",
+  "VITE_CODENINE_RELAY_URL",
+  "CODENINE_RELAY_CLIENT_OTLP_TRACES_URL",
+  "VITE_RELAY_OTLP_TRACES_URL",
+  "CODENINE_RELAY_CLIENT_OTLP_TRACES_DATASET",
+  "VITE_RELAY_OTLP_TRACES_DATASET",
+  "CODENINE_RELAY_CLIENT_OTLP_TRACES_TOKEN",
+  "VITE_RELAY_OTLP_TRACES_TOKEN",
+  "CODENINE_DESKTOP_UPDATE_REPOSITORY",
+] as const;
+
 const REPO_ROOT = NodePath.resolve(NodeURL.fileURLToPath(import.meta.url), "../../..");
 
 export function loadRepoEnv({
@@ -32,7 +58,7 @@ export function loadRepoEnv({
   const localEnv = readEnvFile(NodePath.join(repoRoot, ".env.local"));
   const config = resolvePublicConfig(baseEnv, localEnv, rootEnv);
 
-  return {
+  const env = {
     ...rootEnv,
     ...localEnv,
     ...baseEnv,
@@ -99,10 +125,22 @@ export function loadRepoEnv({
         }
       : {}),
   };
+  if (!config.businessEdition) {
+    return env;
+  }
+  // Blank rather than delete: callers copy this onto process.env, which may already hold them.
+  return {
+    ...env,
+    ...Object.fromEntries(BUSINESS_EDITION_EXCLUDED_KEYS.map((key) => [key, ""])),
+    CODENINE_BUSINESS_EDITION: "1",
+  };
 }
 
 function resolvePublicConfig(...sources: readonly Environment[]): CodeninePublicConfig {
   return {
+    businessEdition: ["1", "true"].includes(
+      firstNonEmpty(sources, "CODENINE_BUSINESS_EDITION")?.toLowerCase() ?? "",
+    ),
     clerkPublishableKey: firstNonEmpty(
       sources,
       "CODENINE_CLERK_PUBLISHABLE_KEY",
