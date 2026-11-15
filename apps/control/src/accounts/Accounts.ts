@@ -113,7 +113,11 @@ export class Accounts extends Context.Service<
     readonly listPeople: Effect.Effect<ReadonlyArray<ControlPerson>>;
     /** Everyone deactivated, and since when. */
     readonly listDeactivated: Effect.Effect<
-      ReadonlyArray<{ readonly personId: string; readonly deactivatedAt: string }>
+      ReadonlyArray<{
+        readonly personId: string;
+        readonly email: string;
+        readonly deactivatedAt: string;
+      }>
     >;
     readonly deactivate: (personId: string) => Effect.Effect<void, ControlAccountError>;
     readonly reactivate: (personId: string) => Effect.Effect<ControlPerson, ControlAccountError>;
@@ -478,12 +482,16 @@ export const make = Effect.gen(function* () {
 
   const listDeactivated = Effect.gen(function* () {
     const rows = yield* db
-      .select({ personId: controlPeople.id, deactivatedAt: controlPeople.deactivatedAt })
+      .select({
+        personId: controlPeople.id,
+        email: controlPeople.email,
+        deactivatedAt: controlPeople.deactivatedAt,
+      })
       .from(controlPeople)
       .where(eq(controlPeople.status, "deactivated"));
     // Rows from before the column existed were given one by its migration.
-    return rows.flatMap(({ personId, deactivatedAt }) =>
-      deactivatedAt === null ? [] : [{ personId, deactivatedAt }],
+    return rows.flatMap(({ deactivatedAt, ...person }) =>
+      deactivatedAt === null ? [] : [{ ...person, deactivatedAt }],
     );
   }).pipe(Effect.orDie, Effect.withSpan("Accounts.listDeactivated"));
 

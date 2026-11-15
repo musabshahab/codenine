@@ -30,6 +30,7 @@ import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Socket from "effect/socket/Socket";
 
+import { ON_THE_SERVER } from "../audit/AuditLog.ts";
 import { Sessions } from "../accounts/Sessions.ts";
 import { workspaceScopes } from "../admin/roles.ts";
 import { ControlDb } from "../db.ts";
@@ -197,7 +198,11 @@ const withProxy = <A, E, R>(
           createdAt: now,
           updatedAt: now,
         });
-        const { token } = yield* (yield* Sessions).create({ personId: id, userAgent: null });
+        const { token } = yield* (yield* Sessions).create({
+          personId: id,
+          source: ON_THE_SERVER,
+          method: "password",
+        });
         return `${sessionCookieName(true)}=${token}`;
       });
       const cookie = yield* cookieFor("per_ada", "Ada", "member");

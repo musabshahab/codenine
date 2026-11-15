@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer";
 import * as Schedule from "effect/Schedule";
 
 import { Accounts } from "../accounts/Accounts.ts";
+import { AuditLog, CODENINE, ON_THE_SERVER } from "../audit/AuditLog.ts";
 import { WorkspaceManager } from "./WorkspaceManager.ts";
 
 /**
@@ -28,6 +29,7 @@ export class WorkspaceRetention extends Context.Service<
 export const make = Effect.gen(function* () {
   const accounts = yield* Accounts;
   const workspaces = yield* WorkspaceManager;
+  const audit = yield* AuditLog;
   const retentionDays = yield* Config.Number("CODENINE_CONTROL_WORKSPACE_RETENTION_DAYS").pipe(
     Config.withDefault(30),
   );
@@ -48,18 +50,29 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const removeFiles = (personId: string) =>
-    workspaces.removeFiles(personId).pipe(
+  const removeFiles = (person: { readonly personId: string; readonly email: string }) =>
+    workspaces.removeFiles(person.personId).pipe(
       Effect.tap((removed) =>
         removed
           ? Effect.logInfo(
-              `Deleted the workspace files of ${personId}, deactivated more than ${retentionDays} days ago.`,
+              `Deleted the workspace files of ${person.personId}, deactivated more than ${retentionDays} days ago.`,
+            ).pipe(
+              Effect.andThen(
+                audit.record({
+                  actor: CODENINE,
+                  source: ON_THE_SERVER,
+                  action: "person.files-deleted",
+                  target: { kind: "person", id: person.personId, label: person.email },
+                  before: null,
+                  after: { retentionDays },
+                }),
+              ),
             )
           : Effect.void,
       ),
       Effect.catchTags({
         WorkspaceUnavailableError: (error) =>
-          Effect.logWarning(`Could not delete the workspace files of ${personId}.`, error),
+          Effect.logWarning(`Could not delete the workspace files of ${person.personId}.`, error),
       }),
     );
 
@@ -70,10 +83,10 @@ export const make = Effect.gen(function* () {
     }),
     sweep: Effect.gen(function* () {
       const keptSince = DateTime.subtract(yield* DateTime.now, { days: retentionDays });
-      for (const { personId, deactivatedAt } of yield* accounts.listDeactivated) {
-        yield* retire(personId);
-        if (DateTime.isLessThan(DateTime.makeUnsafe(deactivatedAt), keptSince)) {
-          yield* removeFiles(personId);
+      for (const person of yield* accounts.listDeactivated) {
+        yield* retire(person.personId);
+        if (DateTime.isLessThan(DateTime.makeUnsafe(person.deactivatedAt), keptSince)) {
+          yield* removeFiles(person);
         }
       }
     }).pipe(Effect.withSpan("WorkspaceRetention.sweep")),

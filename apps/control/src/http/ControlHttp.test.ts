@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
 
+import { AuditLog, ON_THE_SERVER } from "../audit/AuditLog.ts";
 import { Accounts } from "../accounts/Accounts.ts";
 import { Sessions } from "../accounts/Sessions.ts";
 import * as Administration from "../admin/Administration.ts";
@@ -114,7 +115,11 @@ const signedInOwner = Effect.gen(function* () {
   const enrolment = yield* accounts.startEnrolment(token);
   const secret = fromBase32(enrolment.authenticator?.secret ?? "");
   yield* accounts.finishEnrolment({ token, password: PASSWORD, code: yield* codeNow(secret) });
-  const session = yield* (yield* Sessions).create({ personId: person.id, userAgent: null });
+  const session = yield* (yield* Sessions).create({
+    personId: person.id,
+    source: ON_THE_SERVER,
+    method: "password",
+  });
   return { personId: person.id, cookie: `${COOKIE}=${session.token}` };
 });
 
@@ -167,6 +172,14 @@ describe("ControlHttp", () => {
           send("POST", { ticket, code: yield* codeNow(secret) }),
         );
         const second = sessionCookieOf(signedIn);
+        // Each sign-in is in the audit log, with how the person proved who they are.
+        const { entries } = yield* (yield* AuditLog).list(null);
+        expect(
+          entries.map(({ action, actor, after }) => [action, actor.label, after?.method]),
+        ).toEqual([
+          ["person.sign-in", "ada@acme.test", "password"],
+          ["person.sign-in", "ada@acme.test", "set-up-link"],
+        ]);
         const sessions = yield* read(Schema.Array(ControlSessionEntry))(
           yield* call("/control/api/me/sessions", { headers: { cookie: second } }),
         );
@@ -248,7 +261,8 @@ describe("ControlHttp", () => {
         });
         const bea = yield* (yield* Sessions).create({
           personId: invited.person.id,
-          userAgent: null,
+          source: ON_THE_SERVER,
+          method: "password",
         });
 
         expect(

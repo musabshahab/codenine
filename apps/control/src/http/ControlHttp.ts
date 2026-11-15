@@ -15,17 +15,21 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 import * as Cookies from "effect/http/Cookies";
 import * as HttpEffect from "effect/http/HttpEffect";
+import * as HttpMiddleware from "effect/http/HttpMiddleware";
 import * as HttpRouter from "effect/http/HttpRouter";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as HttpStaticServer from "effect/http/HttpStaticServer";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
+import * as IpNetwork from "effect/net/IpNetwork";
 
 import { Accounts, type IssuedLink } from "../accounts/Accounts.ts";
-import { Administration } from "../admin/Administration.ts";
-import { Sessions } from "../accounts/Sessions.ts";
+import { type SignInMethod, Sessions } from "../accounts/Sessions.ts";
+import { Administration, personActor } from "../admin/Administration.ts";
+import type { RequestSource } from "../audit/AuditLog.ts";
 import { ControlPublicUrl, enrolmentLink } from "../config.ts";
 import { ControlDb } from "../db.ts";
 import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
@@ -115,6 +119,37 @@ export const layerCrossSiteGuard = HttpRouter.middleware(
   { global: true },
 );
 
+/**
+ * Takes the client's address from `X-Forwarded-For` only when the request
+ * comes from a reverse proxy in `CODENINE_CONTROL_TRUSTED_PROXIES`, by default
+ * one on the same machine, so the audit log records where people really are.
+ */
+export const layerTrustedProxies = HttpRouter.middleware(
+  Effect.gen(function* () {
+    const listed = yield* Config.String("CODENINE_CONTROL_TRUSTED_PROXIES").pipe(
+      Config.withDefault("127.0.0.0/8, ::1/128"),
+    );
+    const networks: Array<IpNetwork.IpNetwork> = [];
+    for (const entry of listed.split(",").map((part) => part.trim())) {
+      if (entry === "") continue;
+      const network = IpNetwork.fromString(entry);
+      if (Result.isFailure(network)) {
+        return yield* Effect.die(
+          `CODENINE_CONTROL_TRUSTED_PROXIES lists ${entry}, which is not a network such as 10.0.0.0/8.`,
+        );
+      }
+      networks.push(network.success);
+    }
+    return HttpMiddleware.xForwardedHeaders({ trustedProxies: networks });
+  }),
+  { global: true },
+);
+
+export const requestSource = (request: HttpServerRequest.HttpServerRequest): RequestSource => ({
+  address: Option.getOrNull(request.remoteAddress),
+  userAgent: request.headers["user-agent"] ?? null,
+});
+
 export const layerHealthApi = HttpApiBuilder.group(
   ControlApi,
   "health",
@@ -141,11 +176,15 @@ export const layerAccountApi = HttpApiBuilder.group(
     const sessions = yield* Sessions;
     const { secure } = yield* ControlPublicUrl;
 
-    const startSession = Effect.fn("ControlHttp.startSession")(function* (personId: string) {
+    const startSession = Effect.fn("ControlHttp.startSession")(function* (
+      personId: string,
+      method: SignInMethod,
+    ) {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const { token, session } = yield* sessions.create({
         personId,
-        userAgent: request.headers["user-agent"] ?? null,
+        source: requestSource(request),
+        method,
       });
       yield* setSessionCookie(secure, token, session.expiresAt);
       const signedIn = yield* sessions.authenticate(token);
@@ -161,14 +200,14 @@ export const layerAccountApi = HttpApiBuilder.group(
         "completeSignIn",
         Effect.fn("ControlHttp.completeSignIn")(function* ({ payload }) {
           const { personId } = yield* accounts.completeSignIn(payload);
-          return yield* startSession(personId);
+          return yield* startSession(personId, "password");
         }),
       )
       .handle(
         "desktopSignIn",
         Effect.fn("ControlHttp.desktopSignIn")(function* ({ payload }) {
           const { personId } = yield* accounts.redeemDesktopCode(payload.code);
-          return yield* startSession(personId);
+          return yield* startSession(personId, "desktop-code");
         }),
       )
       .handle("requestPasswordReset", ({ payload }) =>
@@ -179,7 +218,7 @@ export const layerAccountApi = HttpApiBuilder.group(
         "finishEnrolment",
         Effect.fn("ControlHttp.finishEnrolment")(function* ({ payload }) {
           const { personId, recoveryCodes } = yield* accounts.finishEnrolment(payload);
-          return { me: yield* startSession(personId), recoveryCodes };
+          return { me: yield* startSession(personId, "set-up-link"), recoveryCodes };
         }),
       );
   }),
@@ -296,7 +335,10 @@ export const layerAdminApi = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const admin = yield* Administration;
     const { origin } = yield* ControlPublicUrl;
-    const actor = Effect.map(ControlPrincipal, ({ person }) => ({ person }));
+    const actor = Effect.gen(function* () {
+      const { person } = yield* ControlPrincipal;
+      return personActor(person, requestSource(yield* HttpServerRequest.HttpServerRequest));
+    });
     const withLink = <E, R>(issued: Effect.Effect<IssuedLink, E, R>) =>
       Effect.map(issued, ({ person, token, emailed }) => ({
         person,
@@ -307,7 +349,9 @@ export const layerAdminApi = HttpApiBuilder.group(
     return handlers
       .handle("licence", () => Effect.flatMap(actor, admin.licence))
       .handle("installLicence", ({ payload }) =>
-        Effect.flatMap(actor, (by) => admin.installLicence(by, payload.token)),
+        Effect.flatMap(actor, (by) => admin.installLicence(by, payload.token)).pipe(
+          Effect.map(({ overview }) => overview),
+        ),
       )
       .handle("people", () => Effect.flatMap(actor, admin.people))
       .handle("invite", ({ payload }) =>
@@ -329,6 +373,9 @@ export const layerAdminApi = HttpApiBuilder.group(
       )
       .handle("unlock", ({ params }) =>
         Effect.flatMap(actor, (by) => admin.unlock(by, params.personId)).pipe(Effect.as(ok)),
+      )
+      .handle("audit", ({ query }) =>
+        Effect.flatMap(actor, (by) => admin.audit(by, query.before ?? null)),
       );
   }),
 );
@@ -339,6 +386,7 @@ export const layerRoutes = Layer.mergeAll(
     Layer.provide(layerSessionAuth),
   ),
   layerCrossSiteGuard,
+  layerTrustedProxies,
 );
 
 /**

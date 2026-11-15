@@ -10,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as TestClock from "effect/testing/TestClock";
 
+import { ON_THE_SERVER } from "../audit/AuditLog.ts";
 import * as Licence from "../licence/LicenceService.ts";
 import { type MailMessage, Mailer } from "../mail/Mailer.ts";
 import { codeNow, fromBase32 } from "../testing/authenticator.ts";
@@ -262,8 +263,16 @@ describe("Accounts", () => {
         const accounts = yield* Accounts;
         const sessions = yield* Sessions;
         const { personId } = yield* ownerReady;
-        const first = yield* sessions.create({ personId, userAgent: "Firefox" });
-        const second = yield* sessions.create({ personId, userAgent: null });
+        const first = yield* sessions.create({
+          personId,
+          source: { address: null, userAgent: "Firefox" },
+          method: "password",
+        });
+        const second = yield* sessions.create({
+          personId,
+          source: ON_THE_SERVER,
+          method: "password",
+        });
         const authenticated = (token: string) =>
           sessions.authenticate(token).pipe(Effect.map(Option.isSome));
 
@@ -298,7 +307,11 @@ describe("Accounts", () => {
           }),
         ).toEqual({ personId });
 
-        const third = yield* sessions.create({ personId, userAgent: null });
+        const third = yield* sessions.create({
+          personId,
+          source: ON_THE_SERVER,
+          method: "password",
+        });
         yield* TestClock.adjust("31 days");
         expect(yield* authenticated(third.token)).toBe(false);
       }),
@@ -320,7 +333,11 @@ describe("Accounts", () => {
               subject: "You are invited to Codenine",
             });
             expect(linkToken(invitation)).not.toBe("");
-            const signedIn = yield* sessions.create({ personId, userAgent: null });
+            const signedIn = yield* sessions.create({
+              personId,
+              source: ON_THE_SERVER,
+              method: "password",
+            });
 
             yield* accounts.requestPasswordReset("nobody@acme.test");
             yield* accounts.requestPasswordReset(" ADA@acme.test ");

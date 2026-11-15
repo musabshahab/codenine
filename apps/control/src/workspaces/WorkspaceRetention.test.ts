@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
 import { Accounts } from "../accounts/Accounts.ts";
+import { AuditLog } from "../audit/AuditLog.ts";
 import * as Licence from "../licence/LicenceService.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
@@ -17,7 +18,7 @@ const withRetention = <A, E>(
   body: (removed: {
     readonly workspaces: ReadonlyArray<string>;
     readonly files: ReadonlyArray<string>;
-  }) => Effect.Effect<A, E, Accounts | WorkspaceRetention.WorkspaceRetention>,
+  }) => Effect.Effect<A, E, Accounts | AuditLog | WorkspaceRetention.WorkspaceRetention>,
 ) =>
   Effect.gen(function* () {
     const keys = yield* testKeyPair;
@@ -76,6 +77,13 @@ describe("WorkspaceRetention", () => {
         yield* TestClock.adjust("2 days");
         yield* retention.sweep;
         expect(removed.files).toEqual([ada]);
+        const { entries } = yield* (yield* AuditLog).list(null);
+        expect(entries[0]).toMatchObject({
+          actor: { kind: "system" },
+          action: "person.files-deleted",
+          target: { id: ada, label: "ada@acme.test" },
+          after: { retentionDays: 30 },
+        });
       }),
     ),
   );

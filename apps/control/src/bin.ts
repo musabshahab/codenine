@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// @effect-diagnostics nodeBuiltinImport:off - names the operator in the audit log.
+import * as NodeOS from "node:os";
 
 import { ControlAccountError, type ControlLicenceOverview } from "@codenine/contracts/control";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -13,6 +15,7 @@ import { Argument, Command, Flag } from "effect/cli";
 
 import { Accounts } from "./accounts/Accounts.ts";
 import * as Administration from "./admin/Administration.ts";
+import * as AuditLog from "./audit/AuditLog.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
 import * as Sessions from "./accounts/Sessions.ts";
@@ -24,6 +27,7 @@ import { Installation } from "./installation/Installation.ts";
 import * as Licence from "./licence/LicenceService.ts";
 import { Mailer } from "./mail/Mailer.ts";
 import * as WorkspaceDriver from "./workspaces/WorkspaceDriver.ts";
+import { WorkspaceManager } from "./workspaces/WorkspaceManager.ts";
 import * as WorkspaceProxy from "./workspaces/WorkspaceProxy.ts";
 import * as WorkspaceRetention from "./workspaces/WorkspaceRetention.ts";
 import { allowedHostsFromConfig, egressProxyConfig } from "./workspaces/workspaceSpec.ts";
@@ -39,10 +43,27 @@ const layerAccounts = AccountsModule.layer.pipe(
   Layer.provideMerge(WebAuthn.layer),
   Layer.provideMerge(Mailer.layer),
   Layer.provideMerge(Sessions.layer),
+  Layer.provideMerge(AuditLog.layer),
   Layer.provideMerge(SecretBox.layer),
   Layer.provideMerge(layerControl),
   Layer.provideMerge(ControlPublicUrl.layer),
 );
+
+/** For commands, which change people and the licence but never touch workspaces. */
+const layerCommandAdministration = Administration.layer.pipe(
+  Layer.provide(WorkspaceRetention.layer),
+  Layer.provide(Layer.succeed(WorkspaceManager, WorkspaceManager.none)),
+  Layer.provideMerge(layerAccounts),
+);
+
+const operator = Effect.sync(() => {
+  const host = NodeOS.hostname();
+  try {
+    return Administration.operatorActor(`${NodeOS.userInfo().username} on ${host}`);
+  } catch {
+    return Administration.operatorActor(`the command line on ${host}`);
+  }
+});
 
 const ServeConfig = Config.all({
   host: Config.String("CODENINE_CONTROL_HOST").pipe(Config.withDefault("127.0.0.1")),
@@ -105,7 +126,10 @@ const installCommand = Command.make(
   Effect.fnUntraced(function* ({ licence }) {
     const fs = yield* FileSystem.FileSystem;
     const token = (yield* fs.exists(licence)) ? yield* fs.readFileString(licence) : licence;
-    const result = yield* (yield* Licence.LicenceService).install(token);
+    const result = yield* (yield* Administration.Administration).installLicence(
+      yield* operator,
+      token,
+    );
     const inUse =
       result.overview.licence._tag === "installed" &&
       result.overview.licence.licenceId === result.licenceId;
@@ -115,7 +139,7 @@ const installCommand = Command.make(
         : `Installed licence ${result.licenceId}. It is not in use yet: the longest-running working licence applies.\n`,
     );
     yield* Console.log(formatOverview(result.overview));
-  }, Effect.provide(layerControl)),
+  }, Effect.provide(layerCommandAdministration)),
 ).pipe(Command.withDescription("Install a licence key."));
 
 const showCommand = Command.make("show", {}, () =>
@@ -133,10 +157,10 @@ const inviteOwnerCommand = Command.make(
     name: Flag.String("name").pipe(Flag.withDescription("The owner's name."), Flag.withDefault("")),
   },
   Effect.fnUntraced(function* ({ email, name }) {
-    const { person, token, emailed } = yield* (yield* Accounts).inviteOwner({
-      email,
-      displayName: name,
-    });
+    const { person, token, emailed } = yield* (yield* Administration.Administration).inviteOwner(
+      yield* operator,
+      { email, displayName: name },
+    );
     yield* Console.log(
       [
         `${person.displayName} <${person.email}> is invited as the owner.`,
@@ -147,7 +171,7 @@ const inviteOwnerCommand = Command.make(
         `  ${enrolmentLink((yield* ControlPublicUrl).origin, token)}`,
       ].join("\n"),
     );
-  }, Effect.provide(layerAccounts)),
+  }, Effect.provide(layerCommandAdministration)),
 ).pipe(Command.withDescription("Invite the first owner. Refused once an owner can sign in."));
 
 const resetCommand = Command.make(
@@ -161,7 +185,10 @@ const resetCommand = Command.make(
     if (person === undefined) {
       return yield* new ControlAccountError({ reason: "not-found" });
     }
-    const { token, emailed } = yield* accounts.issueReset(person.id);
+    const { token, emailed } = yield* (yield* Administration.Administration).issueReset(
+      yield* operator,
+      person.id,
+    );
     yield* Console.log(
       [
         `${person.displayName}'s password, authenticator and passkeys are removed, and they are signed out everywhere.`,
@@ -170,7 +197,7 @@ const resetCommand = Command.make(
         `  ${enrolmentLink((yield* ControlPublicUrl).origin, token)}`,
       ].join("\n"),
     );
-  }, Effect.provide(layerAccounts)),
+  }, Effect.provide(layerCommandAdministration)),
 ).pipe(
   Command.withDescription(
     "Remove someone's password, authenticator and passkeys, and print a link to set new ones.",

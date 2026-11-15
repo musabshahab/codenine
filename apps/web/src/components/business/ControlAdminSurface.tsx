@@ -1,5 +1,7 @@
 import {
   assignableRoles,
+  type ControlAuditEntry,
+  type ControlAuditPage,
   type ControlIssuedLink,
   type ControlLicenceOverview,
   type ControlMe,
@@ -39,6 +41,7 @@ interface AdminData {
   /** Null when the person's role does not show it. */
   readonly licence: ControlLicenceOverview | null;
   readonly people: ReadonlyArray<ControlPerson> | null;
+  readonly audit: ControlAuditPage | null;
 }
 
 const ROLE_LABELS: Record<ControlRole, string> = {
@@ -53,7 +56,7 @@ const ROLE_LABELS: Record<ControlRole, string> = {
 const loadAdminData = async (): Promise<AdminData | null> => {
   const me = await fetchControlMe();
   if (me === null) return null;
-  const [sessions, signInMethods, licence, people] = await Promise.all([
+  const [sessions, signInMethods, licence, people, audit] = await Promise.all([
     callControl((client) => client.me.sessions()),
     callControl((client) => client.me.signInMethods()),
     permissionReach(me.role, "licence:read") === null
@@ -62,8 +65,11 @@ const loadAdminData = async (): Promise<AdminData | null> => {
     permissionReach(me.role, "people:manage") === null
       ? null
       : callControl((client) => client.admin.people()),
+    permissionReach(me.role, "audit:read") === null
+      ? null
+      : callControl((client) => client.admin.audit({ query: {} })),
   ]);
-  return { me, sessions, signInMethods, licence, people };
+  return { me, sessions, signInMethods, licence, people, audit };
 };
 
 /** Licence, people and sessions for a business installation. */
@@ -134,11 +140,13 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
     <StandalonePage>
       <StandalonePageHeader
         context={`${data.me.email} · ${ROLE_LABELS[data.me.role]}`}
-        title={administers ? "Administration" : "Your account"}
+        title={administers || data.audit !== null ? "Administration" : "Your account"}
         description={
           administers
             ? "The licence, the people who use Codenine, and how and where you are signed in."
-            : "How you sign in to Codenine, and where you are signed in."
+            : data.audit === null
+              ? "How you sign in to Codenine, and where you are signed in."
+              : "The audit log, and how and where you are signed in."
         }
       />
       <div className="mt-4 flex flex-wrap gap-2">
@@ -168,6 +176,10 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
       )}
       {data.people === null ? null : (
         <PeopleSection me={data.me} onAction={act} onChanged={refresh} people={data.people} />
+      )}
+
+      {data.audit === null ? null : (
+        <AuditSection firstPage={data.audit} key={data.audit.entries[0]?.id ?? 0} />
       )}
 
       <SignInMethodsSection
@@ -542,6 +554,90 @@ function PeopleSection({
           </Alert>
         ) : null}
       </form>
+    </section>
+  );
+}
+
+const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
+  "licence.install": "installed licence",
+  "person.invite": "invited",
+  "person.role": "changed the role of",
+  "person.deactivate": "deactivated",
+  "person.reactivate": "reactivated",
+  "person.reset": "reset the sign-in of",
+  "person.unlock": "unlocked",
+  "person.sign-in": "signed in",
+  "person.files-deleted": "deleted the workspace files of",
+};
+
+const auditValue = (value: string | number | boolean | null | undefined) =>
+  value === null || value === undefined ? "none" : String(value);
+
+/** What changed, as `key: before → after`, or the new values when nothing came before. */
+const auditChanges = ({ before, after }: ControlAuditEntry) =>
+  Object.entries(after ?? {})
+    .map(([key, value]) =>
+      before === null
+        ? `${key}: ${auditValue(value)}`
+        : `${key}: ${auditValue(before[key])} → ${auditValue(value)}`,
+    )
+    .join(", ");
+
+/** Changes to people and the licence, and sign-ins, newest first. */
+function AuditSection({ firstPage }: { readonly firstPage: ControlAuditPage }) {
+  const [entries, setEntries] = useState(firstPage.entries);
+  const [next, setNext] = useState(firstPage.next);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const showOlder = async (before: number) => {
+    setErrorMessage("");
+    const failure = await callControl((client) => client.admin.audit({ query: { before } })).then(
+      (page) => {
+        setEntries((shown) => [...shown, ...page.entries]);
+        setNext(page.next);
+        return "";
+      },
+      (error: unknown) => controlErrorMessage(error),
+    );
+    setErrorMessage(failure);
+  };
+
+  return (
+    <section>
+      <SectionTitle>Audit log</SectionTitle>
+      <ul className="mt-3 divide-y divide-border/70">
+        {entries.map((entry) => {
+          const changes = auditChanges(entry);
+          return (
+            <li className="py-2" key={entry.id}>
+              <p className="text-sm">
+                {entry.actor.label} {AUDIT_ACTIONS[entry.action]}
+                {entry.target === null ? "" : ` ${entry.target.label}`}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(entry.at).toLocaleString()}
+                {entry.source.address === null ? "" : ` · from ${entry.source.address}`}
+                {changes === "" ? "" : ` · ${changes}`}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+      {entries.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">Nothing has been recorded yet.</p>
+      ) : null}
+      {next === null ? null : (
+        <div className="mt-3">
+          <Button onClick={() => void showOlder(next)} size="sm" variant="outline">
+            Show older
+          </Button>
+        </div>
+      )}
+      {errorMessage ? (
+        <Alert className="mt-3" variant="error">
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
     </section>
   );
 }

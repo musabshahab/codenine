@@ -203,11 +203,11 @@ Each person has a role, which decides what they can do in their workspace and un
 | Role             | In their workspace                                                           | Under **Account**                                                    |
 | ---------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | Owner            | Everything                                                                   | Everything, including installing the licence and making other owners |
-| Admin            | Everything                                                                   | People, and the licence without installing one                       |
+| Admin            | Everything                                                                   | People, the audit log, and the licence without installing one        |
 | Department admin | Everything                                                                   | Members and restricted members of their own departments              |
 | Member           | Everything                                                                   | Their own sign-in                                                    |
 | Restricted       | Agents and previews, with no terminal, no source control and read-only files | Their own sign-in                                                    |
-| Auditor          | Looking only                                                                 | Their own sign-in                                                    |
+| Auditor          | Looking only                                                                 | The audit log                                                        |
 
 Someone can change only the people whose role they could give, so an admin cannot change, reset or
 deactivate an owner. A new role applies at once: the person's open windows reconnect with it. There
@@ -239,6 +239,18 @@ If the only owner is locked out, someone with access to the control server can r
 ```bash
 node apps/control/src/bin.ts people reset --email you@example.com
 ```
+
+## Read the audit log
+
+Owners, admins and auditors find the audit log under **Account**. It records each change to people
+and the licence, with who made it, when, from which address, and the values before and after, and
+each sign-in with how the person signed in. Commands run on the control server, such as
+`people reset`, appear under the name of the system user who ran them, and Codenine itself
+records when it deletes a leaver's files.
+
+The address is the one your reverse proxy reports in `X-Forwarded-For`. The control server believes
+that header only from a proxy on the same machine; if yours runs elsewhere, list its network in
+`CODENINE_CONTROL_TRUSTED_PROXIES`, such as `10.0.0.0/8`.
 
 ## Give people the desktop app
 

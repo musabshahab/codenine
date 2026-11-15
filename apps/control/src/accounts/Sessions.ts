@@ -10,6 +10,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 
+import { AuditLog, type RequestSource } from "../audit/AuditLog.ts";
 import { ControlDb } from "../db.ts";
 import { controlPeople, controlSessions } from "../persistence/schema.ts";
 
@@ -28,13 +29,17 @@ export interface AuthenticatedSession {
   };
 }
 
+/** How someone proved who they are, as the audit log records each sign-in. */
+export type SignInMethod = "password" | "desktop-code" | "set-up-link";
+
 export class Sessions extends Context.Service<
   Sessions,
   {
     /** Returns the cookie token. Only its SHA-256 hash is stored. */
     readonly create: (input: {
       readonly personId: string;
-      readonly userAgent: string | null;
+      readonly source: RequestSource;
+      readonly method: SignInMethod;
     }) => Effect.Effect<{ readonly token: string; readonly session: ControlSession }>;
     readonly authenticate: (token: string) => Effect.Effect<Option.Option<AuthenticatedSession>>;
     readonly list: (personId: string) => Effect.Effect<ReadonlyArray<ControlSession>>;
@@ -57,6 +62,7 @@ const encoder = new TextEncoder();
 
 export const make = Effect.gen(function* () {
   const db = yield* ControlDb;
+  const audit = yield* AuditLog;
   const random = yield* SecureRandom.SecureRandom;
   const digest = yield* Digest.Digest;
 
@@ -70,13 +76,14 @@ export const make = Effect.gen(function* () {
 
   const create = Effect.fn("Sessions.create")(function* (input: {
     readonly personId: string;
-    readonly userAgent: string | null;
+    readonly source: RequestSource;
+    readonly method: SignInMethod;
   }) {
     const token = Base64Url.encode(yield* random.randomBytes(32));
     const now = yield* DateTime.now;
     const session: ControlSession = {
       id: `ses_${Hex.encode(yield* random.randomBytes(8))}`,
-      userAgent: input.userAgent?.slice(0, 512) ?? null,
+      userAgent: input.source.userAgent?.slice(0, 512) ?? null,
       createdAt: DateTime.formatIso(now),
       lastSeenAt: DateTime.formatIso(now),
       expiresAt: DateTime.formatIso(now.pipe(DateTime.add({ days: SESSION_DAYS }))),
@@ -84,6 +91,18 @@ export const make = Effect.gen(function* () {
     yield* db
       .insert(controlSessions)
       .values({ ...session, tokenHash: yield* hashToken(token), personId: input.personId });
+    const [person] = yield* db
+      .select({ email: controlPeople.email })
+      .from(controlPeople)
+      .where(eq(controlPeople.id, input.personId));
+    yield* audit.record({
+      actor: { kind: "person", id: input.personId, label: person?.email ?? input.personId },
+      source: input.source,
+      action: "person.sign-in",
+      target: null,
+      before: null,
+      after: { method: input.method, session: session.id },
+    });
     return { token, session };
   }, Effect.orDie);
 

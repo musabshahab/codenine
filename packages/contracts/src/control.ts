@@ -383,6 +383,64 @@ export const ControlIssuedLink = Schema.Struct({
 });
 export type ControlIssuedLink = typeof ControlIssuedLink.Type;
 
+/** Who acted: a person, someone at the control server's command line, or Codenine itself. */
+export const ControlAuditActorKind = Schema.Literals(["person", "operator", "system"]);
+export type ControlAuditActorKind = typeof ControlAuditActorKind.Type;
+
+export const ControlAuditAction = Schema.Literals([
+  "licence.install",
+  "person.invite",
+  "person.role",
+  "person.deactivate",
+  "person.reactivate",
+  "person.reset",
+  "person.unlock",
+  "person.sign-in",
+  "person.files-deleted",
+]);
+export type ControlAuditAction = typeof ControlAuditAction.Type;
+
+export const ControlAuditTargetKind = Schema.Literals(["person", "licence"]);
+export type ControlAuditTargetKind = typeof ControlAuditTargetKind.Type;
+
+/** What a change touched, before and after it. Secrets never appear here. */
+export const ControlAuditValues = Schema.Record(
+  Schema.String,
+  Schema.NullOr(Schema.Union([Schema.String, Schema.Number, Schema.Boolean])),
+);
+export type ControlAuditValues = typeof ControlAuditValues.Type;
+
+/** One entry in the append-only audit log. Labels are kept as they were at the time. */
+export const ControlAuditEntry = Schema.Struct({
+  id: PositiveInt,
+  at: IsoDateTime,
+  actor: Schema.Struct({
+    kind: ControlAuditActorKind,
+    id: Schema.NullOr(Schema.String),
+    label: Schema.String,
+  }),
+  action: ControlAuditAction,
+  target: Schema.NullOr(
+    Schema.Struct({ kind: ControlAuditTargetKind, id: Schema.String, label: Schema.String }),
+  ),
+  /** Where the request came from, when it came over the network. */
+  source: Schema.Struct({
+    address: Schema.NullOr(Schema.String),
+    userAgent: Schema.NullOr(Schema.String),
+  }),
+  before: Schema.NullOr(ControlAuditValues),
+  after: Schema.NullOr(ControlAuditValues),
+});
+export type ControlAuditEntry = typeof ControlAuditEntry.Type;
+
+/** Newest first. */
+export const ControlAuditPage = Schema.Struct({
+  entries: Schema.Array(ControlAuditEntry),
+  /** Pass as `before` for older entries; null when these are the oldest. */
+  next: Schema.NullOr(PositiveInt),
+});
+export type ControlAuditPage = typeof ControlAuditPage.Type;
+
 export class ControlSignedOutError extends Schema.TaggedError<ControlSignedOutError>()(
   "ControlSignedOutError",
   {},
@@ -586,6 +644,15 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       params: PersonParams,
       success: ControlOk,
       error: [ControlForbiddenError, ControlAccountError],
+    }),
+    HttpApiEndpoint.get("audit", "/control/api/admin/audit", {
+      query: Schema.Struct({
+        before: Schema.optionalKey(
+          Schema.FiniteFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+        ),
+      }),
+      success: ControlAuditPage,
+      error: ControlForbiddenError,
     }),
   )
   .middleware(ControlSessionAuth);

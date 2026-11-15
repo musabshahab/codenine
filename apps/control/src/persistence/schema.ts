@@ -1,10 +1,18 @@
-import type { ControlRole } from "@codenine/contracts/control";
+import type {
+  ControlAuditAction,
+  ControlAuditActorKind,
+  ControlAuditTargetKind,
+  ControlAuditValues,
+  ControlRole,
+} from "@codenine/contracts/control";
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -159,3 +167,28 @@ export const controlSigningKeys = pgTable("control_signing_keys", {
   publicKey: text("public_key").notNull(),
   createdAt: varchar("created_at", { length: 64 }).notNull(),
 });
+
+/**
+ * Who did what, to what, from where and when. Rows are only ever added; the
+ * retention sweep removes old ones. Labels are copied in, so entries read the
+ * same after people change.
+ */
+export const controlAuditEvents = pgTable(
+  "control_audit_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    at: varchar("at", { length: 64 }).notNull(),
+    actorKind: varchar("actor_kind", { length: 16 }).notNull().$type<ControlAuditActorKind>(),
+    actorId: varchar("actor_id", { length: 64 }),
+    actorLabel: varchar("actor_label", { length: 512 }).notNull(),
+    action: varchar("action", { length: 64 }).notNull().$type<ControlAuditAction>(),
+    targetKind: varchar("target_kind", { length: 16 }).$type<ControlAuditTargetKind>(),
+    targetId: varchar("target_id", { length: 128 }),
+    targetLabel: varchar("target_label", { length: 512 }),
+    address: varchar("address", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 512 }),
+    before: jsonb("before").$type<ControlAuditValues>(),
+    after: jsonb("after").$type<ControlAuditValues>(),
+  },
+  (table) => [index("idx_control_audit_events_at").on(table.at)],
+);

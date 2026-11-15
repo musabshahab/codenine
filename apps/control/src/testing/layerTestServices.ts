@@ -4,6 +4,7 @@ import * as Accounts from "../accounts/Accounts.ts";
 import { PasswordHashCost } from "../accounts/passwords.ts";
 import { SecretBox } from "../accounts/SecretBox.ts";
 import * as Sessions from "../accounts/Sessions.ts";
+import * as AuditLog from "../audit/AuditLog.ts";
 import { WebAuthn } from "../accounts/WebAuthn.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { Installation } from "../installation/Installation.ts";
@@ -28,6 +29,7 @@ export const layerTestServices = (
     // The real cost makes tests that sign in many times slow; the rules do not change.
     Layer.provideMerge(Layer.succeed(PasswordHashCost, { memory: 64, passes: 1, parallelism: 1 })),
     Layer.provideMerge(Sessions.layer),
+    Layer.provideMerge(AuditLog.layer),
     Layer.provideMerge(Licence.layer),
     Layer.provideMerge(Installation.layer),
     Layer.provide(Layer.succeed(Licence.LicenceTrust, new Map([[TEST_KEY_ID, licencePublicKey]]))),

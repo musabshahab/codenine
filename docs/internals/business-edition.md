@@ -56,6 +56,18 @@ checks key ID, signature, type, issuer, audience and time.
   browser while the hop between the servers stays uncompressed. Without this, a large thread
   reached remote browsers at about four times the size.
 
+## The audit log
+
+Entries are only ever added, and they copy in the names they mention, so they read the same after
+someone changes their email or leaves. Every admin change goes through
+[`Administration`](../../apps/control/src/admin/Administration.ts), which records one entry once the
+change has been made, and records nothing when nothing changed. Commands on the control server go
+through it too, as an operator with an owner's rights: whoever can run them can already reach the
+database, and their changes still belong in the log. Sign-ins are recorded where sessions start, so
+every way of signing in is covered. An entry is written after its change commits, not in the same
+transaction, because changes reach mail and workspaces; a database failure in between leaves a
+change without its entry, and the request fails.
+
 ## Sleeping workspaces
 
 Only the workspace knows whether anyone has it open and whether its agents have work, so a
