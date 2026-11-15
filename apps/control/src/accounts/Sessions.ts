@@ -32,7 +32,7 @@ export interface AuthenticatedSession {
 }
 
 /** How someone proved who they are, as the audit log records each sign-in. */
-export type SignInMethod = "password" | "desktop-code" | "set-up-link";
+export type SignInMethod = "password" | "desktop-code" | "set-up-link" | "single-sign-on";
 
 export class Sessions extends Context.Service<
   Sessions,

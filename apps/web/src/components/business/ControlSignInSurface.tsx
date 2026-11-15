@@ -1,5 +1,9 @@
-import type { PasskeyAssertion, PasskeyRequestOptions } from "@codenine/contracts/control";
-import React, { useState } from "react";
+import type {
+  ControlSsoChoice,
+  PasskeyAssertion,
+  PasskeyRequestOptions,
+} from "@codenine/contracts/control";
+import React, { useEffect, useRef, useState } from "react";
 
 import { callControl, controlErrorMessage } from "../../business/control";
 import { businessDesktopScheme } from "../../business/desktopSignIn";
@@ -42,15 +46,47 @@ const DESCRIPTIONS: Record<Exclude<Step["kind"], "code">, string> = {
   "link-sent": "Check your email for a link to choose a new password.",
 };
 
-/** Signs in at the control server: a password, then an authenticator or recovery code. */
-export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () => void }) {
+/** Why single sign-on sent someone back here, by the reason the control server gives. */
+const SSO_ERRORS: Record<string, string> = {
+  failed: "Single sign-on did not finish. Try again.",
+  "not-in-domain": "Codenine does not accept that account's email address from this sign-in.",
+  "unknown-person": "Codenine does not know you yet. Ask an admin to add you.",
+  deactivated: "Your account is deactivated. Ask an admin.",
+  "no-seat": "Codenine has no free seat for you. Ask an admin.",
+};
+
+/** Signs in at the control server: single sign-on, or a password then a second factor. */
+export function ControlSignInSurface({
+  onSignedIn,
+  next,
+  ssoError,
+}: {
+  readonly onSignedIn: () => void;
+  /** Where single sign-on comes back to. */
+  readonly next?: string | undefined;
+  /** Why single sign-on came back without signing in. */
+  readonly ssoError?: string | undefined;
+}) {
   const [desktopScheme] = useState(businessDesktopScheme);
   const [step, setStep] = useState<Step>({ kind: "password" });
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState(
+    ssoError === undefined ? "" : (SSO_ERRORS[ssoError] ?? SSO_ERRORS["failed"] ?? ""),
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ssoChoices, setSsoChoices] = useState<ReadonlyArray<ControlSsoChoice>>([]);
+  const loadedChoices = useRef(false);
+
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- asks the control server once which identity providers to offer
+  useEffect(() => {
+    if (loadedChoices.current) return;
+    loadedChoices.current = true;
+    void callControl((client) => client.account.ssoChoices()).then(setSsoChoices, () =>
+      setSsoChoices([]),
+    );
+  }, []);
 
   const submitPassword = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -307,6 +343,32 @@ export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () =
           </div>
         </form>
       )}
+      {step.kind === "password" && ssoChoices.length > 0 ? (
+        desktopScheme === null ? (
+          <div className="mt-6 flex flex-wrap gap-2">
+            {ssoChoices.map((choice) => (
+              <Button
+                key={choice.id}
+                render={
+                  <a
+                    href={`/control/sso/${encodeURIComponent(choice.id)}/start?next=${encodeURIComponent(next ?? "/")}`}
+                  />
+                }
+                size="sm"
+                variant="outline"
+              >
+                Sign in with {choice.name}
+              </Button>
+            ))}
+          </div>
+        ) : (
+          // The app's window keeps other sites out, so the identity provider opens in the browser.
+          <p className="mt-6 text-sm text-muted-foreground">
+            To sign in with {ssoChoices.map((choice) => choice.name).join(" or ")}, choose Sign in
+            with your browser.
+          </p>
+        )
+      ) : null}
       {step.kind === "password" && desktopScheme !== null ? (
         <DesktopBrowserSignIn onSignedIn={onSignedIn} scheme={desktopScheme} />
       ) : null}

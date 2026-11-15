@@ -263,6 +263,41 @@ template blocks GitHub and the package registries. A change to the terminal or t
 workspaces that are awake at once, and people whose terminal changed reconnect; a new size, image
 or sleep time waits until each workspace next wakes.
 
+## Sign in with your identity provider
+
+People can sign in through Microsoft Entra ID, Okta, Google Workspace or another identity provider,
+over OIDC or SAML 2.0. An owner sets it up under **Account**, in **Single sign-on**: choose **Add an
+identity provider**, give the name its sign-in button shows and the email domains it signs in,
+then its settings. Each setup lists the addresses to give the identity provider. The sign-in page
+then offers a button for each; in the desktop app, people use **Sign in with your browser**.
+
+Codenine accepts only addresses in a setup's domains from it, and recognizes people by the
+identity provider's own ID for them, so a later change of email keeps their account. With **Add
+people when they first sign in**, someone it does not know yet becomes a member when a seat is
+free. With a groups claim, each sign-in puts people in the departments named like their groups, or
+pushed as those groups through provisioning, and takes them out of the others; role groups, such
+as `codenine-admins = admin`, give the first matching role, and everyone else is a member.
+
+- **Microsoft Entra ID** (OIDC): register an application with the redirect URL as a web redirect
+  URI, and create a client secret. The issuer URL is
+  `https://login.microsoftonline.com/<tenant ID>/v2.0`. For groups, add a groups claim to the ID
+  token in **Token configuration**; Entra ID sends group IDs, which match groups pushed through
+  provisioning. For SAML, use the reply URL and entity ID in its **Single sign-on** settings, and
+  give Codenine its login URL, identifier and Base64 certificate.
+- **Okta** (OIDC): create a web app integration with the redirect URL as its sign-in redirect URI.
+  The issuer URL is your Okta address, such as `https://acme.okta.com`. For groups, add a groups
+  claim to the ID token with a filter for the groups that matter.
+- **Google Workspace** (OIDC): create an OAuth client for a web application in Google Cloud, with
+  the redirect URL. The issuer URL is `https://accounts.google.com`. Google sends no groups, so
+  manage departments and roles under **Account** or through provisioning; Codenine accepts only
+  accounts of the Workspace that owns your domains.
+
+**Require it for these domains** turns off passwords for those addresses, apart from emergency
+owners. Mark at least one owner as an emergency owner in **Single sign-on** first, so you can still
+reach Codenine if the identity provider fails; Codenine refuses to require single sign-on
+otherwise. An emergency owner on an address outside your company's domains keeps it out of the
+identity provider's reach altogether.
+
 ## Provision people from your identity provider
 
 Microsoft Entra ID, Okta and other identity providers can keep Codenine's people in step over SCIM
@@ -288,8 +323,8 @@ provider until it has the new one.
   creating users, updating their attributes and deactivating them. Then push the groups that
   should be departments.
 
-People the identity provider adds have no password. They sign in through it once single sign-on
-is set up; until then, **Reset sign-in** gives them a link to set up a password. Keep at least one
+People the identity provider adds have no password; they sign in through single sign-on, or
+**Reset sign-in** gives them a link to set one up. Keep at least one
 owner who signs in without the identity provider, so you can reach Codenine if it fails. The
 identity provider can deactivate owners, but never the last one. Deleting a pushed group deletes
 its department and the department's profile; the people in it keep their files.

@@ -37,6 +37,7 @@ import {
   WorkspaceManager,
   type WorkspaceUnavailableError,
 } from "../workspaces/WorkspaceManager.ts";
+import { SsoConnections } from "../sso/SsoConnections.ts";
 import { Workplace } from "../workspaces/Workplace.ts";
 
 const ok = { ok: true as const };
@@ -89,6 +90,28 @@ export const layerSessionAuth = Layer.effect(
   }),
 );
 
+const SAML_RESPONSE_PATH = /^\/control\/sso\/[^/?]+\/saml\/acs(?:\?|$)/u;
+
+/** Starts a session for someone who just proved who they are, and sets its cookie. */
+export const makeStartSession = Effect.gen(function* () {
+  const sessions = yield* Sessions;
+  const { secure } = yield* ControlPublicUrl;
+  return Effect.fn("ControlHttp.startSession")(function* (personId: string, method: SignInMethod) {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const { token, session } = yield* sessions.create({
+      personId,
+      source: requestSource(request),
+      method,
+    });
+    yield* setSessionCookie(secure, token, session.expiresAt);
+    const signedIn = yield* sessions.authenticate(token);
+    if (Option.isNone(signedIn)) {
+      return yield* Effect.die("A session made a moment ago did not authenticate.");
+    }
+    return signedIn.value.person;
+  });
+});
+
 /**
  * Refuses requests that change something and come from another site. The
  * session cookie is SameSite=Lax as well; this also covers sign-in itself.
@@ -109,6 +132,8 @@ export const layerCrossSiteGuard = HttpRouter.middleware(
       if (
         changes &&
         request.url.startsWith("/control/") &&
+        // The identity provider posts SAML responses from its own site, as SAML has it.
+        !SAML_RESPONSE_PATH.test(request.url) &&
         ((requestOrigin !== undefined && requestOrigin !== origin) ||
           request.headers["sec-fetch-site"] === "cross-site")
       ) {
@@ -174,28 +199,11 @@ export const layerAccountApi = HttpApiBuilder.group(
   "account",
   Effect.fnUntraced(function* (handlers) {
     const accounts = yield* Accounts;
-    const sessions = yield* Sessions;
-    const { secure } = yield* ControlPublicUrl;
-
-    const startSession = Effect.fn("ControlHttp.startSession")(function* (
-      personId: string,
-      method: SignInMethod,
-    ) {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const { token, session } = yield* sessions.create({
-        personId,
-        source: requestSource(request),
-        method,
-      });
-      yield* setSessionCookie(secure, token, session.expiresAt);
-      const signedIn = yield* sessions.authenticate(token);
-      if (Option.isNone(signedIn)) {
-        return yield* Effect.die("A session made a moment ago did not authenticate.");
-      }
-      return signedIn.value.person;
-    });
+    const ssoConnections = yield* SsoConnections;
+    const startSession = yield* makeStartSession;
 
     return handlers
+      .handle("ssoChoices", () => ssoConnections.choices)
       .handle("signIn", ({ payload }) => accounts.signIn(payload))
       .handle(
         "completeSignIn",
@@ -459,6 +467,25 @@ export const layerAdminApi = HttpApiBuilder.group(
       .handle("endException", ({ params }) =>
         Effect.flatMap(actor, (by) => admin.endException(by, params.exceptionId)).pipe(
           Effect.as(ok),
+        ),
+      )
+      .handle("ssoConnections", () => Effect.flatMap(actor, admin.ssoConnections))
+      .handle("createSsoConnection", ({ payload }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.createSsoConnection(by, payload.protocol, payload.settings),
+        ),
+      )
+      .handle("updateSsoConnection", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) => admin.updateSsoConnection(by, params.connectionId, payload)),
+      )
+      .handle("deleteSsoConnection", ({ params }) =>
+        Effect.flatMap(actor, (by) => admin.deleteSsoConnection(by, params.connectionId)).pipe(
+          Effect.as(ok),
+        ),
+      )
+      .handle("setEmergency", ({ params, payload }) =>
+        Effect.flatMap(actor, (by) =>
+          admin.setEmergency(by, { personId: params.personId, emergency: payload.emergency }),
         ),
       )
       .handle("provisioning", () => Effect.flatMap(actor, admin.provisioning))

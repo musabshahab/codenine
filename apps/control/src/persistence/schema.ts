@@ -5,6 +5,7 @@ import type {
   ControlAuditValues,
   ControlProfileSettings,
   ControlRole,
+  ControlSsoProtocol,
 } from "@codenine/contracts/control";
 import { sql } from "drizzle-orm";
 import {
@@ -59,6 +60,8 @@ export const controlPeople = pgTable(
       .$type<"invited" | "active" | "deactivated">(),
     /** Their workspace files are kept for a while after this, then deleted. */
     deactivatedAt: varchar("deactivated_at", { length: 64 }),
+    /** An owner who may sign in with a password while single sign-on is required. */
+    emergency: boolean("emergency").notNull().default(false),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     updatedAt: varchar("updated_at", { length: 64 }).notNull(),
   },
@@ -217,6 +220,64 @@ export const controlTeamMembers = pgTable(
   },
   (table) => [primaryKey({ columns: [table.teamId, table.personId] })],
 );
+
+/** What signing in through one identity provider needs, besides its sealed secret. */
+export type SsoProtocolSettings =
+  | { readonly issuer: string; readonly clientId: string }
+  | { readonly entryPoint: string; readonly issuer: string; readonly certificate: string };
+
+/** An identity provider people sign in through; an OIDC client secret is sealed. */
+export const controlSsoConnections = pgTable("control_sso_connections", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  protocol: varchar("protocol", { length: 8 }).notNull().$type<ControlSsoProtocol>(),
+  name: varchar("name", { length: 64 }).notNull(),
+  domains: jsonb("domains").notNull().$type<ReadonlyArray<string>>(),
+  required: boolean("required").notNull(),
+  createPeople: boolean("create_people").notNull(),
+  groupsClaim: varchar("groups_claim", { length: 255 }),
+  roleGroups: jsonb("role_groups")
+    .notNull()
+    .$type<ReadonlyArray<{ readonly group: string; readonly role: ControlRole }>>(),
+  settings: jsonb("settings").notNull().$type<SsoProtocolSettings>(),
+  sealedSecret: text("sealed_secret"),
+  createdAt: varchar("created_at", { length: 64 }).notNull(),
+  updatedAt: varchar("updated_at", { length: 64 }).notNull(),
+});
+
+const ssoConnectionId = () =>
+  varchar("connection_id", { length: 64 })
+    .notNull()
+    .references(() => controlSsoConnections.id, { onDelete: "cascade" });
+
+/** Who someone is to an identity provider, so a later change of email still finds them. */
+export const controlSsoIdentities = pgTable(
+  "control_sso_identities",
+  {
+    connectionId: ssoConnectionId(),
+    subject: varchar("subject", { length: 512 }).notNull(),
+    personId: personId(),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    lastUsedAt: varchar("last_used_at", { length: 64 }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.connectionId, table.subject] })],
+);
+
+/**
+ * A sign-in under way, which only the browser that started it can finish. A
+ * SAML response names the person first; the browser then comes to finish.
+ */
+export const controlSsoRequests = pgTable("control_sso_requests", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  connectionId: ssoConnectionId(),
+  bindingHash: varchar("binding_hash", { length: 128 }).notNull(),
+  codeVerifier: varchar("code_verifier", { length: 128 }),
+  nonce: varchar("nonce", { length: 128 }),
+  next: varchar("next", { length: 512 }).notNull(),
+  personId: varchar("person_id", { length: 64 }).references(() => controlPeople.id, {
+    onDelete: "cascade",
+  }),
+  expiresAt: varchar("expires_at", { length: 64 }).notNull(),
+});
 
 /**
  * The token an identity provider provisions people with. Only its digest is

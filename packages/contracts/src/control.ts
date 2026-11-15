@@ -129,6 +129,8 @@ export const ControlPerson = Schema.Struct({
   displayName: TrimmedNonEmptyString,
   role: ControlRole,
   status: ControlPersonStatus,
+  /** An owner who may sign in with a password while single sign-on is required. */
+  emergency: Schema.Boolean,
   /** False until they set a password and an authenticator app, and again after a reset. */
   canSignIn: Schema.Boolean,
   /** Set after too many failed sign-ins; an admin can unlock sooner. */
@@ -570,6 +572,7 @@ export class ControlSignInError extends Schema.TaggedError<ControlSignInError>()
       "wrong-code",
       "passkey-failed",
       "desktop-code",
+      "single-sign-on",
     ]),
     lockedUntil: Schema.optionalKey(IsoDateTime),
   },
@@ -589,6 +592,8 @@ export class ControlSignInError extends Schema.TaggedError<ControlSignInError>()
         return "That passkey did not work. Try again, or use a code.";
       case "desktop-code":
         return "That code is not right, or it has expired. Get a new one in your browser.";
+      case "single-sign-on":
+        return "Your company signs in with single sign-on. Choose it below.";
     }
   }
 }
@@ -639,6 +644,105 @@ export const ControlMyDepartments = Schema.Struct({
   current: Schema.NullOr(TrimmedNonEmptyString),
 });
 export type ControlMyDepartments = typeof ControlMyDepartments.Type;
+
+/** An email domain such as `acme.com`. */
+export const ControlEmailDomain = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/u),
+);
+
+export const ControlSsoProtocol = Schema.Literals(["oidc", "saml"]);
+export type ControlSsoProtocol = typeof ControlSsoProtocol.Type;
+
+const SsoCommon = {
+  /** Shown on the sign-in button, such as "Microsoft Entra ID". */
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  /** Only addresses in these domains are accepted from it. */
+  domains: Schema.Array(ControlEmailDomain).check(Schema.isMinLength(1)),
+  /** People in these domains sign in only through it, apart from emergency owners. */
+  required: Schema.Boolean,
+  /** Signs in people Codenine does not know yet, as members, when a seat is free. */
+  createPeople: Schema.Boolean,
+  /** The claim or attribute listing the person's groups; null leaves departments and roles alone. */
+  groupsClaim: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(255))),
+  /** Groups that give a role, the first match winning; everyone else in it is a member. */
+  roleGroups: Schema.Array(Schema.Struct({ group: TrimmedNonEmptyString, role: ControlRole })),
+};
+
+/** What an owner sets for one identity provider. Its client secret is write-only. */
+export const ControlSsoSettings = Schema.Struct({
+  ...SsoCommon,
+  oidc: Schema.optionalKey(
+    Schema.Struct({
+      issuer: TrimmedNonEmptyString,
+      clientId: TrimmedNonEmptyString,
+      /** Left out to keep the one saved. */
+      clientSecret: Schema.optionalKey(TrimmedNonEmptyString),
+    }),
+  ),
+  saml: Schema.optionalKey(
+    Schema.Struct({
+      /** Where people are sent to sign in. */
+      entryPoint: TrimmedNonEmptyString,
+      /** Its entity ID, which every response must name. */
+      issuer: TrimmedNonEmptyString,
+      /** Its signing certificate, in PEM or as base64. */
+      certificate: TrimmedNonEmptyString,
+    }),
+  ),
+});
+export type ControlSsoSettings = typeof ControlSsoSettings.Type;
+
+export const ControlSsoConnection = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  protocol: ControlSsoProtocol,
+  ...SsoCommon,
+  oidc: Schema.NullOr(Schema.Struct({ issuer: Schema.String, clientId: Schema.String })),
+  saml: Schema.NullOr(
+    Schema.Struct({ entryPoint: Schema.String, issuer: Schema.String, certificate: Schema.String }),
+  ),
+  /** Where the identity provider sends people back, to register with it. */
+  redirectUrl: Schema.String,
+  /** For SAML: this service's entity ID and metadata. */
+  serviceEntityId: Schema.NullOr(Schema.String),
+  metadataUrl: Schema.NullOr(Schema.String),
+});
+export type ControlSsoConnection = typeof ControlSsoConnection.Type;
+
+/** An identity provider the sign-in page offers. */
+export const ControlSsoChoice = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+});
+export type ControlSsoChoice = typeof ControlSsoChoice.Type;
+
+export class ControlSsoError extends Schema.TaggedError<ControlSsoError>()(
+  "ControlSsoError",
+  {
+    reason: Schema.Literals([
+      "not-found",
+      "protocol-settings",
+      "domain-taken",
+      "no-emergency-owner",
+      "not-owner",
+    ]),
+  },
+  { httpApiStatus: 400 },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "not-found":
+        return "That single sign-on setup does not exist.";
+      case "protocol-settings":
+        return "Give the settings of its protocol, and a client secret for a new OIDC setup.";
+      case "domain-taken":
+        return "Another single sign-on setup already signs in one of those domains.";
+      case "no-emergency-owner":
+        return "Requiring it would leave no owner who can sign in without it. Mark an emergency owner first.";
+      case "not-owner":
+        return "Only owners can be emergency owners.";
+    }
+  }
+}
 
 /** How an identity provider reaches the control server to add, change and remove people. */
 export const ControlProvisioning = Schema.Struct({
@@ -713,6 +817,10 @@ export const ControlAuditAction = Schema.Literals([
   "exception.end",
   "provisioning.token-create",
   "provisioning.token-revoke",
+  "person.emergency",
+  "sso.create",
+  "sso.update",
+  "sso.delete",
 ]);
 export type ControlAuditAction = typeof ControlAuditAction.Type;
 
@@ -723,6 +831,7 @@ export const ControlAuditTargetKind = Schema.Literals([
   "team",
   "profile",
   "provisioning",
+  "sso",
 ]);
 export type ControlAuditTargetKind = typeof ControlAuditTargetKind.Type;
 
@@ -818,6 +927,9 @@ const ControlHealthGroup = HttpApiGroup.make("health").add(
 );
 
 const ControlAccountGroup = HttpApiGroup.make("account").add(
+  HttpApiEndpoint.get("ssoChoices", "/control/api/sign-in/sso", {
+    success: Schema.Array(ControlSsoChoice),
+  }).annotate(OpenApi.Summary, "The identity providers the sign-in page offers"),
   HttpApiEndpoint.post("signIn", "/control/api/sign-in", {
     payload: Schema.Struct({ email: Schema.String, password: Schema.String }),
     success: Schema.Struct({
@@ -1120,6 +1232,32 @@ const ControlAdminGroup = HttpApiGroup.make("admin")
       params: Schema.Struct({ exceptionId: TrimmedNonEmptyString }),
       success: ControlOk,
       error: [ControlForbiddenError, ControlProfileError, ControlAccountError],
+    }),
+    HttpApiEndpoint.get("ssoConnections", "/control/api/admin/sso", {
+      success: Schema.Array(ControlSsoConnection),
+      error: ControlForbiddenError,
+    }),
+    HttpApiEndpoint.post("createSsoConnection", "/control/api/admin/sso", {
+      payload: Schema.Struct({ protocol: ControlSsoProtocol, settings: ControlSsoSettings }),
+      success: ControlSsoConnection,
+      error: [ControlForbiddenError, ControlSsoError],
+    }),
+    HttpApiEndpoint.put("updateSsoConnection", "/control/api/admin/sso/:connectionId", {
+      params: Schema.Struct({ connectionId: TrimmedNonEmptyString }),
+      payload: ControlSsoSettings,
+      success: ControlSsoConnection,
+      error: [ControlForbiddenError, ControlSsoError],
+    }),
+    HttpApiEndpoint.delete("deleteSsoConnection", "/control/api/admin/sso/:connectionId", {
+      params: Schema.Struct({ connectionId: TrimmedNonEmptyString }),
+      success: ControlOk,
+      error: [ControlForbiddenError, ControlSsoError],
+    }),
+    HttpApiEndpoint.put("setEmergency", "/control/api/admin/people/:personId/emergency", {
+      params: PersonParams,
+      payload: Schema.Struct({ emergency: Schema.Boolean }),
+      success: ControlPerson,
+      error: [ControlForbiddenError, ControlAccountError, ControlSsoError],
     }),
     HttpApiEndpoint.get("provisioning", "/control/api/admin/provisioning", {
       success: ControlProvisioning,

@@ -22,6 +22,9 @@ import * as Profiles from "./profiles/Profiles.ts";
 import * as Directory from "./provisioning/Directory.ts";
 import * as ProvisioningTokens from "./provisioning/ProvisioningTokens.ts";
 import * as ScimHttp from "./provisioning/ScimHttp.ts";
+import * as SingleSignOn from "./sso/SingleSignOn.ts";
+import * as SsoConnections from "./sso/SsoConnections.ts";
+import * as SsoHttp from "./sso/SsoHttp.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
 import * as Sessions from "./accounts/Sessions.ts";
@@ -48,6 +51,7 @@ const layerControl = Licence.layer.pipe(
 
 const layerAccounts = Profiles.layer.pipe(
   Layer.provideMerge(ProvisioningTokens.layer),
+  Layer.provideMerge(SsoConnections.layer),
   Layer.provideMerge(AccountsModule.layer),
   Layer.provideMerge(WebAuthn.layer),
   Layer.provideMerge(Mailer.layer),
@@ -110,13 +114,19 @@ const serveCommand = Command.make("serve", {}, () =>
       Layer.mergeAll(
         ControlHttp.layerServer(
           { host, port },
-          Layer.mergeAll(WorkspaceProxy.layerForwarding, ScimHttp.layer, ControlHttp.layerWebApp),
+          Layer.mergeAll(
+            WorkspaceProxy.layerForwarding,
+            ScimHttp.layer,
+            SsoHttp.layer,
+            ControlHttp.layerWebApp,
+          ),
         ),
         Licence.layerDailyCheck,
         WorkspaceRetention.layerHourlySweep,
         AuditExport.layer,
       ).pipe(
         Layer.provide(Directory.layer),
+        Layer.provide(SingleSignOn.layer),
         Layer.provide(Administration.layer),
         Layer.provide(Workplace.layer),
         Layer.provide(WorkspaceRetention.layer),

@@ -9,6 +9,7 @@ import {
   type ControlPerson,
   type ControlProvisioning,
   type ControlRole,
+  type ControlSsoConnection,
   type ControlSessionEntry,
   type ControlSignInMethods,
   permissionReach,
@@ -36,6 +37,7 @@ import { Textarea } from "../ui/textarea";
 import { type ControlCall, ROLE_LABELS, SectionTitle } from "./adminParts";
 import { DepartmentsSection } from "./ControlDepartments";
 import { ProvisioningSection } from "./ControlProvisioning";
+import { SingleSignOnSection } from "./ControlSingleSignOn";
 
 interface AdminData {
   readonly me: ControlMe;
@@ -47,12 +49,14 @@ interface AdminData {
   readonly departments: ReadonlyArray<ControlDepartment> | null;
   readonly audit: ControlAuditPage | null;
   readonly provisioning: ControlProvisioning | null;
+  readonly ssoConnections: ReadonlyArray<ControlSsoConnection> | null;
 }
 
 const loadAdminData = async (): Promise<AdminData | null> => {
   const me = await fetchControlMe();
   if (me === null) return null;
-  const [sessions, signInMethods, licence, people, departments, audit, provisioning] =
+  const owns = permissionReach(me.role, "security:manage") !== null;
+  const [sessions, signInMethods, licence, people, departments, audit, provisioning, sso] =
     await Promise.all([
       callControl((client) => client.me.sessions()),
       callControl((client) => client.me.signInMethods()),
@@ -68,11 +72,20 @@ const loadAdminData = async (): Promise<AdminData | null> => {
       permissionReach(me.role, "audit:read") === null
         ? null
         : callControl((client) => client.admin.audit({ query: {} })),
-      permissionReach(me.role, "security:manage") === null
-        ? null
-        : callControl((client) => client.admin.provisioning()),
+      owns ? callControl((client) => client.admin.provisioning()) : null,
+      owns ? callControl((client) => client.admin.ssoConnections()) : null,
     ]);
-  return { me, sessions, signInMethods, licence, people, departments, audit, provisioning };
+  return {
+    me,
+    sessions,
+    signInMethods,
+    licence,
+    people,
+    departments,
+    audit,
+    provisioning,
+    ssoConnections: sso,
+  };
 };
 
 /** Licence, people and sessions for a business installation. */
@@ -195,6 +208,16 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
           departments={data.departments}
           onAction={act}
           people={data.people ?? []}
+        />
+      )}
+
+      {data.ssoConnections === null ? null : (
+        <SingleSignOnSection
+          connections={data.ssoConnections}
+          onAction={act}
+          owners={(data.people ?? []).filter(
+            (person) => person.role === "owner" && person.status === "active",
+          )}
         />
       )}
 
@@ -667,6 +690,10 @@ const AUDIT_ACTIONS: Record<ControlAuditEntry["action"], string> = {
   "exception.end": "ended an exception for",
   "provisioning.token-create": "created a token for",
   "provisioning.token-revoke": "revoked the token for",
+  "person.emergency": "changed whether this owner keeps a password:",
+  "sso.create": "set up single sign-on with",
+  "sso.update": "changed single sign-on with",
+  "sso.delete": "removed single sign-on with",
 };
 
 const auditValue = (value: string | number | boolean | null | undefined) =>

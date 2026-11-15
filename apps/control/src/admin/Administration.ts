@@ -23,6 +23,10 @@ import {
   type ControlProvisioning,
   type ControlProvisioningToken,
   type ControlRole,
+  ControlSsoError,
+  type ControlSsoConnection,
+  type ControlSsoProtocol,
+  type ControlSsoSettings,
   CONTROL_PROFILE_TEMPLATES,
   permissionReach,
 } from "@codenine/contracts/control";
@@ -46,6 +50,7 @@ import { type LicenceInstallResult, LicenceService } from "../licence/LicenceSer
 import { describeLayerChange } from "../profiles/layering.ts";
 import { type ProfileStep, Profiles, type WorkspaceChange } from "../profiles/Profiles.ts";
 import { ProvisioningTokens } from "../provisioning/ProvisioningTokens.ts";
+import { SsoConnections } from "../sso/SsoConnections.ts";
 import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
 import { WorkspaceRetention } from "../workspaces/WorkspaceRetention.ts";
 
@@ -261,6 +266,28 @@ export class Administration extends Context.Service<
       actor: AdminActor,
       exceptionId: string,
     ) => Effect.Effect<void, ProfileError | ControlAccountError>;
+    readonly ssoConnections: (
+      actor: AdminActor,
+    ) => Effect.Effect<ReadonlyArray<ControlSsoConnection>, ControlForbiddenError>;
+    readonly createSsoConnection: (
+      actor: AdminActor,
+      protocol: ControlSsoProtocol,
+      settings: ControlSsoSettings,
+    ) => Effect.Effect<ControlSsoConnection, ControlForbiddenError | ControlSsoError>;
+    readonly updateSsoConnection: (
+      actor: AdminActor,
+      connectionId: string,
+      settings: ControlSsoSettings,
+    ) => Effect.Effect<ControlSsoConnection, ControlForbiddenError | ControlSsoError>;
+    readonly deleteSsoConnection: (
+      actor: AdminActor,
+      connectionId: string,
+    ) => Effect.Effect<void, ControlForbiddenError | ControlSsoError>;
+    /** Owners only; it lets them sign in with a password while single sign-on is required. */
+    readonly setEmergency: (
+      actor: AdminActor,
+      input: { readonly personId: string; readonly emergency: boolean },
+    ) => Effect.Effect<ControlPerson, PersonError | ControlSsoError>;
     readonly provisioning: (
       actor: AdminActor,
     ) => Effect.Effect<ControlProvisioning, ControlForbiddenError>;
@@ -288,6 +315,7 @@ export const make = Effect.gen(function* () {
   const sessions = yield* Sessions;
   const workspaces = yield* WorkspaceManager;
   const provisioningTokens = yield* ProvisioningTokens;
+  const ssoConnections = yield* SsoConnections;
   const { origin } = yield* ControlPublicUrl;
 
   const record = (
@@ -469,6 +497,19 @@ export const make = Effect.gen(function* () {
     if ((yield* reachOf(actor, "security:manage")) !== "all") {
       return yield* new ControlForbiddenError({});
     }
+  });
+
+  const ssoTarget = (connection: ControlSsoConnection) =>
+    ({ kind: "sso", id: connection.id, label: connection.name }) as const;
+  const ssoValues = (connection: ControlSsoConnection): ControlAuditValues => ({
+    name: connection.name,
+    protocol: connection.protocol,
+    domains: connection.domains.join(" "),
+    required: connection.required,
+    createPeople: connection.createPeople,
+    groupsClaim: connection.groupsClaim,
+    roleGroups:
+      connection.roleGroups.map(({ group, role }) => `${group}=${role}`).join(" ") || null,
   });
 
   const provisioningOverview = Effect.map(
@@ -1030,6 +1071,73 @@ export const make = Effect.gen(function* () {
         null,
       );
       yield* takeEffect(changed);
+    }),
+    ssoConnections: Effect.fn("Administration.ssoConnections")(function* (actor: AdminActor) {
+      yield* requireSecurity(actor);
+      return yield* ssoConnections.list;
+    }),
+    createSsoConnection: Effect.fn("Administration.createSsoConnection")(function* (
+      actor: AdminActor,
+      protocol: ControlSsoProtocol,
+      settings: ControlSsoSettings,
+    ) {
+      yield* requireSecurity(actor);
+      const created = yield* ssoConnections.create(protocol, settings);
+      yield* record(actor, "sso.create", ssoTarget(created), null, ssoValues(created));
+      return created;
+    }),
+    updateSsoConnection: Effect.fn("Administration.updateSsoConnection")(function* (
+      actor: AdminActor,
+      connectionId: string,
+      settings: ControlSsoSettings,
+    ) {
+      yield* requireSecurity(actor);
+      const before = (yield* ssoConnections.list).find(({ id }) => id === connectionId);
+      const updated = yield* ssoConnections.update(connectionId, settings);
+      yield* record(
+        actor,
+        "sso.update",
+        ssoTarget(updated),
+        before === undefined ? null : ssoValues(before),
+        ssoValues(updated),
+      );
+      return updated;
+    }),
+    deleteSsoConnection: Effect.fn("Administration.deleteSsoConnection")(function* (
+      actor: AdminActor,
+      connectionId: string,
+    ) {
+      yield* requireSecurity(actor);
+      const removed = yield* ssoConnections.remove(connectionId);
+      yield* record(actor, "sso.delete", ssoTarget(removed), ssoValues(removed), null);
+    }),
+    setEmergency: Effect.fn("Administration.setEmergency")(function* (
+      actor: AdminActor,
+      input: { readonly personId: string; readonly emergency: boolean },
+    ) {
+      yield* requireSecurity(actor);
+      const person = yield* requireManaged(actor, input.personId);
+      if (person.emergency === input.emergency) {
+        return person;
+      }
+      if (input.emergency && person.role !== "owner") {
+        return yield* new ControlSsoError({ reason: "not-owner" });
+      }
+      if (
+        !input.emergency &&
+        !(yield* ssoConnections.ownerKeepsPassword({ notEmergency: person.id }))
+      ) {
+        return yield* new ControlSsoError({ reason: "no-emergency-owner" });
+      }
+      const after = yield* accounts.setEmergency(input);
+      yield* record(
+        actor,
+        "person.emergency",
+        personTarget(after),
+        { emergency: person.emergency },
+        { emergency: after.emergency },
+      );
+      return after;
     }),
     provisioning: Effect.fn("Administration.provisioning")(function* (actor: AdminActor) {
       yield* requireSecurity(actor);

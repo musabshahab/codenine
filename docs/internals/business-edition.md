@@ -103,6 +103,19 @@ every workspace's proxy at start-up and hourly, for what changes without one: th
 hosts, a change made while it was down, an exception that ran out. Kubernetes workspaces share the
 installation's one proxy, so profiles' hosts do not apply there yet.
 
+## Single sign-on
+
+Every setup names its email domains, and only addresses there are accepted from it, so one
+identity provider cannot sign anyone in to another's domain; Google tokens must also name the
+Workspace as their hosted domain. People are found by the provider's subject first and by email
+only the first time ([`SingleSignOn.ts`](../../apps/control/src/sso/SingleSignOn.ts)). A sign-in is
+a row the browser that started it must finish, proved by a hashed cookie, which stops login CSRF.
+SAML posts its response cross-site, which carries no lax cookie, so the response only names the
+person and the browser finishes with a same-site GET; the signed assertion must answer that row's
+own request ID, rather than any ID in a cache. Required single sign-on is refused unless an owner
+can still sign in with a password, and emergency owners are owners only, because these settings
+can lock everyone out or take over any account.
+
 ## Provisioning
 
 SCIM users are people and SCIM groups are departments, with no mapping between them, so an

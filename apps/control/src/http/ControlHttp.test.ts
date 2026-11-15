@@ -28,6 +28,8 @@ import { layerTestServices, TEST_PUBLIC_URL } from "../testing/layerTestServices
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
 import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
 import * as WorkspaceRetention from "../workspaces/WorkspaceRetention.ts";
+import * as SingleSignOn from "../sso/SingleSignOn.ts";
+import * as SsoHttp from "../sso/SsoHttp.ts";
 import * as Workplace from "../workspaces/Workplace.ts";
 import * as ControlHttp from "./ControlHttp.ts";
 
@@ -50,7 +52,9 @@ const withApi = <A, E, R>(
     const keys = yield* testKeyPair;
     yield* TestClock.setTime(Date.parse("2026-12-10T12:00:00Z"));
     return yield* Effect.gen(function* () {
-      const httpEffect = yield* HttpRouter.toHttpEffect(ControlHttp.layerRoutes);
+      const httpEffect = yield* HttpRouter.toHttpEffect(
+        Layer.mergeAll(ControlHttp.layerRoutes, SsoHttp.layer),
+      );
       const handler = HttpEffect.toWebHandlerWith<
         never,
         HttpServerRequest.HttpServerRequest | Scope.Scope
@@ -64,7 +68,8 @@ const withApi = <A, E, R>(
     }).pipe(
       Effect.scoped,
       Effect.provide(
-        Administration.layer.pipe(
+        SingleSignOn.layer.pipe(
+          Layer.provideMerge(Administration.layer),
           Layer.provideMerge(Workplace.layer),
           Layer.provideMerge(WorkspaceRetention.layer),
           Layer.provideMerge(
@@ -213,6 +218,20 @@ describe("ControlHttp", () => {
         );
         expect(crossSite.status).toBe(403);
         expect((yield* call("/control/api/sign-in", send("POST", credentials))).status).toBe(401);
+        // Except SAML responses, which the identity provider posts from its own site.
+        const samlResponse = yield* call("/control/sso/sso_unknown/saml/acs", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            origin: "https://idp.example",
+            "sec-fetch-site": "cross-site",
+          },
+          body: "SAMLResponse=x&RelayState=y",
+        });
+        expect([samlResponse.status, samlResponse.headers.get("location")]).toEqual([
+          303,
+          "/admin/sign-in?sso=failed",
+        ]);
       }),
     ),
   );

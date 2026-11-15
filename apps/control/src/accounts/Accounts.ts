@@ -36,6 +36,7 @@ import {
   controlCredentials,
   controlPasskeys,
   controlPeople,
+  controlSsoConnections,
   controlRecoveryCodes,
   controlTickets,
 } from "../persistence/schema.ts";
@@ -108,6 +109,13 @@ export class Accounts extends Context.Service<
     readonly addPerson: (input: {
       readonly email: string;
       readonly displayName: string;
+    }) => Effect.Effect<ControlPerson, ControlAccountError>;
+    /** Someone invited who signed in through single sign-on, so has signed in at last. */
+    readonly activate: (personId: string) => Effect.Effect<ControlPerson, ControlAccountError>;
+    /** Owners only; the flag lets them sign in with a password while single sign-on is required. */
+    readonly setEmergency: (input: {
+      readonly personId: string;
+      readonly emergency: boolean;
     }) => Effect.Effect<ControlPerson, ControlAccountError>;
     /** A new email or name; their sign-in stays as it is. */
     readonly updatePerson: (input: {
@@ -237,6 +245,7 @@ export const make = Effect.gen(function* () {
         displayName: controlPeople.displayName,
         role: controlPeople.role,
         status: controlPeople.status,
+        emergency: controlPeople.emergency,
         canSignIn: sql<boolean>`${controlCredentials.personId} is not null`,
         lockedUntil: controlCredentials.lockedUntil,
         createdAt: controlPeople.createdAt,
@@ -267,6 +276,32 @@ export const make = Effect.gen(function* () {
     ) {
       return yield* new ControlAccountError({ reason: "no-free-seat" });
     }
+  });
+
+  /**
+   * Whether this address must sign in through its single sign-on: its domain is
+   * one a required setup signs in, and it is not an emergency owner's.
+   */
+  const needsSingleSignOn = Effect.fn("Accounts.needsSingleSignOn")(function* (email: string) {
+    const domain = email.trim().toLowerCase().split("@").at(-1) ?? "";
+    const [required] = yield* db
+      .select({ id: controlSsoConnections.id })
+      .from(controlSsoConnections)
+      .where(
+        and(
+          eq(controlSsoConnections.required, true),
+          sql`${controlSsoConnections.domains} @> jsonb_build_array(${domain}::text)`,
+        ),
+      )
+      .limit(1);
+    if (required === undefined) {
+      return false;
+    }
+    const [person] = yield* db
+      .select({ role: controlPeople.role, emergency: controlPeople.emergency })
+      .from(controlPeople)
+      .where(sameEmail(email));
+    return !(person?.role === "owner" && person.emergency);
   });
 
   /** Retires a person's open links, so only the newest one works. */
@@ -501,6 +536,25 @@ export const make = Effect.gen(function* () {
     return yield* findPerson(yield* insertPerson({ ...input, role: "member" }));
   }, dieOnDatabaseError);
 
+  const activate = Effect.fn("Accounts.activate")(function* (personId: string) {
+    yield* db
+      .update(controlPeople)
+      .set({ status: "active", updatedAt: yield* nowIso })
+      .where(and(eq(controlPeople.id, personId), eq(controlPeople.status, "invited")));
+    return yield* findPerson(personId);
+  }, dieOnDatabaseError);
+
+  const setEmergency = Effect.fn("Accounts.setEmergency")(function* (input: {
+    readonly personId: string;
+    readonly emergency: boolean;
+  }) {
+    yield* db
+      .update(controlPeople)
+      .set({ emergency: input.emergency, updatedAt: yield* nowIso })
+      .where(eq(controlPeople.id, input.personId));
+    return yield* findPerson(input.personId);
+  }, dieOnDatabaseError);
+
   const updatePerson = Effect.fn("Accounts.updatePerson")(function* (input: {
     readonly personId: string;
     readonly email?: string;
@@ -663,7 +717,8 @@ export const make = Effect.gen(function* () {
     const [row] = yield* peopleQuery().where(
       and(sameEmail(email), eq(controlPeople.status, "active")),
     );
-    if (row === undefined || !row.canSignIn) {
+    // A password is no use to someone who must sign in through single sign-on.
+    if (row === undefined || !row.canSignIn || (yield* needsSingleSignOn(email))) {
       return;
     }
     const [recent] = yield* db
@@ -1005,6 +1060,9 @@ export const make = Effect.gen(function* () {
     readonly email: string;
     readonly password: string;
   }) {
+    if (yield* needsSingleSignOn(input.email)) {
+      return yield* new ControlSignInError({ reason: "single-sign-on" });
+    }
     const [row] = yield* db
       .select({
         personId: controlPeople.id,
@@ -1186,6 +1244,8 @@ export const make = Effect.gen(function* () {
     inviteOwner,
     invite,
     addPerson,
+    activate,
+    setEmergency,
     updatePerson,
     findPerson,
     setRole,

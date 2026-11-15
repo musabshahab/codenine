@@ -15,16 +15,19 @@
     "@codenine/shared": "workspace:*",
     "@effect/platform-node": "catalog:",
     "@effect/sql-pg": "catalog:",
+    "@node-saml/node-saml": "5.2.0",
     "@simplewebauthn/server": "14.0.3",
     "drizzle-orm": "1.0.0-rc.5",
     "effect": "catalog:",
-    "nodemailer": "10.3.1"
+    "nodemailer": "10.3.1",
+    "openid-client": "6.8.9"
   },
   "devDependencies": {
     "@effect/sql-pglite": "4.1.2",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "drizzle-kit": "1.0.0-rc.5",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "xml-crypto": "6.4.0"
   }
 }
