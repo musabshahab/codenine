@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "39a6cf5a-fa75-4449-8a38-589d48d2b4d0",
+  "prevIds": ["064ae95f-6b13-41ef-b5e5-14ace8b19597"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "control_ai_usage", "refusal"],
+      "writes": [
+        "s|col|public.control_ai_usage.refusal",
+        "n|col|public.control_ai_usage.refusal",
+        "e|col|public.control_ai_usage.refusal"
+      ],
+      "reads": ["n|tbl|public.control_ai_usage", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_ai_usage",
+        "name": "refusal",
+        "type": "varchar(32)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

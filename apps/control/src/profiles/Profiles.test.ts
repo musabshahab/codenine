@@ -116,7 +116,7 @@ describe("Profiles", () => {
     withProfiles(
       Effect.gen(function* () {
         const profiles = yield* Profiles;
-        const { designProfile } = yield* company;
+        const { design, designProfile } = yield* company;
 
         expect(yield* profiles.preview("company", { terminal: "block" })).toEqual({
           people: 3,
@@ -128,6 +128,27 @@ describe("Profiles", () => {
           affected: 2,
           changes: [{ setting: "memoryGb", people: 2, removed: ["4"], added: ["8"] }],
         });
+
+        // A department's budget is set on the company's profile and binds only its people.
+        const budget = { departmentMonthlyUsd: { [design]: 5_000 } };
+        expect(yield* profiles.preview("company", budget)).toEqual({
+          people: 3,
+          affected: 2,
+          changes: [
+            { setting: "departmentMonthlyUsd", people: 2, removed: ["no limit"], added: ["$5000"] },
+          ],
+        });
+        expect(
+          yield* Effect.flip(
+            profiles.save({
+              id: designProfile,
+              settings: budget,
+              note: "",
+              testWith: null,
+              by: "ada@acme.test",
+            }),
+          ),
+        ).toMatchObject({ reason: "company-only" });
 
         // Once the company locks memory, the same department change affects nobody.
         const locked = yield* profiles.save({
@@ -172,6 +193,11 @@ describe("Profiles", () => {
         expect(
           yield* Effect.flip(profiles.addException({ ...exception, departmentId: sales })),
         ).toMatchObject({ reason: "outside-profile" });
+        expect(
+          yield* Effect.flip(
+            profiles.addException({ ...exception, settings: { companyMonthlyUsd: 100 } }),
+          ),
+        ).toMatchObject({ reason: "company-only" });
 
         const added = yield* profiles.addException(exception);
         expect(added.changed).toMatchObject([

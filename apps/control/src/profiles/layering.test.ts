@@ -1,7 +1,12 @@
 import type { ControlEffectiveProfile, ControlProfileSettings } from "@codenine/contracts/control";
 import { describe, expect, it } from "@effect/vitest";
 
-import { describeLayerChange, resolveProfile, summarizeChanges } from "./layering.ts";
+import {
+  describeLayerChange,
+  resolveProfile,
+  sharedBudgets,
+  summarizeChanges,
+} from "./layering.ts";
 
 const DEFAULTS = { cpus: 2, memoryGb: 4, sleepMinutes: 30 };
 const BASE: ControlEffectiveProfile = {
@@ -10,6 +15,13 @@ const BASE: ControlEffectiveProfile = {
   terminal: true,
   allowHosts: [],
   blockHosts: [],
+  claudeModels: null,
+  codexModels: null,
+  effort: null,
+  monthlyUsd: null,
+  dailyUsd: null,
+  departmentMonthlyUsd: null,
+  companyMonthlyUsd: null,
 };
 
 /** Layers from the top: company, department, teams, then a person's exceptions. */
@@ -66,11 +78,46 @@ const LAYERING: ReadonlyArray<{
     ],
     expected: { allowHosts: ["b.acme.test"], blockHosts: ["a.acme.test"] },
   },
+  {
+    name: "AI rules and budgets change below unless a layer above locked them",
+    layers: [
+      {
+        claudeModels: ["claude-opus-5-5", "claude-haiku-5-5"],
+        effort: "high",
+        monthlyUsd: 200,
+        lock: ["claudeModels"],
+      },
+      { claudeModels: ["claude-fable-5-2"], codexModels: ["gpt-5.5"], monthlyUsd: 500 },
+      { effort: "xhigh", dailyUsd: 40 },
+    ],
+    expected: {
+      claudeModels: ["claude-opus-5-5", "claude-haiku-5-5"],
+      codexModels: ["gpt-5.5"],
+      effort: "xhigh",
+      monthlyUsd: 500,
+      dailyUsd: 40,
+    },
+  },
 ];
 
 describe("resolveProfile", () => {
   it.each(LAYERING)("$name", ({ layers, expected }) => {
     expect(resolveProfile(layers, DEFAULTS)).toEqual({ ...BASE, ...expected });
+  });
+});
+
+describe("sharedBudgets", () => {
+  it("binds a person to the company's cap and their own department's budget", () => {
+    const company = { companyMonthlyUsd: 40_000, departmentMonthlyUsd: { design: 5_000 } };
+    expect([
+      sharedBudgets(company, "design"),
+      sharedBudgets(company, "hr"),
+      sharedBudgets({}, "design"),
+    ]).toEqual([
+      { companyMonthlyUsd: 40_000, departmentMonthlyUsd: 5_000 },
+      { companyMonthlyUsd: 40_000, departmentMonthlyUsd: null },
+      { companyMonthlyUsd: null, departmentMonthlyUsd: null },
+    ]);
   });
 });
 
@@ -87,13 +134,16 @@ describe("summarizeChanges", () => {
         ],
         [{ before: BASE, after: bigger }],
         [{ before: BASE, after: BASE }],
+        [{ before: { ...BASE, monthlyUsd: 200 }, after: { ...BASE, effort: "high" } }],
       ]),
     ).toEqual({
-      people: 3,
-      affected: 2,
+      people: 4,
+      affected: 3,
       changes: [
         { setting: "memoryGb", people: 1, removed: ["4"], added: ["8"] },
         { setting: "terminal", people: 1, removed: ["allowed"], added: ["blocked"] },
+        { setting: "effort", people: 1, removed: ["any"], added: ["high"] },
+        { setting: "monthlyUsd", people: 1, removed: ["$200"], added: ["no limit"] },
         { setting: "allowHosts", people: 1, removed: [], added: ["docs.acme.test"] },
       ],
     });
@@ -108,5 +158,15 @@ describe("describeLayerChange", () => {
         { cpus: 4, terminal: "block", allowHosts: ["a.acme.test"] },
       ),
     ).toBe("cpus: 2 → 4; terminal: unset → block");
+  });
+
+  it("names the departments whose budgets change", () => {
+    expect(
+      describeLayerChange(
+        { departmentMonthlyUsd: { d1: 5_000 } },
+        { departmentMonthlyUsd: { d1: 6_000, d2: 1_000 } },
+        (id) => ({ d1: "Design", d2: "HR" })[id] ?? id,
+      ),
+    ).toBe("departmentMonthlyUsd: Design 5000 → Design 6000, HR 1000");
   });
 });

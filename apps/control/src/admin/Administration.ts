@@ -486,6 +486,12 @@ export const make = Effect.gen(function* () {
     step: ProfileStep,
     extra: ControlAuditValues = {},
   ) {
+    const names = new Map(
+      (step.to?.settings.departmentMonthlyUsd ?? step.from?.settings.departmentMonthlyUsd) ===
+        undefined
+        ? []
+        : (yield* departments.list).map((department) => [department.id, department.name]),
+    );
     yield* record(
       actor,
       action,
@@ -495,7 +501,12 @@ export const make = Effect.gen(function* () {
         ? null
         : {
             version: step.to.version,
-            changes: describeLayerChange(step.from?.settings ?? null, step.to.settings) || null,
+            changes:
+              describeLayerChange(
+                step.from?.settings ?? null,
+                step.to.settings,
+                (id) => names.get(id) ?? id,
+              ) || null,
             ...extra,
           },
     );

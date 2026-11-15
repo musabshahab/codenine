@@ -1,7 +1,9 @@
 import type {
+  ControlAiEffort,
   ControlEffectiveProfile,
   ControlProfilePreview,
   ControlProfileScalar,
+  ControlProfileSetting,
   ControlProfileSettings,
 } from "@codenine/contracts/control";
 
@@ -11,6 +13,24 @@ export interface ProfileDefaults {
   readonly memoryGb: number;
   readonly sleepMinutes: number;
 }
+
+/** The budgets people spend from together, which only the company's layer sets. */
+export interface SharedBudgets {
+  readonly companyMonthlyUsd: number | null;
+  readonly departmentMonthlyUsd: number | null;
+}
+
+/** The shared budgets that bind someone working in a department. */
+export const sharedBudgets = (
+  company: ControlProfileSettings,
+  departmentId: string | null,
+): SharedBudgets => ({
+  companyMonthlyUsd: company.companyMonthlyUsd ?? null,
+  departmentMonthlyUsd:
+    departmentId === null ? null : (company.departmentMonthlyUsd?.[departmentId] ?? null),
+});
+
+const NOT_SHARED: SharedBudgets = { companyMonthlyUsd: null, departmentMonthlyUsd: null };
 
 /** Whether `wide`, a host or a domain with a leading dot, covers `host`. */
 export const coversHost = (wide: string, host: string) =>
@@ -25,10 +45,16 @@ export const coversHost = (wide: string, host: string) =>
 export const resolveProfile = (
   layers: ReadonlyArray<ControlProfileSettings>,
   defaults: ProfileDefaults,
+  shared: SharedBudgets = NOT_SHARED,
 ): ControlEffectiveProfile => {
   let image: string | null = null;
   let { cpus, memoryGb, sleepMinutes } = defaults;
   let terminal = true;
+  let claudeModels: ReadonlyArray<string> | null = null;
+  let codexModels: ReadonlyArray<string> | null = null;
+  let effort: ControlAiEffort | null = null;
+  let monthlyUsd: number | null = null;
+  let dailyUsd: number | null = null;
   const locked = new Set<ControlProfileScalar>();
   const allow = new Set<string>();
   const block = new Set<string>();
@@ -39,6 +65,15 @@ export const resolveProfile = (
     if (layer.sleepMinutes !== undefined && !locked.has("sleepMinutes")) {
       sleepMinutes = layer.sleepMinutes;
     }
+    if (layer.claudeModels !== undefined && !locked.has("claudeModels")) {
+      claudeModels = layer.claudeModels;
+    }
+    if (layer.codexModels !== undefined && !locked.has("codexModels")) {
+      codexModels = layer.codexModels;
+    }
+    if (layer.effort !== undefined && !locked.has("effort")) effort = layer.effort;
+    if (layer.monthlyUsd !== undefined && !locked.has("monthlyUsd")) monthlyUsd = layer.monthlyUsd;
+    if (layer.dailyUsd !== undefined && !locked.has("dailyUsd")) dailyUsd = layer.dailyUsd;
     for (const key of layer.lock ?? []) locked.add(key);
     if (layer.terminal === "block") terminal = false;
     for (const host of layer.allowHosts ?? []) allow.add(host);
@@ -55,16 +90,45 @@ export const resolveProfile = (
       .filter((host) => !blockHosts.some((blocked) => coversHost(blocked, host)))
       .toSorted(),
     blockHosts,
+    claudeModels,
+    codexModels,
+    effort,
+    monthlyUsd,
+    dailyUsd,
+    ...shared,
   };
 };
 
-const shown = (setting: string, value: unknown) => {
+const BUDGETS: ReadonlySet<ControlProfileSetting> = new Set([
+  "monthlyUsd",
+  "dailyUsd",
+  "departmentMonthlyUsd",
+  "companyMonthlyUsd",
+]);
+
+const shown = (setting: ControlProfileSetting, value: unknown) => {
   if (setting === "terminal") return value ? "allowed" : "blocked";
   if (setting === "image" && value === null) return "the installation's image";
+  if (value === null) return BUDGETS.has(setting) ? "no limit" : "any";
+  if (BUDGETS.has(setting)) return `$${String(value)}`;
+  if (Array.isArray(value)) return value.join(", ");
   return String(value);
 };
 
-const SCALAR_SETTINGS = ["image", "cpus", "memoryGb", "sleepMinutes", "terminal"] as const;
+const SCALAR_SETTINGS = [
+  "image",
+  "cpus",
+  "memoryGb",
+  "sleepMinutes",
+  "terminal",
+  "claudeModels",
+  "codexModels",
+  "effort",
+  "monthlyUsd",
+  "dailyUsd",
+  "departmentMonthlyUsd",
+  "companyMonthlyUsd",
+] as const satisfies ReadonlyArray<ControlProfileSetting>;
 const HOST_SETTINGS = ["allowHosts", "blockHosts"] as const;
 
 /**
@@ -150,19 +214,37 @@ const LAYER_KEYS = [
   "terminal",
   "allowHosts",
   "blockHosts",
+  "claudeModels",
+  "codexModels",
+  "effort",
+  "monthlyUsd",
+  "dailyUsd",
+  "companyMonthlyUsd",
+  "departmentMonthlyUsd",
   "lock",
 ] as const satisfies ReadonlyArray<keyof ControlProfileSettings>;
 
-const settingText = (value: unknown) =>
-  value === undefined ? "unset" : Array.isArray(value) ? value.join(" ") || "none" : String(value);
+const settingText = (value: unknown, nameOf: (id: string) => string) => {
+  if (value === undefined) return "unset";
+  if (Array.isArray(value)) return value.join(" ") || "none";
+  if (typeof value === "object" && value !== null) {
+    const amounts = Object.entries(value).map(([id, amount]) => `${nameOf(id)} ${String(amount)}`);
+    return amounts.toSorted().join(", ") || "none";
+  }
+  return String(value);
+};
 
-/** What a new version of one layer changes, as `key: before → after` for the audit log. */
+/**
+ * What a new version of one layer changes, as `key: before → after` for the
+ * audit log, naming departments with `nameOf`.
+ */
 export const describeLayerChange = (
   before: ControlProfileSettings | null,
   after: ControlProfileSettings,
+  nameOf: (id: string) => string = (id) => id,
 ) =>
   LAYER_KEYS.flatMap((key) => {
-    const from = settingText(before?.[key]);
-    const to = settingText(after[key]);
+    const from = settingText(before?.[key], nameOf);
+    const to = settingText(after[key], nameOf);
     return from === to ? [] : [`${key}: ${from} → ${to}`];
   }).join("; ");

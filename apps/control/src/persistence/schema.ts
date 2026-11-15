@@ -1,5 +1,6 @@
 import type {
   ControlAiAccountKind,
+  ControlAiRefusal,
   ControlAuditAction,
   ControlAuditActorKind,
   ControlAuditTargetKind,
@@ -455,7 +456,11 @@ export const controlAiUsage = pgTable(
     /** False when a model had no price, so its cost is missing from `costMicros`. */
     priced: boolean("priced").notNull(),
     priceVersion: varchar("price_version", { length: 64 }).notNull(),
-    outcome: varchar("outcome", { length: 16 }).notNull().$type<"ok" | "failed" | "cancelled">(),
+    outcome: varchar("outcome", { length: 16 })
+      .notNull()
+      .$type<"ok" | "failed" | "cancelled" | "refused">(),
+    /** Why the gateway refused the call, for refused calls. */
+    refusal: varchar("refusal", { length: 32 }).$type<ControlAiRefusal>(),
     status: integer("status").notNull(),
     durationMs: integer("duration_ms").notNull(),
     /** The agent session the call came from, as the CLI names it, to tell threads apart. */

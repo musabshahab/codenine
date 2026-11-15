@@ -1,0 +1,1 @@
+ALTER TABLE "control_ai_usage" ADD COLUMN "refusal" varchar(32);

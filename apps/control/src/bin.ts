@@ -20,6 +20,7 @@ import * as AuditLog from "./audit/AuditLog.ts";
 import * as Departments from "./departments/Departments.ts";
 import * as AiAccounts from "./gateway/AiAccounts.ts";
 import * as AiUsage from "./gateway/AiUsage.ts";
+import * as Budgets from "./gateway/Budgets.ts";
 import * as Gateway from "./gateway/Gateway.ts";
 import * as GatewayHttp from "./gateway/GatewayHttp.ts";
 import * as Profiles from "./profiles/Profiles.ts";
@@ -137,6 +138,7 @@ const serveCommand = Command.make("serve", {}, () =>
         Layer.provide(
           Gateway.layer.pipe(
             Layer.provide(AiUsage.layer),
+            Layer.provide(Budgets.layer),
             Layer.provide(GatewayHttp.layerProviderClient),
           ),
         ),

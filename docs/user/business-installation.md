@@ -34,6 +34,10 @@ Then start the control server with these settings, and those for
   `smtps://user:password@mail.example.com:465`, and the sender, such as
   `Codenine <codenine@example.com>`. With them, Codenine emails invitations and reset links, and
   people can reset a forgotten password themselves. Without them, admins send each link by hand.
+- `CODENINE_CONTROL_TIME_ZONE` (optional): your company's time zone, such as `Europe/Berlin`, where
+  AI budget months and days begin; `UTC` unless set.
+- `CODENINE_CONTROL_GATEWAY_PARALLEL_CALLS` (optional): how many AI calls one person may have
+  running at once, so one team cannot use up your accounts' rate limits; `16` unless set.
 
 ```bash
 node apps/control/src/bin.ts serve
@@ -327,6 +331,33 @@ until each workspace next starts.
 An exception gives one person different settings for up to 90 days, in one department or all of
 theirs, with a reason for the audit log. It stays within what the layers above lock or block, and
 ends on its own or when you end it.
+
+## AI budgets and model rules
+
+Budgets and AI rules are part of the workspace profiles, so each change gets a preview, a version
+history and an audit log entry, and applies to agents' calls within a minute. Amounts are in US
+dollars, as the providers bill.
+
+- **Each person, $ a month** and **$ a day**: what one person may spend in a department. The daily
+  amount stops an agent stuck in a loop before it uses the month's budget. Set them on the company's
+  profile for everyone, and change them for a department, a team or, with an exception, one person.
+- **Everyone together, $ a month** and each department's amount: the company's cap and each
+  department's budget. Only owners and admins set these, on the company's profile.
+- **Claude models** and **Codex models**: the only models each agent may use, one a line, such as
+  `claude-opus-5-5`. Leave a list empty to allow any. Claude Code also uses a small model, such as
+  `claude-haiku-5-5`, for quick work like reading web pages, so keep one allowed.
+- **Highest effort**: how hard models may think, such as up to high.
+
+A call goes ahead only if every budget over it has room. Codenine holds back an estimate of each
+call while it runs and counts the real cost when its reply ends, so a team of agents cannot all
+start on the last dollars; replies already running always finish, so a budget can end slightly
+over. Once a budget is used up, agents stop with a message that says which budget it was; they do
+not retry. A model or effort the rules do not allow is refused with the ones that are. Months and
+days begin at midnight in your company's time zone. With a budget set, a model Codenine has no
+price for is refused, since its cost cannot be counted.
+
+To keep a fault from running up a bill, also give each department its own workspace or project at
+the provider, with the provider's own spending limit where it offers one.
 
 ## Sign in with your identity provider
 

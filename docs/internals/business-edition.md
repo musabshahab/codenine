@@ -168,8 +168,19 @@ and API people use.
   not a reason to make the container again. Revocation happens at the gateway: a deactivated
   person, or one no longer in the department, is refused within 30 seconds.
 - **Refusals use statuses the CLIs do not retry.** Claude Code and Codex retry 408, 409, 429 and
-  5xx, so the gateway's own refusals are 401, 403 or 404, in each provider's error shape. A
-  provider's errors pass through unchanged.
+  5xx, so the gateway's own refusals are 401, 402 (a used-up budget), 403 or 404, in each
+  provider's error shape. The one exception is 429 with `retry-after` when a person has too many
+  calls running at once, which agents should wait out. A provider's errors pass through unchanged.
+- **Budgets hold an estimate while a call runs.** [`Budgets`](../../apps/control/src/gateway/Budgets.ts)
+  admits a call only if spent plus running holds plus its estimate fits every level, then swaps the
+  hold for the real cost when the reply ends, so overshoot is bounded by what running calls cost
+  beyond their estimates. The estimate assumes an agent's usual call (mostly cached prompt, a reply
+  of 8,192 tokens at most), not the longest reply allowed: Claude Code asks for 128,000, which would
+  hold back dollars per call. Totals are read from the usage table once per period and then kept in
+  memory, which assumes one control server process.
+- **Shared budgets live on the company's profile.** The company's cap and each department's budget
+  are fields of the company's layer, keyed by department, rather than of each department's: a
+  department admin can edit their own department's profile, and must not raise its total.
 - **Bodies pass through as they arrive.** The gateway asks the provider for uncompressed replies
   and reads usage from the stream as it passes, so a stream is never held back to be metered. A
   reply cut off by the workspace is recorded with what it used so far.

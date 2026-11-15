@@ -27,7 +27,12 @@ import {
 } from "../persistence/schema.ts";
 import type { WorkspaceKey } from "../workspaces/WorkspaceManager.ts";
 import { WorkspaceSizeConfig } from "../workspaces/workspaceSpec.ts";
-import { type ProfileDefaults, resolveProfile, summarizeChanges } from "./layering.ts";
+import {
+  type ProfileDefaults,
+  resolveProfile,
+  sharedBudgets,
+  summarizeChanges,
+} from "./layering.ts";
 
 const EXCEPTION_DAYS = 90;
 
@@ -166,8 +171,13 @@ const effectiveIn = (
   return resolveProfile(
     [...ids.map(layer), ...exceptions.map((exception) => exception.settings)],
     defaults,
+    sharedBudgets(layer("company"), department?.id ?? null),
   );
 };
+
+/** Shared budgets belong to the company's layer, where one place sets them all. */
+const setsSharedBudgets = (settings: ControlProfileSettings) =>
+  settings.companyMonthlyUsd !== undefined || settings.departmentMonthlyUsd !== undefined;
 
 /** What a step does to a profile, given where its versions stand. */
 type ProfileChange<E> = (current: {
@@ -502,6 +512,9 @@ export const make = Effect.gen(function* () {
       readonly testWith: ReadonlyArray<string> | null;
       readonly by: string;
     }) {
+      if (input.id !== "company" && setsSharedBudgets(input.settings)) {
+        return yield* new ControlProfileError({ reason: "company-only" });
+      }
       const scope = yield* scopeOf(input.id);
       const testWith = input.testWith;
       if (
@@ -638,6 +651,9 @@ export const make = Effect.gen(function* () {
       readonly endsAt: string;
       readonly by: string;
     }) {
+      if (setsSharedBudgets(input.settings)) {
+        return yield* new ControlProfileError({ reason: "company-only" });
+      }
       const reason = input.reason.trim();
       if (reason === "") {
         return yield* new ControlProfileError({ reason: "needs-reason" });

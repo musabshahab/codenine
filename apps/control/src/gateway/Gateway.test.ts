@@ -1,6 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
+import * as ConfigProvider from "effect/ConfigProvider";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -13,11 +14,13 @@ import * as TestClock from "effect/testing/TestClock";
 import { Accounts } from "../accounts/Accounts.ts";
 import { Departments } from "../departments/Departments.ts";
 import { LicenceService } from "../licence/LicenceService.ts";
+import { Profiles } from "../profiles/Profiles.ts";
 import { layerTestServices } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
 import * as WorkspaceTokens from "../workspaces/WorkspaceTokens.ts";
 import { AiAccounts } from "./AiAccounts.ts";
 import { AiUsage, type AiUsageRow } from "./AiUsage.ts";
+import * as Budgets from "./Budgets.ts";
 import * as Gateway from "./Gateway.ts";
 
 const encoder = new TextEncoder();
@@ -73,6 +76,7 @@ const withGateway = <A, E, R>(
     readonly asked: Array<Asked>;
     readonly rows: Queue.Queue<AiUsageRow>;
   }) => Effect.Effect<A, E, R>,
+  env: Record<string, string> = {},
 ) =>
   Effect.gen(function* () {
     const keys = yield* testKeyPair;
@@ -100,8 +104,10 @@ const withGateway = <A, E, R>(
               AiUsage.of({ record: (row) => Queue.offer(rows, row).pipe(Effect.asVoid) }),
             ),
           ),
+          Layer.provideMerge(Budgets.layer),
           Layer.provideMerge(WorkspaceTokens.layer),
           Layer.provideMerge(layerTestServices(keys.publicKey)),
+          Layer.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
         ),
       ),
     );
@@ -150,6 +156,19 @@ const readAll = (reply: Gateway.GatewayReply) =>
   reply.body instanceof Uint8Array
     ? Effect.succeed(decoder.decode(reply.body))
     : Stream.mkString(Stream.decodeText(reply.body)).pipe(Effect.orDie);
+
+/** A status and the parsed error body, as the agent sees a refusal. */
+const refusal = (reply: Gateway.GatewayReply) =>
+  readAll(reply).pipe(Effect.map((text) => ({ status: reply.status, body: JSON.parse(text) })));
+
+/** A version of a profile that everyone gets at once. */
+const setProfile = (
+  id: "company" | `department:${string}`,
+  settings: Parameters<(typeof Profiles.Service)["save"]>[0]["settings"],
+) =>
+  Effect.gen(function* () {
+    yield* (yield* Profiles).save({ id, settings, note: "", testWith: null, by: "test" });
+  });
 
 describe("Gateway", () => {
   it.effect("passes a stream on unchanged with the company's key, then records its cost", () =>
@@ -385,6 +404,167 @@ describe("Gateway", () => {
           expect(yield* refusedWith(ada.token)).toEqual([403, "permission_error"]);
           expect(asked).toEqual([]);
         }),
+    ),
+  );
+
+  it.effect("keeps calls to the models and effort the rules allow, and records each refusal", () =>
+    withGateway(
+      () => sse([START, REST]),
+      ({ asked, rows }) =>
+        Effect.gen(function* () {
+          yield* companyAccount;
+          const ada = yield* adaInDesign;
+          yield* setProfile(`department:${ada.departmentId}`, {
+            claudeModels: ["claude-haiku-5-5", "claude-opus-5-5"],
+            effort: "high",
+          });
+          const gateway = yield* Gateway.Gateway;
+          const call = (body: object) =>
+            gateway.claude({
+              ...messages(ada.token),
+              body: encoder.encode(JSON.stringify({ stream: true, max_tokens: 8, ...body })),
+            });
+
+          const fable = yield* refusal(yield* call({ model: "claude-fable-5-2" }));
+          expect(fable).toMatchObject({
+            status: 403,
+            body: { error: { type: "permission_error" } },
+          });
+          expect(fable.body.error.message).toContain("claude-haiku-5-5, claude-opus-5-5");
+          const max = yield* refusal(
+            yield* call({ model: "claude-opus-5-5", output_config: { effort: "max" } }),
+          );
+          expect(max.status).toBe(403);
+          expect(max.body.error.message).toContain("effort up to high");
+          // The newest message's own effort counts as much as the call's.
+          const newest = yield* call({
+            model: "claude-opus-5-5",
+            output_config: { effort: "high" },
+            messages: [{ role: "user", content: "Hi", output_config: { effort: "xhigh" } }],
+          });
+          expect(newest.status).toBe(403);
+          expect(asked).toEqual([]);
+
+          // A dated name of an allowed model is the same model.
+          const allowed = yield* call({
+            model: "claude-opus-5-5-20261101",
+            output_config: { effort: "high" },
+          });
+          expect(allowed.status).toBe(200);
+          yield* readAll(allowed);
+
+          const recorded = yield* Effect.forEach([1, 2, 3, 4], () => Queue.take(rows));
+          expect(
+            recorded.map(({ outcome, refusal, status }) => [outcome, refusal, status]).toSorted(),
+          ).toEqual([
+            ["ok", null, 200],
+            ["refused", "effort", 403],
+            ["refused", "effort", 403],
+            ["refused", "model", 403],
+          ]);
+        }),
+    ),
+  );
+
+  it.effect("stops at a person's budget with a final billing error, after the reply running", () =>
+    withGateway(
+      () => sse([START, REST]),
+      ({ asked, rows }) =>
+        Effect.gen(function* () {
+          yield* companyAccount;
+          yield* (yield* AiAccounts).create({
+            name: "OpenAI",
+            kind: "openai",
+            baseUrl: null,
+            priceAdjustment: 0,
+            isDefault: true,
+            apiKey: "sk-openai-company-key",
+          });
+          const ada = yield* adaInDesign;
+          yield* setProfile("company", { monthlyUsd: 0.02 });
+          const gateway = yield* Gateway.Gateway;
+
+          // Under a budget, a model with no price cannot be counted, so it does not run.
+          const unpriced = yield* refusal(
+            yield* gateway.claude({
+              ...messages(ada.token),
+              body: encoder.encode(JSON.stringify({ model: "claude-opus-9", max_tokens: 8 })),
+            }),
+          );
+          expect(unpriced).toMatchObject({ status: 403 });
+          expect(unpriced.body.error.message).toContain("no price for claude-opus-9");
+
+          // The first call's estimate fits; its reply, which costs more, runs to its end.
+          expect(yield* readAll(yield* gateway.claude(messages(ada.token)))).toBe(START + REST);
+          const claude = yield* refusal(yield* gateway.claude(messages(ada.token)));
+          expect(claude).toEqual({
+            status: 402,
+            body: {
+              type: "error",
+              error: {
+                type: "billing_error",
+                message:
+                  "You have used your AI budget for this month ($0.02). Ask your department admin if you need more.",
+              },
+            },
+          });
+          const codex = yield* refusal(
+            yield* gateway.codex({
+              method: "POST",
+              path: "/v1/responses",
+              search: "",
+              headers: Headers.fromInput({ authorization: `Bearer ${ada.token}` }),
+              body: encoder.encode(JSON.stringify({ model: "gpt-5.5", stream: true })),
+            }),
+          );
+          expect(codex).toMatchObject({
+            status: 402,
+            body: { error: { type: "budget_exceeded", code: "budget_exceeded" } },
+          });
+          expect(asked).toHaveLength(1);
+
+          const recorded = yield* Effect.forEach([1, 2, 3, 4], () => Queue.take(rows));
+          expect(
+            recorded
+              .map(({ outcome, refusal, costMicros }) => [outcome, refusal, costMicros])
+              .toSorted(),
+          ).toEqual([
+            ["ok", null, 24_088],
+            ["refused", "person-month", 0],
+            ["refused", "person-month", 0],
+            ["refused", "unpriced", 0],
+          ]);
+        }),
+    ),
+  );
+
+  it.effect("lets one person run only so many calls at once, asking the rest to wait", () =>
+    withGateway(
+      () => sse([START], false),
+      () =>
+        Effect.gen(function* () {
+          yield* companyAccount;
+          const ada = yield* adaInDesign;
+          const gateway = yield* Gateway.Gateway;
+          const first = yield* gateway.claude(messages(ada.token));
+          expect(first.status).toBe(200);
+
+          const second = yield* gateway.claude(messages(ada.token));
+          expect(second.status).toBe(429);
+          expect(second.headers["retry-after"]).toBe("2");
+          expect((yield* refusal(second)).body.error.type).toBe("rate_limit_error");
+
+          // When the first reply stops, its place is free again.
+          const started = yield* Deferred.make<void>();
+          const reading = yield* Stream.runForEach(
+            first.body instanceof Uint8Array ? Stream.empty : first.body,
+            () => Deferred.succeed(started, undefined),
+          ).pipe(Effect.forkChild);
+          yield* Deferred.await(started);
+          yield* Fiber.interrupt(reading);
+          expect((yield* gateway.claude(messages(ada.token))).status).toBe(200);
+        }),
+      { CODENINE_CONTROL_GATEWAY_PARALLEL_CALLS: "1" },
     ),
   );
 });

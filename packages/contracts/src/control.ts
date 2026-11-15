@@ -191,8 +191,44 @@ export class ControlDepartmentError extends Schema.TaggedError<ControlDepartment
 /** A host name, or with a leading dot, a domain and everything under it. */
 export const ControlHost = Schema.String.check(Schema.isPattern(/^\.?[a-z0-9-]+(\.[a-z0-9-]+)+$/u));
 
-export const ControlProfileScalar = Schema.Literals(["image", "cpus", "memoryGb", "sleepMinutes"]);
+/** Settings a layer can lock, so the layers below cannot change them. */
+export const ControlProfileScalar = Schema.Literals([
+  "image",
+  "cpus",
+  "memoryGb",
+  "sleepMinutes",
+  "claudeModels",
+  "codexModels",
+  "effort",
+  "monthlyUsd",
+  "dailyUsd",
+]);
 export type ControlProfileScalar = typeof ControlProfileScalar.Type;
+
+/** An amount in US dollars, as the providers bill. */
+export const ControlUsd = Schema.Number.check(
+  Schema.isGreaterThanOrEqualTo(0),
+  Schema.isLessThanOrEqualTo(100_000_000),
+);
+
+/** How hard a model may think, lowest first. Claude and OpenAI name their levels alike. */
+export const ControlAiEffort = Schema.Literals(["low", "medium", "high", "xhigh", "max"]);
+export type ControlAiEffort = typeof ControlAiEffort.Type;
+
+/** Why the AI gateway refused a call: a budget that was used up, or a rule. */
+export const ControlAiRefusal = Schema.Literals([
+  "person-month",
+  "person-day",
+  "department-month",
+  "company-month",
+  "model",
+  "effort",
+  "unpriced",
+]);
+export type ControlAiRefusal = typeof ControlAiRefusal.Type;
+
+/** A model as the providers name it, such as `claude-opus-5-5` or `gpt-5.5`. */
+export const ControlAiModel = Schema.String.check(Schema.isPattern(/^[a-z0-9][\w.:@/-]*$/u));
 
 /**
  * One layer of a workspace profile: the company's, a department's, a team's or
@@ -218,6 +254,20 @@ export const ControlProfileSettings = Schema.Struct({
   allowHosts: Schema.optionalKey(Schema.Array(ControlHost)),
   /** Hosts no layer below can allow, from the installation's list too. */
   blockHosts: Schema.optionalKey(Schema.Array(ControlHost)),
+  /** The only models Claude may use. */
+  claudeModels: Schema.optionalKey(Schema.Array(ControlAiModel).check(Schema.isMinLength(1))),
+  /** The only models Codex may use. */
+  codexModels: Schema.optionalKey(Schema.Array(ControlAiModel).check(Schema.isMinLength(1))),
+  /** The highest effort a call may ask for. */
+  effort: Schema.optionalKey(ControlAiEffort),
+  /** What each person may spend on AI in a month. */
+  monthlyUsd: Schema.optionalKey(ControlUsd),
+  /** What each person may spend on AI in a day, to stop an agent stuck in a loop. */
+  dailyUsd: Schema.optionalKey(ControlUsd),
+  /** The company's profile only: what everyone may spend on AI in a month together. */
+  companyMonthlyUsd: Schema.optionalKey(ControlUsd),
+  /** The company's profile only: what each department's people may spend in a month together, by department id. */
+  departmentMonthlyUsd: Schema.optionalKey(Schema.Record(Schema.String, ControlUsd)),
   /** Settings the layers below cannot change. */
   lock: Schema.optionalKey(Schema.Array(ControlProfileScalar)),
 });
@@ -234,8 +284,37 @@ export const ControlEffectiveProfile = Schema.Struct({
   /** Beyond the installation's list. */
   allowHosts: Schema.Array(Schema.String),
   blockHosts: Schema.Array(Schema.String),
+  /** Null where any model may be used. */
+  claudeModels: Schema.NullOr(Schema.Array(Schema.String)),
+  codexModels: Schema.NullOr(Schema.Array(Schema.String)),
+  effort: Schema.NullOr(ControlAiEffort),
+  /** Budgets in US dollars; null where there is no limit. */
+  monthlyUsd: Schema.NullOr(Schema.Number),
+  dailyUsd: Schema.NullOr(Schema.Number),
+  /** What the person's department may spend in a month, together. */
+  departmentMonthlyUsd: Schema.NullOr(Schema.Number),
+  companyMonthlyUsd: Schema.NullOr(Schema.Number),
 });
 export type ControlEffectiveProfile = typeof ControlEffectiveProfile.Type;
+
+/** The effective settings a preview lists changes to. */
+export const ControlProfileSetting = Schema.Literals([
+  "image",
+  "cpus",
+  "memoryGb",
+  "sleepMinutes",
+  "terminal",
+  "allowHosts",
+  "blockHosts",
+  "claudeModels",
+  "codexModels",
+  "effort",
+  "monthlyUsd",
+  "dailyUsd",
+  "departmentMonthlyUsd",
+  "companyMonthlyUsd",
+]);
+export type ControlProfileSetting = typeof ControlProfileSetting.Type;
 
 /** `company`, `department:<id>` or `team:<id>`. */
 export const ControlProfileId = Schema.String.check(
@@ -271,19 +350,11 @@ export type ControlProfile = typeof ControlProfile.Type;
 export const ControlProfilePreview = Schema.Struct({
   /** Everyone the profile applies to. */
   people: NonNegativeInt,
-  /** Of them, those whose workspace would change. */
+  /** Of them, those whose workspace or AI rules would change. */
   affected: NonNegativeInt,
   changes: Schema.Array(
     Schema.Struct({
-      setting: Schema.Literals([
-        "image",
-        "cpus",
-        "memoryGb",
-        "sleepMinutes",
-        "terminal",
-        "allowHosts",
-        "blockHosts",
-      ]),
+      setting: ControlProfileSetting,
       people: NonNegativeInt,
       /** Values or hosts some people lose, and those they gain. */
       removed: Schema.Array(Schema.String),
@@ -317,6 +388,7 @@ export class ControlProfileError extends Schema.TaggedError<ControlProfileError>
       "outside-profile",
       "needs-reason",
       "invalid-end",
+      "company-only",
     ]),
   },
   { httpApiStatus: 400 },
@@ -335,6 +407,8 @@ export class ControlProfileError extends Schema.TaggedError<ControlProfileError>
         return "Say why the exception is needed.";
       case "invalid-end":
         return "An exception ends within 90 days.";
+      case "company-only":
+        return "The company's and departments' AI budgets are set on the company profile.";
     }
   }
 }

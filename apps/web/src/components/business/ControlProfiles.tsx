@@ -1,4 +1,5 @@
 import type {
+  ControlAiEffort,
   ControlDepartment,
   ControlPerson,
   ControlProfile,
@@ -28,6 +29,16 @@ interface Draft {
   /** One host a line; a leading dot covers a domain and everything under it. */
   readonly allowHosts: string;
   readonly blockHosts: string;
+  /** One model a line; empty for any. */
+  readonly claudeModels: string;
+  readonly codexModels: string;
+  readonly effort: ControlAiEffort | "any";
+  /** Dollars, as typed. */
+  readonly monthlyUsd: string;
+  readonly dailyUsd: string;
+  /** The company's profile only. */
+  readonly companyMonthlyUsd: string;
+  readonly departmentMonthlyUsd: Readonly<Record<string, string>>;
   readonly lock: ReadonlyArray<ControlProfileScalar>;
 }
 
@@ -36,7 +47,21 @@ const LOCKABLE: ReadonlyArray<readonly [ControlProfileScalar, string]> = [
   ["cpus", "CPUs"],
   ["memoryGb", "Memory"],
   ["sleepMinutes", "Sleep"],
+  ["claudeModels", "Claude models"],
+  ["codexModels", "Codex models"],
+  ["effort", "Effort"],
+  ["monthlyUsd", "Monthly budget"],
+  ["dailyUsd", "Daily budget"],
 ];
+
+const EFFORTS: Record<ControlAiEffort | "any", string> = {
+  any: "Any effort",
+  low: "Effort up to low",
+  medium: "Effort up to medium",
+  high: "Effort up to high",
+  xhigh: "Effort up to extra high",
+  max: "Effort up to max",
+};
 
 const SETTING_NAMES: Record<string, string> = {
   image: "Image",
@@ -46,9 +71,20 @@ const SETTING_NAMES: Record<string, string> = {
   terminal: "Terminal",
   allowHosts: "Allowed sites",
   blockHosts: "Blocked sites",
+  claudeModels: "Claude models",
+  codexModels: "Codex models",
+  effort: "Highest effort",
+  monthlyUsd: "Monthly AI budget",
+  dailyUsd: "Daily AI budget",
+  departmentMonthlyUsd: "Department's AI budget",
+  companyMonthlyUsd: "Company's AI budget",
 };
 
 const HOST = /^\.?[a-z0-9-]+(\.[a-z0-9-]+)+$/u;
+const MODEL = /^[a-z0-9][\w.:@/-]*$/u;
+
+const lines = (values: ReadonlyArray<string> | undefined) => (values ?? []).join("\n");
+const amount = (value: number | undefined) => (value === undefined ? "" : String(value));
 
 const draftOf = (settings: ControlProfileSettings): Draft => ({
   image: settings.image ?? "",
@@ -58,6 +94,15 @@ const draftOf = (settings: ControlProfileSettings): Draft => ({
   blockTerminal: settings.terminal === "block",
   allowHosts: (settings.allowHosts ?? []).join("\n"),
   blockHosts: (settings.blockHosts ?? []).join("\n"),
+  claudeModels: lines(settings.claudeModels),
+  codexModels: lines(settings.codexModels),
+  effort: settings.effort ?? "any",
+  monthlyUsd: amount(settings.monthlyUsd),
+  dailyUsd: amount(settings.dailyUsd),
+  companyMonthlyUsd: amount(settings.companyMonthlyUsd),
+  departmentMonthlyUsd: Object.fromEntries(
+    Object.entries(settings.departmentMonthlyUsd ?? {}).map(([id, usd]) => [id, String(usd)]),
+  ),
   lock: settings.lock ?? [],
 });
 
@@ -83,6 +128,31 @@ const settingsOf = (draft: Draft): ControlProfileSettings | string => {
   if (wrong !== undefined) {
     return `${wrong} is not a host name. Write one like git.acme.com, or .acme.com for a whole domain.`;
   }
+  const claudeModels = hosts(draft.claudeModels);
+  const codexModels = hosts(draft.codexModels);
+  const odd = [...claudeModels, ...codexModels].find((model) => !MODEL.test(model));
+  if (odd !== undefined) {
+    return `${odd} is not a model name. Write one as the provider names it, such as claude-opus-5-5.`;
+  }
+  const dollars = (text: string, name: string) => {
+    if (text.trim() === "") return undefined;
+    const value = Number(text.trim().replace(/^\$/u, ""));
+    return Number.isFinite(value) && value >= 0
+      ? Math.round(value * 100) / 100
+      : `${name} must be an amount in dollars.`;
+  };
+  const monthlyUsd = dollars(draft.monthlyUsd, "The monthly budget");
+  const dailyUsd = dollars(draft.dailyUsd, "The daily budget");
+  const companyMonthlyUsd = dollars(draft.companyMonthlyUsd, "The company's budget");
+  const departmentMonthlyUsd: Record<string, number> = {};
+  for (const [id, text] of Object.entries(draft.departmentMonthlyUsd)) {
+    const value = dollars(text, "A department's budget");
+    if (typeof value === "string") return value;
+    if (value !== undefined) departmentMonthlyUsd[id] = value;
+  }
+  for (const value of [monthlyUsd, dailyUsd, companyMonthlyUsd]) {
+    if (typeof value === "string") return value;
+  }
   return {
     ...(draft.image.trim() === "" ? {} : { image: draft.image.trim() }),
     ...(typeof cpus === "number" ? { cpus } : {}),
@@ -91,12 +161,22 @@ const settingsOf = (draft: Draft): ControlProfileSettings | string => {
     ...(draft.blockTerminal ? { terminal: "block" as const } : {}),
     ...(allowHosts.length === 0 ? {} : { allowHosts }),
     ...(blockHosts.length === 0 ? {} : { blockHosts }),
+    ...(claudeModels.length === 0 ? {} : { claudeModels }),
+    ...(codexModels.length === 0 ? {} : { codexModels }),
+    ...(draft.effort === "any" ? {} : { effort: draft.effort }),
+    ...(typeof monthlyUsd === "number" ? { monthlyUsd } : {}),
+    ...(typeof dailyUsd === "number" ? { dailyUsd } : {}),
+    ...(typeof companyMonthlyUsd === "number" ? { companyMonthlyUsd } : {}),
+    ...(Object.keys(departmentMonthlyUsd).length === 0 ? {} : { departmentMonthlyUsd }),
     ...(draft.lock.length === 0 ? {} : { lock: [...draft.lock] }),
   };
 };
 
 /** One line for a layer's settings, as the history and exceptions show them. */
-const describe = (settings: ControlProfileSettings) =>
+const describe = (
+  settings: ControlProfileSettings,
+  departmentName: (id: string) => string = (id) => id,
+) =>
   [
     settings.image === undefined ? null : `image ${settings.image}`,
     settings.cpus === undefined ? null : `${settings.cpus} CPUs`,
@@ -105,6 +185,19 @@ const describe = (settings: ControlProfileSettings) =>
     settings.terminal === "block" ? "no terminal" : null,
     settings.allowHosts === undefined ? null : `allows ${settings.allowHosts.join(", ")}`,
     settings.blockHosts === undefined ? null : `blocks ${settings.blockHosts.join(", ")}`,
+    settings.claudeModels === undefined ? null : `Claude on ${settings.claudeModels.join(", ")}`,
+    settings.codexModels === undefined ? null : `Codex on ${settings.codexModels.join(", ")}`,
+    settings.effort === undefined ? null : `effort up to ${settings.effort}`,
+    settings.monthlyUsd === undefined ? null : `$${settings.monthlyUsd} a month each`,
+    settings.dailyUsd === undefined ? null : `$${settings.dailyUsd} a day each`,
+    settings.companyMonthlyUsd === undefined
+      ? null
+      : `$${settings.companyMonthlyUsd} a month for everyone`,
+    settings.departmentMonthlyUsd === undefined
+      ? null
+      : Object.entries(settings.departmentMonthlyUsd)
+          .map(([id, usd]) => `$${usd} a month for ${departmentName(id)}`)
+          .join(", "),
     settings.lock === undefined ? null : `locks ${settings.lock.join(", ")}`,
   ]
     .filter((part) => part !== null)
@@ -114,10 +207,13 @@ function SettingsFields({
   draft,
   onChange,
   withLocks,
+  sharedBudgets,
 }: {
   readonly draft: Draft;
   readonly onChange: (next: Partial<Draft>) => void;
   readonly withLocks: boolean;
+  /** On the company's profile, the departments whose shared budgets it sets. */
+  readonly sharedBudgets: ReadonlyArray<ControlDepartment> | null;
 }) {
   const number = (key: "cpus" | "memoryGb" | "sleepMinutes", label: string) => (
     <Input
@@ -168,6 +264,93 @@ function SettingsFields({
         />
         Block the terminal
       </label>
+      <p className="pt-1 text-sm font-medium">AI</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Textarea
+          aria-label="Claude models"
+          onChange={(event) => onChange({ claudeModels: event.currentTarget.value })}
+          placeholder={"The only Claude models allowed, one a line, such as\nclaude-opus-5-5"}
+          size="sm"
+          spellCheck={false}
+          value={draft.claudeModels}
+        />
+        <Textarea
+          aria-label="Codex models"
+          onChange={(event) => onChange({ codexModels: event.currentTarget.value })}
+          placeholder={"The only Codex models allowed, one a line, such as\ngpt-5.5"}
+          size="sm"
+          spellCheck={false}
+          value={draft.codexModels}
+        />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Select
+          items={EFFORTS}
+          onValueChange={(value) => {
+            if (typeof value === "string" && value in EFFORTS) {
+              onChange({ effort: value as Draft["effort"] });
+            }
+          }}
+          value={draft.effort}
+        >
+          <SelectTrigger aria-label="Highest effort" size="sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            {Object.entries(EFFORTS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+        <Input
+          aria-label="Monthly budget for each person"
+          inputMode="decimal"
+          onChange={(event) => onChange({ monthlyUsd: event.currentTarget.value })}
+          placeholder="Each person, $ a month"
+          size="sm"
+          value={draft.monthlyUsd}
+        />
+        <Input
+          aria-label="Daily budget for each person"
+          inputMode="decimal"
+          onChange={(event) => onChange({ dailyUsd: event.currentTarget.value })}
+          placeholder="Each person, $ a day"
+          size="sm"
+          value={draft.dailyUsd}
+        />
+      </div>
+      {sharedBudgets === null ? null : (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Input
+            aria-label="Company's monthly AI budget"
+            inputMode="decimal"
+            onChange={(event) => onChange({ companyMonthlyUsd: event.currentTarget.value })}
+            placeholder="Everyone together, $ a month"
+            size="sm"
+            value={draft.companyMonthlyUsd}
+          />
+          {sharedBudgets.map((department) => (
+            <Input
+              aria-label={`${department.name}'s monthly AI budget`}
+              inputMode="decimal"
+              key={department.id}
+              onChange={(event) =>
+                onChange({
+                  departmentMonthlyUsd: {
+                    ...draft.departmentMonthlyUsd,
+                    [department.id]: event.currentTarget.value,
+                  },
+                })
+              }
+              placeholder={`${department.name} together, $ a month`}
+              size="sm"
+              value={draft.departmentMonthlyUsd[department.id] ?? ""}
+            />
+          ))}
+        </div>
+      )}
       {withLocks ? (
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="text-muted-foreground">Layers below cannot change:</span>
@@ -218,6 +401,8 @@ export function ProfilesSection({
   const [problem, setProblem] = useState("");
   const byId = new Map(people.map((person) => [person.id, person]));
   const nameOf = (personId: string) => byId.get(personId)?.displayName ?? personId;
+  const departmentName = (id: string) =>
+    departments.find((department) => department.id === id)?.name ?? id;
 
   const choose = (id: string) => {
     const profile = profiles.find((candidate) => candidate.id === id);
@@ -279,7 +464,9 @@ export function ProfilesSection({
       <p className="mt-2 text-sm text-muted-foreground">
         Workspaces are made from the company's profile, then their department's, then their teams'.
         A layer cannot change what one above locked, lift a blocked terminal, or allow a site one
-        above blocked. A new size or image reaches each workspace when it next starts.
+        above blocked. A new size or image reaches each workspace when it next starts; AI rules and
+        budgets apply to calls within a minute. Budgets are in US dollars, the company's and each
+        department's set on the company's profile.
       </p>
       <div className="mt-3 w-64">
         <Select
@@ -344,7 +531,12 @@ export function ProfilesSection({
           void save(false);
         }}
       >
-        <SettingsFields draft={draft} onChange={change} withLocks />
+        <SettingsFields
+          draft={draft}
+          onChange={change}
+          sharedBudgets={chosen.id === "company" ? departments : null}
+          withLocks
+        />
         <Input
           aria-label="What changed"
           onChange={(event) => setNote(event.currentTarget.value)}
@@ -364,7 +556,7 @@ export function ProfilesSection({
             <AlertDescription>
               {preview.affected === 0
                 ? `It changes nothing for the ${preview.people} people it reaches.`
-                : `It changes the workspaces of ${preview.affected} of ${preview.people} people: ${preview.changes
+                : `It changes what ${preview.affected} of ${preview.people} people get: ${preview.changes
                     .map(
                       (changed) =>
                         `${SETTING_NAMES[changed.setting] ?? changed.setting} for ${changed.people} (${[
@@ -412,7 +604,7 @@ export function ProfilesSection({
             ) : null}
             <span className="text-muted-foreground">
               {" "}
-              · {describe(version.settings)} · {version.createdBy},{" "}
+              · {describe(version.settings, departmentName)} · {version.createdBy},{" "}
               {new Date(version.createdAt).toLocaleString()}
               {version.note === "" ? "" : ` · ${version.note}`}
             </span>
@@ -583,6 +775,7 @@ function ExceptionsPart({
         <SettingsFields
           draft={draft}
           onChange={(next) => setDraft((before) => ({ ...before, ...next }))}
+          sharedBudgets={null}
           withLocks={false}
         />
         <div className="flex flex-wrap gap-2">
