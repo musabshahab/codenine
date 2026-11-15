@@ -1,0 +1,189 @@
+# The cluster side of one workspace per person on Kubernetes: the control
+# server's rights, the egress proxy, and the network rules that keep each
+# workspace to itself. Apply it once; "One workspace per person on Kubernetes"
+# in docs/user/business-installation.md has the rest. Set the proxy's image to
+# the workspace image in your registry first.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: codenine
+---
+# The control server runs as this account, with the label
+# app.kubernetes.io/name: codenine-control, so workspaces accept it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codenine-control
+  namespace: codenine
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codenine-control
+  namespace: codenine
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codenine-control
+  namespace: codenine
+subjects:
+  - kind: ServiceAccount
+    name: codenine-control
+    namespace: codenine
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codenine-control
+---
+# Squid from the workspace image, with the settings in the codenine-egress
+# ConfigMap that `workspace egress-config` prints.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codenine-egress
+  namespace: codenine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: codenine-egress
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: codenine-egress
+        app.kubernetes.io/part-of: codenine
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: squid
+          image: registry.example.com/codenine-workspace:1.0.0
+          command: ["/usr/sbin/squid", "-N", "-f", "/etc/codenine-egress/squid.conf"]
+          ports:
+            - containerPort: 3128
+          resources:
+            limits:
+              cpu: "1"
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/codenine-egress
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: codenine-egress
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: codenine-egress
+  namespace: codenine
+spec:
+  selector:
+    app.kubernetes.io/name: codenine-egress
+  ports:
+    - port: 3128
+      targetPort: 3128
+---
+# Workspaces take connections only from the control server, and reach only the
+# egress proxy and DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: codenine-workspaces
+  namespace: codenine
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: codenine-workspace
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: codenine-control
+      ports:
+        - port: 3773
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: codenine-egress
+      ports:
+        - port: 3128
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# The proxy takes connections only from workspaces. It may reach any address on
+# the web ports, but forwards only to the hosts its settings name.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: codenine-egress
+  namespace: codenine
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: codenine-egress
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: codenine-workspace
+      ports:
+        - port: 3128
+          protocol: TCP
+  egress:
+    - ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

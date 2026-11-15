@@ -2,8 +2,8 @@
 
 The control server is the front door of a self-hosted business installation. It keeps the
 company's records in PostgreSQL, checks the licence key and holds local accounts: a password and
-a passkey or authenticator app for each person. With `CODENINE_CONTROL_WORKSPACE_DRIVER=docker`
-it starts a workspace container for each person, from the image in
+a passkey or authenticator app for each person. With `CODENINE_CONTROL_WORKSPACE_DRIVER` set to
+`docker` or `kubernetes` it starts a workspace for each person, from the image in
 [`images/workspace`](../../images/workspace); [Running Codenine for a team](../../docs/user/business-installation.md)
 lists its settings. Later phases add single sign-on and roles.
 

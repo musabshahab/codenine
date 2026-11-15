@@ -45,11 +45,11 @@ address.
 
 ## Choose where agents work
 
-The control server can start a workspace for each person in Docker, or pass everyone to one
-workspace server the team shares. Give each person their own unless everyone trusts each other:
-in a shared workspace, anyone's agents can reach everyone's files.
+The control server can start a workspace for each person in Docker or on Kubernetes, or pass
+everyone to one workspace server the team shares. Give each person their own unless everyone
+trusts each other: in a shared workspace, anyone's agents can reach everyone's files.
 
-### One workspace per person
+### One workspace per person in Docker
 
 The control server starts a person's workspace the first time they open Codenine, which takes a
 few seconds. Each has its own volume for the person's projects, settings and agent sign-ins, its
@@ -111,6 +111,47 @@ one rebuilt under the same tag, and changes to these settings reach each workspa
 it wakes; one that is awake keeps running as it is. To move someone sooner, stop their container
 with `docker stop` while their agents are idle. A change to the allowed hosts replaces the proxy
 the next time any workspace starts, which interrupts downloads under way.
+
+### One workspace per person on Kubernetes
+
+Workspaces work the same way on Kubernetes: one pod per person on their own volume claim, locked
+down as in Docker, sleeping when idle, and reaching out only through the egress proxy. The cluster
+needs a network plugin that enforces NetworkPolicy, and the control server must run in it, in the
+`codenine` namespace as the `codenine-control` service account, with the label
+`app.kubernetes.io/name: codenine-control`.
+
+Build the workspace image as above and push it to a registry the cluster can pull from. In
+[`images/workspace/kubernetes.yaml`](../../images/workspace/kubernetes.yaml), set the egress
+proxy's image to it, then apply the file, which sets up the namespace, the control server's
+rights, the proxy and the network rules:
+
+```bash
+kubectl apply -f images/workspace/kubernetes.yaml
+```
+
+Give the proxy its settings from the control server's allowed hosts:
+
+```bash
+node apps/control/src/bin.ts workspace egress-config > squid.conf
+```
+
+```bash
+kubectl -n codenine create configmap codenine-egress --from-file=squid.conf
+```
+
+Set the same settings as for Docker on the control server, with
+`CODENINE_CONTROL_WORKSPACE_DRIVER` set to `kubernetes` and the image's registry path, plus:
+
+- `CODENINE_CONTROL_WORKSPACE_DISK_GB` (optional): each person's volume claim, 20 GB unless set.
+- `CODENINE_CONTROL_WORKSPACE_STORAGE_CLASS` (optional): the storage class for those claims.
+- `CODENINE_CONTROL_KUBERNETES_NAMESPACE` (optional): where workspaces run, the control server's
+  own namespace unless set.
+
+Each workspace requests a quarter of its CPU and memory limits, so idle ones pack onto fewer nodes.
+Pods are named `codenine-<person ID>` and claims end in `-home`, with dashes for underscores. A
+workspace that sleeps ends its pod, and the next visit starts a new pod from the current image and
+settings. To change the allowed hosts, print the settings again, replace the ConfigMap, and run
+`kubectl -n codenine rollout restart deployment/codenine-egress`.
 
 ### One shared workspace server
 

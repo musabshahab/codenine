@@ -25,6 +25,7 @@ import { Mailer } from "./mail/Mailer.ts";
 import * as WorkspaceDriver from "./workspaces/WorkspaceDriver.ts";
 import * as WorkspaceProxy from "./workspaces/WorkspaceProxy.ts";
 import * as WorkspaceRetention from "./workspaces/WorkspaceRetention.ts";
+import { allowedHostsFromConfig, egressProxyConfig } from "./workspaces/workspaceSpec.ts";
 import * as WorkspaceTokensModule from "./workspaces/WorkspaceTokens.ts";
 
 const layerControl = Licence.layer.pipe(
@@ -195,6 +196,16 @@ const workspaceKeyCommand = Command.make("key", {}, () =>
   Command.withDescription("Print what a workspace server needs to trust this control server."),
 );
 
+const workspaceEgressConfigCommand = Command.make("egress-config", {}, () =>
+  Effect.gen(function* () {
+    yield* Console.log(egressProxyConfig(yield* allowedHostsFromConfig));
+  }),
+).pipe(
+  Command.withDescription(
+    "Print the egress proxy's settings for the allowed hosts, for a Kubernetes ConfigMap.",
+  ),
+);
+
 const controlCommand = Command.make("codenine-control").pipe(
   Command.withDescription("The Codenine control server for business installations."),
   Command.withSubcommands([
@@ -205,7 +216,7 @@ const controlCommand = Command.make("codenine-control").pipe(
     ),
     Command.make("workspace").pipe(
       Command.withDescription("Connect workspace servers to this control server."),
-      Command.withSubcommands([workspaceKeyCommand]),
+      Command.withSubcommands([workspaceKeyCommand, workspaceEgressConfigCommand]),
     ),
     Command.make("people").pipe(
       Command.withDescription("Invite the first owner and recover locked-out people."),

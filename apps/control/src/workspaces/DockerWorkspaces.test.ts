@@ -27,6 +27,7 @@ import { DockerEngine } from "./DockerEngine.ts";
 import * as DockerWorkspaces from "./DockerWorkspaces.ts";
 import { WorkspaceManager } from "./WorkspaceManager.ts";
 import * as WorkspaceTokens from "./WorkspaceTokens.ts";
+import { WORKSPACE_HOME, WorkspaceDialPort } from "./workspaceSpec.ts";
 
 interface CreatedContainer {
   readonly name: string;
@@ -317,7 +318,7 @@ const withDockerWorkspaces = <A, E>(
     const manager = Layer.effect(WorkspaceManager, DockerWorkspaces.make).pipe(
       Layer.provide(DockerEngine.layerSocket(socketPath)),
       Layer.provide(NodeHttpClient.layerUndici),
-      Layer.provide(Layer.succeed(DockerWorkspaces.WorkspaceDialPort, workspacePort)),
+      Layer.provide(Layer.succeed(WorkspaceDialPort, workspacePort)),
       Layer.provideMerge(WorkspaceTokens.layer),
       Layer.provideMerge(layerTestServices(keys.publicKey)),
       Layer.provide(
@@ -363,7 +364,7 @@ describe("DockerWorkspaces", () => {
           ]),
         );
         expect(container?.body.HostConfig).toMatchObject({
-          Mounts: [{ Type: "volume", Source: ada.volume, Target: DockerWorkspaces.WORKSPACE_HOME }],
+          Mounts: [{ Type: "volume", Source: ada.volume, Target: WORKSPACE_HOME }],
           NetworkMode: ada.network,
           ReadonlyRootfs: true,
           SecurityOpt: ["no-new-privileges"],

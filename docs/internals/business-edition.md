@@ -35,7 +35,9 @@ checks key ID, signature, type, issuer, audience and time.
   workspace must be reachable only from the control server. The Docker driver publishes no port:
   each workspace sits alone on an internal network that only the Docker host can reach, which is
   why the control server must run there, and it reaches out only through the installation's egress
-  proxy, which allows the hosts on a list by name and never a bare address.
+  proxy, which allows the hosts on a list by name and never a bare address. On Kubernetes, the
+  NetworkPolicies in [`kubernetes.yaml`](../../images/workspace/kubernetes.yaml) hold workspaces to
+  the same rules, so they depend on a network plugin that enforces them.
 - **The control server answers its own routes under `/control`**, so it never shadows a
   workspace route.
 - **Forwarding keeps compression.** HTTP bodies pass through as the workspace compressed them

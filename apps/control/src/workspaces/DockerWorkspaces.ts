@@ -1,11 +1,7 @@
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
-import * as Cache from "effect/Cache";
-import * as Config from "effect/Config";
-import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
@@ -15,19 +11,20 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
 import { Installation } from "../installation/Installation.ts";
 import { type ContainerSpec, DockerEngine } from "./DockerEngine.ts";
-import { WorkspaceManager, WorkspaceUnavailableError } from "./WorkspaceManager.ts";
+import { cachedTargets, WorkspaceManager, WorkspaceUnavailableError } from "./WorkspaceManager.ts";
 import { WorkspaceTokens } from "./WorkspaceTokens.ts";
+import {
+  allowedHostsFromConfig,
+  EGRESS_PORT,
+  egressProxyConfig,
+  WORKSPACE_HOME,
+  WORKSPACE_UID,
+  WorkspaceConfig,
+  WorkspaceDialPort,
+  workspaceEnv,
+} from "./workspaceSpec.ts";
 
-/** The port the workspace server listens on inside its container. */
-export const WORKSPACE_PORT = 3773;
-/** The port the control server dials; tests point it at a stand-in workspace. */
-export const WorkspaceDialPort = Context.Reference<number>(
-  "@codenine/control/workspaces/DockerWorkspaces/WorkspaceDialPort",
-  { defaultValue: () => WORKSPACE_PORT },
-);
-/** The person's home in the container, kept on their own volume. */
-export const WORKSPACE_HOME = "/home/codenine";
-const WORKSPACE_USER = "1000:1000";
+const WORKSPACE_USER = `${WORKSPACE_UID}:${WORKSPACE_UID}`;
 /** How long a starting workspace may take before a request gives up. */
 const START_TIMEOUT = Duration.seconds(90);
 /** Records what a container was made from, so one made from an older image or settings is made again. */
@@ -35,78 +32,7 @@ export const SPEC_LABEL = "codenine.spec";
 
 /** Workspaces reach the egress proxy by this name on their own network. */
 const EGRESS_ALIAS = "egress";
-const EGRESS_PORT = 3128;
 const EGRESS_URL = `http://${EGRESS_ALIAS}:${EGRESS_PORT}`;
-
-/** What every workspace may reach: model providers and their sign-in, GitHub, package registries. */
-export const DEFAULT_ALLOWED_HOSTS: ReadonlyArray<string> = [
-  ".anthropic.com",
-  ".claude.ai",
-  ".claude.com",
-  ".openai.com",
-  ".chatgpt.com",
-  ".github.com",
-  ".githubusercontent.com",
-  ".npmjs.org",
-  ".yarnpkg.com",
-  "pypi.org",
-  "files.pythonhosted.org",
-  ".crates.io",
-  "proxy.golang.org",
-  "sum.golang.org",
-  "repo.maven.apache.org",
-  "repo1.maven.org",
-];
-/** A host name, or with a leading dot, a domain and everything under it. */
-const HOST = /^\.?[a-z0-9-]+(\.[a-z0-9-]+)+$/u;
-
-/** The default hosts and an admin's own, leaving out any that a wider entry covers. */
-export const allowedHosts = (extra: ReadonlyArray<string>) => {
-  const all = [...new Set([...DEFAULT_ALLOWED_HOSTS, ...extra])];
-  const covers = (wide: string, host: string) =>
-    wide !== host && wide.startsWith(".") && (host === wide.slice(1) || host.endsWith(wide));
-  return all.filter((host) => !all.some((other) => covers(other, host)));
-};
-
-/** Squid allowing only those hosts, on the usual web ports, with no cache. */
-export const egressProxyConfig = (hosts: ReadonlyArray<string>) =>
-  [
-    `http_port ${EGRESS_PORT}`,
-    "pid_filename none",
-    "pinger_enable off",
-    "netdb_filename none",
-    "cache deny all",
-    "coredump_dir /tmp",
-    "access_log stdio:/dev/stdout",
-    "cache_log /dev/stderr",
-    // -n matches names only, so a request for a bare address never matches.
-    `acl allowed dstdomain -n ${hosts.join(" ")}`,
-    "acl SSL_ports port 443",
-    "acl Safe_ports port 80 443",
-    "acl CONNECT method CONNECT",
-    "http_access deny !Safe_ports",
-    "http_access deny CONNECT !SSL_ports",
-    "http_access allow allowed",
-    "http_access deny all",
-  ].join("\n");
-
-const DockerWorkspacesConfig = Config.all({
-  image: Config.String("CODENINE_CONTROL_WORKSPACE_IMAGE"),
-  cpus: Config.Number("CODENINE_CONTROL_WORKSPACE_CPUS").pipe(Config.withDefault(2)),
-  memoryGb: Config.Number("CODENINE_CONTROL_WORKSPACE_MEMORY_GB").pipe(Config.withDefault(4)),
-  sleepMinutes: Config.Number("CODENINE_CONTROL_WORKSPACE_SLEEP_MINUTES").pipe(
-    Config.withDefault(30),
-  ),
-  allowedHosts: Config.String("CODENINE_CONTROL_WORKSPACE_ALLOWED_HOSTS").pipe(
-    Config.withDefault(""),
-    Config.map((value) =>
-      value
-        .split(/[\s,]+/u)
-        .map((host) => host.toLowerCase())
-        .filter((host) => host.length > 0),
-    ),
-  ),
-});
 
 /** Names for a person's container, volume and network, unique to this installation. */
 export const workspaceNames = (installationId: string, personId: string) => {
@@ -131,21 +57,14 @@ export const make = Effect.gen(function* () {
   const engine = yield* DockerEngine;
   const installation = yield* Installation;
   const { verifier } = yield* WorkspaceTokens;
-  const config = yield* DockerWorkspacesConfig;
+  const config = yield* WorkspaceConfig;
   const client = yield* HttpClient.HttpClient;
   const digest = yield* Digest.Digest;
   const dialPort = yield* WorkspaceDialPort;
   const sha256 = (text: string) => digest.digestHex(Digest.sha256, encoder.encode(text));
 
-  const invalidHosts = config.allowedHosts.filter((host) => !HOST.test(host));
-  if (invalidHosts.length > 0) {
-    return yield* Effect.die(
-      `CODENINE_CONTROL_WORKSPACE_ALLOWED_HOSTS has entries that are not host names: ${invalidHosts.join(", ")}.`,
-    );
-  }
-
   const egress = egressNames(installation.id);
-  const egressConfig = egressProxyConfig(allowedHosts(config.allowedHosts));
+  const egressConfig = egressProxyConfig(yield* allowedHostsFromConfig);
   const proxy: ContainerSpec = {
     image: config.image,
     command: [
@@ -203,22 +122,12 @@ export const make = Effect.gen(function* () {
   const desired = Effect.fn("DockerWorkspaces.desired")(function* (personId: string) {
     const names = workspaceNames(installation.id, personId);
     const owner = { "codenine.installation": installation.id, "codenine.person": personId };
-    const env = {
-      CODENINE_MODE: "managed",
-      CODENINE_MANAGED_ISSUER: verifier.issuer,
-      CODENINE_MANAGED_KEY_ID: verifier.keyId,
-      CODENINE_MANAGED_PUBLIC_KEY: verifier.publicKey,
-      CODENINE_MANAGED_WORKSPACE_ID: personId,
-      CODENINE_MANAGED_SLEEP_MINUTES: String(config.sleepMinutes),
-      // Its network leads nowhere else: everything outside goes through the proxy.
-      HTTP_PROXY: EGRESS_URL,
-      HTTPS_PROXY: EGRESS_URL,
-      http_proxy: EGRESS_URL,
-      https_proxy: EGRESS_URL,
-      NO_PROXY: "localhost,127.0.0.1",
-      no_proxy: "localhost,127.0.0.1",
-      NODE_USE_ENV_PROXY: "1",
-    };
+    const env = workspaceEnv({
+      verifier,
+      personId,
+      sleepMinutes: config.sleepMinutes,
+      proxyUrl: EGRESS_URL,
+    });
     const nanoCpus = Math.round(config.cpus * 1e9);
     const memoryBytes = Math.round(config.memoryGb * 1024 ** 3);
     // The image by its ID, not its tag, so rebuilding the same tag counts as a change.
@@ -286,22 +195,14 @@ export const make = Effect.gen(function* () {
     Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
   );
 
-  // Concurrent first requests share one start; a failed start is tried again next time.
-  const targets = yield* Cache.makeWith(start, {
-    capacity: 10_000,
-    timeToLive: (exit) => (Exit.isFailure(exit) ? Duration.zero : Duration.infinity),
-  });
+  const targets = yield* cachedTargets(start);
 
   return WorkspaceManager.of({
     targetFor: Effect.fn("WorkspaceManager.targetFor")(function* (personId: string) {
-      return yield* Cache.get(targets, personId);
+      return yield* targets.targetFor(personId);
     }),
     forget: Effect.fn("WorkspaceManager.forget")(function* (personId: string) {
-      // A start under way finds the workspace afresh; dropping it would run a second one beside it.
-      const known = yield* Cache.getSuccess(targets, personId);
-      if (Option.isSome(known)) {
-        yield* Cache.invalidateWhen(targets, personId, (target) => target === known.value);
-      }
+      yield* targets.forget(personId);
     }),
     isAsleep: Effect.fn("WorkspaceManager.isAsleep")(
       function* (personId: string) {
@@ -315,7 +216,7 @@ export const make = Effect.gen(function* () {
         const names = workspaceNames(installation.id, personId);
         const removed = yield* engine.removeContainer(names.container);
         yield* engine.removeNetwork(names.network);
-        yield* Cache.invalidate(targets, personId);
+        yield* targets.drop(personId);
         return removed;
       },
       Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),

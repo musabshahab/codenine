@@ -1,6 +1,9 @@
+import * as Cache from "effect/Cache";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -75,3 +78,28 @@ export class WorkspaceManager extends Context.Service<
 /** For tests and the shared mode: a fixed manager as a layer. */
 export const layerShared = (target: WorkspaceTarget) =>
   Layer.succeed(WorkspaceManager, WorkspaceManager.shared(target));
+
+/**
+ * Where each person's workspace answers, found by `start`. Concurrent requests share one start
+ * and a failed start is tried again next time.
+ */
+export const cachedTargets = Effect.fn("WorkspaceManager.cachedTargets")(function* (
+  start: (personId: string) => Effect.Effect<WorkspaceTarget, WorkspaceUnavailableError>,
+) {
+  const targets = yield* Cache.makeWith(start, {
+    capacity: 10_000,
+    timeToLive: (exit) => (Exit.isFailure(exit) ? Duration.zero : Duration.infinity),
+  });
+  return {
+    targetFor: (personId: string) => Cache.get(targets, personId),
+    /** Drops a known target; a start under way finds the workspace afresh, so it stays. */
+    forget: Effect.fnUntraced(function* (personId: string) {
+      const known = yield* Cache.getSuccess(targets, personId);
+      if (Option.isSome(known)) {
+        yield* Cache.invalidateWhen(targets, personId, (target) => target === known.value);
+      }
+    }),
+    /** Drops whatever is known, for a workspace that was just removed. */
+    drop: (personId: string) => Cache.invalidate(targets, personId),
+  };
+});

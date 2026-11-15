@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the workspace image from a Codenine CLI archive, as "One workspace per
-# person" in docs/user/business-installation.md describes:
+# person in Docker" in docs/user/business-installation.md describes:
 #
 #   images/workspace/build.sh release-cli/codenine-<version>-linux-x64.tar.gz codenine-workspace:<version>
 #
