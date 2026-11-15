@@ -1,15 +1,31 @@
-import type { ControlEnrolment } from "@codenine/contracts/control";
+import type {
+  ControlEnrolment,
+  PasskeyAssertion,
+  PasskeyRegistration,
+} from "@codenine/contracts/control";
 import React, { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { callControl, controlErrorMessage } from "../../business/control";
+import {
+  createPasskey,
+  passkeyErrorMessage,
+  passkeysAvailable,
+  signWithPasskey,
+} from "../../business/passkeys";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { QRCodeSvg } from "../ui/qr-code";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
 const MIN_PASSWORD_LENGTH = 12;
+
+type SecondFactor =
+  | { readonly code: string }
+  | { readonly newPasskey: PasskeyRegistration }
+  | { readonly passkey: PasskeyAssertion };
 
 type Stage =
   | { readonly kind: "loading" }
@@ -18,9 +34,9 @@ type Stage =
   | { readonly kind: "done"; readonly recoveryCodes: ReadonlyArray<string> };
 
 /**
- * Opens a set-up link. Invitations and resets set up a password, an
- * authenticator and recovery codes; a forgotten-password link changes only the
- * password, after the person's current code.
+ * Opens a set-up link. Invitations and resets set up a password, a passkey or
+ * an authenticator app, and recovery codes; a forgotten-password link changes
+ * only the password, after the person's passkey or code.
  */
 export function ControlEnrolSurface({
   token,
@@ -41,6 +57,7 @@ export function ControlEnrolSurface({
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [code, setCode] = useState("");
+  const [chosenMethod, setChosenMethod] = useState<"passkey" | "authenticator" | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const startedRef = useRef(false);
@@ -64,8 +81,8 @@ export function ControlEnrolSurface({
     void start();
   }, [token]);
 
-  const finish = async (event: React.SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  /** Sends the password with a second factor, which may come from a passkey prompt first. */
+  const submit = async (secondFactor: () => Promise<SecondFactor>) => {
     if (password.length < MIN_PASSWORD_LENGTH) {
       setErrorMessage(`Use a password of at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
@@ -76,8 +93,18 @@ export function ControlEnrolSurface({
     }
     setIsSubmitting(true);
     setErrorMessage("");
+    const proof = await secondFactor().then(
+      (value) => ({ value, message: "" }),
+      (error: unknown) => ({ value: null, message: passkeyErrorMessage(error) }),
+    );
+    if (proof.value === null) {
+      setIsSubmitting(false);
+      setErrorMessage(proof.message);
+      return;
+    }
+    const factor = proof.value;
     const result = await callControl((client) =>
-      client.account.finishEnrolment({ payload: { token, password, code } }),
+      client.account.finishEnrolment({ payload: { token, password, ...factor } }),
     ).then(
       ({ recoveryCodes }) => ({ recoveryCodes, message: "" }),
       (error) => ({ recoveryCodes: null, message: controlErrorMessage(error) }),
@@ -122,8 +149,30 @@ export function ControlEnrolSurface({
   }
 
   const { enrolment } = stage;
-  const { authenticator } = enrolment;
-  const number = (step: number) => (authenticator === undefined ? step - 1 : step);
+  const { authenticator, passkeySetup, passkeyCheck } = enrolment;
+  const canUsePasskeys = passkeysAvailable();
+  const offersPasskeySetup = canUsePasskeys && passkeySetup !== undefined;
+  const method = chosenMethod ?? (offersPasskeySetup ? "passkey" : "authenticator");
+  const createsPasskey = authenticator !== undefined && method === "passkey";
+  const codeInput = (label: string, numeric: boolean) => (
+    <div className="space-y-2">
+      <label className="text-sm font-medium" htmlFor="enrol-code">
+        {label}
+      </label>
+      <Input
+        id="enrol-code"
+        autoComplete="one-time-code"
+        disabled={isSubmitting}
+        font="mono"
+        inputMode={numeric ? "numeric" : "text"}
+        nativeInput
+        onChange={(event) => setCode(event.currentTarget.value)}
+        required
+        value={code}
+      />
+    </div>
+  );
+
   return (
     <StandalonePage>
       <StandalonePageHeader
@@ -136,34 +185,25 @@ export function ControlEnrolSurface({
         }
         description={
           authenticator === undefined
-            ? `For ${enrolment.email}. You will still sign in with your authenticator app.`
-            : `Set a password and an authenticator app for ${enrolment.email}.`
+            ? `For ${enrolment.email}. Confirm it is you as you do when you sign in.`
+            : `Set a password for ${enrolment.email}, and a passkey or an authenticator app to confirm it is you.`
         }
       />
 
-      <form className="mt-6 space-y-5" onSubmit={(event) => void finish(event)}>
-        {authenticator === undefined ? null : (
-          <div className="space-y-3">
-            <p className="text-sm font-medium">1. Scan this code with an authenticator app</p>
-            <div className="w-fit rounded-xl bg-white p-3">
-              <QRCodeSvg
-                level="M"
-                marginSize={1}
-                size={168}
-                title="Authenticator set-up code"
-                value={authenticator.uri}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Or type this key into the app:{" "}
-              <code className="font-mono break-all">{authenticator.secret}</code>
-            </p>
-          </div>
-        )}
-
+      <form
+        className="mt-6 space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit(async () =>
+            createsPasskey && passkeySetup !== undefined
+              ? { newPasskey: await createPasskey(passkeySetup) }
+              : { code },
+          );
+        }}
+      >
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="enrol-password">
-            {number(2)}. Choose {authenticator === undefined ? "a new" : "a"} password
+            1. Choose {authenticator === undefined ? "a new" : "a"} password
           </label>
           <Input
             id="enrol-password"
@@ -188,24 +228,68 @@ export function ControlEnrolSurface({
           />
         </div>
 
-        <div className="space-y-2">
-          <label className="text-sm font-medium" htmlFor="enrol-code">
-            {authenticator === undefined
-              ? `${number(3)}. Enter the code from your authenticator app, or a recovery code`
-              : `${number(3)}. Enter the 6-digit code the app shows`}
-          </label>
-          <Input
-            id="enrol-code"
-            autoComplete="one-time-code"
-            disabled={isSubmitting}
-            font="mono"
-            inputMode={authenticator === undefined ? "text" : "numeric"}
-            nativeInput
-            onChange={(event) => setCode(event.currentTarget.value)}
-            required
-            value={code}
-          />
-        </div>
+        {authenticator === undefined ? (
+          <div className="space-y-3">
+            <p className="text-sm font-medium">2. Confirm it is you</p>
+            {canUsePasskeys && passkeyCheck !== undefined ? (
+              <Button
+                disabled={isSubmitting}
+                onClick={() =>
+                  void submit(async () => ({ passkey: await signWithPasskey(passkeyCheck) }))
+                }
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Use a passkey
+              </Button>
+            ) : null}
+            {codeInput("Code from your authenticator app, or a recovery code", false)}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm font-medium">2. Choose how you confirm it is you</p>
+            {offersPasskeySetup ? (
+              <ToggleGroup
+                aria-label="How you confirm it is you"
+                value={[method]}
+                onValueChange={(next) => {
+                  const value = next[0];
+                  if (value === "passkey" || value === "authenticator") setChosenMethod(value);
+                }}
+              >
+                <Toggle value="passkey">Passkey</Toggle>
+                <Toggle value="authenticator">Authenticator app</Toggle>
+              </ToggleGroup>
+            ) : null}
+            {method === "passkey" ? (
+              <p className="text-xs text-muted-foreground">
+                Your device keeps a passkey and asks for your fingerprint, face or screen lock each
+                time you sign in.
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Scan this code with an authenticator app.
+                </p>
+                <div className="w-fit rounded-xl bg-white p-3">
+                  <QRCodeSvg
+                    level="M"
+                    marginSize={1}
+                    size={168}
+                    title="Authenticator set-up code"
+                    value={authenticator.uri}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Or type this key into the app:{" "}
+                  <code className="font-mono break-all">{authenticator.secret}</code>
+                </p>
+                {codeInput("Enter the 6-digit code the app shows", true)}
+              </>
+            )}
+          </div>
+        )}
 
         {errorMessage ? (
           <Alert variant="error">
@@ -218,7 +302,9 @@ export function ControlEnrolSurface({
             ? "Saving..."
             : authenticator === undefined
               ? "Change password"
-              : "Finish set-up"}
+              : createsPasskey
+                ? "Create passkey and finish"
+                : "Finish set-up"}
         </Button>
       </form>
     </StandalonePage>

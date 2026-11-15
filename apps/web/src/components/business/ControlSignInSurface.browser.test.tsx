@@ -33,7 +33,7 @@ const fakeControlServer = ({ mail = true } = {}) =>
     }
     if (path === "/control/api/sign-in") {
       return body["password"] === PASSWORD
-        ? json(200, { ticket: "ticket-1" })
+        ? json(200, { ticket: "ticket-1", authenticator: true })
         : json(401, { _tag: "ControlSignInError", reason: "wrong-credentials" });
     }
     if (path === "/control/api/sign-in/code") {

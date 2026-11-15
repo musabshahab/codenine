@@ -34,9 +34,9 @@ The same command runs operator tasks against the database:
 - `licence show` prints the installation ID and the licence in use; `licence install <file>`
   installs a key.
 - `people invite-owner --email <address> --name <name>` prints a set-up link for the first owner.
-- `people reset --email <address>` removes someone's password and authenticator, signs them out
-  everywhere and prints a link to set new ones, for an owner who has lost both their
-  authenticator and their recovery codes.
+- `people reset --email <address>` removes someone's password, authenticator and passkeys, signs
+  them out everywhere and prints a link to set new ones, for an owner who has lost both their
+  second factor and their recovery codes.
 
 ## Licence keys
 

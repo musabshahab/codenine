@@ -57,13 +57,16 @@ const personId = () =>
     .notNull()
     .references(() => controlPeople.id, { onDelete: "cascade" });
 
-/** A person can sign in once they have a password and an authenticator app. */
+/**
+ * A person can sign in once they have a password and a second factor: an
+ * authenticator app, passkeys (`control_passkeys`), or both.
+ */
 export const controlCredentials = pgTable("control_credentials", {
   personId: personId().primaryKey(),
   /** PHC string: `$argon2id$v=19$m=...,t=...,p=...$salt$hash`. */
   passwordHash: text("password_hash").notNull(),
-  /** The authenticator secret, sealed with the server's secret key. */
-  totpSecret: text("totp_secret").notNull(),
+  /** The authenticator secret, sealed with the server's secret key; null with passkeys only. */
+  totpSecret: text("totp_secret"),
   /** The last authenticator time step accepted, so each code works once. */
   totpLastStep: integer("totp_last_step").notNull().default(0),
   failedAttempts: integer("failed_attempts").notNull().default(0),
@@ -91,15 +94,37 @@ export const controlTickets = pgTable(
     tokenHash: varchar("token_hash", { length: 64 }).primaryKey(),
     purpose: varchar("purpose", { length: 16 })
       .notNull()
-      .$type<"invitation" | "reset" | "password" | "sign-in">(),
+      .$type<"invitation" | "reset" | "password" | "sign-in" | "passkey">(),
     personId: personId(),
     /** The sealed authenticator secret offered during set-up, until it is confirmed. */
     pendingTotpSecret: text("pending_totp_secret"),
+    /** The WebAuthn challenge sent with this ticket, until a passkey answers it. */
+    pendingChallenge: text("pending_challenge"),
     createdAt: varchar("created_at", { length: 64 }).notNull(),
     expiresAt: varchar("expires_at", { length: 64 }).notNull(),
     usedAt: varchar("used_at", { length: 64 }),
   },
   (table) => [index("idx_control_tickets_person").on(table.personId)],
+);
+
+/** Passkeys a person signs in with after their password. */
+export const controlPasskeys = pgTable(
+  "control_passkeys",
+  {
+    /** The credential ID, base64url. */
+    id: text("id").primaryKey(),
+    personId: personId(),
+    name: varchar("name", { length: 128 }).notNull(),
+    /** The COSE public key, base64url. */
+    publicKey: text("public_key").notNull(),
+    /** The authenticator's signature counter, which only grows unless it stays at zero. */
+    counter: integer("counter").notNull().default(0),
+    /** JSON array of transport hints such as "internal" or "usb". */
+    transports: text("transports"),
+    createdAt: varchar("created_at", { length: 64 }).notNull(),
+    lastUsedAt: varchar("last_used_at", { length: 64 }),
+  },
+  (table) => [index("idx_control_passkeys_person").on(table.personId)],
 );
 
 export const controlSessions = pgTable(

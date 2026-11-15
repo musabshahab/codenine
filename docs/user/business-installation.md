@@ -62,8 +62,10 @@ sign in to the workspace directly.
 node apps/control/src/bin.ts people invite-owner --email you@example.com --name "Your Name"
 ```
 
-Open the printed link. It asks for a password and an authenticator app, then shows ten recovery
-codes. Each recovery code signs you in once if you lose your phone, so keep them somewhere safe.
+Open the printed link. It asks for a password and a second step, a passkey or an authenticator
+app, then shows ten recovery codes. Each recovery code signs you in once if you lose your passkey or
+phone, so keep them somewhere safe. Passkeys need the control server's address to be a host name,
+not an IP address.
 
 ## Install the licence
 
@@ -83,18 +85,18 @@ Owners and admins manage people under **Account**:
 - **Invite** someone to get a one-time link for them, which Codenine also emails when a mail server
   is set. Each invited or active person takes a seat on the licence.
 - **Deactivate** someone to sign them out everywhere and free their seat.
-- **Reset sign-in** for someone who lost their authenticator and recovery codes. It removes
-  their password and authenticator and gives you a new link for them.
+- **Reset sign-in** for someone who lost their passkeys, authenticator and recovery codes. It
+  removes all of them and their password, and gives you a new link for them.
 - **Unlock** someone after ten failed sign-in attempts; otherwise the lock lifts after 15
   minutes.
 
 When a mail server is set, people who forget their password can choose **Forgot your password?**
-on the sign-in page. The emailed link works for an hour, and they still need their authenticator
-app or a recovery code.
+on the sign-in page. The emailed link works for an hour, and they still need their passkey,
+authenticator app or a recovery code.
 
-Everyone can open **Account** at the bottom of the sidebar to see where they are signed in and
-sign out of any browser, or everywhere at once. Owners and admins manage the licence and people
-from the same page.
+Everyone can open **Account** at the bottom of the sidebar to add or remove passkeys, see where they
+are signed in, and sign out of any browser or everywhere at once. Owners and admins manage the
+licence and people from the same page.
 
 If the only owner is locked out, someone with access to the control server can run:
 

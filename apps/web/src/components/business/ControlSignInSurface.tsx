@@ -1,6 +1,8 @@
+import type { PasskeyAssertion, PasskeyRequestOptions } from "@codenine/contracts/control";
 import React, { useState } from "react";
 
 import { callControl, controlErrorMessage } from "../../business/control";
+import { passkeyErrorMessage, passkeysAvailable, signWithPasskey } from "../../business/passkeys";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -8,15 +10,33 @@ import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
 
 type Step =
   | { readonly kind: "password" }
-  | { readonly kind: "code"; readonly ticket: string }
+  | {
+      readonly kind: "code";
+      readonly ticket: string;
+      readonly authenticator: boolean;
+      readonly passkey: PasskeyRequestOptions | undefined;
+    }
   | { readonly kind: "forgot" }
   | { readonly kind: "link-sent" };
 
-const DESCRIPTIONS: Record<Step["kind"], string> = {
+const codeDescription = (authenticator: boolean, passkey: boolean) =>
+  passkey
+    ? authenticator
+      ? "Use your passkey, or enter the 6-digit code from your authenticator app or a recovery code."
+      : "Use your passkey, or enter one of your recovery codes."
+    : authenticator
+      ? "Enter the 6-digit code from your authenticator app, or one of your recovery codes."
+      : "Enter one of your recovery codes.";
+
+/** Marks a failure in the browser's passkey prompt, which the control server never saw. */
+class PasskeyPromptError {
+  constructor(readonly cause: unknown) {}
+}
+
+const DESCRIPTIONS: Record<Exclude<Step["kind"], "code">, string> = {
   password: "Use the email address and password your administrator set you up with.",
-  code: "Enter the 6-digit code from your authenticator app, or one of your recovery codes.",
   forgot:
-    "We will email you a link to choose a new password. You will also need your authenticator app or a recovery code.",
+    "We will email you a link to choose a new password. You will also need your passkey, authenticator app or a recovery code.",
   "link-sent": "Check your email for a link to choose a new password.",
 };
 
@@ -36,16 +56,21 @@ export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () =
     const result = await callControl((client) =>
       client.account.signIn({ payload: { email, password } }),
     ).then(
-      ({ ticket }) => ({ ticket, message: "" }),
-      (error) => ({ ticket: "", message: controlErrorMessage(error) }),
+      (started) => ({ started, message: "" }),
+      (error) => ({ started: null, message: controlErrorMessage(error) }),
     );
     setIsSubmitting(false);
-    if (result.ticket === "") {
+    if (result.started === null) {
       setErrorMessage(result.message);
       return;
     }
     setPassword("");
-    setStep({ kind: "code", ticket: result.ticket });
+    setStep({
+      kind: "code",
+      ticket: result.started.ticket,
+      authenticator: result.started.authenticator,
+      passkey: passkeysAvailable() ? result.started.passkey : undefined,
+    });
   };
 
   const requestLink = async (event: React.SubmitEvent<HTMLFormElement>) => {
@@ -71,23 +96,35 @@ export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () =
     setStep({ kind: "password" });
   };
 
-  const submitCode = async (event: React.SubmitEvent<HTMLFormElement>, ticket: string) => {
-    event.preventDefault();
+  const submitSecondStep = async (
+    ticket: string,
+    proof: () => Promise<{ readonly code: string } | { readonly passkey: PasskeyAssertion }>,
+  ) => {
     setIsSubmitting(true);
     setErrorMessage("");
-    const failure = await callControl((client) =>
-      client.account.completeSignIn({ payload: { ticket, code } }),
-    ).then(
-      () => null,
-      (error: unknown) => error,
-    );
+    const failure = await proof()
+      .then(
+        (answer) =>
+          callControl((client) =>
+            client.account.completeSignIn({ payload: { ticket, ...answer } }),
+          ),
+        (error: unknown) => Promise.reject(new PasskeyPromptError(error)),
+      )
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
     setIsSubmitting(false);
     if (failure === null) {
       onSignedIn();
       return;
     }
     setCode("");
-    setErrorMessage(controlErrorMessage(failure));
+    setErrorMessage(
+      failure instanceof PasskeyPromptError
+        ? passkeyErrorMessage(failure.cause)
+        : controlErrorMessage(failure),
+    );
     // A spent or expired ticket means starting again from the password.
     if (typeof failure === "object" && "reason" in failure && failure.reason === "invalid-ticket") {
       setStep({ kind: "password" });
@@ -102,7 +139,11 @@ export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () =
             ? "Forgot your password?"
             : "Sign in to Codenine"
         }
-        description={DESCRIPTIONS[step.kind]}
+        description={
+          step.kind === "code"
+            ? codeDescription(step.authenticator, step.passkey !== undefined)
+            : DESCRIPTIONS[step.kind]
+        }
       />
 
       {step.kind === "link-sent" ? (
@@ -202,10 +243,32 @@ export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () =
           </div>
         </form>
       ) : (
-        <form className="mt-6 space-y-4" onSubmit={(event) => void submitCode(event, step.ticket)}>
+        <form
+          className="mt-6 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitSecondStep(step.ticket, async () => ({ code }));
+          }}
+        >
+          {step.passkey === undefined ? null : (
+            <Button
+              disabled={isSubmitting}
+              onClick={() => {
+                const options = step.passkey;
+                if (options === undefined) return;
+                void submitSecondStep(step.ticket, async () => ({
+                  passkey: await signWithPasskey(options),
+                }));
+              }}
+              size="sm"
+              type="button"
+            >
+              Use a passkey
+            </Button>
+          )}
           <div className="space-y-2">
             <label className="text-sm font-medium" htmlFor="control-code">
-              Code
+              {step.authenticator ? "Code" : "Recovery code"}
             </label>
             <Input
               id="control-code"
@@ -227,7 +290,12 @@ export function ControlSignInSurface({ onSignedIn }: { readonly onSignedIn: () =
             </Alert>
           ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button disabled={isSubmitting} size="sm" type="submit">
+            <Button
+              disabled={isSubmitting}
+              size="sm"
+              type="submit"
+              variant={step.passkey === undefined ? "default" : "outline"}
+            >
               {isSubmitting ? "Signing in..." : "Sign in"}
             </Button>
             <Button disabled={isSubmitting} onClick={backToPassword} size="sm" variant="outline">

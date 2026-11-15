@@ -1,8 +1,14 @@
 import {
   ControlAccountError,
   type ControlEnrolment,
+  type ControlPasskey,
   type ControlPerson,
   ControlSignInError,
+  type ControlSignInMethods,
+  type PasskeyAssertion,
+  type PasskeyCreationOptions,
+  type PasskeyRegistration,
+  type PasskeyRequestOptions,
 } from "@codenine/contracts/control";
 import { licenceAllowsWork } from "@codenine/shared/licence";
 import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
@@ -17,6 +23,7 @@ import * as Effect from "effect/Effect";
 import { Base64Url, Hex } from "effect/encoding";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Result from "effect/Result";
 
 import { ControlPublicUrl, enrolmentLink } from "../config.ts";
 import { ControlDb } from "../db.ts";
@@ -25,6 +32,7 @@ import { type MailMessage, Mailer } from "../mail/Mailer.ts";
 import { invitationMail, passwordResetMail, resetMail } from "../mail/messages.ts";
 import {
   controlCredentials,
+  controlPasskeys,
   controlPeople,
   controlRecoveryCodes,
   controlTickets,
@@ -39,6 +47,7 @@ import {
 import { SecretBox } from "./SecretBox.ts";
 import { Sessions } from "./Sessions.ts";
 import { authenticatorUri, base32, matchTotp } from "./totp.ts";
+import { type StoredPasskey, WebAuthn } from "./WebAuthn.ts";
 
 const INVITATION_DAYS = 7;
 const RESET_DAYS = 1;
@@ -46,12 +55,20 @@ const PASSWORD_LINK_MINUTES = 60;
 /** A forgotten-password request sends at most one email in this time, so the form cannot flood an inbox. */
 const PASSWORD_LINK_COOLDOWN_MINUTES = 5;
 const SIGN_IN_TICKET_MINUTES = 5;
+const PASSKEY_TICKET_MINUTES = 5;
+const MAX_PASSKEY_NAME_LENGTH = 128;
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_MINUTES = 15;
 const RECOVERY_CODE_COUNT = 10;
 const AUTHENTICATOR_ISSUER = "Codenine";
 
-type TicketPurpose = "invitation" | "reset" | "password" | "sign-in";
+type TicketPurpose = "invitation" | "reset" | "password" | "sign-in" | "passkey";
+
+/** What proves it is the person after their password. Absent fields were not offered. */
+interface SecondFactorProof {
+  readonly code?: string;
+  readonly passkey?: PasskeyAssertion;
+}
 
 export interface IssuedLink {
   readonly person: ControlPerson;
@@ -77,7 +94,7 @@ export class Accounts extends Context.Service<
     readonly listPeople: Effect.Effect<ReadonlyArray<ControlPerson>>;
     readonly deactivate: (personId: string) => Effect.Effect<void, ControlAccountError>;
     readonly reactivate: (personId: string) => Effect.Effect<ControlPerson, ControlAccountError>;
-    /** Removes the person's password and authenticator; they set new ones from the link. */
+    /** Removes the person's password, authenticator and passkeys; they set new ones from the link. */
     readonly issueReset: (personId: string) => Effect.Effect<IssuedLink, ControlAccountError>;
     readonly unlock: (personId: string) => Effect.Effect<void, ControlAccountError>;
     /**
@@ -88,24 +105,54 @@ export class Accounts extends Context.Service<
     readonly startEnrolment: (
       token: string,
     ) => Effect.Effect<ControlEnrolment, ControlAccountError>;
-    readonly finishEnrolment: (input: {
-      readonly token: string;
-      readonly password: string;
-      readonly code: string;
-    }) => Effect.Effect<
+    /**
+     * Sets the password and a new second factor from an invitation or reset:
+     * the authenticator's `code` or a `newPasskey`. A forgotten-password link
+     * changes only the password, after a `code`, recovery code or `passkey`.
+     */
+    readonly finishEnrolment: (
+      input: SecondFactorProof & {
+        readonly token: string;
+        readonly password: string;
+        readonly newPasskey?: PasskeyRegistration;
+      },
+    ) => Effect.Effect<
       { readonly personId: string; readonly recoveryCodes: ReadonlyArray<string> },
       ControlAccountError
     >;
-    /** Checks the password and returns a ticket for the authenticator step. */
+    /** Checks the password and returns a ticket for the second step. */
     readonly signIn: (input: {
       readonly email: string;
       readonly password: string;
-    }) => Effect.Effect<{ readonly ticket: string }, ControlSignInError>;
-    /** Accepts an authenticator code or an unused recovery code. */
-    readonly completeSignIn: (input: {
+    }) => Effect.Effect<
+      {
+        readonly ticket: string;
+        readonly authenticator: boolean;
+        readonly passkey?: PasskeyRequestOptions;
+      },
+      ControlSignInError
+    >;
+    /** Accepts an authenticator code, an unused recovery code or a passkey. */
+    readonly completeSignIn: (
+      input: SecondFactorProof & { readonly ticket: string },
+    ) => Effect.Effect<{ readonly personId: string }, ControlSignInError>;
+    readonly signInMethods: (personId: string) => Effect.Effect<ControlSignInMethods>;
+    /** Options for a new passkey, and the ticket that holds their challenge. */
+    readonly startPasskey: (personId: string) => Effect.Effect<{
       readonly ticket: string;
-      readonly code: string;
-    }) => Effect.Effect<{ readonly personId: string }, ControlSignInError>;
+      readonly options: PasskeyCreationOptions;
+    }>;
+    readonly addPasskey: (input: {
+      readonly personId: string;
+      readonly ticket: string;
+      readonly name: string;
+      readonly passkey: PasskeyRegistration;
+    }) => Effect.Effect<ControlPasskey, ControlAccountError>;
+    /** Refused for the last passkey of someone without an authenticator app. */
+    readonly removePasskey: (input: {
+      readonly personId: string;
+      readonly passkeyId: string;
+    }) => Effect.Effect<void, ControlAccountError>;
   }
 >()("@codenine/control/accounts/Accounts") {}
 
@@ -127,6 +174,7 @@ export const make = Effect.gen(function* () {
   const digest = yield* Digest.Digest;
   const crypto = yield* Effect.context<Kdf.Kdf | Mac.Mac | SecureRandom.SecureRandom>();
   const mailer = yield* Mailer;
+  const webauthn = yield* WebAuthn;
   const { origin } = yield* ControlPublicUrl;
   const scope = yield* Effect.scope;
 
@@ -198,6 +246,7 @@ export const make = Effect.gen(function* () {
     personId: string,
     purpose: TicketPurpose,
     expiresAt: string,
+    pendingChallenge?: string,
   ) {
     const token = Base64Url.encode(yield* random.randomBytes(32));
     yield* db.insert(controlTickets).values({
@@ -206,8 +255,40 @@ export const make = Effect.gen(function* () {
       personId,
       createdAt: yield* nowIso,
       expiresAt,
+      pendingChallenge: pendingChallenge ?? null,
     });
     return token;
+  });
+
+  const passkeyRows = (personId: string) =>
+    db
+      .select()
+      .from(controlPasskeys)
+      .where(eq(controlPasskeys.personId, personId))
+      .orderBy(asc(controlPasskeys.createdAt), asc(controlPasskeys.id));
+
+  const toStored = (row: typeof controlPasskeys.$inferSelect): StoredPasskey => ({
+    id: row.id,
+    publicKey: new Uint8Array(Result.getOrElse(Base64Url.decode(row.publicKey), () => [])),
+    counter: row.counter,
+    transports: row.transports === null || row.transports === "" ? [] : row.transports.split(","),
+  });
+
+  const toPasskey = (row: typeof controlPasskeys.$inferSelect): ControlPasskey => ({
+    id: row.id,
+    name: row.name,
+    createdAt: row.createdAt,
+    lastUsedAt: row.lastUsedAt,
+  });
+
+  const passkeyValues = (personId: string, passkey: StoredPasskey, name: string, now: string) => ({
+    id: passkey.id,
+    personId,
+    name,
+    publicKey: Base64Url.encode(passkey.publicKey),
+    counter: passkey.counter,
+    transports: passkey.transports.join(","),
+    createdAt: now,
   });
 
   const openTicket = Effect.fn("Accounts.openTicket")(function* (
@@ -408,7 +489,8 @@ export const make = Effect.gen(function* () {
     }
     yield* db.delete(controlCredentials).where(eq(controlCredentials.personId, personId));
     yield* db.delete(controlRecoveryCodes).where(eq(controlRecoveryCodes.personId, personId));
-    yield* retireTickets(personId, ["invitation", "reset", "password", "sign-in"]);
+    yield* db.delete(controlPasskeys).where(eq(controlPasskeys.personId, personId));
+    yield* retireTickets(personId, ["invitation", "reset", "password", "sign-in", "passkey"]);
     yield* sessions.revokeAll(personId);
     return yield* issueLink(personId, person.status === "invited" ? "invitation" : "reset");
   }, dieOnDatabaseError);
@@ -469,19 +551,45 @@ export const make = Effect.gen(function* () {
     return { ticket: ticket.value, person: person.value };
   });
 
+  /** Options to prove one of the person's passkeys, or none when they have none. */
+  const passkeyCheckFor = Effect.fn("Accounts.passkeyCheckFor")(function* (personId: string) {
+    const rows = yield* passkeyRows(personId);
+    return rows.length === 0
+      ? Option.none<PasskeyRequestOptions>()
+      : Option.some(yield* webauthn.requestOptions(rows.map(toStored)));
+  });
+
   const startEnrolment = Effect.fn("Accounts.startEnrolment")(function* (token: string) {
     const { ticket, person } = yield* enrolmentTicket(token);
     if (ticket.purpose === "password") {
+      const passkeyCheck = yield* passkeyCheckFor(person.id);
+      if (Option.isSome(passkeyCheck)) {
+        yield* db
+          .update(controlTickets)
+          .set({ pendingChallenge: passkeyCheck.value.challenge })
+          .where(eq(controlTickets.tokenHash, ticket.tokenHash));
+      }
       return {
         purpose: "password",
         email: person.email,
         displayName: person.displayName,
+        ...(Option.isSome(passkeyCheck) ? { passkeyCheck: passkeyCheck.value } : {}),
       } satisfies ControlEnrolment;
     }
     const secret = yield* random.randomBytes(20);
+    // A reset removed any passkeys, so there are none to exclude.
+    const passkeySetup = yield* webauthn.creationOptions({
+      personId: person.id,
+      email: person.email,
+      displayName: person.displayName,
+      existing: [],
+    });
     yield* db
       .update(controlTickets)
-      .set({ pendingTotpSecret: yield* box.seal(secret, totpContext(person.id)) })
+      .set({
+        pendingTotpSecret: yield* box.seal(secret, totpContext(person.id)),
+        pendingChallenge: passkeySetup.challenge,
+      })
       .where(eq(controlTickets.tokenHash, ticket.tokenHash));
     return {
       purpose: ticket.purpose === "reset" ? "reset" : "invitation",
@@ -491,6 +599,7 @@ export const make = Effect.gen(function* () {
         uri: authenticatorUri({ issuer: AUTHENTICATOR_ISSUER, account: person.email, secret }),
         secret: base32(secret),
       },
+      passkeySetup,
     } satisfies ControlEnrolment;
   }, dieOnDatabaseError);
 
@@ -520,14 +629,43 @@ export const make = Effect.gen(function* () {
     return Option.fromNullishOr(credentials);
   });
 
-  /** Accepts an authenticator code, each step once, or an unused recovery code. */
+  /**
+   * Accepts one of the person's passkeys answering `challenge`, an
+   * authenticator code (each step once) or an unused recovery code.
+   */
   const acceptSecondFactor = Effect.fn("Accounts.acceptSecondFactor")(function* (
     personId: string,
-    credentials: { readonly totpSecret: string; readonly totpLastStep: number },
-    rawCode: string,
+    credentials: { readonly totpSecret: string | null; readonly totpLastStep: number },
+    proof: SecondFactorProof,
+    challenge: string | null,
   ) {
-    const code = rawCode.replace(/\s/gu, "");
+    if (proof.passkey !== undefined) {
+      const [row] = yield* db
+        .select()
+        .from(controlPasskeys)
+        .where(
+          and(eq(controlPasskeys.id, proof.passkey.id), eq(controlPasskeys.personId, personId)),
+        );
+      if (row === undefined || challenge === null) {
+        return false;
+      }
+      const counter = yield* webauthn
+        .checkAssertion({ assertion: proof.passkey, challenge, passkey: toStored(row) })
+        .pipe(Effect.option);
+      if (Option.isNone(counter)) {
+        return false;
+      }
+      yield* db
+        .update(controlPasskeys)
+        .set({ counter: counter.value, lastUsedAt: yield* nowIso })
+        .where(eq(controlPasskeys.id, row.id));
+      return true;
+    }
+    const code = (proof.code ?? "").replace(/\s/gu, "");
     if (/^\d{6}$/u.test(code)) {
+      if (credentials.totpSecret === null) {
+        return false;
+      }
       const secret = yield* box
         .open(credentials.totpSecret, totpContext(personId))
         .pipe(Effect.orDie);
@@ -552,6 +690,9 @@ export const make = Effect.gen(function* () {
           .returning({ personId: controlCredentials.personId })).length > 0
       );
     }
+    if (code === "") {
+      return false;
+    }
     const used = yield* db
       .update(controlRecoveryCodes)
       .set({ usedAt: yield* nowIso })
@@ -573,10 +714,10 @@ export const make = Effect.gen(function* () {
 
   /** A forgotten-password link changes only the password, after the second factor. */
   const finishPasswordChange = Effect.fn("Accounts.finishPasswordChange")(function* (
-    tokenHash: string,
-    personId: string,
-    input: { readonly password: string; readonly code: string },
+    ticket: typeof controlTickets.$inferSelect,
+    input: SecondFactorProof & { readonly password: string },
   ) {
+    const { personId } = ticket;
     const credentials = yield* secondFactorOf(personId);
     if (Option.isNone(credentials)) {
       return yield* new ControlAccountError({ reason: "invalid-link" });
@@ -585,15 +726,17 @@ export const make = Effect.gen(function* () {
     if (lockedUntil !== null && lockedUntil > (yield* nowIso)) {
       return yield* new ControlAccountError({ reason: "locked" });
     }
-    if (!(yield* acceptSecondFactor(personId, credentials.value, input.code))) {
+    if (!(yield* acceptSecondFactor(personId, credentials.value, input, ticket.pendingChallenge))) {
       yield* registerFailure(personId);
-      return yield* new ControlAccountError({ reason: "wrong-code" });
+      return yield* new ControlAccountError({
+        reason: input.passkey === undefined ? "wrong-code" : "passkey-failed",
+      });
     }
     const passwordHash = yield* hashPassword(input.password).pipe(Effect.provide(crypto));
     const now = yield* nowIso;
     yield* db.transaction(() =>
       Effect.gen(function* () {
-        if (!(yield* claimTicket(tokenHash))) {
+        if (!(yield* claimTicket(ticket.tokenHash))) {
           return yield* new ControlAccountError({ reason: "invalid-link" });
         }
         yield* db
@@ -607,35 +750,60 @@ export const make = Effect.gen(function* () {
     return { personId, recoveryCodes: [] };
   });
 
-  const finishEnrolment = Effect.fn("Accounts.finishEnrolment")(function* (input: {
-    readonly token: string;
-    readonly password: string;
-    readonly code: string;
-  }) {
-    yield* checkPassword(input.password);
-    const { ticket, person } = yield* enrolmentTicket(input.token);
-    if (ticket.purpose === "password") {
-      return yield* finishPasswordChange(ticket.tokenHash, person.id, input);
+  /** The second factor a set-up link confirms: a new passkey, or the offered authenticator. */
+  const newSecondFactor = Effect.fn("Accounts.newSecondFactor")(function* (
+    ticket: typeof controlTickets.$inferSelect,
+    personId: string,
+    input: { readonly code?: string; readonly newPasskey?: PasskeyRegistration },
+  ) {
+    if (input.newPasskey !== undefined) {
+      if (ticket.pendingChallenge === null) {
+        return yield* new ControlAccountError({ reason: "invalid-link" });
+      }
+      const passkey = yield* webauthn
+        .checkRegistration({ registration: input.newPasskey, challenge: ticket.pendingChallenge })
+        .pipe(Effect.mapError(() => new ControlAccountError({ reason: "passkey-failed" })));
+      return { totpSecret: null, totpLastStep: 0, passkey: Option.some(passkey) };
     }
     const sealedSecret = ticket.pendingTotpSecret;
     const secret =
       sealedSecret === null
         ? undefined
         : yield* box
-            .open(sealedSecret, totpContext(person.id))
+            .open(sealedSecret, totpContext(personId))
             .pipe(Effect.option, Effect.map(Option.getOrUndefined));
     if (sealedSecret === null || secret === undefined) {
       return yield* new ControlAccountError({ reason: "invalid-link" });
     }
     const step = yield* matchTotp({
       secret,
-      code: input.code.replace(/\s/gu, ""),
+      code: (input.code ?? "").replace(/\s/gu, ""),
       nowMs: yield* Clock.currentTimeMillis,
       lastStep: 0,
     }).pipe(Effect.provide(crypto));
     if (Option.isNone(step)) {
       return yield* new ControlAccountError({ reason: "wrong-code" });
     }
+    return {
+      totpSecret: sealedSecret,
+      totpLastStep: step.value,
+      passkey: Option.none<StoredPasskey>(),
+    };
+  });
+
+  const finishEnrolment = Effect.fn("Accounts.finishEnrolment")(function* (
+    input: SecondFactorProof & {
+      readonly token: string;
+      readonly password: string;
+      readonly newPasskey?: PasskeyRegistration;
+    },
+  ) {
+    yield* checkPassword(input.password);
+    const { ticket, person } = yield* enrolmentTicket(input.token);
+    if (ticket.purpose === "password") {
+      return yield* finishPasswordChange(ticket, input);
+    }
+    const factor = yield* newSecondFactor(ticket, person.id, input);
     const passwordHash = yield* hashPassword(input.password).pipe(Effect.provide(crypto));
     const recoveryCodes: Array<string> = [];
     for (let index = 0; index < RECOVERY_CODE_COUNT; index++) {
@@ -653,8 +821,8 @@ export const make = Effect.gen(function* () {
         }
         const credentials = {
           passwordHash,
-          totpSecret: sealedSecret,
-          totpLastStep: step.value,
+          totpSecret: factor.totpSecret,
+          totpLastStep: factor.totpLastStep,
           failedAttempts: 0,
           lockedUntil: null,
           updatedAt: now,
@@ -663,6 +831,11 @@ export const make = Effect.gen(function* () {
           .insert(controlCredentials)
           .values({ personId: person.id, ...credentials })
           .onConflictDoUpdate({ target: controlCredentials.personId, set: credentials });
+        if (Option.isSome(factor.passkey)) {
+          yield* db
+            .insert(controlPasskeys)
+            .values(passkeyValues(person.id, factor.passkey.value, "Passkey", now));
+        }
         yield* db.delete(controlRecoveryCodes).where(eq(controlRecoveryCodes.personId, person.id));
         yield* db
           .insert(controlRecoveryCodes)
@@ -685,6 +858,7 @@ export const make = Effect.gen(function* () {
       .select({
         personId: controlPeople.id,
         passwordHash: controlCredentials.passwordHash,
+        totpSecret: controlCredentials.totpSecret,
         lockedUntil: controlCredentials.lockedUntil,
       })
       .from(controlPeople)
@@ -701,18 +875,23 @@ export const make = Effect.gen(function* () {
       yield* registerFailure(row.personId);
       return yield* new ControlSignInError({ reason: "wrong-credentials" });
     }
+    const passkey = yield* passkeyCheckFor(row.personId);
     const ticket = yield* issueTicket(
       row.personId,
       "sign-in",
       yield* later({ minutes: SIGN_IN_TICKET_MINUTES }),
+      Option.isSome(passkey) ? passkey.value.challenge : undefined,
     );
-    return { ticket };
+    return {
+      ticket,
+      authenticator: row.totpSecret !== null,
+      ...(Option.isSome(passkey) ? { passkey: passkey.value } : {}),
+    };
   }, dieOnDatabaseError);
 
-  const completeSignIn = Effect.fn("Accounts.completeSignIn")(function* (input: {
-    readonly ticket: string;
-    readonly code: string;
-  }) {
+  const completeSignIn = Effect.fn("Accounts.completeSignIn")(function* (
+    input: SecondFactorProof & { readonly ticket: string },
+  ) {
     const ticket = yield* openTicket(input.ticket, ["sign-in"]);
     const credentials = Option.isSome(ticket)
       ? yield* secondFactorOf(ticket.value.personId)
@@ -720,14 +899,16 @@ export const make = Effect.gen(function* () {
     if (Option.isNone(ticket) || Option.isNone(credentials)) {
       return yield* new ControlSignInError({ reason: "invalid-ticket" });
     }
-    const { personId } = ticket.value;
+    const { personId, pendingChallenge } = ticket.value;
     const { lockedUntil } = credentials.value;
     if (lockedUntil !== null && lockedUntil > (yield* nowIso)) {
       return yield* new ControlSignInError({ reason: "locked", lockedUntil });
     }
-    if (!(yield* acceptSecondFactor(personId, credentials.value, input.code))) {
+    if (!(yield* acceptSecondFactor(personId, credentials.value, input, pendingChallenge))) {
       yield* registerFailure(personId);
-      return yield* new ControlSignInError({ reason: "wrong-code" });
+      return yield* new ControlSignInError({
+        reason: input.passkey === undefined ? "wrong-code" : "passkey-failed",
+      });
     }
     if (!(yield* claimTicket(ticket.value.tokenHash))) {
       return yield* new ControlSignInError({ reason: "invalid-ticket" });
@@ -737,6 +918,92 @@ export const make = Effect.gen(function* () {
       .set({ failedAttempts: 0, lockedUntil: null })
       .where(eq(controlCredentials.personId, personId));
     return { personId };
+  }, dieOnDatabaseError);
+
+  const signInMethods = Effect.fn("Accounts.signInMethods")(function* (personId: string) {
+    const [credentials] = yield* db
+      .select({ totpSecret: controlCredentials.totpSecret })
+      .from(controlCredentials)
+      .where(eq(controlCredentials.personId, personId));
+    const recoveryCodes = yield* db
+      .select({ codeHash: controlRecoveryCodes.codeHash })
+      .from(controlRecoveryCodes)
+      .where(and(eq(controlRecoveryCodes.personId, personId), isNull(controlRecoveryCodes.usedAt)));
+    return {
+      authenticator: credentials !== undefined && credentials.totpSecret !== null,
+      passkeys: (yield* passkeyRows(personId)).map(toPasskey),
+      recoveryCodesLeft: recoveryCodes.length,
+    };
+  }, Effect.orDie);
+
+  const startPasskey = Effect.fn("Accounts.startPasskey")(function* (personId: string) {
+    const person = yield* findPerson(personId);
+    const options = yield* webauthn.creationOptions({
+      personId,
+      email: person.email,
+      displayName: person.displayName,
+      existing: (yield* passkeyRows(personId)).map(toStored),
+    });
+    yield* retireTickets(personId, ["passkey"]);
+    const ticket = yield* issueTicket(
+      personId,
+      "passkey",
+      yield* later({ minutes: PASSKEY_TICKET_MINUTES }),
+      options.challenge,
+    );
+    return { ticket, options };
+  }, Effect.orDie);
+
+  const addPasskey = Effect.fn("Accounts.addPasskey")(function* (input: {
+    readonly personId: string;
+    readonly ticket: string;
+    readonly name: string;
+    readonly passkey: PasskeyRegistration;
+  }) {
+    const ticket = yield* openTicket(input.ticket, ["passkey"]);
+    if (
+      Option.isNone(ticket) ||
+      ticket.value.personId !== input.personId ||
+      ticket.value.pendingChallenge === null
+    ) {
+      return yield* new ControlAccountError({ reason: "invalid-link" });
+    }
+    const passkey = yield* webauthn
+      .checkRegistration({
+        registration: input.passkey,
+        challenge: ticket.value.pendingChallenge,
+      })
+      .pipe(Effect.mapError(() => new ControlAccountError({ reason: "passkey-failed" })));
+    if (!(yield* claimTicket(ticket.value.tokenHash))) {
+      return yield* new ControlAccountError({ reason: "invalid-link" });
+    }
+    const name = input.name.trim().slice(0, MAX_PASSKEY_NAME_LENGTH) || "Passkey";
+    const [row] = yield* db
+      .insert(controlPasskeys)
+      .values(passkeyValues(input.personId, passkey, name, yield* nowIso))
+      .returning();
+    if (row === undefined) {
+      return yield* Effect.die("The new passkey was not stored.");
+    }
+    return toPasskey(row);
+  }, dieOnDatabaseError);
+
+  const removePasskey = Effect.fn("Accounts.removePasskey")(function* (input: {
+    readonly personId: string;
+    readonly passkeyId: string;
+  }) {
+    const methods = yield* signInMethods(input.personId);
+    if (!methods.passkeys.some((passkey) => passkey.id === input.passkeyId)) {
+      return yield* new ControlAccountError({ reason: "not-found" });
+    }
+    if (!methods.authenticator && methods.passkeys.length <= 1) {
+      return yield* new ControlAccountError({ reason: "last-second-factor" });
+    }
+    yield* db
+      .delete(controlPasskeys)
+      .where(
+        and(eq(controlPasskeys.id, input.passkeyId), eq(controlPasskeys.personId, input.personId)),
+      );
   }, dieOnDatabaseError);
 
   return Accounts.of({
@@ -752,6 +1019,10 @@ export const make = Effect.gen(function* () {
     finishEnrolment,
     signIn,
     completeSignIn,
+    signInMethods,
+    startPasskey,
+    addPasskey,
+    removePasskey,
   });
 });
 

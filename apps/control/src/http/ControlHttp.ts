@@ -180,6 +180,7 @@ export const layerMeApi = HttpApiBuilder.group(
   "me",
   Effect.fnUntraced(function* (handlers) {
     const sessions = yield* Sessions;
+    const accounts = yield* Accounts;
     const { secure } = yield* ControlPublicUrl;
     return handlers
       .handle("me", () => ControlPrincipal.pipe(Effect.map((principal) => principal.person)))
@@ -216,6 +217,25 @@ export const layerMeApi = HttpApiBuilder.group(
           yield* clearSessionCookie(secure);
           return ok;
         }),
+      )
+      .handle("signInMethods", () =>
+        ControlPrincipal.pipe(Effect.flatMap(({ person }) => accounts.signInMethods(person.id))),
+      )
+      .handle("startPasskey", () =>
+        ControlPrincipal.pipe(Effect.flatMap(({ person }) => accounts.startPasskey(person.id))),
+      )
+      .handle("addPasskey", ({ payload }) =>
+        ControlPrincipal.pipe(
+          Effect.flatMap(({ person }) => accounts.addPasskey({ personId: person.id, ...payload })),
+        ),
+      )
+      .handle("removePasskey", ({ params }) =>
+        ControlPrincipal.pipe(
+          Effect.flatMap(({ person }) =>
+            accounts.removePasskey({ personId: person.id, passkeyId: params.passkeyId }),
+          ),
+          Effect.as(ok),
+        ),
       );
   }),
 );

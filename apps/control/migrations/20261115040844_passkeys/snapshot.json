@@ -1,0 +1,290 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e00cd099-4e05-46db-acca-7942c04f7e36",
+  "prevIds": ["01350ab1-61c3-48c6-983d-7615951da02c"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "control_passkeys"],
+      "writes": [
+        "s|tbl|public.control_passkeys",
+        "n|tbl|public.control_passkeys",
+        "e|tbl|public.control_passkeys",
+        "n|rel|public.control_passkeys",
+        "n|type|public.control_passkeys",
+        "n|rel|public.control_passkeys_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "control_tickets", "pending_challenge"],
+      "writes": [
+        "s|col|public.control_tickets.pending_challenge",
+        "n|col|public.control_tickets.pending_challenge",
+        "e|col|public.control_tickets.pending_challenge"
+      ],
+      "reads": ["n|tbl|public.control_tickets", "n|sch|public"]
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "control_credentials", "totp_secret"],
+      "writes": ["s|colprop|public.control_credentials.totp_secret.notNull"],
+      "reads": [
+        "n|tbl|public.control_credentials",
+        "n|sch|public",
+        "n|col|public.control_credentials.totp_secret"
+      ],
+      "sqlHash": "d5d8e1da6dd75f97"
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "control_passkeys", "idx_control_passkeys_person"],
+      "writes": [
+        "s|idx|public.idx_control_passkeys_person",
+        "n|idx|public.idx_control_passkeys_person",
+        "e|idx|public.idx_control_passkeys_person",
+        "n|rel|public.idx_control_passkeys_person"
+      ],
+      "reads": [
+        "n|tbl|public.control_passkeys",
+        "n|sch|public",
+        "n|col|public.control_passkeys.person_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "control_passkeys"],
+      "writes": [
+        "s|fk|public.control_passkeys.control_passkeys_person_id_control_people_id_fkey",
+        "n|fk|public.control_passkeys.control_passkeys_person_id_control_people_id_fkey",
+        "e|fk|public.control_passkeys.control_passkeys_person_id_control_people_id_fkey",
+        "n|con|public.control_passkeys.control_passkeys_person_id_control_people_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.control_passkeys",
+        "n|sch|public",
+        "n|tbl|public.control_people",
+        "n|sch|public",
+        "n|col|public.control_passkeys.person_id",
+        "n|col|public.control_people.id",
+        "e|uniqueness|public.control_people.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "control_passkeys",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "person_id",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "name",
+        "type": "varchar(128)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "public_key",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "counter",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "transports",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "created_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "last_used_at",
+        "type": "varchar(64)",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_tickets",
+        "name": "pending_challenge",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "idx_control_passkeys_person",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "person_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "control_passkeys_person_id_control_people_id_fkey",
+        "nameExplicit": false,
+        "columns": ["person_id"],
+        "schemaTo": "public",
+        "tableTo": "control_people",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "control_passkeys",
+        "name": "control_passkeys_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"control_credentials\",\"totp_secret\"]",
+      "set": {
+        "notNull": false
+      }
+    }
+  ]
+}

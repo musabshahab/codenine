@@ -4,6 +4,7 @@ import * as Accounts from "../accounts/Accounts.ts";
 import { PasswordHashCost } from "../accounts/passwords.ts";
 import { SecretBox } from "../accounts/SecretBox.ts";
 import * as Sessions from "../accounts/Sessions.ts";
+import { WebAuthn } from "../accounts/WebAuthn.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { Installation } from "../installation/Installation.ts";
 import * as Licence from "../licence/LicenceService.ts";
@@ -22,6 +23,7 @@ export const layerTestServices = (
   mailer: Layer.Layer<Mailer> = Layer.succeed(Mailer, Mailer.off),
 ) =>
   Accounts.layer.pipe(
+    Layer.provideMerge(WebAuthn.layer),
     Layer.provideMerge(mailer),
     // The real cost makes tests that sign in many times slow; the rules do not change.
     Layer.provideMerge(Layer.succeed(PasswordHashCost, { memory: 64, passes: 1, parallelism: 1 })),

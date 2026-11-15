@@ -66,9 +66,96 @@ export const ControlSession = Schema.Struct({
 });
 export type ControlSession = typeof ControlSession.Type;
 
+// WebAuthn's JSON forms, which browsers parse and produce (`parseCreationOptionsFromJSON`,
+// `PublicKeyCredential.toJSON`). Binary fields are base64url strings.
+const PasskeyDescriptor = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Literal("public-key"),
+  transports: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+const UserVerification = Schema.Literals(["discouraged", "preferred", "required"]);
+
+/** Options for creating a passkey. */
+export const PasskeyCreationOptions = Schema.Struct({
+  rp: Schema.Struct({ id: Schema.optionalKey(Schema.String), name: Schema.String }),
+  user: Schema.Struct({ id: Schema.String, name: Schema.String, displayName: Schema.String }),
+  challenge: Schema.String,
+  pubKeyCredParams: Schema.Array(
+    Schema.Struct({ type: Schema.Literal("public-key"), alg: Schema.Number }),
+  ),
+  timeout: Schema.optionalKey(Schema.Number),
+  excludeCredentials: Schema.optionalKey(Schema.Array(PasskeyDescriptor)),
+  authenticatorSelection: Schema.optionalKey(
+    Schema.Struct({
+      authenticatorAttachment: Schema.optionalKey(Schema.Literals(["platform", "cross-platform"])),
+      requireResidentKey: Schema.optionalKey(Schema.Boolean),
+      residentKey: Schema.optionalKey(UserVerification),
+      userVerification: Schema.optionalKey(UserVerification),
+    }),
+  ),
+  attestation: Schema.optionalKey(Schema.Literals(["none", "indirect", "direct", "enterprise"])),
+});
+export type PasskeyCreationOptions = typeof PasskeyCreationOptions.Type;
+
+/** Options for proving a passkey the person already has. */
+export const PasskeyRequestOptions = Schema.Struct({
+  challenge: Schema.String,
+  timeout: Schema.optionalKey(Schema.Number),
+  rpId: Schema.optionalKey(Schema.String),
+  allowCredentials: Schema.optionalKey(Schema.Array(PasskeyDescriptor)),
+  userVerification: Schema.optionalKey(UserVerification),
+});
+export type PasskeyRequestOptions = typeof PasskeyRequestOptions.Type;
+
+/** A new passkey, as the browser returns it. */
+export const PasskeyRegistration = Schema.Struct({
+  id: Schema.String,
+  rawId: Schema.String,
+  type: Schema.Literal("public-key"),
+  response: Schema.Struct({
+    clientDataJSON: Schema.String,
+    attestationObject: Schema.String,
+    transports: Schema.optionalKey(Schema.Array(Schema.String)),
+  }),
+  authenticatorAttachment: Schema.optionalKey(Schema.NullOr(Schema.String)),
+});
+export type PasskeyRegistration = typeof PasskeyRegistration.Type;
+
+/** A passkey's answer to a challenge, as the browser returns it. */
+export const PasskeyAssertion = Schema.Struct({
+  id: Schema.String,
+  rawId: Schema.String,
+  type: Schema.Literal("public-key"),
+  response: Schema.Struct({
+    clientDataJSON: Schema.String,
+    authenticatorData: Schema.String,
+    signature: Schema.String,
+    userHandle: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  }),
+  authenticatorAttachment: Schema.optionalKey(Schema.NullOr(Schema.String)),
+});
+export type PasskeyAssertion = typeof PasskeyAssertion.Type;
+
+export const ControlPasskey = Schema.Struct({
+  id: Schema.String,
+  name: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+  lastUsedAt: Schema.NullOr(IsoDateTime),
+});
+export type ControlPasskey = typeof ControlPasskey.Type;
+
+/** How the signed-in person proves it is them after their password. */
+export const ControlSignInMethods = Schema.Struct({
+  authenticator: Schema.Boolean,
+  passkeys: Schema.Array(ControlPasskey),
+  recoveryCodesLeft: NonNegativeInt,
+});
+export type ControlSignInMethods = typeof ControlSignInMethods.Type;
+
 /**
  * What a set-up link shows before the person sets a password. Invitations and
- * admin resets set up a new authenticator; a forgotten-password link keeps it.
+ * admin resets set up a new second factor, an authenticator app or a passkey;
+ * a forgotten-password link asks for the current one.
  */
 export const ControlEnrolment = Schema.Struct({
   purpose: Schema.Literals(["invitation", "reset", "password"]),
@@ -76,6 +163,10 @@ export const ControlEnrolment = Schema.Struct({
   displayName: TrimmedNonEmptyString,
   /** An `otpauth://` URI for a QR code, and its secret for typing in. */
   authenticator: Schema.optionalKey(Schema.Struct({ uri: Schema.String, secret: Schema.String })),
+  /** For setting up a passkey instead of the authenticator app. */
+  passkeySetup: Schema.optionalKey(PasskeyCreationOptions),
+  /** For a forgotten password, when the person has passkeys. */
+  passkeyCheck: Schema.optionalKey(PasskeyRequestOptions),
 });
 export type ControlEnrolment = typeof ControlEnrolment.Type;
 
@@ -94,6 +185,8 @@ export class ControlAccountError extends Schema.TaggedError<ControlAccountError>
       "wrong-code",
       "locked",
       "email-off",
+      "passkey-failed",
+      "last-second-factor",
     ]),
   },
   { httpApiStatus: 400 },
@@ -122,6 +215,10 @@ export class ControlAccountError extends Schema.TaggedError<ControlAccountError>
         return "Too many failed attempts. Try again later or ask an admin to unlock your account.";
       case "email-off":
         return "This installation does not send email. Ask an admin to reset your sign-in.";
+      case "passkey-failed":
+        return "The passkey could not be checked. Try again.";
+      case "last-second-factor":
+        return "Keep at least one passkey or an authenticator app, so you can still sign in.";
     }
   }
 }
@@ -129,7 +226,13 @@ export class ControlAccountError extends Schema.TaggedError<ControlAccountError>
 export class ControlSignInError extends Schema.TaggedError<ControlSignInError>()(
   "ControlSignInError",
   {
-    reason: Schema.Literals(["wrong-credentials", "locked", "invalid-ticket", "wrong-code"]),
+    reason: Schema.Literals([
+      "wrong-credentials",
+      "locked",
+      "invalid-ticket",
+      "wrong-code",
+      "passkey-failed",
+    ]),
     lockedUntil: Schema.optionalKey(IsoDateTime),
   },
   { httpApiStatus: 401 },
@@ -144,6 +247,8 @@ export class ControlSignInError extends Schema.TaggedError<ControlSignInError>()
         return "Sign-in took too long. Start again.";
       case "wrong-code":
         return "That code is not right.";
+      case "passkey-failed":
+        return "That passkey did not work. Try again, or use a code.";
     }
   }
 }
@@ -238,14 +343,23 @@ const ControlHealthGroup = HttpApiGroup.make("health").add(
 const ControlAccountGroup = HttpApiGroup.make("account").add(
   HttpApiEndpoint.post("signIn", "/control/api/sign-in", {
     payload: Schema.Struct({ email: Schema.String, password: Schema.String }),
-    success: Schema.Struct({ ticket: Schema.String }),
+    success: Schema.Struct({
+      ticket: Schema.String,
+      /** False when the person has only passkeys and recovery codes. */
+      authenticator: Schema.Boolean,
+      passkey: Schema.optionalKey(PasskeyRequestOptions),
+    }),
     error: ControlSignInError,
-  }).annotate(OpenApi.Summary, "Check a password; the ticket goes to the code step"),
+  }).annotate(OpenApi.Summary, "Check a password; the ticket goes to the second step"),
   HttpApiEndpoint.post("completeSignIn", "/control/api/sign-in/code", {
-    payload: Schema.Struct({ ticket: Schema.String, code: Schema.String }),
+    payload: Schema.Struct({
+      ticket: Schema.String,
+      code: Schema.optionalKey(Schema.String),
+      passkey: Schema.optionalKey(PasskeyAssertion),
+    }),
     success: ControlMe,
     error: ControlSignInError,
-  }).annotate(OpenApi.Summary, "Check an authenticator or recovery code and start a session"),
+  }).annotate(OpenApi.Summary, "Check a code or passkey and start a session"),
   HttpApiEndpoint.post("requestPasswordReset", "/control/api/password-reset", {
     payload: Schema.Struct({ email: Schema.String }),
     success: ControlOk,
@@ -260,7 +374,14 @@ const ControlAccountGroup = HttpApiGroup.make("account").add(
     error: ControlAccountError,
   }).annotate(OpenApi.Summary, "Open an invitation, reset or new-password link"),
   HttpApiEndpoint.post("finishEnrolment", "/control/api/enrolment/finish", {
-    payload: Schema.Struct({ token: Schema.String, password: Schema.String, code: Schema.String }),
+    payload: Schema.Struct({
+      token: Schema.String,
+      password: Schema.String,
+      /** The authenticator code, or for a forgotten password a recovery code. */
+      code: Schema.optionalKey(Schema.String),
+      newPasskey: Schema.optionalKey(PasskeyRegistration),
+      passkey: Schema.optionalKey(PasskeyAssertion),
+    }),
     success: Schema.Struct({ me: ControlMe, recoveryCodes: Schema.Array(Schema.String) }),
     error: ControlAccountError,
   }).annotate(
@@ -282,6 +403,26 @@ const ControlMeGroup = HttpApiGroup.make("me")
     }),
     HttpApiEndpoint.post("signOutEverywhere", "/control/api/me/sign-out-everywhere", {
       success: ControlOk,
+    }),
+    HttpApiEndpoint.get("signInMethods", "/control/api/me/sign-in-methods", {
+      success: ControlSignInMethods,
+    }),
+    HttpApiEndpoint.post("startPasskey", "/control/api/me/passkeys/options", {
+      success: Schema.Struct({ ticket: Schema.String, options: PasskeyCreationOptions }),
+    }),
+    HttpApiEndpoint.post("addPasskey", "/control/api/me/passkeys", {
+      payload: Schema.Struct({
+        ticket: Schema.String,
+        name: Schema.String,
+        passkey: PasskeyRegistration,
+      }),
+      success: ControlPasskey,
+      error: ControlAccountError,
+    }),
+    HttpApiEndpoint.delete("removePasskey", "/control/api/me/passkeys/:passkeyId", {
+      params: Schema.Struct({ passkeyId: TrimmedNonEmptyString }),
+      success: ControlOk,
+      error: ControlAccountError,
     }),
   )
   .middleware(ControlSessionAuth);

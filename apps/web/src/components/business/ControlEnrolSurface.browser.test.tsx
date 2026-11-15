@@ -69,23 +69,23 @@ describe("ControlEnrolSurface", () => {
       .toBeVisible();
     await expect.element(page.getByText("JBSWY3DPEHPK3PXP")).toBeVisible();
 
-    await page.getByLabelText("2. Choose a password").fill("too short");
+    await page.getByLabelText("1. Choose a password").fill("too short");
     await page.getByLabelText("Type the password again").fill("too short");
-    await page.getByLabelText("3. Enter the 6-digit code the app shows").fill("123456");
+    await page.getByLabelText("Enter the 6-digit code the app shows").fill("123456");
     await page.getByRole("button", { name: "Finish set-up" }).click();
     await expect.element(page.getByText("Use a password of at least 12 characters.")).toBeVisible();
 
-    await page.getByLabelText("2. Choose a password").fill(PASSWORD);
+    await page.getByLabelText("1. Choose a password").fill(PASSWORD);
     await page.getByLabelText("Type the password again").fill(`${PASSWORD}!`);
     await page.getByRole("button", { name: "Finish set-up" }).click();
     await expect.element(page.getByText("The two passwords are different.")).toBeVisible();
 
     await page.getByLabelText("Type the password again").fill(PASSWORD);
-    await page.getByLabelText("3. Enter the 6-digit code the app shows").fill("000000");
+    await page.getByLabelText("Enter the 6-digit code the app shows").fill("000000");
     await page.getByRole("button", { name: "Finish set-up" }).click();
     await expect.element(page.getByText(/That code is not right/u)).toBeVisible();
 
-    await page.getByLabelText("3. Enter the 6-digit code the app shows").fill("123456");
+    await page.getByLabelText("Enter the 6-digit code the app shows").fill("123456");
     await page.getByRole("button", { name: "Finish set-up" }).click();
     await expect.element(page.getByText("AAAA0-BBBBB")).toBeVisible();
     expect(onFinished).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe("ControlEnrolSurface", () => {
     await page.getByLabelText("1. Choose a new password").fill(PASSWORD);
     await page.getByLabelText("Type the password again").fill(PASSWORD);
     await page
-      .getByLabelText("2. Enter the code from your authenticator app, or a recovery code")
+      .getByLabelText("Code from your authenticator app, or a recovery code")
       .fill("AAAA0-BBBBB");
     await page.getByRole("button", { name: "Change password" }).click();
 

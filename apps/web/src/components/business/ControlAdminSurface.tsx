@@ -4,6 +4,7 @@ import type {
   ControlMe,
   ControlPerson,
   ControlSessionEntry,
+  ControlSignInMethods,
 } from "@codenine/contracts/control";
 import { Link } from "@tanstack/react-router";
 import type * as Effect from "effect/Effect";
@@ -16,6 +17,7 @@ import {
   fetchControlMe,
   lastCoveredDay,
 } from "../../business/control";
+import { createPasskey, passkeyErrorMessage, passkeysAvailable } from "../../business/passkeys";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
@@ -30,6 +32,7 @@ type ControlCall = (client: ControlClient) => Effect.Effect<unknown, unknown>;
 interface AdminData {
   readonly me: ControlMe;
   readonly sessions: ReadonlyArray<ControlSessionEntry>;
+  readonly signInMethods: ControlSignInMethods;
   /** Only owners and admins see the licence and people. */
   readonly admin: {
     readonly licence: ControlLicenceOverview;
@@ -41,8 +44,9 @@ const loadAdminData = async (): Promise<AdminData | null> => {
   const me = await fetchControlMe();
   if (me === null) return null;
   const isAdmin = me.role === "owner" || me.role === "admin";
-  const [sessions, admin] = await Promise.all([
+  const [sessions, signInMethods, admin] = await Promise.all([
     callControl((client) => client.me.sessions()),
+    callControl((client) => client.me.signInMethods()),
     isAdmin
       ? Promise.all([
           callControl((client) => client.admin.licence()),
@@ -50,7 +54,7 @@ const loadAdminData = async (): Promise<AdminData | null> => {
         ]).then(([licence, people]) => ({ licence, people }))
       : Promise.resolve(null),
   ]);
-  return { me, sessions, admin };
+  return { me, sessions, signInMethods, admin };
 };
 
 /** Licence, people and sessions for a business installation. */
@@ -123,8 +127,8 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
         title={data.admin === null ? "Your account" : "Administration"}
         description={
           data.admin === null
-            ? "Where you are signed in to Codenine."
-            : "The licence, the people who use Codenine, and where you are signed in."
+            ? "How you sign in to Codenine, and where you are signed in."
+            : "The licence, the people who use Codenine, and how and where you are signed in."
         }
       />
       <div className="mt-4 flex flex-wrap gap-2">
@@ -158,6 +162,36 @@ export function ControlAdminSurface({ onSignedOut }: { readonly onSignedOut: () 
           />
         </>
       )}
+
+      <SignInMethodsSection
+        methods={data.signInMethods}
+        onAddPasskey={async (name) => {
+          const failure = await callControl((client) => client.me.startPasskey())
+            .then(({ ticket, options }) =>
+              createPasskey(options).then((passkey) =>
+                callControl((client) =>
+                  client.me.addPasskey({ payload: { ticket, name, passkey } }),
+                ),
+              ),
+            )
+            .then(
+              () => null,
+              (error: unknown) => passkeyErrorMessage(error),
+            );
+          if (failure === null) await refresh();
+          return failure;
+        }}
+        onRemovePasskey={async (passkeyId) => {
+          const failure = await callControl((client) =>
+            client.me.removePasskey({ params: { passkeyId } }),
+          ).then(
+            () => null,
+            (error: unknown) => controlErrorMessage(error),
+          );
+          if (failure === null) await refresh();
+          return failure;
+        }}
+      />
 
       <SessionsSection
         onRevoke={(sessionId) =>
@@ -455,6 +489,89 @@ function PeopleSection({
           </Alert>
         ) : null}
       </form>
+    </section>
+  );
+}
+
+function SignInMethodsSection({
+  methods,
+  onAddPasskey,
+  onRemovePasskey,
+}: {
+  readonly methods: ControlSignInMethods;
+  /** Each resolves to an error message, or null when it worked. */
+  readonly onAddPasskey: (name: string) => Promise<string | null>;
+  readonly onRemovePasskey: (passkeyId: string) => Promise<string | null>;
+}) {
+  const [name, setName] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  return (
+    <section>
+      <SectionTitle>How you sign in</SectionTitle>
+      <p className="mt-2 text-sm text-muted-foreground">
+        After your password: {methods.authenticator ? "your authenticator app, " : ""}
+        {methods.passkeys.length === 0 ? "" : "a passkey, "}
+        or one of your {methods.recoveryCodesLeft} unused recovery codes.
+      </p>
+      <ul className="mt-3 divide-y divide-border/70">
+        {methods.passkeys.map((passkey) => (
+          <li className="flex items-center gap-2 py-2" key={passkey.id}>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm">{passkey.name}</p>
+              <p className="text-xs text-muted-foreground">
+                Added {new Date(passkey.createdAt).toLocaleDateString()}
+                {passkey.lastUsedAt === null
+                  ? ", not used yet"
+                  : `, last used ${new Date(passkey.lastUsedAt).toLocaleString()}`}
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                setErrorMessage("");
+                void onRemovePasskey(passkey.id).then((failure) => setErrorMessage(failure ?? ""));
+              }}
+              size="xs"
+              variant="outline"
+            >
+              Remove
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {passkeysAvailable() ? (
+        <form
+          className="mt-3 flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setIsAdding(true);
+            setErrorMessage("");
+            void onAddPasskey(name).then((failure) => {
+              setIsAdding(false);
+              setErrorMessage(failure ?? "");
+              if (failure === null) setName("");
+            });
+          }}
+        >
+          <Input
+            aria-label="Passkey name"
+            className="w-56"
+            disabled={isAdding}
+            nativeInput
+            onChange={(event) => setName(event.currentTarget.value)}
+            placeholder="This laptop"
+            value={name}
+          />
+          <Button disabled={isAdding} size="sm" type="submit" variant="outline">
+            {isAdding ? "Waiting for your device..." : "Add a passkey"}
+          </Button>
+        </form>
+      ) : null}
+      {errorMessage ? (
+        <Alert className="mt-3" variant="error">
+          <AlertDescription>{errorMessage}</AlertDescription>
+        </Alert>
+      ) : null}
     </section>
   );
 }

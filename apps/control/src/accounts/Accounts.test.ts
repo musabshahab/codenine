@@ -13,7 +13,8 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Licence from "../licence/LicenceService.ts";
 import { type MailMessage, Mailer } from "../mail/Mailer.ts";
 import { codeNow, fromBase32 } from "../testing/authenticator.ts";
-import { layerTestServices } from "../testing/layerTestServices.ts";
+import { layerTestServices, TEST_PUBLIC_URL } from "../testing/layerTestServices.ts";
+import { makeSoftwarePasskey } from "../testing/softwarePasskey.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
 import * as AccountsModule from "./Accounts.ts";
 import * as SessionsModule from "./Sessions.ts";
@@ -94,6 +95,9 @@ const recordingMailer = Effect.gen(function* () {
   );
   return { sent, layer };
 });
+
+const defined = <A>(value: A | undefined) =>
+  value === undefined ? Effect.die("Expected a value.") : Effect.succeed(value);
 
 const linkToken = (mail: MailMessage) => /\/admin\/enrol#(\S+)/u.exec(mail.text)?.[1] ?? "";
 
@@ -366,6 +370,115 @@ describe("Accounts", () => {
               to: "ada@acme.test",
               subject: "Set up your Codenine sign-in again",
             });
+          }),
+        layer,
+      );
+    }),
+  );
+
+  it.effect("sets up a passkey instead of an authenticator app and signs in with it", () =>
+    Effect.gen(function* () {
+      const { sent, layer } = yield* recordingMailer;
+      yield* withAccounts(
+        () =>
+          Effect.gen(function* () {
+            const accounts = yield* Accounts;
+            const passkey = makeSoftwarePasskey({ origin: TEST_PUBLIC_URL });
+            const { token, person } = yield* accounts.inviteOwner({
+              email: "ada@acme.test",
+              displayName: "Ada",
+            });
+            yield* Queue.take(sent);
+            const setup = yield* defined((yield* accounts.startEnrolment(token)).passkeySetup);
+            expect(setup.rp).toEqual({ id: "codenine.acme.test", name: "Codenine" });
+            expect(
+              yield* reasonOf(
+                accounts.finishEnrolment({
+                  token,
+                  password: PASSWORD,
+                  newPasskey: passkey.register(setup, "https://elsewhere.test"),
+                }),
+              ),
+            ).toBe("passkey-failed");
+            const { recoveryCodes } = yield* accounts.finishEnrolment({
+              token,
+              password: PASSWORD,
+              newPasskey: passkey.register(setup),
+            });
+            expect(recoveryCodes).toHaveLength(10);
+            expect(yield* accounts.signInMethods(person.id)).toMatchObject({
+              authenticator: false,
+              passkeys: [{ id: passkey.id, name: "Passkey", lastUsedAt: null }],
+              recoveryCodesLeft: 10,
+            });
+
+            const first = yield* accounts.signIn({ email: "ada@acme.test", password: PASSWORD });
+            expect(first.authenticator).toBe(false);
+            const request = yield* defined(first.passkey);
+            expect(request.allowCredentials?.map((allowed) => allowed.id)).toEqual([passkey.id]);
+            const attempt = (proof: Parameters<typeof accounts.completeSignIn>[0]) =>
+              reasonOf(accounts.completeSignIn(proof));
+            const stranger = makeSoftwarePasskey({ origin: TEST_PUBLIC_URL });
+            expect(yield* attempt({ ticket: first.ticket, code: "123456" })).toBe("wrong-code");
+            expect(
+              yield* attempt({ ticket: first.ticket, passkey: stranger.answer(request) }),
+            ).toBe("passkey-failed");
+            expect(
+              yield* attempt({
+                ticket: first.ticket,
+                passkey: passkey.answer(request, "https://elsewhere.test"),
+              }),
+            ).toBe("passkey-failed");
+            const answer = passkey.answer(request);
+            expect(
+              yield* accounts.completeSignIn({ ticket: first.ticket, passkey: answer }),
+            ).toEqual({ personId: person.id });
+            expect(yield* attempt({ ticket: first.ticket, passkey: answer })).toBe(
+              "invalid-ticket",
+            );
+            const second = yield* accounts.signIn({ email: "ada@acme.test", password: PASSWORD });
+            expect(
+              yield* attempt({ ticket: second.ticket, passkey: passkey.answer(request) }),
+            ).toBe("passkey-failed");
+            expect(
+              (yield* accounts.signInMethods(person.id)).passkeys[0]?.lastUsedAt,
+            ).not.toBeNull();
+
+            expect(
+              yield* reasonOf(
+                accounts.removePasskey({ personId: person.id, passkeyId: passkey.id }),
+              ),
+            ).toBe("last-second-factor");
+            const laptop = makeSoftwarePasskey({ origin: TEST_PUBLIC_URL });
+            const started = yield* accounts.startPasskey(person.id);
+            expect(started.options.excludeCredentials?.map((excluded) => excluded.id)).toEqual([
+              passkey.id,
+            ]);
+            const added = yield* accounts.addPasskey({
+              personId: person.id,
+              ticket: started.ticket,
+              name: " Laptop ",
+              passkey: laptop.register(started.options),
+            });
+            expect(added.name).toBe("Laptop");
+            yield* accounts.removePasskey({ personId: person.id, passkeyId: passkey.id });
+            expect(
+              (yield* accounts.signInMethods(person.id)).passkeys.map((kept) => kept.name),
+            ).toEqual(["Laptop"]);
+
+            yield* accounts.requestPasswordReset("ada@acme.test");
+            const resetToken = linkToken(yield* Queue.take(sent));
+            const check = yield* defined((yield* accounts.startEnrolment(resetToken)).passkeyCheck);
+            expect(
+              yield* accounts.finishEnrolment({
+                token: resetToken,
+                password: "a brand new password",
+                passkey: laptop.answer(check),
+              }),
+            ).toEqual({ personId: person.id, recoveryCodes: [] });
+
+            yield* accounts.issueReset(person.id);
+            expect((yield* accounts.signInMethods(person.id)).passkeys).toEqual([]);
           }),
         layer,
       );

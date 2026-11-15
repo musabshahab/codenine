@@ -17,6 +17,7 @@ import { Accounts } from "./accounts/Accounts.ts";
 import * as AccountsModule from "./accounts/Accounts.ts";
 import { SecretBox } from "./accounts/SecretBox.ts";
 import * as Sessions from "./accounts/Sessions.ts";
+import { WebAuthn } from "./accounts/WebAuthn.ts";
 import { ControlPublicUrl, enrolmentLink } from "./config.ts";
 import * as Db from "./db.ts";
 import * as ControlHttp from "./http/ControlHttp.ts";
@@ -33,6 +34,7 @@ const layerControl = Licence.layer.pipe(
 );
 
 const layerAccounts = AccountsModule.layer.pipe(
+  Layer.provideMerge(WebAuthn.layer),
   Layer.provideMerge(Mailer.layer),
   Layer.provideMerge(Sessions.layer),
   Layer.provideMerge(SecretBox.layer),
@@ -156,7 +158,7 @@ const resetCommand = Command.make(
     const { token, emailed } = yield* accounts.issueReset(person.id);
     yield* Console.log(
       [
-        `${person.displayName}'s password and authenticator are removed, and they are signed out everywhere.`,
+        `${person.displayName}'s password, authenticator and passkeys are removed, and they are signed out everywhere.`,
         `${emailed ? "We emailed them this link" : "Send them this link"} to set new ones. It works once and expires in ${person.status === "invited" ? "7 days" : "24 hours"}:`,
         "",
         `  ${enrolmentLink((yield* ControlPublicUrl).origin, token)}`,
@@ -165,7 +167,7 @@ const resetCommand = Command.make(
   }, Effect.provide(layerAccounts)),
 ).pipe(
   Command.withDescription(
-    "Remove someone's password and authenticator and print a link to set new ones.",
+    "Remove someone's password, authenticator and passkeys, and print a link to set new ones.",
   ),
 );
 

@@ -50,7 +50,7 @@ export const passwordResetMail = (mail: LinkMail): MailMessage => ({
     "",
     `Someone asked to reset the password for ${mail.to} on Codenine at ${mail.origin}.`,
     "",
-    `If it was you, open this link within ${mail.validFor} to choose a new password. You will also need your authenticator app or a recovery code:`,
+    `If it was you, open this link within ${mail.validFor} to choose a new password. You will also need your passkey, authenticator app or a recovery code:`,
     "",
     mail.link,
     "",
