@@ -45,6 +45,10 @@ export const ControlWorkspaceAccess = Schema.Struct({
 });
 export type ControlWorkspaceAccess = typeof ControlWorkspaceAccess.Type;
 
+/** An asleep workspace starts on the person's next request, which takes a few seconds. */
+export const ControlWorkspaceState = Schema.Struct({ asleep: Schema.Boolean });
+export type ControlWorkspaceState = typeof ControlWorkspaceState.Type;
+
 export const ControlRole = Schema.Literals(["owner", "admin", "member"]);
 export type ControlRole = typeof ControlRole.Type;
 
@@ -264,7 +268,7 @@ export class ControlSignInError extends Schema.TaggedError<ControlSignInError>()
 
 export class ControlUnavailableError extends Schema.TaggedError<ControlUnavailableError>()(
   "ControlUnavailableError",
-  { reason: Schema.Literals(["database-unavailable"]) },
+  { reason: Schema.Literals(["database-unavailable", "workspace-unavailable"]) },
   { httpApiStatus: 503 },
 ) {}
 
@@ -403,6 +407,14 @@ const ControlMeGroup = HttpApiGroup.make("me")
   .add(
     HttpApiEndpoint.get("me", "/control/api/me", { success: ControlMe }),
     HttpApiEndpoint.get("access", "/control/api/me/access", { success: ControlWorkspaceAccess }),
+    HttpApiEndpoint.get("workspace", "/control/api/me/workspace", {
+      success: ControlWorkspaceState,
+      error: ControlUnavailableError,
+    }),
+    HttpApiEndpoint.post("wakeWorkspace", "/control/api/me/workspace/wake", {
+      success: ControlOk,
+      error: ControlUnavailableError,
+    }),
     HttpApiEndpoint.post("signOut", "/control/api/sign-out", { success: ControlOk }),
     HttpApiEndpoint.get("sessions", "/control/api/me/sessions", {
       success: Schema.Array(ControlSessionEntry),

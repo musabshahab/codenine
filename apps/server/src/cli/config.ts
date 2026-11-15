@@ -110,6 +110,7 @@ const resolveManagedControl = (
     readonly managedKeyId: string | undefined;
     readonly managedPublicKey: string | undefined;
     readonly managedWorkspaceId: string;
+    readonly managedSleepMinutes: number | undefined;
   },
   bootstrap: unknown,
 ) => {
@@ -127,7 +128,14 @@ const resolveManagedControl = (
       }),
     );
   }
-  return Effect.succeed({ issuer, keyId, publicKey, workspaceId: env.managedWorkspaceId });
+  const sleepMinutes = env.managedSleepMinutes ?? 0;
+  return Effect.succeed({
+    issuer,
+    keyId,
+    publicKey,
+    workspaceId: env.managedWorkspaceId,
+    ...(sleepMinutes > 0 ? { sleepAfter: Duration.minutes(sleepMinutes) } : {}),
+  });
 };
 
 const EnvServerConfig = Config.all({
@@ -182,6 +190,11 @@ const EnvServerConfig = Config.all({
   ),
   managedWorkspaceId: Config.String("CODENINE_MANAGED_WORKSPACE_ID").pipe(
     Config.withDefault("workspace"),
+  ),
+  // Only a control server that starts the workspace again sets this.
+  managedSleepMinutes: Config.Number("CODENINE_MANAGED_SLEEP_MINUTES").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
   ),
   codenineHome: Config.String("CODENINE_HOME").pipe(
     Config.option,

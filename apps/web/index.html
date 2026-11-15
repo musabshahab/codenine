@@ -400,6 +400,18 @@
         object-fit: contain;
       }
 
+      #boot-status {
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin: 4px 0 0;
+        transform: translateX(-50%);
+        font-size: 13px;
+        line-height: 20px;
+        white-space: nowrap;
+        opacity: 0.7;
+      }
+
       /* App CSS locks body and #root scrolling once main loads, so the error screen scrolls itself. */
       #boot-shell:has(> #boot-error) {
         height: 100%;

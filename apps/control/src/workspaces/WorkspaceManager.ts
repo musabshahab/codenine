@@ -30,6 +30,8 @@ export class WorkspaceManager extends Context.Service<
     ) => Effect.Effect<WorkspaceTarget, WorkspaceUnavailableError>;
     /** Drops what is known about a workspace that stopped answering, so the next request checks. */
     readonly forget: (personId: string) => Effect.Effect<void>;
+    /** Whether the person's workspace is stopped or not made yet, so their next request starts it. */
+    readonly isAsleep: (personId: string) => Effect.Effect<boolean, WorkspaceUnavailableError>;
   }
 >()("@codenine/control/workspaces/WorkspaceManager") {
   /** Everyone reaches one workspace server at `CODENINE_CONTROL_WORKSPACE_URL`. */
@@ -37,7 +39,17 @@ export class WorkspaceManager extends Context.Service<
     WorkspaceManager.of({
       targetFor: Effect.fn("WorkspaceManager.targetFor")(() => Effect.succeed(target)),
       forget: Effect.fn("WorkspaceManager.forget")(() => Effect.void),
+      isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
     });
+
+  /** No workspace is set up: people can sign in, and every forwarded request fails. */
+  static readonly none = WorkspaceManager.of({
+    targetFor: Effect.fn("WorkspaceManager.targetFor")(() =>
+      Effect.fail(new WorkspaceUnavailableError({ cause: "No workspace is set up." })),
+    ),
+    forget: Effect.fn("WorkspaceManager.forget")(() => Effect.void),
+    isAsleep: Effect.fn("WorkspaceManager.isAsleep")(() => Effect.succeed(false)),
+  });
 
   /** The shared workspace server, when `CODENINE_CONTROL_WORKSPACE_URL` names one. */
   static readonly sharedFromConfig = Effect.gen(function* () {

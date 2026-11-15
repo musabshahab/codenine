@@ -1,6 +1,7 @@
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Cache from "effect/Cache";
 import * as Config from "effect/Config";
+import * as Digest from "effect/crypto/Digest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -22,11 +23,16 @@ export const WORKSPACE_HOME = "/home/codenine";
 const WORKSPACE_USER = "1000:1000";
 /** How long a starting workspace may take before a request gives up. */
 const START_TIMEOUT = Duration.seconds(90);
+/** Records what a container was made from, so one made from an older image or settings is made again. */
+export const SPEC_LABEL = "codenine.spec";
 
 const DockerWorkspacesConfig = Config.all({
   image: Config.String("CODENINE_CONTROL_WORKSPACE_IMAGE"),
   cpus: Config.Number("CODENINE_CONTROL_WORKSPACE_CPUS").pipe(Config.withDefault(2)),
   memoryGb: Config.Number("CODENINE_CONTROL_WORKSPACE_MEMORY_GB").pipe(Config.withDefault(4)),
+  sleepMinutes: Config.Number("CODENINE_CONTROL_WORKSPACE_SLEEP_MINUTES").pipe(
+    Config.withDefault(30),
+  ),
 });
 
 /** Names for a person's container, volume and network, unique to this installation. */
@@ -35,10 +41,12 @@ export const workspaceNames = (installationId: string, personId: string) => {
   return { container: base, volume: `${base}-home`, network: base };
 };
 
+const encoder = new TextEncoder();
+
 /**
- * One container per person, created on their first request: their own volume
- * for their home, their own network, CPU and memory limits, and a token
- * audience no other workspace accepts.
+ * One container per person, made on their first request: their own volume, network and limits,
+ * and a token audience no other workspace accepts. A stopped one starts on the next request,
+ * made again first if its image or settings changed; a running one is never replaced.
  */
 export const make = Effect.gen(function* () {
   const engine = yield* DockerEngine;
@@ -46,38 +54,67 @@ export const make = Effect.gen(function* () {
   const { verifier } = yield* WorkspaceTokens;
   const config = yield* DockerWorkspacesConfig;
   const client = yield* HttpClient.HttpClient;
+  const digest = yield* Digest.Digest;
 
   const answers = (url: string) =>
     client
       .get(`${url}/.well-known/codenine/environment`)
       .pipe(Effect.flatMap(HttpClientResponse.filterStatusOk), Effect.asVoid);
 
+  /** What the person's container should be made from now. */
+  const desired = Effect.fn("DockerWorkspaces.desired")(function* (personId: string) {
+    const names = workspaceNames(installation.id, personId);
+    const owner = { "codenine.installation": installation.id, "codenine.person": personId };
+    const container = {
+      image: config.image,
+      env: {
+        CODENINE_MODE: "managed",
+        CODENINE_MANAGED_ISSUER: verifier.issuer,
+        CODENINE_MANAGED_KEY_ID: verifier.keyId,
+        CODENINE_MANAGED_PUBLIC_KEY: verifier.publicKey,
+        CODENINE_MANAGED_WORKSPACE_ID: personId,
+        CODENINE_MANAGED_SLEEP_MINUTES: String(config.sleepMinutes),
+      },
+      port: WORKSPACE_PORT,
+      volume: names.volume,
+      mountPath: WORKSPACE_HOME,
+      network: names.network,
+      user: WORKSPACE_USER,
+      nanoCpus: Math.round(config.cpus * 1e9),
+      memoryBytes: Math.round(config.memoryGb * 1024 ** 3),
+    };
+    // The image by its ID, not its tag, so rebuilding the same tag counts as a change.
+    const madeFrom = [
+      yield* engine.imageId(config.image),
+      ...Object.entries(container.env).map(([key, value]) => `${key}=${value}`),
+      container.user,
+      container.port,
+      container.volume,
+      container.mountPath,
+      container.network,
+      container.nanoCpus,
+      container.memoryBytes,
+    ];
+    const spec = yield* digest.digestHex(Digest.sha256, encoder.encode(madeFrom.join("\n")));
+    return { names, owner, container: { ...container, labels: { ...owner, [SPEC_LABEL]: spec } } };
+  });
+
   const start = Effect.fn("DockerWorkspaces.start")(
     function* (personId: string) {
-      const names = workspaceNames(installation.id, personId);
-      const labels = { "codenine.installation": installation.id, "codenine.person": personId };
-      const existing = yield* engine.inspect(names.container, WORKSPACE_PORT);
+      const { names, owner, container } = yield* desired(personId);
+      const found = yield* engine.inspect(names.container, WORKSPACE_PORT);
+      const outdated =
+        Option.isSome(found) &&
+        !found.value.running &&
+        found.value.labels[SPEC_LABEL] !== container.labels[SPEC_LABEL];
+      if (outdated) {
+        yield* engine.removeContainer(names.container);
+      }
+      const existing = outdated ? Option.none() : found;
       if (Option.isNone(existing)) {
-        yield* engine.ensureVolume(names.volume, labels);
-        yield* engine.ensureNetwork(names.network, labels);
-        yield* engine.ensureContainer(names.container, {
-          image: config.image,
-          env: {
-            CODENINE_MODE: "managed",
-            CODENINE_MANAGED_ISSUER: verifier.issuer,
-            CODENINE_MANAGED_KEY_ID: verifier.keyId,
-            CODENINE_MANAGED_PUBLIC_KEY: verifier.publicKey,
-            CODENINE_MANAGED_WORKSPACE_ID: personId,
-          },
-          labels,
-          port: WORKSPACE_PORT,
-          volume: names.volume,
-          mountPath: WORKSPACE_HOME,
-          network: names.network,
-          user: WORKSPACE_USER,
-          nanoCpus: Math.round(config.cpus * 1e9),
-          memoryBytes: Math.round(config.memoryGb * 1024 ** 3),
-        });
+        yield* engine.ensureVolume(names.volume, owner);
+        yield* engine.ensureNetwork(names.network, owner);
+        yield* engine.ensureContainer(names.container, container);
       }
       if (Option.isNone(existing) || !existing.value.running) {
         yield* engine.start(names.container);
@@ -111,8 +148,22 @@ export const make = Effect.gen(function* () {
       return yield* Cache.get(targets, personId);
     }),
     forget: Effect.fn("WorkspaceManager.forget")(function* (personId: string) {
-      yield* Cache.invalidate(targets, personId);
+      // A start under way finds the workspace afresh; dropping it would run a second one beside it.
+      const known = yield* Cache.getSuccess(targets, personId);
+      if (Option.isSome(known)) {
+        yield* Cache.invalidateWhen(targets, personId, (target) => target === known.value);
+      }
     }),
+    isAsleep: Effect.fn("WorkspaceManager.isAsleep")(
+      function* (personId: string) {
+        const found = yield* engine.inspect(
+          workspaceNames(installation.id, personId).container,
+          WORKSPACE_PORT,
+        );
+        return Option.isNone(found) || !found.value.running;
+      },
+      Effect.mapError((cause) => new WorkspaceUnavailableError({ cause })),
+    ),
   });
 });
 

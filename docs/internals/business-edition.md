@@ -42,6 +42,16 @@ checks key ID, signature, type, issuer, audience and time.
   browser while the hop between the servers stays uncompressed. Without this, a large thread
   reached remote browsers at about four times the size.
 
+## Sleeping workspaces
+
+Only the workspace knows whether anyone has it open and whether its agents have work, so a
+managed workspace given `CODENINE_MANAGED_SLEEP_MINUTES` stops itself
+([`WorkspaceSleep`](../../apps/server/src/background/WorkspaceSleep.ts)), and the control server
+starts it on the next request. Any thread that `mayBeLive` keeps it up, because sleeping would kill
+a turn waiting for an answer or stall a pull request watch. A stopped container's port can pass to
+another container, so the proxy looks for a person's workspace again whenever the address it knew
+stops answering or refuses their token.
+
 ## Keys and secrets
 
 Licence keys verify against public keys built into the control server; there is no setting

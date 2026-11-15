@@ -27,6 +27,9 @@ export class DockerEngineError extends Schema.TaggedError<DockerEngineError>()(
 
 const ContainerState = Schema.Struct({
   State: Schema.Struct({ Running: Schema.Boolean }),
+  Config: Schema.Struct({
+    Labels: Schema.NullOr(Schema.Record(Schema.String, Schema.String)),
+  }),
   NetworkSettings: Schema.Struct({
     Ports: Schema.NullOr(
       Schema.Record(
@@ -39,6 +42,14 @@ const ContainerState = Schema.Struct({
   }),
 });
 const decodeContainerState = Schema.decodeUnknownEffect(ContainerState);
+const decodeImage = Schema.decodeUnknownEffect(Schema.Struct({ Id: Schema.String }));
+
+export interface ContainerState {
+  readonly running: boolean;
+  /** The host port its workspace port is published on, while it runs. */
+  readonly hostPort: number | null;
+  readonly labels: Readonly<Record<string, string>>;
+}
 
 export interface ContainerSpec {
   readonly image: string;
@@ -73,14 +84,12 @@ export class DockerEngine extends Context.Service<
       spec: ContainerSpec,
     ) => Effect.Effect<void, DockerEngineError>;
     readonly start: (name: string) => Effect.Effect<void, DockerEngineError>;
-    /** Whether it runs, and the host port its workspace port is published on. */
     readonly inspect: (
       name: string,
       port: number,
-    ) => Effect.Effect<
-      Option.Option<{ readonly running: boolean; readonly hostPort: number | null }>,
-      DockerEngineError
-    >;
+    ) => Effect.Effect<Option.Option<ContainerState>, DockerEngineError>;
+    /** The ID of the image a name or tag points to now. */
+    readonly imageId: (image: string) => Effect.Effect<string, DockerEngineError>;
     readonly stop: (name: string) => Effect.Effect<void, DockerEngineError>;
     readonly removeContainer: (name: string) => Effect.Effect<void, DockerEngineError>;
     readonly removeVolume: (name: string) => Effect.Effect<void, DockerEngineError>;
@@ -179,10 +188,25 @@ export class DockerEngine extends Context.Service<
           ),
         );
         const published = state.NetworkSettings.Ports?.[`${port}/tcp`]?.[0]?.HostPort;
-        return Option.some({
+        return Option.some<ContainerState>({
           running: state.State.Running,
           hostPort: published === undefined || published === "" ? null : Number(published),
+          labels: state.Config.Labels ?? {},
         });
+      }),
+      imageId: Effect.fn("DockerEngine.imageId")(function* (image) {
+        const response = yield* call(
+          "find the workspace image",
+          // Registry paths keep their slashes, as the Docker CLI sends them.
+          HttpClientRequest.get(`${API}/images/${encodeURI(image)}/json`),
+        );
+        const { Id } = yield* json("find the workspace image", response).pipe(
+          Effect.flatMap(decodeImage),
+          Effect.mapError(
+            (cause) => new DockerEngineError({ operation: "read the workspace image", cause }),
+          ),
+        );
+        return Id;
       }),
       stop: Effect.fn("DockerEngine.stop")(function* (name) {
         yield* call(

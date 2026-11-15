@@ -1,6 +1,5 @@
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeWS from "@effect/platform-node/NodeWS";
-import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -17,7 +16,6 @@ import { type AuthenticatedSession, Sessions } from "../accounts/Sessions.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { sessionCookieName } from "../http/ControlHttp.ts";
 import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
-import * as DockerWorkspaces from "./DockerWorkspaces.ts";
 import { type WorkspaceTarget, WorkspaceManager } from "./WorkspaceManager.ts";
 import { WorkspaceTokens } from "./WorkspaceTokens.ts";
 
@@ -125,6 +123,11 @@ export const layerHttpForwarding = HttpRouter.use((router) =>
       const response = yield* client
         .execute(forwarded)
         .pipe(Effect.tapError(() => manager.forget(session.person.id)));
+      // Whatever answers there refuses this person's token, such as another workspace that took
+      // the port after theirs stopped, so the next request looks for their workspace again.
+      if (response.status === 401) {
+        yield* manager.forget(session.person.id);
+      }
       return HttpServerResponse.stream(response.stream, {
         status: response.status,
         headers: keep(response.headers, RESPONSE_HEADERS_DROPPED),
@@ -221,29 +224,5 @@ export const layerSocketForwarding = HttpRouter.use((router) =>
   }),
 ).pipe(Layer.provide(layerWorkspaceSocket));
 
-/**
- * Forwards `/api` and `/ws` to each person's own workspace when
- * `CODENINE_CONTROL_WORKSPACE_DRIVER` is `docker`, or to one shared workspace
- * at `CODENINE_CONTROL_WORKSPACE_URL`. With neither, the control server serves
- * only its own routes.
- */
-export const layerForwarding = Layer.unwrap(
-  Effect.gen(function* () {
-    const forwarding = Layer.mergeAll(layerHttpForwarding, layerSocketForwarding);
-    const driver = yield* Config.String("CODENINE_CONTROL_WORKSPACE_DRIVER").pipe(
-      Config.withDefault("shared"),
-    );
-    if (driver === "docker") {
-      return forwarding.pipe(Layer.provide(DockerWorkspaces.layer));
-    }
-    if (driver !== "shared") {
-      return yield* Effect.die(
-        `CODENINE_CONTROL_WORKSPACE_DRIVER must be "docker" or "shared", not "${driver}".`,
-      );
-    }
-    const shared = yield* WorkspaceManager.sharedFromConfig;
-    return Option.isNone(shared)
-      ? Layer.empty
-      : forwarding.pipe(Layer.provide(Layer.succeed(WorkspaceManager, shared.value)));
-  }),
-);
+/** Forwards `/api`, `/ws` and the workspace descriptor to each person's workspace. */
+export const layerForwarding = Layer.mergeAll(layerHttpForwarding, layerSocketForwarding);

@@ -193,6 +193,7 @@ import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
+import * as WorkspaceSleep from "./background/WorkspaceSleep.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import { RpcInstrumentation, rpcInstrumentationLayer } from "./observability/RpcInstrumentation.ts";
@@ -2721,6 +2722,7 @@ export const layer = Layer.unwrap(
         }
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
+        const workspaceSleep = yield* WorkspaceSleep.WorkspaceSleep;
         const { mode } = yield* ServerConfig.ServerConfig;
         const session = yield* serverAuth.authenticateWebSocketUpgrade(request, "rpc").pipe(
           Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
@@ -2802,7 +2804,7 @@ export const layer = Layer.unwrap(
                   ),
             ),
           () => sessions.markDisconnected(session.sessionId),
-        );
+        ).pipe(workspaceSleep.whileConnected);
       }).pipe(
         Effect.catchTags({
           EnvironmentAuthInvalidError: HttpServerRespondable.toResponse,

@@ -24,6 +24,7 @@ import { Sessions } from "../accounts/Sessions.ts";
 import { codeNow, fromBase32 } from "../testing/authenticator.ts";
 import { layerTestServices, TEST_PUBLIC_URL } from "../testing/layerTestServices.ts";
 import { signTestLicence, testClaims, testKeyPair } from "../testing/testLicence.ts";
+import { WorkspaceManager } from "../workspaces/WorkspaceManager.ts";
 import * as ControlHttp from "./ControlHttp.ts";
 
 const PASSWORD = "correct horse battery staple";
@@ -59,7 +60,10 @@ const withApi = <A, E, R>(
     }).pipe(
       Effect.scoped,
       Effect.provide(
-        layerTestServices(keys.publicKey).pipe(Layer.provideMerge(HttpServer.layerServices)),
+        layerTestServices(keys.publicKey).pipe(
+          Layer.provideMerge(HttpServer.layerServices),
+          Layer.provideMerge(Layer.succeed(WorkspaceManager, WorkspaceManager.none)),
+        ),
       ),
     );
   }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));

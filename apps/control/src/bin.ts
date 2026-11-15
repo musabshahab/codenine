@@ -22,6 +22,7 @@ import * as ControlHttp from "./http/ControlHttp.ts";
 import { Installation } from "./installation/Installation.ts";
 import * as Licence from "./licence/LicenceService.ts";
 import { Mailer } from "./mail/Mailer.ts";
+import * as WorkspaceDriver from "./workspaces/WorkspaceDriver.ts";
 import * as WorkspaceProxy from "./workspaces/WorkspaceProxy.ts";
 import * as WorkspaceTokensModule from "./workspaces/WorkspaceTokens.ts";
 
@@ -78,7 +79,12 @@ const serveCommand = Command.make("serve", {}, () =>
           Layer.mergeAll(WorkspaceProxy.layerForwarding, ControlHttp.layerWebApp),
         ),
         Licence.layerDailyCheck,
-      ).pipe(Layer.provide(WorkspaceTokensModule.layer), Layer.provideMerge(layerAccounts)),
+      ).pipe(
+        // One manager for the API and forwarding, so both see the same workspaces.
+        Layer.provide(WorkspaceDriver.layer),
+        Layer.provide(WorkspaceTokensModule.layer),
+        Layer.provideMerge(layerAccounts),
+      ),
     );
   }),
 ).pipe(Command.withDescription("Run the control server."));

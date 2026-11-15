@@ -30,6 +30,10 @@ import { Sessions } from "../accounts/Sessions.ts";
 import { ControlPublicUrl, enrolmentLink } from "../config.ts";
 import { ControlDb } from "../db.ts";
 import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
+import {
+  WorkspaceManager,
+  type WorkspaceUnavailableError,
+} from "../workspaces/WorkspaceManager.ts";
 
 const ok = { ok: true as const };
 
@@ -182,11 +186,40 @@ export const layerMeApi = HttpApiBuilder.group(
     const sessions = yield* Sessions;
     const accounts = yield* Accounts;
     const licence = yield* LicenceService;
+    const workspaces = yield* WorkspaceManager;
     const { secure } = yield* ControlPublicUrl;
+    const workspaceUnavailable = (error: WorkspaceUnavailableError) =>
+      Effect.logError("A workspace could not be reached or started.", error).pipe(
+        Effect.andThen(
+          Effect.fail(new ControlUnavailableError({ reason: "workspace-unavailable" })),
+        ),
+      );
     return handlers
       .handle("me", () => ControlPrincipal.pipe(Effect.map((principal) => principal.person)))
       .handle("access", () =>
         licence.overview.pipe(Effect.map(({ licence: applied }) => workspaceAccess(applied))),
+      )
+      .handle(
+        "workspace",
+        Effect.fn("ControlHttp.workspace")(function* () {
+          const { person } = yield* ControlPrincipal;
+          const asleep = yield* workspaces
+            .isAsleep(person.id)
+            .pipe(Effect.catchTags({ WorkspaceUnavailableError: workspaceUnavailable }));
+          return { asleep };
+        }),
+      )
+      .handle(
+        "wakeWorkspace",
+        Effect.fn("ControlHttp.wakeWorkspace")(function* () {
+          const { person } = yield* ControlPrincipal;
+          // Where it answered before it slept is out of date.
+          yield* workspaces.forget(person.id);
+          yield* workspaces
+            .targetFor(person.id)
+            .pipe(Effect.catchTags({ WorkspaceUnavailableError: workspaceUnavailable }));
+          return ok;
+        }),
       )
       .handle(
         "signOut",

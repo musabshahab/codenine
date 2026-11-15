@@ -2,6 +2,7 @@ import {
   ControlApi,
   type ControlMe,
   type ControlWorkspaceAccess,
+  type ControlWorkspaceState,
 } from "@codenine/contracts/control";
 import type { LicenceProblem } from "@codenine/contracts/licence";
 import { layerRemoteHttpClient } from "@codenine/client-runtime/rpc";
@@ -39,14 +40,17 @@ interface ControlStartup {
   readonly me: ControlMe;
   /** Null when the control server could not say; the workspace still enforces it. */
   readonly access: ControlWorkspaceAccess | null;
+  /** Null when the control server could not say; the first request starts it anyway. */
+  readonly workspace: ControlWorkspaceState | null;
 }
 
 let startup: Promise<ControlStartup | null> | undefined;
 let startupResult: ControlStartup | null = null;
 
 /**
- * The signed-in person and what the licence allows, asked once per page load.
- * Signing in and out reload the page, so the answer cannot go stale that way.
+ * The signed-in person, what the licence allows and whether their workspace is
+ * asleep, asked once per page load. Signing in and out reload the page, so the
+ * answer cannot go stale that way.
  */
 export const controlStartup = () =>
   (startup ??= Promise.all([
@@ -55,13 +59,49 @@ export const controlStartup = () =>
       (access) => access,
       () => null,
     ),
-  ]).then(([me, access]) => {
-    startupResult = me === null ? null : { me, access };
+    callControl((client) => client.me.workspace()).then(
+      (workspace) => workspace,
+      () => null,
+    ),
+  ]).then(([me, access, workspace]) => {
+    startupResult = me === null ? null : { me, access, workspace };
     return startupResult;
   }));
 
 /** What `controlStartup` found; the app renders only after it resolves. */
 export const currentControlStartup = () => startupResult;
+
+/** A line under the start-up logo, until the app replaces the start-up screen. */
+const showBootStatus = (text: string) => {
+  const card = document.getElementById("boot-shell-card");
+  if (card === null) return;
+  const status = document.getElementById("boot-status") ?? document.createElement("p");
+  status.id = "boot-status";
+  status.setAttribute("role", "status");
+  status.textContent = text;
+  card.append(status);
+};
+
+let waking: Promise<void> | undefined;
+
+/**
+ * Starts the person's workspace when it was asleep, once per page load, and says
+ * so on the start-up screen meanwhile. After a failure, the next try starts over.
+ */
+export const wakeWorkspaceIfAsleep = (found: ControlStartup) => {
+  if (found.workspace?.asleep !== true) return Promise.resolve();
+  if (waking === undefined) {
+    showBootStatus("Starting your workspace…");
+    waking = callControl((client) => client.me.wakeWorkspace()).then(
+      () => undefined,
+      (error: unknown) => {
+        waking = undefined;
+        throw new Error(controlErrorMessage(error), { cause: error });
+      },
+    );
+  }
+  return waking;
+};
 
 const LICENCE_PROBLEMS: Record<LicenceProblem, string> = {
   malformed: "This is not a Codenine licence key.",
@@ -88,6 +128,11 @@ export function controlErrorMessage(error: unknown): string {
       error instanceof Error
     ) {
       return error.message;
+    }
+    if (error._tag === "ControlUnavailableError" && "reason" in error) {
+      return error.reason === "workspace-unavailable"
+        ? "Your workspace did not start. Try again in a moment, and if it keeps failing, ask your admin to check the control server's log."
+        : "The control server cannot reach its database. Try again in a moment.";
     }
   }
   return "The control server did not answer. Check your connection and try again.";

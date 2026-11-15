@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -41,6 +42,11 @@ export interface ManagedControlConfig {
   readonly publicKey: string;
   /** This workspace's ID, which tokens must name. */
   readonly workspaceId: string;
+  /**
+   * How long the workspace stays up with nobody connected and no agent working, when the
+   * control server can start it again. Unset keeps it up.
+   */
+  readonly sleepAfter?: Duration.Duration | undefined;
 }
 
 export const StartupPresentation = Schema.Literals(["browser", "headless"]);

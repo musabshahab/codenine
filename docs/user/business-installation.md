@@ -85,17 +85,21 @@ on the control server:
 - `CODENINE_CONTROL_WORKSPACE_IMAGE`: the image, such as `codenine-workspace:1.0.0`.
 - `CODENINE_CONTROL_WORKSPACE_CPUS` and `CODENINE_CONTROL_WORKSPACE_MEMORY_GB` (optional): each
   workspace's limits, 2 CPUs and 4 GB unless set.
+- `CODENINE_CONTROL_WORKSPACE_SLEEP_MINUTES` (optional): how long a workspace waits, with nobody
+  having Codenine open and no agent working, before it sleeps. 30 unless set; `0` keeps
+  workspaces awake.
 - `CODENINE_CONTROL_DOCKER_SOCKET` (optional): the Docker socket, `/var/run/docker.sock` unless
   set. The control server's user needs access to it.
 
-Each workspace is a container named `codenine-<installation ID>-<person ID>`, and its files live
-on the volume of the same name ending in `-home`. Back up those volumes. A workspace keeps the
-image it was created with. To move everyone to a new image, remove the containers while no agents
-are working; the volumes stay, and each person's next visit creates their container again:
+A sleeping workspace frees its memory and CPU, and the person's next visit wakes it, which takes a
+few seconds. An agent that is working, waiting for an answer or watching a pull request keeps the
+workspace awake. Terminals and anything else still running in it stop when it sleeps.
 
-```bash
-docker rm --force $(docker ps --all --quiet --filter name=codenine-inst_)
-```
+Each workspace is a container named `codenine-<installation ID>-<person ID>`, and its files live
+on the volume of the same name ending in `-home`. Back up those volumes. A new image, including
+one rebuilt under the same tag, and changes to these settings reach each workspace the next time
+it wakes; one that is awake keeps running as it is. To move someone sooner, stop their container
+with `docker stop` while their agents are idle.
 
 ### One shared workspace server
 

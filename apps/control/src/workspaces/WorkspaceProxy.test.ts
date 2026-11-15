@@ -59,6 +59,12 @@ const COMPRESSIBLE = "codenine ".repeat(1_000);
 const fakeWorkspace = (name: string) =>
   Layer.mergeAll(
     HttpRouter.add("*", "/api/echo", echo(name)),
+    // As a workspace answers a token minted for another.
+    HttpRouter.add(
+      "GET",
+      "/api/refused",
+      Effect.succeed(HttpServerResponse.empty({ status: 401 })),
+    ),
     HttpRouter.add(
       "GET",
       "/api/compressed",
@@ -135,6 +141,8 @@ const withProxy = <A, E, R>(
       authorization: string,
       workspaceId?: string,
     ) => Effect.Effect<ReadonlyArray<AuthGrantScope>, WorkspaceTokenError>;
+    /** People whose workspace the proxy was told to look for again. */
+    readonly forgotten: ReadonlyArray<string>;
   }) => Effect.Effect<A, E, R>,
   options: { readonly licensed: boolean },
 ) =>
@@ -144,11 +152,15 @@ const withProxy = <A, E, R>(
       per_ada: { url: `http://${yield* listen(fakeWorkspace("A"))}`, workspaceId: "ws-ada" },
       per_bea: { url: `http://${yield* listen(fakeWorkspace("B"))}`, workspaceId: "ws-bea" },
     };
+    const forgotten: Array<string> = [];
     const manager = WorkspaceManager.of({
       targetFor: Effect.fn("test.targetFor")((personId: string) =>
         Effect.succeed(personId === "per_bea" ? workspaces.per_bea : workspaces.per_ada),
       ),
-      forget: Effect.fn("test.forget")(() => Effect.void),
+      forget: Effect.fn("test.forget")((personId: string) =>
+        Effect.sync(() => void forgotten.push(personId)),
+      ),
+      isAsleep: Effect.fn("test.isAsleep")(() => Effect.succeed(false)),
     });
     const services = WorkspaceTokens.layer.pipe(
       Layer.provideMerge(Layer.succeed(WorkspaceManager, manager)),
@@ -199,7 +211,7 @@ const withProxy = <A, E, R>(
           Effect.map((claims) => claims.scopes),
           Effect.provide(NodeCrypto.layerSignature),
         );
-      return yield* body({ host, cookie, beaCookie, scopesOf });
+      return yield* body({ host, cookie, beaCookie, scopesOf, forgotten });
     }).pipe(Effect.provide(services));
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 
@@ -311,7 +323,7 @@ describe("WorkspaceProxy", () => {
 
   it.live("sends each person only to their own workspace, with a token only it accepts", () =>
     withProxy(
-      ({ host, cookie, beaCookie, scopesOf }) =>
+      ({ host, cookie, beaCookie, scopesOf, forgotten }) =>
         Effect.gen(function* () {
           const ada = yield* (yield* call(`http://${host}/api/echo`, { cookie })).echo;
           const bea = yield* (yield* call(`http://${host}/api/echo`, { cookie: beaCookie })).echo;
@@ -323,6 +335,10 @@ describe("WorkspaceProxy", () => {
           expect((yield* Effect.flip(scopesOf(ada.authorization ?? "", "ws-bea")))._tag).toBe(
             "WorkspaceTokenError",
           );
+          // A workspace that refuses the token is not Ada's any more, so the proxy looks again.
+          expect(forgotten).toEqual([]);
+          expect((yield* call(`http://${host}/api/refused`, { cookie })).status).toBe(401);
+          expect(forgotten).toEqual(["per_ada"]);
 
           const socket = yield* Socket.makeWebSocket(`ws://${host}/ws`, {
             headers: { cookie: beaCookie },
