@@ -1,7 +1,6 @@
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeWS from "@effect/platform-node/NodeWS";
 import * as Config from "effect/Config";
-import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -18,23 +17,9 @@ import { type AuthenticatedSession, Sessions } from "../accounts/Sessions.ts";
 import { ControlPublicUrl } from "../config.ts";
 import { sessionCookieName } from "../http/ControlHttp.ts";
 import { LicenceService, workspaceAccess } from "../licence/LicenceService.ts";
+import * as DockerWorkspaces from "./DockerWorkspaces.ts";
+import { type WorkspaceTarget, WorkspaceManager } from "./WorkspaceManager.ts";
 import { WorkspaceTokens } from "./WorkspaceTokens.ts";
-
-/** The workspace server everyone reaches in this first version; phase 2 gives each person their own. */
-export class WorkspaceUpstream extends Context.Service<
-  WorkspaceUpstream,
-  { readonly url: string; readonly workspaceId: string }
->()("@codenine/control/workspaces/WorkspaceProxy/WorkspaceUpstream") {
-  static readonly layer = Layer.effect(
-    WorkspaceUpstream,
-    Config.all({
-      url: Config.String("CODENINE_CONTROL_WORKSPACE_URL"),
-      workspaceId: Config.String("CODENINE_CONTROL_WORKSPACE_ID").pipe(
-        Config.withDefault("workspace"),
-      ),
-    }).pipe(Effect.map(({ url, workspaceId }) => ({ url: url.replace(/\/+$/u, ""), workspaceId }))),
-  );
-}
 
 // Hop-by-hop headers and our own cookie and credentials. Encodings pass through untouched.
 const REQUEST_HEADERS_DROPPED = new Set([
@@ -68,14 +53,21 @@ const signedOut = HttpServerResponse.jsonUnsafe(
   { status: 401 },
 );
 
+interface Authorized {
+  readonly token: string;
+  readonly session: AuthenticatedSession;
+  /** The person's own workspace; their token works there and nowhere else. */
+  readonly target: WorkspaceTarget;
+}
+
 /**
- * Who is asking, and the workspace token to forward with their request. The
- * licence decides whether the token can change anything.
+ * Who is asking, their workspace, and the token to forward with their request.
+ * The licence decides whether the token can change anything.
  */
 export const makeWorkspaceAuthorizer = Effect.gen(function* () {
   const sessions = yield* Sessions;
   const tokens = yield* WorkspaceTokens;
-  const upstream = yield* WorkspaceUpstream;
+  const manager = yield* WorkspaceManager;
   const { secure } = yield* ControlPublicUrl;
   const licence = yield* LicenceService;
   // Licence standing changes daily at most; this spares a query per request.
@@ -89,16 +81,17 @@ export const makeWorkspaceAuthorizer = Effect.gen(function* () {
     const cookie = request.cookies[sessionCookieName(secure)];
     const session = cookie === undefined ? Option.none() : yield* sessions.authenticate(cookie);
     if (Option.isNone(session)) {
-      return Option.none<{ readonly token: string; readonly session: AuthenticatedSession }>();
+      return Option.none<Authorized>();
     }
+    const target = yield* manager.targetFor(session.value.person.id);
     const token = yield* tokens.mint({
       personId: session.value.person.id,
       sessionId: session.value.sessionId,
       name: session.value.person.displayName,
-      workspaceId: upstream.workspaceId,
+      workspaceId: target.workspaceId,
       readOnly: !(yield* allowsWork),
     });
-    return Option.some({ token, session: session.value });
+    return Option.some<Authorized>({ token, session: session.value, target });
   });
 });
 
@@ -110,7 +103,7 @@ const unavailable = HttpServerResponse.jsonUnsafe(
 export const layerHttpForwarding = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const authorize = yield* makeWorkspaceAuthorizer;
-    const upstream = yield* WorkspaceUpstream;
+    const manager = yield* WorkspaceManager;
     const client = yield* HttpClient.HttpClient;
     const forwardRequest = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
@@ -118,9 +111,10 @@ export const layerHttpForwarding = HttpRouter.use((router) =>
       if (Option.isNone(authorized)) {
         return signedOut;
       }
+      const { target, session } = authorized.value;
       const hasBody = request.method !== "GET" && request.method !== "HEAD";
       const forwarded = HttpClientRequest.make(request.method as "GET")(
-        `${upstream.url}${request.url}`,
+        `${target.url}${request.url}`,
       ).pipe(
         HttpClientRequest.setHeaders({
           ...keep(request.headers, REQUEST_HEADERS_DROPPED),
@@ -128,12 +122,19 @@ export const layerHttpForwarding = HttpRouter.use((router) =>
         }),
         hasBody ? HttpClientRequest.bodyStream(request.stream) : (self) => self,
       );
-      const response = yield* client.execute(forwarded);
+      const response = yield* client
+        .execute(forwarded)
+        .pipe(Effect.tapError(() => manager.forget(session.person.id)));
       return HttpServerResponse.stream(response.stream, {
         status: response.status,
         headers: keep(response.headers, RESPONSE_HEADERS_DROPPED),
       });
-    }).pipe(Effect.catchTags({ HttpClientError: () => Effect.succeed(unavailable) }));
+    }).pipe(
+      Effect.catchTags({
+        HttpClientError: () => Effect.succeed(unavailable),
+        WorkspaceUnavailableError: () => Effect.succeed(unavailable),
+      }),
+    );
     yield* router.add("*", "/api/*", forwardRequest);
     // The app reads the workspace's descriptor before it opens /ws.
     yield* router.add("GET", "/.well-known/codenine/*", forwardRequest);
@@ -174,23 +175,29 @@ export const layerSocketForwarding = HttpRouter.use((router) =>
   Effect.gen(function* () {
     const authorize = yield* makeWorkspaceAuthorizer;
     const sessions = yield* Sessions;
-    const upstream = yield* WorkspaceUpstream;
+    const manager = yield* WorkspaceManager;
     const constructor = yield* Socket.WebSocketConstructor;
     yield* router.add(
       "GET",
       "/ws",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const authorized = yield* authorize(request);
+        const authorized = yield* authorize(request).pipe(
+          Effect.catchTags({ WorkspaceUnavailableError: () => Effect.succeed(null) }),
+        );
+        if (authorized === null) {
+          return unavailable;
+        }
         if (Option.isNone(authorized)) {
           return signedOut;
         }
+        const { target } = authorized.value;
         const protocols = request.headers["sec-websocket-protocol"]
           ?.split(",")
           .map((protocol) => protocol.trim())
           .filter((protocol) => protocol.length > 0);
         const workspace = yield* Socket.makeWebSocket(
-          `${upstream.url.replace(/^http/u, "ws")}${request.url}`,
+          `${target.url.replace(/^http/u, "ws")}${request.url}`,
           {
             headers: { authorization: `Bearer ${authorized.value.token}` },
             ...(protocols === undefined || protocols.length === 0 ? {} : { protocols }),
@@ -199,6 +206,7 @@ export const layerSocketForwarding = HttpRouter.use((router) =>
         // Taking the reader opens the connection, so a refusal is a 502 before the browser upgrades.
         const fromWorkspace = yield* workspace.reader.pipe(Effect.option);
         if (Option.isNone(fromWorkspace)) {
+          yield* manager.forget(authorized.value.session.person.id);
           return unavailable;
         }
         const browser = yield* request.upgrade;
@@ -214,16 +222,28 @@ export const layerSocketForwarding = HttpRouter.use((router) =>
 ).pipe(Layer.provide(layerWorkspaceSocket));
 
 /**
- * Forwards `/api` and `/ws` when `CODENINE_CONTROL_WORKSPACE_URL` is set;
- * without it the control server serves only its own routes.
+ * Forwards `/api` and `/ws` to each person's own workspace when
+ * `CODENINE_CONTROL_WORKSPACE_DRIVER` is `docker`, or to one shared workspace
+ * at `CODENINE_CONTROL_WORKSPACE_URL`. With neither, the control server serves
+ * only its own routes.
  */
 export const layerForwarding = Layer.unwrap(
   Effect.gen(function* () {
-    const url = yield* Config.option(Config.String("CODENINE_CONTROL_WORKSPACE_URL"));
-    return Option.isNone(url)
+    const forwarding = Layer.mergeAll(layerHttpForwarding, layerSocketForwarding);
+    const driver = yield* Config.String("CODENINE_CONTROL_WORKSPACE_DRIVER").pipe(
+      Config.withDefault("shared"),
+    );
+    if (driver === "docker") {
+      return forwarding.pipe(Layer.provide(DockerWorkspaces.layer));
+    }
+    if (driver !== "shared") {
+      return yield* Effect.die(
+        `CODENINE_CONTROL_WORKSPACE_DRIVER must be "docker" or "shared", not "${driver}".`,
+      );
+    }
+    const shared = yield* WorkspaceManager.sharedFromConfig;
+    return Option.isNone(shared)
       ? Layer.empty
-      : Layer.mergeAll(layerHttpForwarding, layerSocketForwarding).pipe(
-          Layer.provide(WorkspaceUpstream.layer),
-        );
+      : forwarding.pipe(Layer.provide(Layer.succeed(WorkspaceManager, shared.value)));
   }),
 );

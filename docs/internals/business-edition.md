@@ -27,7 +27,8 @@ checks key ID, signature, type, issuer, audience and time.
 - **Scopes are not isolation.** As [Environment authentication](./environment-auth.md)
   explains, `terminal:operate` and `orchestration:operate` reach everything the workspace's
   user can. Separate people get separate workspaces; one shared workspace is for a team that
-  already trusts each other.
+  already trusts each other. With per-person workspaces each token's audience is that person's
+  workspace, so even a misrouted request carries a token no other workspace accepts.
 - **The workspace port is internal.** The control server forwards only `/api`, `/ws` and the
   workspace descriptor under `/.well-known/codenine`, each with a token. The workspace still
   serves `/mcp` with its own sessions so its agent processes can reach their tools, so the
