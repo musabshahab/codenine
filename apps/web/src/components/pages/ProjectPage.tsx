@@ -42,10 +42,10 @@ export function ProjectPage(props: { projectKey: string }) {
     null;
   if (group === null) {
     return (
-      <WorkspacePage area="project" title="Project">
+      <WorkspacePage area="project" title="Workspace">
         <Empty className="h-full">
           <EmptyHeader>
-            <EmptyTitle>This project is not here</EmptyTitle>
+            <EmptyTitle>This workspace is not here</EmptyTitle>
             <EmptyDescription>
               It may have been removed, or its machine is not connected yet.
             </EmptyDescription>
@@ -104,13 +104,13 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
     <WorkspacePage
       area="project"
       title={group.displayName}
-      subtitle="Project"
+      subtitle="Workspace"
       actions={
         <>
           <Button
             variant="ghost-muted"
             size="icon-sm"
-            aria-label="Project settings"
+            aria-label="Workspace settings"
             onClick={() =>
               void router.navigate({
                 to: "/settings/projects",
@@ -163,7 +163,7 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           <dd className="flex flex-wrap gap-2">
             {scripts.length === 0 ? (
               <span className="text-xs text-muted-foreground">
-                None yet. Add them in project settings.
+                None yet. Add them in workspace settings.
               </span>
             ) : (
               scripts.map((script) => (
@@ -200,7 +200,7 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           onOpen={openThread}
         />
         <ThreadList
-          heading="Chats in this project"
+          heading="Chats in this workspace"
           empty="No open chats."
           threads={chats}
           detail={(thread) => formatElapsedDurationLabel(thread.updatedAt, nowMs)}

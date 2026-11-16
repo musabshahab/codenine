@@ -18,7 +18,7 @@ the terminal, worktrees, and pull requests.
 - [Terminal history](./user/terminal.md)
 - [Source control](./user/source-control.md)
 - [Prompt links](./user/prompt-links.md)
-- [Settings and project overrides](./user/project-settings.md)
+- [Settings and workspace overrides](./user/project-settings.md)
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Keyboard focus](./user/keyboard-focus.md)

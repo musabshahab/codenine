@@ -1,8 +1,8 @@
-# Settings and project overrides
+# Settings and workspace overrides
 
 The "Applying settings for …" sentence at the top of Settings pages picks
-the project and environment a change applies to. Pages that only hold device preferences, such as
-Appearance, don't show it. They start at **All projects** and **All environments**
+the workspace and environment a change applies to. Pages that only hold device preferences, such as
+Appearance, don't show it. They start at **All workspaces** and **All environments**
 and stay selected as you move between categories or search for a setting.
 
 Preferences saved on this device, such as appearance and confirmations, always
@@ -10,50 +10,50 @@ show and ignore the selection. Everything else is stored on a server. Choose one
 edit its settings, or leave **All environments** to edit every connected environment at once.
 Offline environments keep their current values; this is a bulk edit, not a synced global default.
 
-Choose a project to override settings for it on the selected environments. A layers icon beside
+Choose a workspace to override settings for it on the selected environments. A layers icon beside
 each server row's title shows where the value comes from: the built-in default, the environment,
-or a project override. Click it to see that chain on every selected environment. An override can
-be reset to inherit again. Settings that cannot be overridden by a project are shown read-only
-while a project is selected.
+or a workspace override. Click it to see that chain on every selected environment. An override can
+be reset to inherit again. Settings that cannot be overridden by a workspace are shown read-only
+while a workspace is selected.
 
 When the selected environments disagree, the control shows **Mixed** in place of a value and the
 layers icon turns amber. Picking a value applies it to every selected environment.
 
-Changing an environment value never touches a project's own override. When projects override the
+Changing an environment value never touches a workspace's own override. When workspaces override the
 setting you are editing, the layers icon counts them and the chain lists each one with its value:
-click a project to jump to it, or **Reset all** to make those projects follow the environment
+click a workspace to jump to it, or **Reset all** to make those workspaces follow the environment
 again.
 
 Providers and diagnostics are per machine: they show one environment at a time, the primary
 one until you pick another. Every other setting fans out to the selection.
 
-With a project selected, a provider's switch in **Settings → Providers** turns it on or off for
-that project only, in either direction: a provider off on the machine can be used in one project,
-and one on everywhere can be kept out of another. That project's model pickers follow the switch,
+With a workspace selected, a provider's switch in **Settings → Providers** turns it on or off for
+that workspace only, in either direction: a provider off on the machine can be used in one workspace,
+and one on everywhere can be kept out of another. That workspace's model pickers follow the switch,
 and no new turn there can start on a provider it turned off, including queued messages and
 follow-ups from delegated tasks. A turn already running when the switch flips finishes. A delegated
-task's result still lands in its parent thread, which sees it on its next turn. Reset returns the project to the
+task's result still lands in its parent thread, which sees it on its next turn. Reset returns the workspace to the
 machine's setting. Every other provider setting stays per machine.
 
-## Pin, archive, and remove projects
+## Pin, archive, and remove workspaces
 
-Pinned projects come first in the project pickers: the project picker on a new chat, the
-**New chat in...** list, the command palette, and the sidebar project filter. When chats are
-grouped by project, pinned projects get the top folders, even with no active threads. Pin or unpin
-a project from its row in any of those lists, or press the thread pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
-project** in the command palette and **Settings → Projects** work too. A list keeps its order
+Pinned workspaces come first in the workspace pickers: the workspace picker on a new chat, the
+**New chat in...** list, the command palette, and the sidebar workspace filter. When chats are
+grouped by workspace, pinned workspaces get the top folders, even with no active threads. Pin or unpin
+a workspace from its row in any of those lists, or press the thread pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
+workspace** in the command palette and **Settings → Workspaces** work too. A list keeps its order
 while it is open, so a new pin moves up the next time you open it.
 
-Archive a project you are done with in **Settings → Projects**. It leaves the project pickers.
-Its threads, settings, and files stay as they are, and archived projects still show in the
-Settings project list, marked **Archived**. Choose one there and select **Unarchive** to bring it
+Archive a workspace you are done with in **Settings → Workspaces**. It leaves the workspace pickers.
+Its threads, settings, and files stay as they are, and archived workspaces still show in the
+Settings workspace list, marked **Archived**. Choose one there and select **Unarchive** to bring it
 back.
 
-A project on several machines must have every machine connected to pin or archive it.
+A workspace on several machines must have every machine connected to pin or archive it.
 
-Remove a project from its folder's right-click menu in the sidebar or from **Settings → Projects**.
-Removing it deletes its threads from Codenine and leaves its folder on disk; **Delete project and
-folder** also permanently deletes the folder, including uncommitted work, and the project's
+Remove a workspace from its folder's right-click menu in the sidebar or from **Settings → Workspaces**.
+Removing it deletes its threads from Codenine and leaves its folder on disk; **Delete workspace and
+folder** also permanently deletes the folder, including uncommitted work, and the workspace's
 Codenine worktrees on the machine that holds it.
 
 ## Worktree branch names
@@ -65,7 +65,7 @@ optional, and an empty prefix adds nothing. Invalid characters in a static prefi
 are replaced with hyphens. Custom instructions are appended to
 the naming prompt and can specify issue IDs, namespaces, and casing.
 
-These settings apply to automatically named new worktree branches. Select a project
+These settings apply to automatically named new worktree branches. Select a workspace
 to override its environment defaults. Worktree directories keep their original names.
 If generation fails, or a custom name is invalid or already taken, the temporary
 branch name remains.
@@ -73,24 +73,24 @@ branch name remains.
 ## Defaults and inheritance
 
 Threads contains the model and workspace for new threads. Source control contains automatic pull
-and text generation. The same rows edit environment defaults or project overrides depending on
-the selected project.
+and text generation. The same rows edit environment defaults or workspace overrides depending on
+the selected workspace.
 
-The Projects category, under Code, holds the project's name, icon, actions,
-checkouts and removal. Actions belong to a project: editing them creates the project's own list
-on each selected environment, and reset returns to the environment's shared list. A project's
+The Workspaces category, under Code, holds the workspace's name, icon, actions,
+checkouts and removal. Actions belong to a workspace: editing them creates the workspace's own list
+on each selected environment, and reset returns to the environment's shared list. A workspace's
 `codenine.json` actions can be imported there.
 
 Settings a repository can also declare in `codenine.json`, such as the workspace for new threads,
-resolve in one order: a project override, then the environment setting, then `codenine.json`, then the
+resolve in one order: a workspace override, then the environment setting, then `codenine.json`, then the
 built-in default. Leave a setting on **Inherit** to let the next tier decide.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
-declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the project
+declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the workspace
 selected to override it there) to **Top level only** to stop at the ones the repository declares
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
 workspace default: a `"worktreeSubmodules"` value in the `codenine.json` of the branch being checked out
-applies when the project and environment are both on **Inherit**.
+applies when the workspace and environment are both on **Inherit**.
 
 ## Worktree location
 
@@ -118,15 +118,15 @@ Open **Settings → Worktrees → Cleanup** to enable automatic cleanup on one m
 environments. Policies are off by default and run on the server at startup, when changed, and
 hourly. Offline machines keep their existing policies.
 
-Select a project to set **Automatic worktree cleanup** to **Inherit**, **Off**, or **Custom**.
-Inherit follows each machine's rules; Off keeps that project's worktrees until you remove them
-manually. Custom applies separate worktree rules to the selected project or checkout. Log retention
+Select a workspace to set **Automatic worktree cleanup** to **Inherit**, **Off**, or **Custom**.
+Inherit follows each machine's rules; Off keeps that workspace's worktrees until you remove them
+manually. Custom applies separate worktree rules to the selected workspace or checkout. Log retention
 remains machine-wide.
 
 Worktrees can be removed after a chosen number of inactive days, after a thread is marked done,
 after merging, or when they have no commits beyond the default branch. Set **Delete worktrees of
 done threads** to 0 days to remove a worktree at the next cleanup after its thread is marked done. In repositories without remotes,
-unchanged-worktree cleanup compares against the branch checked out in the project workspace;
+unchanged-worktree cleanup compares against the branch checked out in the workspace workspace;
 if that checkout has a detached HEAD, the worktree is kept. Only Codenine-managed worktrees are eligible.
 Active sessions and shared worktrees prevent removal. **Keep worktrees with local changes** defaults
 to **Uncommitted changes**, which protects tracked edits and untracked files but deletes ignored
@@ -148,22 +148,22 @@ Results also list folders in the worktree folder that no thread uses, with their
 
 Rotated logs have their own retention period. Current logs and message attachments are kept.
 
-## Project icons
+## Workspace icons
 
-Select the project and open Project to choose an icon, emoji, monogram, or image. The choice applies to
-every checkout in the project group and appears on connected clients. Choose **Automatic** to let
+Select the workspace and open Workspace to choose an icon, emoji, monogram, or image. The choice applies to
+every checkout in the workspace group and appears on connected clients. Choose **Automatic** to let
 Codenine detect an icon again.
 
 Choose **Monogram** in the icon picker to set one or two letters or numbers and a color.
 
 When no image is found, Codenine shows a two-character monogram with a color
-from the icon palette, derived from the saved project name. For example, `Nebula` becomes `NA`,
+from the icon palette, derived from the saved workspace name. For example, `Nebula` becomes `NA`,
 `Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`.
 
 ## Keep the default branch current
 
 In Source control, enable **Automatically pull** to keep the default-branch checkout up to date
-with its configured upstream. Choose an environment to set the default or a project to override it.
+with its configured upstream. Choose an environment to set the default or a workspace to override it.
 
 Codenine only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has

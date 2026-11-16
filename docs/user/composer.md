@@ -100,7 +100,7 @@ instance:
 ## Model defaults
 
 Codenine remembers your provider, model, and model options for new threads. A
-project's configured model takes precedence; resetting that project setting
+workspace's configured model takes precedence; resetting that workspace setting
 returns to the remembered selection.
 
 Leaving reasoning level or service tier unset uses the provider's own configuration.
@@ -153,7 +153,7 @@ to its checkpoint from before that message. That also undoes edits you made your
 File restore is only offered for threads running in a worktree, and it is
 refused when another thread or agent session also uses that directory, a folder
 inside it, or a folder that contains it, since
-restoring would erase their changes. A thread that works in the project directory
+restoring would erase their changes. A thread that works in the workspace directory
 rewinds the conversation only. The selected prompt and its attachments return to the composer for editing and
 resending. Any unsent draft stays above the restored prompt.
 
@@ -254,11 +254,11 @@ Turn on **Team**, next to the attach button, to have the agent plan a
 [team](./thread-sidebar.md#run-a-team) for your message instead of starting the work. The sent
 message shows **Team requested**. Team turns off once the message is sent or you reload, and it
 does not apply to a message that starts with a `/` command. It is not offered in a thread that
-already leads a team or works for one, in subagent threads and side chats, or in a chat without a
-project, since a team works in a project's folder. To toggle it from
+already leads a team or works for one, in subagent threads and side chats, or in a Personal chat, since a team works in
+one workspace's folder. To toggle it from
 the keyboard, bind **Composer: Toggle Team** in **Settings → Keybindings**.
 
-A new chat in a project suggests a few example prompts under the composer. Choosing one fills in
+A new chat in a workspace suggests a few example prompts under the composer. Choosing one fills in
 the composer without sending; the team example also turns on Team.
 
 ## Context in your message
@@ -273,7 +273,7 @@ excerpt, Terminal 1 lines 3-4" and similar to screen readers.
 A pull request appears as its icon and number. Its color reflects whether it was open, draft,
 merged, or closed when it was attached. Select it to inspect the captured title and branches,
 then choose **Open pull request** to visit the pull request. Type `#` to browse the newest
-pull requests in the current project's repository. Pull requests linked to the thread are included
+pull requests in the current workspace's repository. Pull requests linked to the thread are included
 from any repository and listed first, after any exact number match. Continue typing digits to filter the recent list
 by any part of its pull request numbers. A complete number is also resolved directly, even when that
 pull request is older than the recent list. Type a single word after `#` to search pull requests in

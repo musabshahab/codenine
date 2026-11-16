@@ -453,13 +453,13 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["In-app notifications"]
       : []),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
-      ? ["Project Grouping"]
+      ? ["Workspace Grouping"]
       : []),
     ...(settings.sidebarProjectSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder
-      ? ["Project order"]
+      ? ["Workspace order"]
       : []),
     ...(settings.sidebarGroupByProject !== DEFAULT_UNIFIED_SETTINGS.sidebarGroupByProject
-      ? ["Group chats by project"]
+      ? ["Group chats by workspace"]
       : []),
     ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
       ? ["Working section"]
@@ -531,7 +531,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["New worktrees start from remote"]
       : []),
     ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
-      ? ["Add project base directory"]
+      ? ["Add workspace base directory"]
       : []),
     ...(settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout
       ? ["Clone into host folders"]
@@ -739,7 +739,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="sidebar" title="Sidebar">
         <SettingsRow
           {...searchableSetting("sidebar-group-by-project")}
-          description="Show chats in a folder for each project. Pinned chats stay above the folders and Snoozed below them; finished chats move to Completed & archived. Off shows one list, with its own Done shelf."
+          description="Show chats in a folder for each workspace. Pinned chats stay above the folders and Snoozed below them; finished chats move to Completed & archived. Off shows one list, with its own Done shelf."
           resetAction={
             settings.sidebarGroupByProject !== DEFAULT_UNIFIED_SETTINGS.sidebarGroupByProject ? (
               <SettingResetButton
@@ -758,7 +758,7 @@ export function GeneralSettingsPanel() {
               onCheckedChange={(checked) =>
                 updateSettings({ sidebarGroupByProject: Boolean(checked) })
               }
-              aria-label="Group chats by project"
+              aria-label="Group chats by workspace"
             />
           }
         />
@@ -769,7 +769,7 @@ export function GeneralSettingsPanel() {
             settings.sidebarProjectGroupingMode !==
             DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode ? (
               <SettingResetButton
-                label="project grouping"
+                label="workspace grouping"
                 onClick={() =>
                   updateSettings({
                     sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
@@ -793,18 +793,18 @@ export function GeneralSettingsPanel() {
                   ),
                 });
               }}
-              aria-label="Project grouping"
+              aria-label="Workspace grouping"
             />
           }
         />
         <SettingsRow
           {...searchableSetting("project-order")}
-          description="Order of projects in the sidebar project picker and command palette."
+          description="Order of workspaces in the sidebar workspace picker and command palette."
           resetAction={
             settings.sidebarProjectSortOrder !==
             DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder ? (
               <SettingResetButton
-                label="project order"
+                label="workspace order"
                 onClick={() =>
                   updateSettings({
                     sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
@@ -822,7 +822,7 @@ export function GeneralSettingsPanel() {
                 }
               }}
             >
-              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Project order">
+              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Workspace order">
                 <SelectValue>
                   {SIDEBAR_PROJECT_SORT_ORDER_LABELS[settings.sidebarProjectSortOrder]}
                 </SelectValue>
@@ -839,7 +839,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("working-shelf")}
-          description="In the single list, fold working and monitoring threads into a Working section. They return to the top of the list when they need you. Chats grouped by project have no Working section."
+          description="In the single list, fold working and monitoring threads into a Working section. They return to the top of the list when they need you. Chats grouped by workspace have no Working section."
           resetAction={
             settings.sidebarWorkingShelfEnabled !==
             DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
@@ -1563,7 +1563,7 @@ export function ThreadsSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="new-projects" title="New projects">
+      <SettingsSection id="new-projects" title="New workspaces">
         <SettingsRow
           serverScoped
           settingKeys={["addProjectBaseDirectory"]}
@@ -1573,7 +1573,7 @@ export function ThreadsSettingsPanel() {
             settings.addProjectBaseDirectory !==
             DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
               <SettingResetButton
-                label="add project base directory"
+                label="add workspace base directory"
                 onClick={() =>
                   updateSettings({
                     addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
@@ -1591,7 +1591,7 @@ export function ThreadsSettingsPanel() {
               normalizeDraft={resolvePastedPath}
               placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
               spellCheck={false}
-              aria-label="Add project base directory"
+              aria-label="Add workspace base directory"
             />
           }
         />

@@ -84,7 +84,7 @@ export interface SettingsSearchAvailability {
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/diagnostics": "Diagnostics",
-  "/settings/projects": "Projects",
+  "/settings/projects": "Workspaces",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
@@ -220,7 +220,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/worktrees",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage automatic delete deleted archived threads old inactive merged done settled unchanged worktrees retention days project inherit off custom",
+      "disk storage automatic delete deleted archived threads old inactive merged done settled unchanged worktrees retention days workspace inherit off custom",
     ],
   },
   {
@@ -239,14 +239,14 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-defaults",
-    title: "Project defaults and overrides",
+    title: "Workspace defaults and overrides",
     to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: ["model workspace environments projects inheritance checkout"],
   },
   {
     id: "project-overview",
-    title: "Project overview",
+    title: "Workspace overview",
     to: "/settings/projects",
     searchTerms: ["name icon emoji image checkout remove delete"],
   },
@@ -396,13 +396,13 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-grouping",
-    title: "Project grouping",
+    title: "Workspace grouping",
     to: "/settings/general",
     searchTerms: ["combine matching repositories environments sidebar"],
   },
   {
     id: "project-order",
-    title: "Project order",
+    title: "Workspace order",
     to: "/settings/general",
     searchTerms: ["sort projects sidebar manual created recent"],
   },
@@ -428,7 +428,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "sidebar-group-by-project",
-    title: "Group chats by project",
+    title: "Group chats by workspace",
     to: "/settings/general",
     searchTerms: ["sidebar folders project tree flat list needs you tasks boring"],
   },
@@ -629,7 +629,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "add-project-starts-in",
-    title: "Add project starts in",
+    title: "Add workspace starts in",
     to: "/settings/threads",
     scope: "environment-defaults",
     searchTerms: ["base directory folder browser path home"],
@@ -871,7 +871,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "WSL backend",
     to: "/settings/access",
     searchTerms: [
-      "windows subsystem linux distro second server projects stop windows backend restart wsl only",
+      "windows subsystem linux distro second server workspaces stop windows backend restart wsl only",
     ],
     desktopOnly: true,
     windowsOnly: true,
@@ -926,7 +926,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Load balancing",
     to: "/settings/connections",
     searchTerms: [
-      "automatic machine environment resources cpu memory capacity preference weight shared projects",
+      "automatic machine environment resources cpu memory capacity preference weight shared workspaces",
     ],
   },
   {

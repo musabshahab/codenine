@@ -98,7 +98,7 @@ export function usePullRequestHandoffs({
       toastManager.update(toastId, {
         type: "error",
         title: "Could not open a thread for the checkout",
-        description: "Try again from the project, or open a thread first.",
+        description: "Try again from the workspace, or open a thread first.",
       });
       return;
     }

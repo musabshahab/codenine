@@ -11,7 +11,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@codenine/client-runtime/state/runtime";
-import { ChevronDownIcon, EllipsisIcon, FolderIcon, FolderInputIcon, PinIcon } from "lucide-react";
+import { ChevronDownIcon, EllipsisIcon, PinIcon } from "lucide-react";
 import {
   memo,
   useEffect,
@@ -22,14 +22,13 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { PERSONAL_WORKSPACE_NAME } from "@codenine/client-runtime/state/projects";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
-import { readChatFolderNames, useChatFolders } from "~/hooks/useChatFolders";
 import { useThreadActions } from "~/hooks/useThreadActions";
 import { useQuietThreadShell } from "../../state/entities";
-import { buildChatFolderMenuItems, resolveThreadFolderChoice } from "../threadActionMenu.logic";
 import { Button } from "../ui/button";
 import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
@@ -140,15 +139,13 @@ export const ChatHeader = memo(function ChatHeader({
   const isChat = activeProject?.isScratch === true;
   const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
   const threadShell = useQuietThreadShell(isServerThread ? activeThreadRef : null);
-  const chatFolder = isChat ? (threadShell?.folder ?? null) : null;
   const projectGroupOf = useThreadProjectGroup();
   const projectGroup =
     activeProject === null || isChat
       ? null
       : projectGroupOf({ environmentId: activeThreadEnvironmentId, projectId: activeProject.id });
   const navigate = useNavigate();
-  // A chat names its folder where a thread names its project.
-  const activeProjectName = isChat ? (chatFolder ?? "Chats") : activeProject?.title;
+  const activeProjectName = isChat ? PERSONAL_WORKSPACE_NAME : activeProject?.title;
   // A team agent's crumb names the agent; its title, the task it runs, stays in the tooltip.
   const crumbTitle = teamAgent?.label ?? activeThreadTitle;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
@@ -321,7 +318,7 @@ export const ChatHeader = memo(function ChatHeader({
       const api = readLocalApi();
       if (!api) return;
       void api.contextMenu
-        .show([{ id: "project-settings", label: "Project settings", icon: "settings" }], {
+        .show([{ id: "project-settings", label: "Workspace settings", icon: "settings" }], {
           x: event.clientX,
           y: event.clientY,
         })
@@ -332,24 +329,6 @@ export const ChatHeader = memo(function ChatHeader({
     }
     openMenu({ x: event.clientX, y: event.clientY });
   };
-  const chatFolders = useChatFolders();
-  const openFolderMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    const api = readLocalApi();
-    if (!api) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const names = readChatFolderNames();
-    void api.contextMenu
-      .show(buildChatFolderMenuItems({ names, current: chatFolder }), {
-        x: rect.left,
-        y: rect.bottom + 4,
-      })
-      .then((action) => {
-        const choice = action === null ? null : resolveThreadFolderChoice(action, names);
-        if (choice === "new") void chatFolders.moveToNewFolder(activeThreadRef);
-        else if (choice !== null) void chatFolders.moveToFolder(activeThreadRef, choice.folder);
-      });
-  };
-  const movesChat = isChat && isServerThread && canOperateThread;
   const handleRenameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter") {
@@ -381,9 +360,6 @@ export const ChatHeader = memo(function ChatHeader({
               >
                 {isChat ? (
                   <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
-                    {chatFolder === null ? null : (
-                      <FolderIcon aria-hidden className="size-3.5 shrink-0" />
-                    )}
                     <WorkspaceBreadcrumbText className="max-w-40">
                       {activeProjectName}
                     </WorkspaceBreadcrumbText>
@@ -394,7 +370,7 @@ export const ChatHeader = memo(function ChatHeader({
                       render={
                         <button
                           type="button"
-                          aria-label={`Open project ${activeProjectName}`}
+                          aria-label={`Open workspace ${activeProjectName}`}
                           disabled={projectGroup === null}
                           onClick={() => {
                             if (projectGroup === null) return;
@@ -412,7 +388,7 @@ export const ChatHeader = memo(function ChatHeader({
                         {activeProjectName}
                       </WorkspaceBreadcrumbText>
                     </TooltipTrigger>
-                    <TooltipPopup side="top">Open project</TooltipPopup>
+                    <TooltipPopup side="top">Open workspace</TooltipPopup>
                   </Tooltip>
                 )}
               </WorkspaceBreadcrumbItem>
@@ -547,23 +523,6 @@ export const ChatHeader = memo(function ChatHeader({
         aria-label="Thread tools"
         className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
       >
-        {movesChat ? (
-          <span className="hidden @md/header-actions:flex">
-            <Button
-              size="xs"
-              variant="outline"
-              aria-haspopup="menu"
-              aria-label={
-                chatFolder === null ? "Move to folder" : `Move to folder, now in ${chatFolder}`
-              }
-              onClick={openFolderMenu}
-            >
-              <FolderInputIcon aria-hidden />
-              Move to folder
-              <ChevronDownIcon aria-hidden />
-            </Button>
-          </span>
-        ) : null}
         {tools}
         {isServerThread ? (
           <Tooltip>

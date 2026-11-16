@@ -123,10 +123,10 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       title="Model"
       description={
         isProjectScope
-          ? "Model for new threads in this project."
+          ? "Model for new threads in this workspace."
           : !unavailable && modelSource !== "project" && automaticModel
-            ? "Default model for new threads, selected automatically. Projects can override it."
-            : "Default model for new threads. Projects can override it."
+            ? "Default model for new threads, selected automatically. Workspaces can override it."
+            : "Default model for new threads. Workspaces can override it."
       }
       status={
         mixedModel
@@ -195,8 +195,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       title="Workspace"
       description={
         isProjectScope
-          ? "Where new threads in this project start."
-          : "Where new threads start. Projects and their codenine.json can override it."
+          ? "Where new threads in this workspace start."
+          : "Where new threads start. Workspaces and their codenine.json can override it."
       }
       resetAction={
         !isProjectScope && settings.defaultThreadEnvMode !== null ? (
@@ -329,8 +329,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             {...searchableSetting("default-permissions")}
             description={
               isProjectScope
-                ? "Permissions for new threads in this project."
-                : "Default permissions for new threads. Projects can override them."
+                ? "Permissions for new threads in this workspace."
+                : "Default permissions for new threads. Workspaces can override them."
             }
             resetAction={
               settings.defaultRuntimeMode !== DEFAULT_SERVER_SETTINGS.defaultRuntimeMode ? (
@@ -395,8 +395,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             title="Automatically pull"
             description={
               isProjectScope
-                ? "Keeps this project's default branch current when the checkout has no local changes or commits."
-                : "Keeps the default branch current when the checkout has no local changes or commits. Projects can override it."
+                ? "Keeps this workspace's default branch current when the checkout has no local changes or commits."
+                : "Keeps the default branch current when the checkout has no local changes or commits. Workspaces can override it."
             }
             resetAction={
               settings.defaultAutoPull ? (
@@ -441,8 +441,8 @@ export function WorktreeSubmodulesRow() {
       {...searchableSetting("worktree-submodules")}
       description={
         isProjectScope
-          ? "How new worktrees in this project populate git submodules."
-          : "How new worktrees populate git submodules. Projects and their codenine.json can override it."
+          ? "How new worktrees in this workspace populate git submodules."
+          : "How new worktrees populate git submodules. Workspaces and their codenine.json can override it."
       }
       resetAction={
         !isProjectScope && settings.worktreeSubmodules !== null ? (

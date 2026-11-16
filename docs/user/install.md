@@ -63,10 +63,10 @@ package an installable, unsigned app for your platform, see
 ### Windows Subsystem for Linux
 
 In a packaged Windows build that bundles the Linux server, choose a WSL distro in
-**Settings → Sharing & access** to run agents and projects there. Install the provider CLIs inside
+**Settings → Sharing & access** to run agents and workspaces there. Install the provider CLIs inside
 that distro.
 
-### Open a project from a terminal
+### Open a workspace from a terminal
 
 With the desktop app already running on the same machine:
 
@@ -74,7 +74,7 @@ With the desktop app already running on the same machine:
 codenine app
 ```
 
-This opens a new thread for the current directory, adding the project if needed. Pass a path,
+This opens a new thread for the current directory, adding the workspace if needed. Pass a path,
 such as `codenine app ../my-project`, to open another directory. It needs the desktop app, so a
 standalone server or an SSH session is not enough.
 

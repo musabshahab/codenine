@@ -25,7 +25,7 @@ the account's home setting or its `CODEX_HOME` or `CLAUDE_CONFIG_DIR` environmen
 variable. Models without
 known prices still contribute tokens and appear as unpriced; set custom prices to estimate their cost.
 Use absolute paths or `~/` paths in the account's environment settings; relative environment paths
-depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
+depend on each workspace's working directory and cannot be reliably discovered by Usage. Accounts
 sharing a history directory count once.
 
 The server saves its first hostname in `<Codenine home>/usage-host-id`, so a recreated container keeps

@@ -34,7 +34,7 @@ export function useProjectRemoval() {
     const { members } = input;
     const deleteFolder = input.deleteFolder === true;
     const verb = deleteFolder ? "delete" : "remove";
-    const failureTitle = `Failed to ${verb} project`;
+    const failureTitle = `Failed to ${verb} workspace`;
     if (checkProjectAccess(members, failureTitle)) return false;
     const api = readLocalApi();
     if (!api) return false;

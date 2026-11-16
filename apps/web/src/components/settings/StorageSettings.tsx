@@ -223,7 +223,7 @@ function CleanupResults({
                   <span className="text-foreground/80">{environmentLabel}</span>
                   {entry.projectPath && (
                     <>
-                      <span>Project</span>
+                      <span>Workspace</span>
                       <code className="text-foreground/80">{entry.projectPath}</code>
                     </>
                   )}
@@ -500,7 +500,7 @@ export function WorktreeCleanupSection() {
     return (
       <SettingsSection id="storage-worktrees" title="Cleanup" variant="plain">
         <SettingsScopeNotice inline target="all">
-          Update the selected machines to configure project worktree cleanup.
+          Update the selected machines to configure workspace worktree cleanup.
         </SettingsScopeNotice>
       </SettingsSection>
     );
@@ -521,9 +521,9 @@ export function WorktreeCleanupSection() {
             title="Automatic worktree cleanup"
             description={
               mode === "off"
-                ? "Keep this project's worktrees until you delete them manually."
+                ? "Keep this workspace's worktrees until you delete them manually."
                 : mode === "custom"
-                  ? "Use these rules for this project."
+                  ? "Use these rules for this workspace."
                   : "Use each machine's worktree cleanup settings."
             }
             serverScoped

@@ -54,7 +54,7 @@ const SOURCE_CARDS: Record<
   }
 > = {
   new: {
-    title: "New project",
+    title: "New workspace",
     icon: FolderPlusIcon,
     description: () => "Codenine creates an empty folder with Git set up, ready for a first task.",
   },
@@ -105,10 +105,12 @@ export function WelcomeProjectStep(props: {
           Change
         </Button>
       </section>
-      <h2 className="mt-8 text-xl font-semibold tracking-tight text-foreground">Pick a project</h2>
+      <h2 className="mt-8 text-xl font-semibold tracking-tight text-foreground">
+        Pick a workspace
+      </h2>
       <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
         A project is a folder on {props.label}. Agents read and change the files in it, and every
-        task and chat you start there stays with the project.
+        task and chat you start there stays with the workspace.
       </p>
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         {welcomeProjectSources(props.newProjectsRoot).map((source) => {
@@ -127,7 +129,7 @@ export function WelcomeProjectStep(props: {
         })}
       </div>
       {canAddProject ? null : (
-        <p className="mt-2 text-xs text-muted-foreground">This connection cannot add projects.</p>
+        <p className="mt-2 text-xs text-muted-foreground">This connection cannot add workspaces.</p>
       )}
       {existingProjects.length > 0 ? (
         <section aria-labelledby="welcome-existing-projects" className="mt-6">
@@ -154,10 +156,10 @@ export function WelcomeProjectStep(props: {
       ) : null}
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-5">
         <InlineButton onClick={props.onSkip}>
-          {props.canChatWithoutProject ? "Skip for now and chat without a project" : "Skip for now"}
+          {props.canChatWithoutProject ? "Skip for now and chat in Personal" : "Skip for now"}
         </InlineButton>
         <span className="text-xs text-muted-foreground">
-          You can add more projects any time from the sidebar.
+          You can add more workspaces any time from the sidebar.
         </span>
       </div>
     </>

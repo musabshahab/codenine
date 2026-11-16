@@ -144,7 +144,7 @@ different permissions.
 
 Auto balance is off by default. Enable it in
 **Settings → Environments → Load balancing** to automatically choose a machine for
-new threads in projects grouped across connected environments. The section
+new threads in workspaces grouped across connected environments. The section
 appears once two or more machines are switched on.
 Each machine starts at **Normal**. Choose **Prefer** to favor it when it has CPU and
 memory available, **Less often** to reduce its share, or **Manual only** to exclude
@@ -189,7 +189,7 @@ If that port is already in use, choose another with
 
 In the desktop app, open **Settings → Environments → Add environment**, choose
 **SSH**, and enter a host or SSH alias such as `user@example.com`. Codenine starts
-or reuses a server there and opens the port forward for you. Projects, provider
+or reuses a server there and opens the port forward for you. Workspaces, provider
 credentials, and agent work stay on the remote machine.
 
 The remote host must be Linux or an Apple Silicon Mac with `curl` or `wget`,
@@ -255,7 +255,7 @@ use **Add Environment** with the fresh link or code; pairing
 the same environment replaces its saved grant. Reconnecting alone does not change
 permissions.
 
-Grouping checkouts does not combine their permissions. Shared project settings
+Grouping checkouts does not combine their permissions. Shared workspace settings
 require `orchestration:operate` on every member environment; actions on one
 checkout use that checkout's permissions.
 
@@ -319,7 +319,7 @@ error, where the problem is, and how to fix it.
 If a computer should only drive work running elsewhere, turn off its local environment. In the
 desktop app, open **Settings → Environments** and switch off **Local
 environment**. Codenine restarts without a local server: no local agents or terminals run, WSL
-backends stay off, and other devices can no longer connect to this computer. Your projects,
+backends stay off, and other devices can no longer connect to this computer. Your workspaces,
 history, and saved connections are kept, and you keep working through pairing, Codenine Connect, or SSH.
 
 Switch **Local environment** back on in the same place to restart with your previous local

@@ -41,7 +41,7 @@ function CommandPaletteEmptyState(props: { emptyStateMessage?: string; isActions
       {props.emptyStateMessage ??
         (props.isActionsOnly
           ? "No matching actions."
-          : "No matching commands, projects, or threads.")}
+          : "No matching commands, workspaces, or threads.")}
     </div>
   );
 }

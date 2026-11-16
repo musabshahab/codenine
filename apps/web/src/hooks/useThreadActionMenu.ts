@@ -17,7 +17,6 @@ import { useRouter } from "@tanstack/react-router";
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
 import {
   buildThreadActionMenuItems,
-  resolveThreadFolderChoice,
   threadActionRequiresOperate,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
@@ -43,7 +42,6 @@ import {
 } from "@codenine/client-runtime/state/project-grouping";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { threadRuntimeCanArchive } from "@codenine/client-runtime/state/models";
-import { readChatFolderNames, useChatFolders } from "./useChatFolders";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
@@ -92,7 +90,6 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
-  const chatFolders = useChatFolders();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -134,12 +131,6 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
-      const isChat =
-        projects.find(
-          (project) =>
-            project.environmentId === thread.environmentId && project.id === thread.projectId,
-        )?.isScratch === true;
-      const folderNames = isChat ? readChatFolderNames() : null;
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -155,8 +146,6 @@ export function useThreadActionMenu(input: {
         supports,
         snoozePresets,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
-        chatFolders:
-          folderNames === null ? null : { names: folderNames, current: thread.folder ?? null },
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -169,15 +158,6 @@ export function useThreadActionMenu(input: {
           "Thread action unavailable",
           new Error("This connection cannot change threads."),
         );
-        return;
-      }
-      const folderChoice = resolveThreadFolderChoice(action, folderNames ?? []);
-      if (folderChoice === "new") {
-        await chatFolders.moveToNewFolder(threadRef);
-        return;
-      }
-      if (folderChoice !== null) {
-        await chatFolders.moveToFolder(threadRef, folderChoice.folder);
         return;
       }
       if (action.startsWith("snooze:")) {
@@ -281,11 +261,14 @@ export function useThreadActionMenu(input: {
           if (result._tag === "Success") {
             toastManager.add({
               type: "success",
-              title: "Project created",
+              title: "Workspace created",
               description: thread.title,
             });
           } else if (!isAtomCommandInterrupted(result)) {
-            failureToast("Could not turn thread into a project", squashAtomCommandFailure(result));
+            failureToast(
+              "Could not turn thread into a workspace",
+              squashAtomCommandFailure(result),
+            );
           }
           return;
         }

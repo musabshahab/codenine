@@ -20,7 +20,7 @@ checkout on each machine, so they stay on the same version.
 ## Before you update
 
 Restarting a server drops its connections and can interrupt active agents and
-terminal commands. Saved threads, settings, and project files remain.
+terminal commands. Saved threads, settings, and workspace files remain.
 
 **Settings → Maintenance → Continue threads after restarts** is on by default.
 It resumes supported active threads after an update, crash, or machine

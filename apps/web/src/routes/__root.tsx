@@ -16,7 +16,6 @@ import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
-import { FolderNameDialogHost } from "../components/sidebar/FolderNameDialog";
 import { UseInAnotherAppDialogHost } from "../components/mcp/UseInAnotherAppDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
@@ -158,7 +157,6 @@ function RootRouteBranch() {
       <ReopenClosedViewShortcut />
       <ConfirmDialogHost />
       <CustomSnoozeDialogHost />
-      <FolderNameDialogHost />
       <ProjectCloneToastCoordinator />
       <AddProjectToMachineDialogHost />
       <UseInAnotherAppDialogHost />

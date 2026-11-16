@@ -40,7 +40,7 @@ function compareCommands(
   );
 }
 
-export type KeybindingSource = "Default" | "Custom" | "Project";
+export type KeybindingSource = "Default" | "Custom" | "Workspace";
 
 export interface KeybindingRow {
   readonly id: string;
@@ -134,7 +134,7 @@ export function parseWhenExpressionDraft(
 
 function sourceForBinding(binding: ResolvedKeybindingRule): KeybindingSource {
   if (String(binding.command).startsWith("script.")) {
-    return "Project";
+    return "Workspace";
   }
 
   const bindingKey = shortcutToKeybindingInput(binding.shortcut);
@@ -218,7 +218,7 @@ const KEYBINDING_GROUPS = [
   { id: "terminal", title: "Terminal", prefixes: ["terminal"] },
   { id: "preview", title: "Preview & diff", prefixes: ["preview", "diff"] },
   { id: "appearance", title: "Appearance", prefixes: ["theme", "appearance", "themeEditor"] },
-  { id: "scripts", title: "Project commands", prefixes: ["script"] },
+  { id: "scripts", title: "Workspace commands", prefixes: ["script"] },
 ] as const;
 const OTHER_KEYBINDING_GROUP = { id: "other", title: "Other" } as const;
 

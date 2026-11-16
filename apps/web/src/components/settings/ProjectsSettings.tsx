@@ -47,7 +47,7 @@ export function ProjectsSettings() {
         unavailable
       ) : (
         <SettingsScopeNotice target="project">
-          Choose a project to manage its name, icon, checkouts and actions.
+          Choose a workspace to manage its name, icon, checkouts and actions.
         </SettingsScopeNotice>
       )}
     </div>

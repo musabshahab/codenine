@@ -9,8 +9,6 @@ export type ThreadActionMenuId =
   | "project-settings"
   | "pin"
   | "unpin"
-  | "move-to-folder"
-  | `folder:${string}`
   | "settle"
   | "unsettle"
   | "auto-settle"
@@ -56,7 +54,7 @@ export function buildDraftActionMenuItems(options: {
       ],
     },
     ...(options.hasProject
-      ? [{ id: "project-settings" as const, label: "Project settings", icon: "settings" }]
+      ? [{ id: "project-settings" as const, label: "Workspace settings", icon: "settings" }]
       : []),
     {
       id: "discard",
@@ -94,41 +92,6 @@ export interface ThreadActionMenuState {
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
-  /** A chat without a project: the chat folders it can move to, and the one it is in. */
-  readonly chatFolders?: {
-    readonly names: readonly string[];
-    readonly current: string | null;
-  } | null;
-}
-
-/** A chat's folders with its own checked, a new one, and the way out of its folder. */
-export function buildChatFolderMenuItems(folders: {
-  readonly names: readonly string[];
-  readonly current: string | null;
-}): Array<ContextMenuItem<`folder:${string}`>> {
-  return [
-    ...folders.names.map((name, index) => ({
-      id: `folder:${index}` as const,
-      label: name,
-      checked: name === folders.current,
-    })),
-    { id: "folder:new", label: "New folder…", separatorBefore: folders.names.length > 0 },
-    ...(folders.current === null
-      ? []
-      : [{ id: "folder:none" as const, label: "Remove from folder" }]),
-  ];
-}
-
-/** The chat folder a clicked menu entry moves the chat to, "new" to name one first, or null. */
-export function resolveThreadFolderChoice(
-  id: ThreadActionMenuId,
-  names: readonly string[],
-): { readonly folder: string | null } | "new" | null {
-  if (id === "folder:new") return "new";
-  if (id === "folder:none") return { folder: null };
-  const index = id.startsWith("folder:") ? Number(id.slice("folder:".length)) : Number.NaN;
-  const name = Number.isInteger(index) ? names[index] : undefined;
-  return name === undefined ? null : { folder: name };
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -167,16 +130,6 @@ export function buildThreadActionMenuItems(
           state.isPinned
             ? { id: "unpin" as const, label: "Unpin thread", icon: "pin-off" }
             : { id: "pin" as const, label: "Pin thread", icon: "pin" },
-        ]
-      : []),
-    ...(state.chatFolders
-      ? [
-          {
-            id: "move-to-folder" as const,
-            label: "Move to folder",
-            icon: "folder",
-            children: buildChatFolderMenuItems(state.chatFolders),
-          },
         ]
       : []),
     ...(state.supports.settlement
@@ -226,7 +179,7 @@ export function buildThreadActionMenuItems(
           {
             id: "filter-by-project" as const,
             label: state.projectFilter.isActive
-              ? "Show all projects"
+              ? "Show all workspaces"
               : `Filter by ${state.projectFilter.label}`,
             icon: "folder-tree",
           },
@@ -236,7 +189,7 @@ export function buildThreadActionMenuItems(
       ? [
           {
             id: "turn-into-project" as const,
-            label: "Turn into project",
+            label: "Turn into workspace",
             icon: "folder-plus",
             disabled: state.isRunning,
           },
@@ -277,7 +230,7 @@ export function buildThreadActionMenuItems(
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
       ],
     },
-    { id: "project-settings", label: "Project settings", icon: "settings" },
+    { id: "project-settings", label: "Workspace settings", icon: "settings" },
     {
       id: "archive",
       label: "Archive thread",

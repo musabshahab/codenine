@@ -9,9 +9,11 @@ import {
 import type { ClientSettings } from "@codenine/contracts/settings";
 
 import type { EnvironmentProject } from "./models.ts";
-import { normalizeProjectPathForComparison } from "./projects.ts";
+import { normalizeProjectPathForComparison, PERSONAL_WORKSPACE_NAME } from "./projects.ts";
 
 const SCRATCH_PROJECT_SCOPE_KEY = "\0no-project";
+// The title servers gave the Personal workspace's project before it had that name.
+const LEGACY_SCRATCH_PROJECT_TITLE = "No project";
 
 export interface ProjectGroupingSettings {
   readonly sidebarProjectGroupingMode: SidebarProjectGroupingMode;
@@ -363,8 +365,9 @@ export function buildProjectGroups<TProject extends EnvironmentProject>(input: {
     return {
       key,
       label:
-        input.groupScratchProjects && representative.isScratch
-          ? "No project"
+        representative.isScratch &&
+        (input.groupScratchProjects || representative.title === LEGACY_SCRATCH_PROJECT_TITLE)
+          ? PERSONAL_WORKSPACE_NAME
           : members.length > 1
             ? deriveProjectGroupLabel({
                 representative,

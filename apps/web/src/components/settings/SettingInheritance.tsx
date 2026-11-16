@@ -100,7 +100,7 @@ export function settingInheritanceLayers(
   if (target.projectId !== null && isProjectScopedSettingKey(key)) {
     layers.push({
       key: "project",
-      label: "Project",
+      label: "Workspace",
       value: source === "project" ? formatValue(key, target.settings[key]) : "Inherits",
       effective: source === "project",
       set: source === "project",
@@ -180,7 +180,7 @@ export function SettingInheritance({
   const hasMultipleEnvironments = new Set(targets.map((target) => target.environmentId)).size > 1;
   const overrideSummary =
     overridingProjects.length > 0
-      ? `${summary} · ${overridingProjects.length} project ${overridingProjects.length === 1 ? "override" : "overrides"}`
+      ? `${summary} · ${overridingProjects.length} workspace ${overridingProjects.length === 1 ? "override" : "overrides"}`
       : summary;
   const chains = targets.flatMap((target) => {
     const environment = environments.find(

@@ -33,7 +33,7 @@ export interface DraftHeroExample {
 
 const DRAFT_HERO_EXAMPLES: ReadonlyArray<DraftHeroExample> = [
   { prompt: "Add sign-in with tests, then have a stronger model review it", team: true },
-  { prompt: "Explain how this project is structured", team: false },
+  { prompt: "Explain how this workspace is structured", team: false },
   { prompt: "Fix the failing test and explain the cause", team: false },
 ];
 

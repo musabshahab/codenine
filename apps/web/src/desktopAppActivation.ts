@@ -85,7 +85,7 @@ export async function handleDesktopAppActivationRequest(
       return failure(
         request.requestId,
         "project-create-failed",
-        errorMessage(error, "Codenine could not add the project."),
+        errorMessage(error, "Codenine could not add the workspace."),
       );
     }
   }
@@ -99,7 +99,7 @@ export async function handleDesktopAppActivationRequest(
       return failure(
         request.requestId,
         "thread-open-failed",
-        "Codenine could not open a new thread for the project.",
+        "Codenine could not open a new thread for the workspace.",
       );
     }
     return {
@@ -113,7 +113,7 @@ export async function handleDesktopAppActivationRequest(
     return failure(
       request.requestId,
       "thread-open-failed",
-      errorMessage(error, "Codenine could not open a new thread for the project."),
+      errorMessage(error, "Codenine could not open a new thread for the workspace."),
     );
   }
 }

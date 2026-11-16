@@ -106,8 +106,8 @@ export interface RightPanelTabsProps {
 const TASK_SURFACE_SHORTCUT = "K";
 
 const SURFACE_DISABLED_REASONS = {
-  terminal: "Terminal surfaces are only available from a project thread.",
-  files: "Files are only available when a project is open.",
+  terminal: "Terminal surfaces are only available from a workspace thread.",
+  files: "Files are only available when a workspace is open.",
   diff: "Diff is only available for server threads in Git repositories.",
   sideChat: "Side chats start after the first message.",
 } as const;
@@ -127,8 +127,8 @@ const LAUNCHER_SHORTCUT_BLOCKING_LAYERS = [
   .join(",");
 
 const SURFACE_UNAVAILABLE_HINTS = {
-  terminal: "Available when a project is open.",
-  files: "Available when a project is open.",
+  terminal: "Available when a workspace is open.",
+  files: "Available when a workspace is open.",
   diff: "Available for Git repositories.",
   sideChat: "Available after the first message.",
 } as const;

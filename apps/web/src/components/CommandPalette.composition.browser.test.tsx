@@ -182,10 +182,12 @@ it("opens New project on the name input once an environment can create projects"
   await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
   await act(() => openCommandPalette({ open: "new-project" }));
   await expect.element(page.getByText("Local folder", { exact: true })).toBeInTheDocument();
-  await expect.element(page.getByPlaceholder("Project name")).not.toBeInTheDocument();
+  await expect.element(page.getByPlaceholder("Workspace name")).not.toBeInTheDocument();
 
   await act(() => newProjectsRoot.set("/home/me/projects"));
-  await expect.element(page.getByPlaceholder("Project name")).toHaveFocus();
-  await expect.element(page.getByText("Add existing project", { exact: true })).toBeInTheDocument();
+  await expect.element(page.getByPlaceholder("Workspace name")).toHaveFocus();
+  await expect
+    .element(page.getByText("Add existing workspace", { exact: true }))
+    .toBeInTheDocument();
   await expect.element(page.getByText("Local folder", { exact: true })).not.toBeInTheDocument();
 });

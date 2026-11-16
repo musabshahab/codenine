@@ -269,7 +269,7 @@ const make = Effect.gen(function* () {
         .bootstrap({
           commandId: CommandId.make(`scratch-project:${id}`),
           projectId: ProjectId.make(id),
-          title: "No project",
+          title: "Personal",
           workspaceRoot,
         })
         .pipe(

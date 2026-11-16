@@ -503,7 +503,7 @@ export function useComposerSend(input: ComposerSendInput) {
           type: "warning",
           title: "Choose models and a base branch",
           description:
-            "Multiple models need a new thread in a Git project. Each gets its own worktree.",
+            "Multiple models need a new thread in a Git workspace. Each gets its own worktree.",
         }),
       );
       return;
@@ -663,8 +663,8 @@ export function useComposerSend(input: ComposerSendInput) {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: "Choose a project first",
-          description: "This draft no longer points to an available project.",
+          title: "Choose a workspace first",
+          description: "This draft no longer points to an available workspace.",
         }),
       );
       return;

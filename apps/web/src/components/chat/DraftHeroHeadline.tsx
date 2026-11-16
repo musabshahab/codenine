@@ -143,7 +143,7 @@ export function DraftProjectPicker({
   const pickerItems: readonly PickerItem[] = useOrderWhileOpen(
     [
       ...menuEntries.map(({ group }) => ({ value: group.projectKey, label: group.displayName })),
-      { value: NEW_PROJECT_VALUE, label: "New project" },
+      { value: NEW_PROJECT_VALUE, label: "New workspace" },
     ],
     (item) => item.value,
     pickerOpen,
@@ -249,7 +249,7 @@ export function DraftProjectPicker({
                 <ComposerControl className="min-w-0 max-w-56 rounded-full border-border/80" />
               }
               data-draft-project-trigger=""
-              aria-label={`Project: ${activeProjectTitle ?? "none chosen"}`}
+              aria-label={`Workspace: ${activeProjectTitle ?? "none chosen"}`}
             />
           }
         >
@@ -257,7 +257,7 @@ export function DraftProjectPicker({
             <ProjectFavicon project={activeProjectGroup} className="size-4 shrink-0" />
           ) : null}
           <span data-composer-control-label className="min-w-0">
-            <DraftProjectName value={activeProjectTitle ?? "Choose a project"} singleLine />
+            <DraftProjectName value={activeProjectTitle ?? "Choose a workspace"} singleLine />
           </span>
           <ChevronDownIcon
             aria-hidden
@@ -265,12 +265,12 @@ export function DraftProjectPicker({
             className="size-3.5 opacity-70"
           />
         </TooltipTrigger>
-        <TooltipPopup side="top">Choose the project</TooltipPopup>
+        <TooltipPopup side="top">Choose the workspace</TooltipPopup>
       </Tooltip>
       <ComboboxPopup align="center" className="w-72 overflow-hidden">
         <ComboboxSearchInput
-          aria-label="Search projects"
-          placeholder="Search projects..."
+          aria-label="Search workspaces"
+          placeholder="Search workspaces..."
           value={pickerQuery}
           onChange={(event) => setPickerQuery(event.target.value)}
           onKeyDown={(event) => {
@@ -284,7 +284,7 @@ export function DraftProjectPicker({
             toggleProjectGroupPin(group);
           }}
         />
-        <ComboboxEmpty>No matching projects.</ComboboxEmpty>
+        <ComboboxEmpty>No matching workspaces.</ComboboxEmpty>
         <ComboboxList>
           {(item: PickerItem) => {
             const entry = projectEntryByKey.get(item.value);
@@ -325,7 +325,7 @@ export function DraftProjectPicker({
   ) : (
     <ComposerControl className="rounded-full border-border/80" onClick={openNewProject}>
       <ComposerControlIcon icon={FolderPlusIcon} />
-      <span data-composer-control-label>Add a project</span>
+      <span data-composer-control-label>Add a workspace</span>
     </ComposerControl>
   );
 }

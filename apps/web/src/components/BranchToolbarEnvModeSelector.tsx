@@ -122,7 +122,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
             <ComposerSelectControl
               size="xs"
               className="min-w-0 shrink"
-              aria-label="Workspace"
+              aria-label="Checkout"
               data-composer-shortcut="composer.workspace"
               data-composer-context-control
               onMouseDownCapture={stopContextMenuMouseDown}
@@ -153,7 +153,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         className={showPreviousWorktree ? "w-[min(21rem,calc(100vw-2rem))]" : undefined}
       >
         <SelectGroup>
-          <SelectGroupLabel>Workspace</SelectGroupLabel>
+          <SelectGroupLabel>Checkout</SelectGroupLabel>
           <SelectItem value="local">
             <span className="inline-flex items-center gap-1.5">
               {activeWorktreePath ? (

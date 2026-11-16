@@ -104,10 +104,6 @@ vi.mock("../components/Sidebar.snooze", () => ({
   ],
   snoozeWakeDescription: () => "later",
 }));
-vi.mock("./useChatFolders", () => ({
-  readChatFolderNames: () => [],
-  useChatFolders: () => ({}),
-}));
 vi.mock("./useCopyToClipboard", () => ({
   useCopyToClipboard: () => ({ copyToClipboard: () => recordEffect("copy") }),
 }));

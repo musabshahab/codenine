@@ -28,7 +28,7 @@ export function TasksPage() {
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
   return (
-    <WorkspacePage area="tasks" title="Tasks" subtitle="Across all projects">
+    <WorkspacePage area="tasks" title="Tasks" subtitle="Across all workspaces">
       {tasks.length === 0 ? (
         <Empty className="h-full">
           <EmptyHeader>
@@ -37,7 +37,7 @@ export function TasksPage() {
             </EmptyMedia>
             <EmptyTitle>No tasks yet</EmptyTitle>
             <EmptyDescription>
-              Turn on Team in a project's composer and the lead proposes a team for the task.
+              Turn on Team in a workspace's composer and the lead proposes a team for the task.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

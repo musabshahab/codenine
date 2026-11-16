@@ -3541,10 +3541,10 @@ export default function ChatView(props: ChatViewProps) {
                                   !isDraftHeroState
                                     ? null
                                     : draftHeroKind === "chat"
-                                      ? "Ask anything. Chats here are not tied to a project."
+                                      ? "Ask anything. Each Personal chat gets a folder of its own."
                                       : draftHeroKind === "team"
                                         ? "Describe the task. A lead agent will propose a team for you to approve."
-                                        : "Ask anything about this project."
+                                        : "Ask anything about this workspace."
                                 }
                                 onFreshSession={
                                   freshSessionCommandAvailable ? armFreshSessionStable : undefined

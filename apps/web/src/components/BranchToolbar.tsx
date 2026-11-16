@@ -392,7 +392,7 @@ const RunContextSelector = memo(function RunContextSelector({
           </>
         ) : null}
         <MenuGroup>
-          <MenuGroupLabel>Workspace</MenuGroupLabel>
+          <MenuGroupLabel>Checkout</MenuGroupLabel>
           <MenuRadioGroup
             value={effectiveEnvMode}
             onValueChange={(value) => {

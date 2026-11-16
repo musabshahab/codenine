@@ -573,7 +573,7 @@ function ProjectOverrideInheritance({
   readonly deviceEnabled: boolean;
 }) {
   const layers = [
-    { key: "project", label: "Project", enabled: projectEnabled, effective: true },
+    { key: "project", label: "Workspace", enabled: projectEnabled, effective: true },
     { key: "device", label: "Device", enabled: deviceEnabled, effective: false },
   ];
   return (
@@ -586,7 +586,7 @@ function ProjectOverrideInheritance({
                 <Button
                   size="icon-micro"
                   variant="ghost-muted"
-                  aria-label="Overridden for this project. Show where this value comes from"
+                  aria-label="Overridden for this workspace. Show where this value comes from"
                 />
               }
             />
@@ -594,7 +594,7 @@ function ProjectOverrideInheritance({
         >
           <LayersIcon className="size-3 text-primary" />
         </TooltipTrigger>
-        <TooltipPopup side="top">Overridden for this project</TooltipPopup>
+        <TooltipPopup side="top">Overridden for this workspace</TooltipPopup>
       </Tooltip>
       <PopoverPopup align="end" width="md" padding="none">
         <ol role="list" className="px-3 py-2.5 text-sm">

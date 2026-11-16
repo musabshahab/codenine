@@ -135,7 +135,7 @@ export function welcomeContinueWithout(
 
 export type WelcomeStep = "agents" | "project";
 
-const WELCOME_STEP_LABELS = ["Agents", "Project", "First task"] as const;
+const WELCOME_STEP_LABELS = ["Agents", "Workspace", "First task"] as const;
 
 /** The step indicator. The first task is the start screen that setup lands on. */
 export function welcomeStepIndicator(step: WelcomeStep) {

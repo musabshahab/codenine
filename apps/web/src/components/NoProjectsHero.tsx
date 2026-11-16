@@ -31,13 +31,13 @@ export function NoProjectsHero() {
               <EmptyTitle>What would you like to do?</EmptyTitle>
               <EmptyDescription>
                 {scratchTargetEnvironmentId === null
-                  ? "Add a project to start your first thread."
-                  : "Add a project, or start without one."}
+                  ? "Add a workspace to start your first thread."
+                  : "Add a workspace, or start without one."}
               </EmptyDescription>
               <div className="mt-6 flex justify-center gap-2">
                 <Button size="sm" onClick={() => openCommandPalette({ open: "new-project" })}>
                   <PlusIcon className="size-4" />
-                  New project
+                  New workspace
                 </Button>
                 {scratchTargetEnvironmentId === null ? null : (
                   <Button
@@ -46,7 +46,7 @@ export function NoProjectsHero() {
                     onClick={() => void startScratchThread(scratchTargetEnvironmentId)}
                   >
                     <MessageSquareDashedIcon className="size-4" />
-                    Start without a project
+                    Start in Personal
                   </Button>
                 )}
               </div>

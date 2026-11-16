@@ -266,7 +266,7 @@ export function useComposerMenuItems({
     }
     if (composerTriggerKind === "pull-request") {
       if (pullRequestProjectId === null || pullRequestRepository === null) {
-        return "Pull requests are not available for this project.";
+        return "Pull requests are not available for this workspace.";
       }
       return composerTrigger?.query
         ? `No pull request matches ${composerTrigger.query}.`

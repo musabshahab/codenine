@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  buildThreadActionMenuItems,
-  resolveThreadFolderChoice,
-  type ThreadActionMenuState,
-} from "./threadActionMenu.logic";
+import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
 
 const baseState: ThreadActionMenuState = {
   canOperate: true,
@@ -77,29 +73,5 @@ describe("buildThreadActionMenuItems", () => {
     });
     expect(items.find((item) => item.id === "archive")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
-  });
-
-  it("moves a chat between its folders, into a new one, or out", () => {
-    const names = ["Ideas", "Research"];
-    const menu = buildThreadActionMenuItems({
-      ...baseState,
-      chatFolders: { names, current: "Research" },
-    }).find((item) => item.id === "move-to-folder");
-    expect(menu?.children?.map((child) => [child.label, child.checked ?? false])).toEqual([
-      ["Ideas", false],
-      ["Research", true],
-      ["New folder…", false],
-      ["Remove from folder", false],
-    ]);
-    expect(menu?.children?.map((child) => resolveThreadFolderChoice(child.id, names))).toEqual([
-      { folder: "Ideas" },
-      { folder: "Research" },
-      "new",
-      { folder: null },
-    ]);
-    // Projects have their own folders, so their threads get no folder menu.
-    expect(buildThreadActionMenuItems(baseState).some((item) => item.id === "move-to-folder")).toBe(
-      false,
-    );
   });
 });

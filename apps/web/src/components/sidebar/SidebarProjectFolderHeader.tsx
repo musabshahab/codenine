@@ -1,12 +1,7 @@
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
+import { PERSONAL_WORKSPACE_NAME } from "@codenine/client-runtime/state/projects";
 import { scopedThreadKey, scopeThreadRef } from "@codenine/client-runtime/environment";
-import {
-  ChevronDownIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  HistoryIcon,
-  SquarePenIcon,
-} from "lucide-react";
+import { ChevronDownIcon, SquarePenIcon } from "lucide-react";
 import { memo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
@@ -144,7 +139,7 @@ function SidebarFolderHeaderRow(props: {
   );
 }
 
-/** A project folder in the sidebar grouped by project. */
+/** A workspace's folder in the sidebar; Personal holds the chats started without a workspace. */
 export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHeader(props: {
   group: SidebarProjectSnapshot;
   collapsed: boolean;
@@ -161,10 +156,8 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
       testId="sidebar-project-folder"
       rowId={sidebarFolderRowId(group.projectKey)}
       icon={<ProjectFavicon project={group} className="size-4 shrink-0" />}
-      label={group.isScratch ? "Chats without a project" : group.displayName}
-      newChatLabel={
-        group.isScratch ? "New chat without a project" : `New chat in ${group.displayName}`
-      }
+      label={group.isScratch ? PERSONAL_WORKSPACE_NAME : group.displayName}
+      newChatLabel={`New chat in ${group.isScratch ? PERSONAL_WORKSPACE_NAME : group.displayName}`}
       collapsed={props.collapsed}
       empty={props.empty}
       hiddenThreads={props.hiddenThreads}
@@ -172,46 +165,6 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
       onOpen={group.isScratch ? null : () => props.onOpen(group)}
       onNewChat={() => props.onNewThread(group)}
       onContextMenu={(position) => props.onContextMenu(group, position)}
-    />
-  );
-});
-
-/** A folder of chats without a project; `name` is null for the chats in no folder. */
-export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(props: {
-  folderKey: string;
-  name: string | null;
-  collapsed: boolean;
-  empty: boolean;
-  hiddenThreads: readonly EnvironmentThreadShell[];
-  onToggle: (folderKey: string) => void;
-  onNewChat: () => void;
-  onContextMenu: ((name: string, position: { x: number; y: number }) => void) | null;
-}) {
-  const { name, onContextMenu } = props;
-  const FolderGlyph = props.collapsed || props.empty ? FolderIcon : FolderOpenIcon;
-  return (
-    <SidebarFolderHeaderRow
-      testId="sidebar-chat-folder"
-      rowId={sidebarFolderRowId(props.folderKey)}
-      icon={
-        name === null ? (
-          <HistoryIcon aria-hidden className="size-4 shrink-0 text-(--sidebar-icon-color)" />
-        ) : (
-          <FolderGlyph aria-hidden className="size-4 shrink-0 text-(--sidebar-icon-color)" />
-        )
-      }
-      label={name ?? "Recent"}
-      newChatLabel="New chat"
-      collapsed={props.collapsed}
-      empty={props.empty}
-      hiddenThreads={props.hiddenThreads}
-      onToggle={() => props.onToggle(props.folderKey)}
-      onOpen={null}
-      // A new chat is a draft, which joins a folder only once it is sent and moved.
-      onNewChat={name === null ? props.onNewChat : null}
-      onContextMenu={
-        name === null || onContextMenu === null ? null : (position) => onContextMenu(name, position)
-      }
     />
   );
 });
