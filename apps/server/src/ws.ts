@@ -182,6 +182,7 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+import { findExistingAgentHomes } from "./provider/agentHomes.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -1417,6 +1418,7 @@ export const layerWsRpc = (
         const auth = yield* serverAuth.getDescriptor();
         const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
         const homeDirectory = (yield* HostProcess.HomeDirectory).trim();
+        const agentHomesFound = yield* findExistingAgentHomes();
         const lastEventLoopStall = yield* eventLoopMonitor.latestNoticeableStall;
         const discovery = yield* resolveOpenDiscoveryForConfig({
           editors: externalLauncher.resolveAvailableEditors(),
@@ -1484,6 +1486,8 @@ export const layerWsRpc = (
           }),
           newProjectsRoot: managedFolders.namedProjectsRoot,
           ...(homeDirectory ? { homeDirectory } : {}),
+          codenineHome: config.baseDir,
+          agentHomesFound,
           ...(lastEventLoopStall === undefined ? {} : { lastEventLoopStall }),
         };
       });

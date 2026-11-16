@@ -509,6 +509,10 @@ export const ServerConfig = Schema.Struct({
   newProjectsRoot: Schema.optionalKey(TrimmedNonEmptyString),
   /** The server user's home directory; absent from older servers. */
   homeDirectory: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Codenine's own folder on the server machine, such as ~/.codenine; absent from older servers. */
+  codenineHome: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Agents whose own login folder (such as ~/.claude or ~/.codex) already exists on the server machine. */
+  agentHomesFound: Schema.optionalKey(Schema.Array(ProviderDriverKind)),
   /**
    * The latest stall long enough to notice, sent only for a few minutes after
    * it. A client that reconnects reads it to say why the host stopped
