@@ -273,6 +273,7 @@ export interface ChatComposerHandle {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   openModelPicker: () => void;
+  closeModelPicker: () => void;
   stepReasoningEffort: (direction: 1 | -1) => void;
   toggleModelPicker: () => void;
   openControl: (command: KeybindingCommand) => void;
@@ -2687,6 +2688,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           { ensureLeadingBoundary: true, citationCommentAnchor: sourceAnchor },
         ),
       openModelPicker: openModelPickerStable,
+      closeModelPicker: () => setIsComposerModelPickerOpen(false),
       stepReasoningEffort: (direction) => {
         if (noProviderAvailable || pendingUserInputs.length > 0 || isEditingQueuedMessage) {
           return;

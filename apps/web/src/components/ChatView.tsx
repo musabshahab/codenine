@@ -2757,7 +2757,11 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
-    onSwitchToAccountWithOwnHistory: (request) => openAccountSwitch(routeThreadKey, request),
+    // The picker stays open after a pick for effort; it would sit over the dialog.
+    onSwitchToAccountWithOwnHistory: (request) => {
+      composerRef.current?.closeModelPicker();
+      openAccountSwitch(routeThreadKey, request);
+    },
   });
   const { onResume, isResuming } = useComposerResume({
     environmentId,
