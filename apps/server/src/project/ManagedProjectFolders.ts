@@ -88,6 +88,9 @@ export class NamedProjectCreateError extends Schema.TaggedError<NamedProjectCrea
 
 export type NamedProjectError = NamedProjectFolderError | NamedProjectCreateError;
 
+const PERSONAL_README =
+  "# Personal\n\nCodenine keeps Personal's chats here, each in its own folder.\n";
+
 export class ManagedProjectFolders extends Context.Service<
   ManagedProjectFolders,
   {
@@ -274,6 +277,17 @@ const make = Effect.gen(function* () {
       .makeDirectory(folder, { recursive: true })
       .pipe(Effect.mapError((cause) => new ScratchFolderError({ folder, cause })));
 
+  // A README keeps Personal's folder from ever looking empty, so a clone cannot land in it.
+  const writePersonalReadme = (folder: string) => {
+    const file = path.join(folder, "README.md");
+    return fileSystem.exists(file).pipe(
+      Effect.flatMap((exists) =>
+        exists ? Effect.void : fileSystem.writeFileString(file, PERSONAL_README),
+      ),
+      Effect.ignore,
+    );
+  };
+
   const ensureScratchProject: ManagedProjectFolders["Service"]["ensureScratchProject"] = Effect.gen(
     function* () {
       const workspaceRoot = yield* scratchRoot.pipe(
@@ -285,6 +299,7 @@ const make = Effect.gen(function* () {
         ),
       );
       yield* makeScratchFolder(workspaceRoot);
+      yield* writePersonalReadme(workspaceRoot);
       const id = yield* random
         .uuidV4()
         .pipe(Effect.mapError((cause) => new ScratchProjectError({ workspaceRoot, cause })));

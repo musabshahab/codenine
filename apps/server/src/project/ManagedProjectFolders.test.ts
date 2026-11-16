@@ -235,12 +235,15 @@ it.effect("recreates the Scratch folder after it is deleted", () =>
     Effect.gen(function* () {
       const scratch = yield* ManagedProjectFolders.ManagedProjectFolders;
       const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
       const { projectId } = yield* scratch.ensureScratchProject;
       const root = yield* requireRoot;
+      // Never empty, so a clone into Personal's folder is refused.
+      assert.isTrue(yield* fileSystem.exists(path.join(root, "README.md")));
       yield* fileSystem.remove(root, { recursive: true });
 
       assert.equal((yield* scratch.ensureScratchProject).projectId, projectId);
-      assert.isTrue(yield* fileSystem.exists(root));
+      assert.isTrue(yield* fileSystem.exists(path.join(root, "README.md")));
 
       yield* fileSystem.remove(root, { recursive: true });
       const folder = yield* scratch.folderForThread({
@@ -327,7 +330,8 @@ it.effect("leaves threads in other projects alone", () =>
         text: "Hello",
       });
       assert.isTrue(Option.isNone(folder));
-      assert.deepEqual(yield* fileSystem.readDirectory(yield* requireRoot), []);
+      // Only Personal's README: no chat folder was made for the other project's thread.
+      assert.deepEqual(yield* fileSystem.readDirectory(yield* requireRoot), ["README.md"]);
       assert.isTrue(yield* scratch.isScratchProject(scratchId));
       assert.isFalse(yield* scratch.isScratchProject(other.id));
     }),
