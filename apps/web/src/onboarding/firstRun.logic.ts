@@ -11,6 +11,22 @@ type FirstRunGateEvent =
   | { readonly type: "evidence"; readonly decision: FirstRunDecision }
   | { readonly type: "timeout" };
 
+interface FirstRunProject {
+  readonly id: string;
+  readonly environmentId: string;
+  readonly workspaceRoot: string;
+  readonly isScratch?: true;
+}
+
+interface FirstRunThread {
+  readonly id: string;
+  readonly projectId: string;
+  readonly environmentId: string;
+  readonly latestRun: unknown;
+  readonly latestUserMessageAt: string | null;
+  readonly runtime: unknown;
+}
+
 interface FirstRunWorkspaceInput {
   readonly primaryEnvironmentId: string | null;
   readonly serverCwd: string | null;
@@ -18,19 +34,35 @@ interface FirstRunWorkspaceInput {
   readonly bootstrapThreadId?: string | undefined;
   readonly bootstrapProjectCreated?: boolean | undefined;
   readonly bootstrapThreadCreated?: boolean | undefined;
-  readonly projects: ReadonlyArray<{
-    readonly id: string;
-    readonly environmentId: string;
-    readonly workspaceRoot: string;
-  }>;
-  readonly threads: ReadonlyArray<{
-    readonly id: string;
-    readonly projectId: string;
-    readonly environmentId: string;
-    readonly latestRun: unknown;
-    readonly latestUserMessageAt: string | null;
-    readonly runtime: unknown;
-  }>;
+  readonly projects: ReadonlyArray<FirstRunProject>;
+  readonly threads: ReadonlyArray<FirstRunThread>;
+}
+
+const isUnusedThread = (thread: FirstRunThread) =>
+  thread.latestRun === null && thread.latestUserMessageAt === null && thread.runtime === null;
+
+/** Every install starts with Personal, so it never counts against a fresh workspace. */
+export function withoutPersonal(
+  projects: ReadonlyArray<FirstRunProject>,
+): ReadonlyArray<FirstRunProject> {
+  return projects.filter((project) => project.isScratch !== true);
+}
+
+/** A chat in Personal counts against a fresh workspace once it has been used. */
+export function withoutUnusedPersonalChats(
+  threads: ReadonlyArray<FirstRunThread>,
+  projects: ReadonlyArray<FirstRunProject>,
+): ReadonlyArray<FirstRunThread> {
+  const personal = projects.filter((project) => project.isScratch === true);
+  if (personal.length === 0) return threads;
+  return threads.filter(
+    (thread) =>
+      !isUnusedThread(thread) ||
+      !personal.some(
+        (project) =>
+          project.id === thread.projectId && project.environmentId === thread.environmentId,
+      ),
+  );
 }
 
 interface FirstRunDecisionInput {
@@ -119,9 +151,7 @@ export function isFreshFirstRunWorkspace(input: FirstRunWorkspaceInput): boolean
     input.bootstrapThreadId === bootstrapThread.id &&
     bootstrapThread.environmentId === input.primaryEnvironmentId &&
     bootstrapThread.projectId === bootstrapProject.id &&
-    bootstrapThread.latestRun === null &&
-    bootstrapThread.latestUserMessageAt === null &&
-    bootstrapThread.runtime === null
+    isUnusedThread(bootstrapThread)
   );
 }
 

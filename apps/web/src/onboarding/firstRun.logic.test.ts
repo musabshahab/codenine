@@ -6,6 +6,8 @@ import {
   isOnboardingCompleteFor,
   resolveFirstRunDecision,
   transitionFirstRunGateState,
+  withoutPersonal,
+  withoutUnusedPersonalChats,
 } from "./firstRun.logic";
 
 const freshWorkspace = {
@@ -202,6 +204,14 @@ const bootstrapThread = {
   runtime: null,
 };
 
+const personal = {
+  id: "personal",
+  environmentId: primaryEnvironmentId,
+  workspaceRoot: "/home/user/.codenine/scratch",
+  isScratch: true as const,
+};
+const personalChat = { ...bootstrapThread, id: "personal-chat", projectId: personal.id };
+
 const freshBootstrap = {
   primaryEnvironmentId,
   serverCwd: "/projects/current",
@@ -272,25 +282,53 @@ describe("isFreshFirstRunWorkspace", () => {
     ).toBe(true);
   });
 
-  // The welcome page's project step adds a project, or the no-project home on skip, before the
-  // gate runs again. Either one ends first run even if saving completion did not happen.
+  // Every install starts with Personal, so only a workspace the user adds, or a chat they use, ends
+  // first run. Either one does even if saving completion did not happen.
   it.each([
-    { name: "a first project", projects: [{ ...bootstrapProject, id: "added-project" }] },
+    { name: "only Personal", projects: [personal], threads: [], fresh: true },
+    {
+      name: "an unused Personal chat beside the bootstrap project and thread",
+      projects: [personal, bootstrapProject],
+      threads: [personalChat, bootstrapThread],
+      fresh: true,
+    },
+    {
+      name: "a Personal chat that has a message",
+      projects: [personal],
+      threads: [{ ...personalChat, latestUserMessageAt: "2026-08-23T12:00:00.000Z" }],
+      fresh: false,
+    },
+    {
+      name: "a first project",
+      projects: [{ ...bootstrapProject, id: "added-project" }],
+      threads: [],
+      fresh: false,
+    },
     {
       name: "a project beside the bootstrap one",
       projects: [bootstrapProject, { ...bootstrapProject, id: "added", workspaceRoot: "/p/new" }],
+      threads: [],
+      fresh: false,
     },
-  ])("ends first run once the project step adds $name", ({ projects }) => {
-    const workspaceFresh = isFreshFirstRunWorkspace({ ...freshBootstrap, projects, threads: [] });
-    expect(workspaceFresh).toBe(false);
+  ])("decides first run for a workspace with $name", ({ projects, threads, fresh }) => {
+    const counted = {
+      projects: withoutPersonal(projects),
+      threads: withoutUnusedPersonalChats(threads, projects),
+    };
+    const workspaceFresh = isFreshFirstRunWorkspace({ ...freshBootstrap, ...counted });
+    expect(workspaceFresh).toBe(fresh);
     expect(
       resolveFirstRunDecision({
         ...freshWorkspace,
         workspaceFresh,
-        projectCount: projects.length,
-        threadCount: 0,
+        projectCount: counted.projects.length,
+        threadCount: counted.threads.length,
       }),
-    ).toEqual({ decision: "app", persistCompletion: true });
+    ).toEqual(
+      fresh
+        ? { decision: "wizard", persistCompletion: false }
+        : { decision: "app", persistCompletion: true },
+    );
   });
 
   it("rejects a bootstrap thread that already has a user message", () => {
