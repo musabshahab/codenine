@@ -99,7 +99,11 @@ import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import AgentSetupDialog from "../onboarding/AgentSetupDialog";
-import { canSetUpInTerminal, isAgentSetupDriver } from "../../onboarding/providerReadiness.logic";
+import {
+  canSetUpInTerminal,
+  canSignOutInTerminal,
+  isAgentSetupDriver,
+} from "../../onboarding/providerReadiness.logic";
 import { providerClients } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
 import { CompactIdleThreadsRow } from "./SettingsPanels";
@@ -140,7 +144,7 @@ async function confirmProviderInstanceRemoval(
   question: string,
   consequence = "",
 ): Promise<boolean> {
-  const message = `${question}\nIts saved settings, including any custom binary path, will be removed.${consequence}`;
+  const message = `${question}\nIts settings in Codenine, including any custom binary path, will be removed.${consequence}`;
   const confirmed = await settlePromise(() =>
     ensureLocalApi().dialogs.confirm(message, { variant: "destructive" }),
   );
@@ -780,7 +784,8 @@ export function EnvironmentProviderSettings({
   const deleteInstance = useStableCallback(
     async (instanceId: ProviderInstanceId, instance: ProviderInstanceConfig) => {
       const confirmed = await confirmProviderInstanceRemoval(
-        `Remove the ${providerInstanceName(instance)} provider instance?`,
+        `Remove the ${providerInstanceName(instance)} account?`,
+        " Its login and chat history stay on this machine, so adding it again picks them up. To end the login, sign out first.",
       );
       if (!confirmed) return;
       const updateResult = await persistProviderInstance({
@@ -791,7 +796,7 @@ export function EnvironmentProviderSettings({
         const error = squashAtomCommandFailure(updateResult);
         toastManager.add({
           type: "error",
-          title: "Could not delete provider instance",
+          title: "Could not remove the account",
           description: error instanceof Error ? error.message : "The settings update failed.",
         });
         return;
@@ -806,7 +811,7 @@ export function EnvironmentProviderSettings({
       resolveProviderInstanceEnabled(instance) &&
       !resolveProviderInstanceEnabled({ driver: driverKind });
     const confirmed = await confirmProviderInstanceRemoval(
-      `Reset the ${providerInstanceName(instance)} provider to its defaults?`,
+      `Reset the ${providerInstanceName(instance)} account to its defaults?`,
       turnsOff ? " It will also be turned off." : "",
     );
     if (!confirmed) return;
@@ -815,7 +820,7 @@ export function EnvironmentProviderSettings({
       const error = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: "Could not reset provider instance",
+        title: "Could not reset the account",
         description: error instanceof Error ? error.message : "The settings update failed.",
       });
     }
@@ -908,13 +913,13 @@ export function EnvironmentProviderSettings({
                     size="icon-xs"
                     variant="ghost-muted"
                     onClick={() => setIsAddInstanceDialogOpen(true)}
-                    aria-label="Add provider"
+                    aria-label="Add account"
                   >
                     <PlusIcon />
                   </Button>
                 }
               />
-              <TooltipPopup side="top">Add provider</TooltipPopup>
+              <TooltipPopup side="top">Add account</TooltipPopup>
             </Tooltip>
           ) : null
         }
@@ -956,7 +961,7 @@ export function EnvironmentProviderSettings({
           <SettingsGroup divided={false} className="overflow-hidden">
             <SettingsRow
               title="Limited permissions"
-              description={`This session can view ${environmentLabel}'s providers but can't change their settings.`}
+              description={`This session can view ${environmentLabel}'s accounts but can't change their settings.`}
             />
           </SettingsGroup>
         ) : null}
@@ -982,7 +987,7 @@ export function EnvironmentProviderSettings({
                     onClick={() => setIsAddInstanceDialogOpen(true)}
                   >
                     <PlusIcon className="size-4 shrink-0" />
-                    Add provider
+                    Add account
                   </button>
                 ) : null}
               </div>
@@ -1203,13 +1208,19 @@ function ProviderInstanceRow({
     : undefined;
   const codexSetupMode = driver === "codex" ? readCodexSetupMode(instance.config) : null;
   // A missing or signed-out Claude or Codex CLI gets the Welcome page's setup card.
-  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupStep, setSetupStep] = useState<"setUp" | "signOut" | null>(null);
   const setupDriver = isAgentSetupDriver(driver) ? driver : null;
   const offerSetup =
     mode === "editor" &&
     setupDriver !== null &&
     liveProvider !== undefined &&
     canSetUpInTerminal(liveProvider);
+  const offerSignOut =
+    mode === "editor" &&
+    !readOnly &&
+    setupDriver !== null &&
+    liveProvider !== undefined &&
+    canSignOutInTerminal(liveProvider);
   const recommendedVersion = liveProvider?.compatibilityAdvisory?.recommendedVersion;
   const canInstallRecommended =
     !readOnly &&
@@ -1220,11 +1231,12 @@ function ProviderInstanceRow({
 
   return (
     <>
-      {setupOpen && setupDriver !== null ? (
+      {setupStep !== null && setupDriver !== null ? (
         <AgentSetupDialog
           environmentId={environmentId}
           agent={{ driver: setupDriver, instanceId }}
-          onClose={() => setSetupOpen(false)}
+          startWith={setupStep === "signOut" ? "signOut" : undefined}
+          onClose={() => setSetupStep(null)}
         />
       ) : null}
       <ProviderInstanceCard
@@ -1232,8 +1244,12 @@ function ProviderInstanceRow({
         secretSources={secretSources}
         statusAction={
           offerSetup ? (
-            <Button size="xs" variant="outline" onClick={() => setSetupOpen(true)}>
+            <Button size="xs" variant="outline" onClick={() => setSetupStep("setUp")}>
               Set up
+            </Button>
+          ) : offerSignOut ? (
+            <Button size="xs" variant="outline" onClick={() => setSetupStep("signOut")}>
+              Sign out
             </Button>
           ) : undefined
         }

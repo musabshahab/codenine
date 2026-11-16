@@ -112,7 +112,7 @@ export const make = Effect.gen(function* () {
         Effect.fail(
           new TextGenerationError({
             operation: request.operation,
-            detail: `${label} is off. Turn it on in Settings → Providers.`,
+            detail: `${label} is off. Turn it on in Settings → Accounts.`,
           }),
         )) satisfies TextGenerationOperations.Runner;
     }

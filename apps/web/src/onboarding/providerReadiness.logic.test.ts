@@ -11,6 +11,7 @@ import {
   agentSetupChecks,
   agentStepAfterCommand,
   canSetUpInTerminal,
+  canSignOutInTerminal,
   followSetupTerminalCommand,
   getOnboardingProviderState,
   INITIAL_SETUP_TERMINAL_WATCH,
@@ -375,6 +376,24 @@ describe("agent card", () => {
     ).toBe(true);
   });
 
+  it("signs out only a login the provider's own logout command clears", () => {
+    expect(canSignOutInTerminal(codex())).toBe(true);
+    expect(canSignOutInTerminal(codex({ auth: { status: "unauthenticated" } }))).toBe(false);
+    // A ChatGPT connection signs out in its own panel.
+    expect(
+      canSignOutInTerminal(codex({ setup: { canAuthenticate: true, canInstall: true } })),
+    ).toBe(false);
+    const claude = (type: string) =>
+      codex({
+        driver: ProviderDriverKind.make("claudeAgent"),
+        auth: { status: "authenticated", type },
+      });
+    expect(canSignOutInTerminal(claude("max"))).toBe(true);
+    // Keys and endpoints live in the account's settings, which a logout leaves in place.
+    expect(canSignOutInTerminal(claude("apiKey"))).toBe(false);
+    expect(canSignOutInTerminal(claude("openrouter"))).toBe(false);
+  });
+
   it("types the next step's command once a command finishes", () => {
     expect(agentStepAfterCommand("install", "signIn", "signIn")).toEqual({
       type: "next",
@@ -386,6 +405,8 @@ describe("agent card", () => {
     });
     expect(agentStepAfterCommand("signIn", "attention", "update")).toEqual({ type: "stop" });
     expect(agentStepAfterCommand("signIn", "checking", null)).toEqual({ type: "stop" });
+    expect(agentStepAfterCommand("signOut", "ready", null)).toEqual({ type: "unchanged" });
+    expect(agentStepAfterCommand("signOut", "signIn", "signIn")).toEqual({ type: "stop" });
   });
 
   it.each([
@@ -396,6 +417,8 @@ describe("agent card", () => {
     ["signIn", "codex", "linux", true, "/opt/codex login"],
     ["signIn", "codex", "linux", false, "/opt/codex login --device-auth"],
     ["signIn", "claudeAgent", "darwin", false, "'/opt/My Claude/claude' auth login"],
+    ["signOut", "codex", "linux", false, "/opt/codex logout"],
+    ["signOut", "claudeAgent", "darwin", true, "'/opt/My Claude/claude' auth logout"],
   ] as const)(
     "runs %s for %s on %s (browser on server: %s)",
     (step, driver, platform, local, command) => {

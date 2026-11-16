@@ -713,8 +713,8 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         auth: { status: "unauthenticated", ...OPENROUTER_AUTH },
         message:
           openRouterKey.status === "rejected"
-            ? "OpenRouter rejected this API key. Check it in Settings → Providers."
-            : "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Providers.",
+            ? "OpenRouter rejected this API key. Check it in Settings → Accounts."
+            : "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Accounts.",
       },
     });
   }

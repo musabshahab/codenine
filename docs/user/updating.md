@@ -58,7 +58,7 @@ directory and pair with the running server.
 
 ## Update providers
 
-**Settings → Providers** shows provider updates for the selected environment.
+**Settings → Accounts** shows provider updates for the selected environment.
 **Update all** updates every outdated provider on every connected environment
 at once. Hover it to see which providers it will update. A provider is left out
 when any of its enabled, outdated instances offers only a manual update command,

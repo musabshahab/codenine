@@ -26,7 +26,7 @@ Reset times are minute offsets from `n0`.
    node hub.mjs state.json 18517
    ```
 
-3. Under Settings → Providers → Usage limit sources, add a hub with URL `http://127.0.0.1:18517`, any management key, and label `Team hub`. The composer panel prints that label on every account row.
+3. Under Settings → Accounts → Usage limit sources, add a hub with URL `http://127.0.0.1:18517`, any management key, and label `Team hub`. The composer panel prints that label on every account row.
 
 4. Freeze the browser clock at `n0` from the devtools console:
 

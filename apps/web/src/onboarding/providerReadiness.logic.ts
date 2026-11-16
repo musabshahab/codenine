@@ -118,7 +118,28 @@ export function resolveOnboardingProviderLoginCommand(
   return provider.driver;
 }
 
-export type AgentTerminalStep = "install" | "signIn";
+/** Signs out only the login in this account's own folder, which the setup terminal points at. */
+function resolveProviderLogoutCommand(
+  provider: { readonly instanceId: ProviderInstanceId; readonly driver: AgentSetupDriver },
+  settings: Pick<ServerSettings, "providerInstances">,
+  platform: ExecutionEnvironmentPlatformOs,
+): string {
+  const config = settings.providerInstances[provider.instanceId]?.config ?? {};
+  if (provider.driver === "claudeAgent") {
+    const binaryPath = Option.match(decodeClaudeSettings(config), {
+      onNone: () => "claude",
+      onSome: (value) => value.binaryPath,
+    });
+    return `${quoteProviderBinary(binaryPath, "claude", platform)} auth logout`;
+  }
+  const binaryPath = Option.match(decodeCodexSettings(config), {
+    onNone: () => "codex",
+    onSome: (value) => value.binaryPath,
+  });
+  return `${quoteProviderBinary(binaryPath, "codex", platform)} logout`;
+}
+
+export type AgentTerminalStep = "install" | "signIn" | "signOut";
 
 export function resolveAgentSetupCommand(input: {
   readonly step: AgentTerminalStep;
@@ -127,11 +148,32 @@ export function resolveAgentSetupCommand(input: {
   readonly platform: ExecutionEnvironmentPlatformOs;
   readonly browserOnServer: boolean;
 }): string {
-  return input.step === "install"
-    ? resolveOnboardingProviderInstallCommand(input.provider.driver, input.platform)
-    : resolveOnboardingProviderLoginCommand(input.provider, input.settings, input.platform, {
+  switch (input.step) {
+    case "install":
+      return resolveOnboardingProviderInstallCommand(input.provider.driver, input.platform);
+    case "signIn":
+      return resolveOnboardingProviderLoginCommand(input.provider, input.settings, input.platform, {
         browserOnServer: input.browserOnServer,
       });
+    case "signOut":
+      return resolveProviderLogoutCommand(input.provider, input.settings, input.platform);
+  }
+}
+
+// Logins the provider's own logout ends; a key or endpoint in the account's settings stays.
+const NOT_SIGNED_IN_BY_LOGIN = new Set(["apiKey", "bedrock", "customEndpoint"]);
+
+/**
+ * A signed-in account whose login lives in its own folder, which the provider's logout command
+ * clears. ChatGPT connections sign out in their own panel; keys and endpoints are removed in
+ * the account's settings.
+ */
+export function canSignOutInTerminal(provider: ServerProvider): boolean {
+  if (!isAgentSetupDriver(provider.driver) || provider.auth.status !== "authenticated") {
+    return false;
+  }
+  if (provider.setup?.canAuthenticate === true || isOpenRouterProvider(provider)) return false;
+  return provider.auth.type === undefined || !NOT_SIGNED_IN_BY_LOGIN.has(provider.auth.type);
 }
 
 /**
@@ -279,6 +321,7 @@ export function agentStepAfterCommand(
   state: OnboardingProviderState,
   action: AgentSetupAction | null,
 ): AgentCommandOutcome {
+  if (typed === "signOut") return state === "ready" ? { type: "unchanged" } : { type: "stop" };
   if (state === "ready") return { type: "ready" };
   if (action === "install" || action === "signIn") {
     return action === typed ? { type: "unchanged" } : { type: "next", step: action };

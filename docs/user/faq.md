@@ -35,14 +35,15 @@ do.
 Yes. Codenine uses the provider login on the machine that runs the server. Whether your plan's
 terms allow a given use is between you and your provider.
 
-## Can I add a bunch of accounts for one provider?
+## Can I use more than one account for a provider?
 
-Codenine is not the place to manage a pool of accounts, and it has no automatic account switcher.
+Yes. Add each one in **Settings → Accounts** with **Add account**, then pick the account in a chat's
+model picker, or set it as a workspace's default. Codenine never switches accounts on its own.
+Details: [Claude](./providers-claude.md#use-more-than-one-account) ·
+[Codex](./providers-codex.md#use-multiple-accounts).
 
-A separate work account is fine. Setup for two:
-[Codex](./providers-codex.md#use-multiple-accounts) ·
-[Claude](./providers-claude.md#separate-accounts-or-configurations). For a bigger pool, manage the
-accounts outside Codenine with a self-hosted proxy such as
+Codenine is not the place to manage a pool of accounts. For a bigger pool, manage the accounts
+outside Codenine with a self-hosted proxy such as
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). After you set up a hub, Codenine can
 show its pooled limits under Usage. [Connect a hub](./usage.md#connect-a-cliproxyapi-hub)
 

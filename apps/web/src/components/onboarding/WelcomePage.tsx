@@ -201,7 +201,7 @@ export function WelcomePage({
                   ) : continueWithout !== null ? (
                     <p className="min-w-0 max-w-md flex-1 text-xs text-muted-foreground">
                       Teams that mix Claude and Codex need both. You can set up {continueWithout}{" "}
-                      later in Settings → Providers.
+                      later in Settings → Accounts.
                     </p>
                   ) : (
                     <span />

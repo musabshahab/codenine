@@ -4,6 +4,7 @@ import type { Dispatch } from "react";
 import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraftStore";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
+import { type AccountSwitchRequest, switchesToAccountWithOwnHistory } from "./accountSwitch.logic";
 import {
   type EnvironmentId,
   type ModelSelection,
@@ -49,6 +50,8 @@ interface ComposerSelectionInput {
     SetStateAction<Record<string, boolean>>
   >;
   readonly scheduleComposerFocus: () => void;
+  /** Asked instead of switching when a started chat moves to an account with its own history. */
+  readonly onSwitchToAccountWithOwnHistory?: ((request: AccountSwitchRequest) => void) | undefined;
 }
 
 /**
@@ -74,6 +77,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
+    onSwitchToAccountWithOwnHistory,
   } = input;
   const navigate = useNavigate();
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -168,6 +172,22 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       rememberedOptions !== undefined && rememberedOptions.length > 0
         ? { instanceId, model: resolvedModel, options: [...rememberedOptions] }
         : { instanceId, model: resolvedModel };
+    // Found only once a session started, so a chat that has not run yet switches in place.
+    const runtimeEntry = providerStatuses.find(
+      (snapshot) => snapshot.instanceId === runtimeProviderInstanceId,
+    );
+    if (
+      onSwitchToAccountWithOwnHistory !== undefined &&
+      !isLocalDraftThread &&
+      runtimeEntry !== undefined &&
+      switchesToAccountWithOwnHistory(runtimeEntry, entry)
+    ) {
+      onSwitchToAccountWithOwnHistory({
+        from: runtimeEntry.instanceId,
+        selection: nextModelSelection,
+      });
+      return;
+    }
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
       hasStartedSession: activeRuntime !== null,
       supportsProviderSwitchingViaHandoff,

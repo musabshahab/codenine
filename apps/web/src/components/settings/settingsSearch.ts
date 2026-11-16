@@ -90,7 +90,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/chat": "Chat",
   "/settings/diffs": "Diffs & pull requests",
   "/settings/keybindings": "Keybindings",
-  "/settings/providers": "Providers",
+  "/settings/providers": "Accounts",
   "/settings/threads": "Threads",
   "/settings/source-control": "Source control",
   "/settings/worktrees": "Worktrees",
@@ -252,10 +252,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "default-model",
-    title: "Default model",
+    title: "Default account and model",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["new thread project provider reasoning effort"],
+    searchTerms: ["new thread project workspace provider account reasoning effort"],
   },
   {
     id: "fallback-model",
@@ -735,10 +735,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   ...KEYBINDING_SEARCH_ITEMS,
   {
     id: "providers",
-    title: "Providers",
+    title: "Accounts",
     to: "/settings/providers",
     searchTerms: [
-      "agents cli codex claude sign in sign out install subscription instances authentication api key models configuration binary path config directory codex_home shadow home endpoint arguments environment variables display name accent color custom favorite hidden auto compact native sessions import resume",
+      "accounts providers add account sign in with claude chatgpt codex cli login command line fast agents codex claude sign in sign out install subscription instances authentication api key models configuration binary path config directory codex_home shadow home endpoint arguments environment variables display name accent color custom favorite hidden auto compact native sessions import resume",
     ],
   },
   {

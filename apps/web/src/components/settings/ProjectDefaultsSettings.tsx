@@ -120,13 +120,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       settingKeys={["defaultModelSelection"]}
       mixed={mixedModel}
       id="default-model"
-      title="Model"
+      title="Account and model"
       description={
         isProjectScope
-          ? "Model for new threads in this workspace."
+          ? "Account and model for new threads in this workspace."
           : !unavailable && modelSource !== "project" && automaticModel
-            ? "Default model for new threads, selected automatically. Workspaces can override it."
-            : "Default model for new threads. Workspaces can override it."
+            ? "Account and model for new threads, selected automatically. Workspaces can override it."
+            : "Account and model for new threads. Workspaces can override it."
       }
       status={
         mixedModel

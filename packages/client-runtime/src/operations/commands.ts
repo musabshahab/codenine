@@ -985,6 +985,22 @@ export const forkSideChat = Effect.fn("EnvironmentCommands.forkSideChat")(functi
   });
 });
 
+/** Forks the thread's latest stable point into an ordinary thread, such as one for another account. */
+export const forkThreadFromLatest = Effect.fn("EnvironmentCommands.forkThreadFromLatest")(
+  function* (input: ForkSideChatInput) {
+    return yield* dispatch({
+      type: "thread.fork",
+      commandId: yield* allocateCommandId(input),
+      createdBy: "user",
+      creationSource: input.creationSource ?? "web",
+      sourceThreadId: input.sourceThreadId,
+      targetThreadId: input.targetThreadId,
+      sourcePoint: { type: "latest_stable" },
+      ...(input.title === undefined ? {} : { title: input.title }),
+    });
+  },
+);
+
 export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(function* (
   input: MergeThreadBackInput,
 ) {

@@ -4,6 +4,7 @@ import type { EnvironmentId, ProviderInstanceId } from "@codenine/contracts";
 import {
   AGENT_SETUP_DRIVERS,
   type AgentSetupDriver,
+  type AgentTerminalStep,
 } from "../../onboarding/providerReadiness.logic";
 import { welcomeCardInstanceId } from "../../onboarding/welcomePage.logic";
 import { useEnvironments } from "../../state/environments";
@@ -22,11 +23,14 @@ import { AgentSetupCard, agentSetupName } from "./AgentSetupCard";
 export default function AgentSetupDialog({
   environmentId,
   agent,
+  startWith,
   onClose,
 }: {
   readonly environmentId: EnvironmentId;
   /** One agent's card; without it, the Claude Code and Codex cards the Welcome page shows. */
   readonly agent?: { readonly driver: AgentSetupDriver; readonly instanceId: ProviderInstanceId };
+  /** The one agent's terminal opens on this step, such as signing it out. */
+  readonly startWith?: AgentTerminalStep | undefined;
   readonly onClose: () => void;
 }) {
   const { environments } = useEnvironments();
@@ -52,12 +56,15 @@ export default function AgentSetupDialog({
       <DialogPopup className="max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {agent !== undefined
-              ? `Set up ${agentSetupName(agent.driver, agent.instanceId)}`
-              : "Set up your agents"}
+            {agent === undefined
+              ? "Set up your agents"
+              : startWith === "signOut"
+                ? `Sign out of ${agentSetupName(agent.driver, agent.instanceId)}`
+                : `Set up ${agentSetupName(agent.driver, agent.instanceId)}`}
           </DialogTitle>
           <DialogDescription>
-            Install and sign in on <span className="text-foreground">{label}</span>.
+            {startWith === "signOut" ? "Sign out" : "Install and sign in"} on{" "}
+            <span className="text-foreground">{label}</span>.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -68,6 +75,7 @@ export default function AgentSetupDialog({
                 environmentId={environmentId}
                 driver={driver}
                 instanceId={instanceId}
+                startWith={agent === undefined ? undefined : startWith}
               />
             ))}
           </div>

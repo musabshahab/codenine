@@ -98,7 +98,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
     await using _screen = await render(dialog());
     await click("Configure manually");
     await click("Next");
-    await click("Add instance");
+    await click("Add account");
     expect(settingsHooks.mutate).toHaveBeenCalledWith({
       operation: "create",
       instanceId: "codex_3",
@@ -115,7 +115,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
     setup();
     await using _screen = await render(dialog());
     await act(async () => radio("Claude")!.click());
-    await click("Next");
+    await click("Configure manually");
     await act(async () =>
       document
         .querySelector<HTMLButtonElement>('button[aria-label="Add accent color for Claude"]')!
@@ -123,7 +123,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
     );
     await click("Add color");
     await click("Next");
-    await click("Add instance");
+    await click("Add account");
 
     expect(settingsHooks.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -136,7 +136,7 @@ describe("AddProviderInstanceDialog environment routing", () => {
   it("rejects a queued save after the provider grant is revoked", async () => {
     setup();
     await using screen = await prepareCodexInstance();
-    const save = button("Add instance");
+    const save = button("Add account");
     actions.canManageProviders = false;
     // Click before React renders the revoked grant.
     await act(async () => save.click());
@@ -145,6 +145,6 @@ describe("AddProviderInstanceDialog environment routing", () => {
     expect(actions.toast).not.toHaveBeenCalled();
     expect(actions.onOpenChange).not.toHaveBeenCalled();
     await screen.rerender(dialog());
-    expect(button("Add instance").disabled).toBe(true);
+    expect(button("Add account").disabled).toBe(true);
   });
 });

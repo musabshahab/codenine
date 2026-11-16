@@ -27,6 +27,7 @@ import {
   editQueuedRun,
   interruptThreadTurn,
   forkSideChat,
+  forkThreadFromLatest,
   forkThreadFromRun,
   markThreadUnread,
   mergeThreadBack,
@@ -312,6 +313,15 @@ export function createThreadEnvironmentAtoms<R, E>(
     forkSideChat: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:fork-side-chat",
       execute: forkSideChat,
+      scheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
+      },
+    }),
+    forkFromLatest: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:fork-from-latest",
+      execute: forkThreadFromLatest,
       scheduler,
       concurrency: {
         mode: "serial",

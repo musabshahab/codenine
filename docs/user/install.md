@@ -113,7 +113,7 @@ as described above.
 
 ## Providers
 
-Codenine works with Codex and Claude Code. Open **Settings → Providers**, select the environment,
+Codenine works with Codex and Claude Code. Open **Settings → Accounts**, select the environment,
 and enable the provider you want. Installation, login, and configuration belong to that
 environment's machine, even when you connect from another computer.
 
@@ -128,7 +128,7 @@ in provider settings, especially when using a version manager. Codex connected t
 uses its managed runtime without a `PATH` entry.
 
 Codenine warns when a provider version has known compatibility problems. Check
-**Settings → Providers** on that environment for the recommended version or range. An unlisted
+**Settings → Accounts** on that environment for the recommended version or range. An unlisted
 version is unverified.
 
 When a provider CLI is behind its latest release, its provider card shows the available version.

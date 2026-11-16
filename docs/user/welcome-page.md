@@ -28,7 +28,7 @@ account), and **Ready**, and offers the one next step:
   Codenine checks the agent again and types the next command, such as signing in
   after an install. Install uses the vendor's own installer, which keeps
   **Update now** working in Settings.
-- **Update** opens the agent in **Settings → Providers** when Codenine knows the
+- **Update** opens the agent in **Settings → Accounts** when Codenine knows the
   installed version does not work with it. **Details** opens an agent that could
   not load or does not work.
 
@@ -46,7 +46,7 @@ OpenRouter key. It then shows as its own agent. See
 
 Other agents are under **Add more agents**. The same card opens later from
 **Set up** on a chat's notice that Claude or Codex isn't ready, and from
-**Set up** in **Settings → Providers** for one that is missing or signed out.
+**Set up** in **Settings → Accounts** for one that is missing or signed out.
 
 On the desktop app, when the folder of the `codenine` command is not on your `PATH`,
 **Add to PATH** adds one line to your shell's startup file.
@@ -57,7 +57,7 @@ terminal process can use them.
 
 **Continue** waits for one ready agent. When only one of Claude Code and Codex is
 ready, it reads **Continue without** the other: teams that mix Claude and Codex
-need both, and you can set up the other later in **Settings → Providers**. A ready
+need both, and you can set up the other later in **Settings → Accounts**. A ready
 OpenRouter agent reaches both vendors' models, so Continue then names neither.
 Select **Continue without an agent** to go on without one.
 

@@ -39,6 +39,7 @@ import {
   agentSetupAction,
   agentSetupChecks,
   agentStepAfterCommand,
+  canSignOutInTerminal,
   followSetupTerminalCommand,
   INITIAL_SETUP_TERMINAL_WATCH,
   isBrowserOnServerMachine,
@@ -135,10 +136,13 @@ export function AgentSetupCard({
   environmentId,
   driver,
   instanceId,
+  startWith,
 }: {
   readonly environmentId: EnvironmentId;
   readonly driver: AgentSetupDriver;
   readonly instanceId: ProviderInstanceId;
+  /** Opens the terminal on this step, such as signing out from the account's settings. */
+  readonly startWith?: AgentTerminalStep | undefined;
 }) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
@@ -163,7 +167,7 @@ export function AgentSetupCard({
     reportFailure: false,
   });
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
-  const [terminalStep, setTerminalStep] = useState<AgentTerminalStep | null>(null);
+  const [terminalStep, setTerminalStep] = useState<AgentTerminalStep | null>(startWith ?? null);
   const [chatGptRequested, setChatGptRequested] = useState(false);
   const terminalAction = action === "install" || action === "signIn" ? action : null;
 
@@ -289,6 +293,11 @@ export function AgentSetupCard({
     );
   const offersChatGpt =
     driver === "codex" && terminalStep === null && (chatGpt || terminalAction !== null);
+  const offersSignOut =
+    state === "ready" &&
+    terminalStep === null &&
+    provider !== undefined &&
+    canSignOutInTerminal(provider);
   const notes = [
     terminalAction !== null && !chatGpt && !canOperateTerminal
       ? "This connection cannot control terminals."
@@ -323,8 +332,17 @@ export function AgentSetupCard({
           <AgentCheckRow label="Ready" check={checks.ready} />
         </ul>
       )}
-      {offersChatGpt || notes.length > 0 ? (
+      {offersChatGpt || offersSignOut || notes.length > 0 ? (
         <div className="mt-2 flex flex-col items-start gap-1 pl-7.5 text-xs">
+          {offersSignOut ? (
+            <InlineButton
+              tone="muted"
+              disabled={!canOperateTerminal || serverConfig === null}
+              onClick={() => openTerminal("signOut")}
+            >
+              Sign out
+            </InlineButton>
+          ) : null}
           {offersChatGpt ? (
             <InlineButton
               tone="muted"
@@ -417,6 +435,18 @@ function AgentCheckRow({ label, check }: { readonly label: string; readonly chec
   );
 }
 
+const STEP_COMMAND_NAMES = {
+  install: "install",
+  signIn: "sign-in",
+  signOut: "sign-out",
+} as const satisfies Record<AgentTerminalStep, string>;
+
+const STEP_UNCHANGED_STATES = {
+  install: "not installed",
+  signIn: "signed out",
+  signOut: "signed in",
+} as const satisfies Record<AgentTerminalStep, string>;
+
 type TerminalPhase =
   | { readonly kind: "opening" | "openFailed" | "ready" | "stop" }
   | {
@@ -438,9 +468,7 @@ function terminalStatus(phase: TerminalPhase, name: string) {
     case "waitShell":
       return "Waiting for the terminal to be ready…";
     case "typed":
-      return phase.step === "install"
-        ? "Review the install command, then press Enter to run it."
-        : "Review the sign-in command, then press Enter to run it.";
+      return `Review the ${STEP_COMMAND_NAMES[phase.step]} command, then press Enter to run it.`;
     case "writeFailed":
       return (
         <>
@@ -453,9 +481,7 @@ function terminalStatus(phase: TerminalPhase, name: string) {
     case "checking":
       return `Checking ${name}…`;
     case "unchanged":
-      return phase.step === "install"
-        ? `${name} is still not installed. Check the output, then run the command again.`
-        : `${name} is still signed out. Check the output, then run the command again.`;
+      return `${name} is still ${STEP_UNCHANGED_STATES[phase.step]}. Check the output, then run the command again.`;
     case "ready":
       return `${name} is ready. You can close the terminal.`;
     case "stop":

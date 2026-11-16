@@ -79,7 +79,7 @@ start of the composer to edit the most recently queued message. Change
 
 ## Custom models
 
-Use Settings → Providers → **Models** to add an unlisted model with a custom
+Use Settings → Accounts → **Models** to add an unlisted model with a custom
 name and options. Only options supported by the provider integration affect turns.
 
 To rename a built-in model on every client, edit the server's `settings.json` in its `userdata`
@@ -141,7 +141,7 @@ empty composer shows a predicted next message. Press `Tab` to fill it in, then e
 press `Escape` to dismiss it. Each suggestion is one extra request that reuses the turn's prompt
 cache, so it uses a little of your plan's usage. Claude skips suggestions on the first turn of a
 thread and near usage limits. Codex needs version 0.165 or later; if Codenine manages
-Codex, update it in Settings > Providers. Codex follows a change to the setting at once; open Claude
+Codex, update it in Settings > Accounts. Codex follows a change to the setting at once; open Claude
 threads follow it after they restart.
 
 ## Edit an earlier prompt

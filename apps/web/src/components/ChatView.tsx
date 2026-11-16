@@ -256,7 +256,9 @@ import { DraftHeroHeadline, DraftProjectPicker } from "./chat/DraftHeroHeadline"
 import { DraftRecentChats } from "./chat/DraftRecentChats";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
+  AccountSwitchHost,
   BranchRestoreConfirmHost,
+  openAccountSwitch,
   openBranchRestoreConfirm,
   PullRequestThreadDialogHost,
   RevertConfirmHost,
@@ -2755,6 +2757,7 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
+    onSwitchToAccountWithOwnHistory: (request) => openAccountSwitch(routeThreadKey, request),
   });
   const { onResume, isResuming } = useComposerResume({
     environmentId,
@@ -3897,6 +3900,11 @@ export default function ChatView(props: ChatViewProps) {
       ) : null}
 
       <RevertConfirmHost threadKey={routeThreadKey} onConfirm={onConfirmRevertStable} />
+      <AccountSwitchHost
+        threadKey={routeThreadKey}
+        threadRef={routeThreadRef}
+        providerStatuses={providerStatuses}
+      />
       {embedded ? null : <LinkPullRequestDialogHost />}
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />

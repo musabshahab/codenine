@@ -218,7 +218,7 @@ function panel(options?: {
   );
 }
 
-// The section header and the end of the provider list both offer Add provider.
+// The section header and the end of the account list both offer Add account.
 
 async function setup() {
   await page.viewport(1280, 900);

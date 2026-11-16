@@ -4,7 +4,7 @@ Use your ChatGPT plan or an existing Codex CLI login to code in Codenine.
 
 ## Connect with ChatGPT
 
-Connect during onboarding or in **Settings → Providers**. For a remote machine,
+Connect during onboarding or in **Settings → Accounts**. For a remote machine,
 select that environment first. Codenine handles Codex installation; sign in on
 OpenAI and allow sharing of your ChatGPT plan.
 
@@ -13,7 +13,7 @@ If a request uses a feature that ChatGPT sharing does not support, use another
 provider for that request.
 
 Fast and Ultrafast speeds are unavailable with this connection. To use the speed
-options your account supports, [use an existing Codex login](#use-an-existing-codex-login).
+options your account supports, [sign in with the Codex CLI](#sign-in-with-the-codex-cli).
 
 When reconnecting, choose the same account in Codenine and on OpenAI's sign-in
 page. Disconnecting stops running threads but keeps their history and lets you
@@ -22,67 +22,65 @@ reconnect later.
 If remote sign-in cannot return automatically, paste the full URL from the final
 localhost page into the sign-in panel, even if that page could not load.
 
-## Use an existing Codex login
+## Sign in with the Codex CLI
 
-Codenine can use your installed Codex and its existing login. Run `codex login`
-on the environment's machine to sign in. [Provider setup](./install.md#providers)
-covers installation and custom configuration.
+The Codex command line login gives you every speed your plan includes, such as Fast. In
+**Settings → Accounts**, choose **Add account**, pick Codex, then **Sign in with Codex CLI**. Name
+the account and finish `codex login` in the panel that opens. On a remote machine, the panel signs
+in with a code you enter in your browser. [Provider setup](./install.md#providers) covers installing
+Codex and custom configuration.
 
-Running `codex login` does not change a managed ChatGPT connection. In
-**Settings > Providers**, add a Codex instance, choose **Configure manually**,
-and complete the wizard. Then select that instance from the thread's model
-picker. See [Use multiple accounts](#use-multiple-accounts).
+This login is separate from a ChatGPT connection. Signing in one way does not change the other.
 
 ## Use multiple accounts
 
-Add another ChatGPT account in **Settings → Providers**, then select the account
-from the thread's model picker. Compatible accounts can continue the same thread.
-Connecting accounts through Codenine leaves your CLI login unchanged.
+Add each account in **Settings → Accounts** with **Add account**, then pick it in a chat's model
+picker or set it as a workspace's default.
 
-### Multiple CLI logins
+- **Continue with ChatGPT** connects another ChatGPT account. ChatGPT accounts share chat history,
+  so a chat can move between them.
+- **Sign in with Codex CLI** adds another command line login. Codenine keeps each login in its own
+  folder and shares Codex's chat history between them, so a chat can move between these accounts
+  too.
 
-A shared Codex home with a shadow home lets work and personal accounts continue
-the same threads. The accounts share Codex sessions and configuration while keeping
-their own login and available models.
-
-Keep your first account in `~/.codex`. On the environment's machine, sign the
-second account into a fresh directory:
-
-```bash
-mkdir -p ~/.codex_personal
-CODEX_HOME=~/.codex_personal codex login
-```
-
-Then add a second Codex instance in **Settings > Providers**:
-
-| Instance       | CODEX_HOME path | Shadow home path    |
-| -------------- | --------------- | ------------------- |
-| Codex Work     | `~/.codex`      | Leave empty         |
-| Codex Personal | `~/.codex`      | `~/.codex_personal` |
-
-Both instances must use the same **CODEX_HOME path**. Codenine prepares the shared
-state in the shadow directory; do not populate it by copying your whole Codex
-home.
-
-The shadow account needs its own `auth.json` file. If Codex uses an OS credential
+Each command line account needs its own `auth.json` file. If Codex keeps logins in an OS credential
 store, configure file storage for this setup. See
 [OpenAI's credential storage guide](https://learn.chatgpt.com/docs/auth#credential-storage).
 
-Use a completely separate **CODEX_HOME path**, with no shadow home, when you want
-separate Codex sessions and configuration. That instance cannot continue threads
-from the other home.
+To end a login, choose **Sign out** on the account. Removing an account keeps its login and chat
+history on the machine, so adding it again picks them up.
 
-## Switch accounts in an existing thread
+### Configure an account by hand
 
-Choose the other account from the thread's model picker. Codenine offers compatible
-Codex instances that share the thread's **CODEX_HOME path**. Changing accounts does
-not move the conversation into a separate Codex home.
+**Configure manually** lets you choose the folders. Accounts that share a **CODEX_HOME path** and
+each have their own **Shadow home path** share Codex sessions and configuration while keeping their
+own login and available models. Codenine prepares the shared state in the shadow directory; do not
+populate it by copying your whole Codex home. To sign an account in from your own terminal, point
+`CODEX_HOME` at its shadow home:
 
-If the account is missing from the picker, compare the home paths in provider
-settings. If two instances show the same unexpected account or models, check their
-reported accounts, refresh provider status, and confirm the second instance has
-its own shadow path and login. A shadow-home conflict usually means the directory
-contains a copied Codex setup. Use a fresh shadow directory and sign in again.
+```bash
+CODEX_HOME=~/.codex-codenine/personal codex login
+```
+
+Use a completely separate **CODEX_HOME path**, with no shadow home, when you want separate Codex
+sessions and configuration.
+
+## Switch accounts in a chat
+
+Choose the other account from the chat's model picker. An account that shares the chat's history
+continues the same chat. For an account with its own history, such as a command line account in a
+chat that started on ChatGPT, Codenine asks how to go on:
+
+- **Branch this chat** copies the conversation into a new chat on the other account. The history
+  goes with your next message, so it counts toward that account's usage.
+- **New chat** starts an empty chat on the other account in the same workspace.
+
+The original chat stays on its account either way.
+
+If two accounts show the same unexpected account or models, check their reported accounts, refresh
+provider status, and confirm each command line account has its own shadow folder and login. A
+shadow-home conflict usually means the folder contains a copied Codex setup. Use a fresh folder and
+sign in again.
 
 ## Answer questions while Codex works
 
