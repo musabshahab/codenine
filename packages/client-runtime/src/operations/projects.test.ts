@@ -5,10 +5,8 @@ import { EnvironmentId, ProjectId } from "@codenine/contracts";
 import {
   findExistingAddProject,
   getCloneDestinationPath,
-  getCloneDirectoryLeafName,
   getCloneDirectoryName,
   getCloneDirectoryPath,
-  getDefaultCloneUrl,
   githubIncompleteOwnerRepositoryMessage,
   normalizePastedCloneUrl,
 } from "./projects.ts";
@@ -65,16 +63,6 @@ describe("add project shared logic", () => {
     expect(normalizePastedCloneUrl("/srv/git/repo.git")).toBe("/srv/git/repo.git");
   });
 
-  it("uses HTTPS for repositories selected through a provider", () => {
-    expect(
-      getDefaultCloneUrl({
-        provider: SourceControlProviderKind.make("github"),
-        url: "https://github.com/imputnet/helium",
-        sshUrl: "git@github.com:imputnet/helium.git",
-      }),
-    ).toBe("https://github.com/imputnet/helium");
-  });
-
   it("derives the clone folder name from any pasted clone URL", () => {
     expect(getCloneDirectoryName("https://github.com/owner/repo.git")).toBe("repo");
     expect(getCloneDirectoryName("https://github.com/owner/repo")).toBe("repo");
@@ -107,13 +95,6 @@ describe("add project shared logic", () => {
         "Project/My Repo",
       ),
     ).toBe("My Repo");
-    expect(
-      getCloneDirectoryLeafName(
-        "git@ssh.dev.azure.com:v3/org/Project/My%20Repo",
-        true,
-        "Project/My Repo",
-      ),
-    ).toBe("My%20Repo");
     expect(
       getCloneDestinationPath(
         "C:\\Users\\me\\ghq",

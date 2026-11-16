@@ -138,6 +138,7 @@ import { useProjectRemoval } from "../hooks/useProjectRemoval";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { openNewProjectDialog } from "../newProjectDialogStore";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
@@ -1144,7 +1145,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const shortcutModifiers = useShortcutModifierState();
   const terminalFocused = useTerminalFocus();
-  const openNewProjectCommandPalette = () => openCommandPalette({ open: "new-project" });
   const routeThreadRef = resolveActiveThreadRouteRef(routeTarget, routeDraftThread);
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
 
@@ -3352,7 +3352,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               newChatDisabled={projects.length === 0 && chatEnvironmentId === null}
               onNewChat={handleNewThreadClick}
               onNewTeamTask={teamWorkspaceGroups.length > 0 ? () => void startTeamTask() : null}
-              onNewWorkspace={openNewProjectCommandPalette}
+              onNewWorkspace={() => openNewProjectDialog()}
             />
           </>
         }
@@ -3636,7 +3636,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               {projectFilterControl}
                               <SidebarHeaderIconButton
                                 label="New workspace"
-                                onClick={openNewProjectCommandPalette}
+                                onClick={() => openNewProjectDialog()}
                               >
                                 <PlusIcon />
                               </SidebarHeaderIconButton>
@@ -3863,7 +3863,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   <span>No workspaces yet</span>
                   <button
                     type="button"
-                    onClick={openNewProjectCommandPalette}
+                    onClick={() => openNewProjectDialog()}
                     className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                   >
                     <PlusIcon className="-mx-0.5 size-3" />

@@ -3,20 +3,13 @@ import type {
   EnvironmentId,
   ServerConfig,
   SourceControlDiscoveryResult,
-  SourceControlRepositoryInfo,
+  SourceControlProviderKind,
 } from "@codenine/contracts";
-import { SourceControlProviderKind } from "@codenine/contracts";
 import { cloneUrlRepositoryPath } from "@codenine/shared/cloneUrl";
 import { newProjectFolderName } from "@codenine/shared/path";
-import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
-import * as Order from "effect/Order";
 
-import {
-  appendBrowsePathSegment,
-  ensureBrowseDirectoryPath,
-  findProjectByPath,
-} from "../state/projects.ts";
+import { ensureBrowseDirectoryPath, findProjectByPath } from "../state/projects.ts";
 import type { EnvironmentProject } from "../state/models.ts";
 import { sourceControlClients } from "../sourceControlClients.ts";
 import type { SourceControlDefinition } from "../sourceControlClients.ts";
@@ -38,45 +31,9 @@ export function availableScratchWorkspaceRoot(
     : null;
 }
 
-export interface AddProjectRemoteSourceReadinessEntry {
+interface AddProjectRemoteSourceReadinessEntry {
   readonly ready: boolean;
   readonly hint: string | null;
-}
-
-export type AddProjectRemoteSourceReadiness = (
-  source: AddProjectRemoteSource,
-) => AddProjectRemoteSourceReadinessEntry;
-
-export type AddProjectCloneFlow =
-  | {
-      readonly step: "repository";
-      readonly environmentId: EnvironmentId;
-      readonly source: AddProjectRemoteSource;
-    }
-  | {
-      readonly step: "confirm";
-      readonly environmentId: EnvironmentId;
-      readonly source: AddProjectRemoteSource;
-      readonly repositoryInput: string;
-      readonly repository: SourceControlRepositoryInfo | null;
-      readonly remoteUrl: string;
-    };
-
-const ADD_PROJECT_REMOTE_PROVIDER_SOURCES: ReadonlyArray<SourceControlProviderKind> =
-  sourceControlClients.definitions.map((definition) => definition.kind);
-
-export function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): string {
-  return source === "url" ? "Git URL" : sourceControlClients.get(source).pickerLabel;
-}
-
-export function addProjectRemoteSourcePathHint(source: AddProjectRemoteSource): string {
-  return source === "url" ? "URL" : sourceControlClients.get(source).repositoryPathHint;
-}
-
-export function addProjectRemoteSourceProvider(
-  source: AddProjectRemoteSource,
-): SourceControlProviderKind | null {
-  return source === "url" ? null : source;
 }
 
 const REPOSITORY_SHORTHAND = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]+(?:\.git)?$/;
@@ -118,41 +75,15 @@ export function normalizePastedCloneUrl(input: string): string {
   return REPOSITORY_SHORTHAND.test(trimmed) ? (defaultHostCloneUrl(trimmed) ?? trimmed) : trimmed;
 }
 
-export function getDefaultCloneUrl(
-  repository: Pick<SourceControlRepositoryInfo, "provider" | "url" | "sshUrl">,
-): string {
-  return sourceControlClients.get(repository.provider).defaultCloneTransport === "https"
-    ? repository.url
-    : repository.sshUrl;
-}
-
-export function sortAddProjectProviderSources(
-  readiness: AddProjectRemoteSourceReadiness,
-): ReadonlyArray<SourceControlProviderKind> {
-  return Arr.sort(
-    ADD_PROJECT_REMOTE_PROVIDER_SOURCES,
-    Order.mapInput(
-      Order.Struct({
-        ready: Order.flip(Order.Boolean),
-        label: Order.String,
-      }),
-      (source: SourceControlProviderKind) => ({
-        ready: readiness(source).ready,
-        label: addProjectRemoteSourceLabel(source),
-      }),
-    ),
-  );
-}
-
 const READY: AddProjectRemoteSourceReadinessEntry = { ready: true, hint: null };
 const UNAVAILABLE: AddProjectRemoteSourceReadinessEntry = {
   ready: false,
   hint: "Provider status unavailable. Open Source Control settings and rescan.",
 };
 
-export function buildAddProjectRemoteSourceReadiness(
+function buildAddProjectRemoteSourceReadiness(
   discovery: SourceControlDiscoveryResult | null,
-): AddProjectRemoteSourceReadiness {
+): (source: AddProjectRemoteSource) => AddProjectRemoteSourceReadinessEntry {
   const providerByKind = new Map(
     (discovery?.sourceControlProviders ?? []).map((provider) => [provider.kind, provider]),
   );
@@ -206,15 +137,6 @@ export function getCloneDirectoryPath(
   );
 }
 
-/** The clone's own folder, which folder browsing keeps at the end of the destination. */
-export function getCloneDirectoryLeafName(
-  remoteUrl: string,
-  ghqCloneLayout: boolean,
-  repository = remoteUrl,
-): string {
-  return getCloneDirectoryPath(remoteUrl, ghqCloneLayout, repository).split("/").at(-1) ?? "";
-}
-
 export function getCloneDestinationPath(
   directoryPath: string,
   directoryName: string | null | undefined,
@@ -265,24 +187,6 @@ export function getNewProjectRepository(
 ): string {
   const folderName = workspaceRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
   return target.owner ? `${target.owner}/${folderName}` : folderName;
-}
-
-export function getCloneDestinationBrowsePath(input: {
-  readonly browseDirectoryPath: string;
-  readonly selectedDirectoryName: string;
-  readonly cloneDirectoryName: string;
-  readonly caseSensitive: boolean;
-}): string {
-  const selectedDirectoryPath = appendBrowsePathSegment(
-    input.browseDirectoryPath,
-    input.selectedDirectoryName,
-  );
-  const selectedDirectoryMatches = input.caseSensitive
-    ? input.selectedDirectoryName === input.cloneDirectoryName
-    : input.selectedDirectoryName.toLowerCase() === input.cloneDirectoryName.toLowerCase();
-  return selectedDirectoryMatches
-    ? selectedDirectoryPath
-    : getCloneDestinationPath(selectedDirectoryPath, input.cloneDirectoryName);
 }
 
 export function findExistingAddProject(input: {

@@ -44,28 +44,33 @@ custom server name as GitHub once it has a credential for that host.
 
 ## Start, clone, or publish a workspace
 
-To start from nothing, click **New workspace** in the sidebar or the command palette (`Cmd/Ctrl+K`)
-and type a name. Codenine makes a Git
-repository in `~/.codenine/workspaces` (`~/.codenine/projects` on older installs) with a README,
-an icon, and a first commit, then opens a new thread in it. Until the workspace has a thread, new
-threads work in its folder, even when your default is a new worktree. The folder is named after the workspace,
-like `pinball-stats` for "Pinball Stats". Turn on **Create private repository** to also
-publish it on GitHub. If Git has no name or email on that machine, the workspace is created without the
-first commit.
+Click **New workspace** in the sidebar, in the composer's workspace picker, or in the command
+palette (`Cmd/Ctrl+K`). Give the workspace a name, then choose where its files come from:
 
-To clone a repository, choose **Add existing workspace** under **New workspace** or in the command
-palette. Choose GitHub
-or paste a Git URL, then choose where to save it. The workspace opens right away while the
-clone runs in the background: you can write your first prompt, and sending waits until the files
-are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
-toast or from the banner above the composer. When the host refuses the machine's SSH key, Codenine
-clones over HTTPS with Git's credentials for that host instead, and the workspace's remote uses the
-HTTPS URL.
+- **Start empty** makes a Git repository in `~/.codenine/workspaces` (`~/.codenine/projects` on
+  older installs) with a README, an icon, and a first commit. The folder is named after the
+  workspace, like `pinball-stats` for "Pinball Stats". Turn on **Also create a private repository**
+  to also publish it on GitHub. If Git has no name or email on that machine, the workspace is created
+  without the first commit.
+- **Use a folder** adds a folder that is already on the machine. Type its path, or click **Browse**
+  in the desktop app. A folder that already is a workspace opens that workspace instead.
+- **Clone a repository** downloads `owner/repo` from GitHub, or any Git URL, into the same
+  folder.
+
+**Default agent** is the account and model new chats in the workspace start on; change it later in
+the workspace's settings. With more than one machine connected, choose the machine at the bottom of
+the dialog. Codenine then opens a new thread in the workspace. Until the workspace has a thread, new
+threads work in its folder, even when your default is a new worktree.
+
+A cloned workspace opens right away while the clone runs in the background: you can write your
+first prompt, and sending waits until the files are in place. A toast tracks progress and lets you
+cancel; if the clone fails, retry it from the toast or from the banner above the composer. When the
+host refuses the machine's SSH key, Codenine clones over HTTPS with Git's credentials for that host
+instead, and the workspace's remote uses the HTTPS URL.
 
 To lay clones out like [ghq](https://github.com/x-motemen/ghq), turn on **Clone into host folders**
-under **Settings → Threads**. Clones then default to
-`<host>/<owner>/<repo>` under **Add workspace starts in**, so set that to `~/ghq` to share ghq's
-folders. You can still change the destination before cloning.
+under **Settings → Threads**. Clones then go to `<host>/<owner>/<repo>` under **Add workspace starts
+in**, so set that to `~/ghq` to share ghq's folders.
 
 For a local Git repository without a remote, **Publish Repository** creates a GitHub repository,
 adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;

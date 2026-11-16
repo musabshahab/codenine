@@ -1,9 +1,9 @@
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { MessageSquareDashedIcon, PlusIcon } from "lucide-react";
 
-import { openCommandPalette } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import { useScratchProject } from "../hooks/useScratchProject";
+import { openNewProjectDialog } from "../newProjectDialogStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { Button } from "./ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
@@ -35,7 +35,7 @@ export function NoProjectsHero() {
                   : "Add a workspace, or start without one."}
               </EmptyDescription>
               <div className="mt-6 flex justify-center gap-2">
-                <Button size="sm" onClick={() => openCommandPalette({ open: "new-project" })}>
+                <Button size="sm" onClick={() => openNewProjectDialog()}>
                   <PlusIcon className="size-4" />
                   New workspace
                 </Button>

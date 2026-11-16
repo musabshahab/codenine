@@ -12,23 +12,12 @@ import {
 import { threadSearchSubject } from "@codenine/client-runtime/state/thread-search";
 import type { CommandPaletteLinkedThreads } from "../commandPaletteBus";
 import {
-  addProjectRemoteSourceLabel,
-  addProjectRemoteSourcePathHint,
-  buildAddProjectRemoteSourceReadiness,
-  type AddProjectRemoteSource,
-  type AddProjectRemoteSourceReadiness,
-} from "@codenine/client-runtime/operations/projects";
-import {
   type EnvironmentId,
   type ProjectId,
-  type EnvironmentMachineKind,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
-  type SourceControlDiscoveryResult,
-  type SourceControlRepositoryInfo,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@codenine/contracts";
-import { filterFilesystemBrowseEntries } from "@codenine/client-runtime/state/filesystem";
 import { type ReactNode } from "react";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { type Project, type SidebarThreadSummary, type Thread } from "../types";
@@ -71,15 +60,8 @@ export function browseInputEndPaddingClass(input: {
 
 export type SearchOverlayMode = "command" | "files" | "content";
 
-/** One add-project source on one environment, opened without the source list in between. */
-export interface AddProjectIntentSource {
-  readonly environmentId: EnvironmentId;
-  readonly source: "new" | "folder" | "clone";
-}
-
 export type CommandPaletteOpenIntent =
-  | { readonly kind: "add-project"; readonly source?: AddProjectIntentSource }
-  | { readonly kind: "new-project" | "new-thread-in" | "change-theme" }
+  | { readonly kind: "new-thread-in" | "change-theme" }
   | {
       readonly kind: "search";
       readonly query: string;
@@ -105,8 +87,6 @@ export type CommandPaletteUiAction =
       readonly query: string;
       readonly linkedThreads?: CommandPaletteLinkedThreads;
     }
-  | { readonly _tag: "OpenAddProject"; readonly source?: AddProjectIntentSource }
-  | { readonly _tag: "OpenNewProject" }
   | { readonly _tag: "OpenNewThreadIn" }
   | { readonly _tag: "OpenChangeTheme" }
   | {
@@ -160,32 +140,11 @@ export function reduceCommandPaletteUiState(
         query: action.query,
         ...(action.linkedThreads ? { linkedThreads: action.linkedThreads } : {}),
       });
-    case "OpenAddProject":
-      return openWithIntent(
-        action.source ? { kind: "add-project", source: action.source } : { kind: "add-project" },
-      );
-    case "OpenNewProject":
-      return openWithIntent({ kind: "new-project" });
     case "OpenNewThreadIn":
       return openWithIntent({ kind: "new-thread-in" });
     case "OpenChangeTheme":
       return openWithIntent({ kind: "change-theme" });
   }
-}
-
-/** Where "Add project" starts, given the environments that can take a new project. */
-export type AddProjectEntry =
-  | { readonly kind: "connect-environment" }
-  | { readonly kind: "choose-environment" }
-  | { readonly kind: "choose-source"; readonly environmentId: EnvironmentId };
-
-export function resolveAddProjectEntry(
-  options: ReadonlyArray<Pick<AddProjectEnvironmentOption, "environmentId">>,
-  defaultEnvironmentId: EnvironmentId | null,
-): AddProjectEntry {
-  if (options.length === 0) return { kind: "connect-environment" };
-  if (options.length > 1 || defaultEnvironmentId === null) return { kind: "choose-environment" };
-  return { kind: "choose-source", environmentId: defaultEnvironmentId };
 }
 
 export interface CommandPaletteThreadContentMatch {
@@ -743,25 +702,6 @@ export function buildBrowseGroups(input: {
   return [{ value: "directories", label: "Directories", items }];
 }
 
-export function filterPinnedBrowseEntries(input: {
-  browseEntries: ReadonlyArray<FilesystemBrowseEntry>;
-  filterQuery: string;
-  pinnedDirectoryName: string;
-  caseSensitive: boolean;
-}): ReturnType<typeof filterFilesystemBrowseEntries> {
-  const namesMatch = (left: string, right: string) =>
-    input.caseSensitive ? left === right : left.toLowerCase() === right.toLowerCase();
-  const visibleFilterQuery = namesMatch(input.filterQuery, input.pinnedDirectoryName)
-    ? ""
-    : input.filterQuery;
-  const { visibleEntries } = filterFilesystemBrowseEntries(input.browseEntries, visibleFilterQuery);
-  const exactEntry =
-    input.filterQuery.length > 0
-      ? (input.browseEntries.find((entry) => namesMatch(entry.name, input.filterQuery)) ?? null)
-      : null;
-  return { visibleEntries, exactEntry };
-}
-
 export function getCommandPaletteMode(input: {
   currentView: CommandPaletteView | null;
   isBrowsing: boolean;
@@ -814,64 +754,6 @@ export function getEnvironmentBrowsePlatform(os: string | null | undefined): str
     return "Linux";
   }
   return typeof navigator === "undefined" ? "" : navigator.platform;
-}
-
-export interface AddProjectEnvironmentOption {
-  readonly environmentId: EnvironmentId;
-  readonly label: string;
-  readonly machine: EnvironmentMachineKind;
-  readonly isPrimary: boolean;
-  readonly isConnected: boolean;
-  readonly status: string;
-}
-
-export type AddProjectCloneFlow =
-  | {
-      readonly step: "repository";
-      readonly environmentId: EnvironmentId;
-      readonly source: AddProjectRemoteSource;
-    }
-  | {
-      readonly step: "confirm";
-      readonly environmentId: EnvironmentId;
-      readonly source: AddProjectRemoteSource;
-      readonly repositoryInput: string;
-      readonly repository: SourceControlRepositoryInfo | null;
-      readonly remoteUrl: string;
-    };
-
-export function remoteProjectInputPlaceholder(flow: AddProjectCloneFlow | null): string | null {
-  if (!flow) return null;
-  if (flow.step === "confirm") return null;
-  if (flow.source === "url") {
-    return "Enter Git clone URL";
-  }
-  return `Enter ${addProjectRemoteSourceLabel(flow.source)} repository (${addProjectRemoteSourcePathHint(flow.source)})`;
-}
-
-export function buildPaletteRemoteSourceReadiness(
-  discovery: SourceControlDiscoveryResult | null,
-): AddProjectRemoteSourceReadiness {
-  const readiness = buildAddProjectRemoteSourceReadiness(discovery);
-  return (source) => {
-    const entry = readiness(source);
-    return entry.hint === null
-      ? entry
-      : {
-          ...entry,
-          hint: entry.hint.replace(
-            "Open source control settings",
-            "Open Settings -> Source control",
-          ),
-        };
-  };
-}
-
-export function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  return "An error occurred.";
 }
 
 const OVERLAY_MODE_BY_COMMAND = {

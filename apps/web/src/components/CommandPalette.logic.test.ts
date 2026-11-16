@@ -8,10 +8,8 @@ import {
   resolveCommandPaletteProject,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
-  filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
   reduceCommandPaletteUiState,
-  resolveAddProjectEntry,
   createCommandPaletteSearchState,
   reduceCommandPaletteSearchState,
   type CommandPaletteUiState,
@@ -100,47 +98,19 @@ describe("reduceCommandPaletteUiState", () => {
     expect(state).toMatchObject({ open: true, openIntent: { kind: "new-thread-in" }, session: 1 });
     state = reduceCommandPaletteUiState(state, { _tag: "ToggleMode", mode: "files" });
     expect(state).toMatchObject({ mode: "files", openIntent: null, session: 1 });
-    state = reduceCommandPaletteUiState(state, { _tag: "OpenAddProject" });
+    state = reduceCommandPaletteUiState(state, { _tag: "OpenChangeTheme" });
     expect(state).toMatchObject({
       mode: "command",
-      openIntent: { kind: "add-project" },
+      openIntent: { kind: "change-theme" },
       session: 2,
     });
-    const source = { environmentId: EnvironmentId.make("local"), source: "clone" } as const;
-    state = reduceCommandPaletteUiState(state, { _tag: "OpenAddProject", source });
-    expect(state).toMatchObject({ openIntent: { kind: "add-project", source }, session: 3 });
     state = reduceCommandPaletteUiState(state, { _tag: "ToggleMode", mode: "content" });
-    state = reduceCommandPaletteUiState(state, { _tag: "OpenNewProject" });
+    state = reduceCommandPaletteUiState(state, { _tag: "OpenNewThreadIn" });
     expect(state).toEqual({
       open: true,
       mode: "command",
-      openIntent: { kind: "new-project" },
-      session: 4,
-    });
-  });
-});
-
-describe("resolveAddProjectEntry", () => {
-  const local = EnvironmentId.make("local");
-  const remote = EnvironmentId.make("remote");
-
-  it("sends the user to connect an environment when none can add a project", () => {
-    expect(resolveAddProjectEntry([], null)).toEqual({ kind: "connect-environment" });
-  });
-
-  it("asks for an environment when there is a choice or no connected default", () => {
-    expect(
-      resolveAddProjectEntry([{ environmentId: local }, { environmentId: remote }], local),
-    ).toEqual({ kind: "choose-environment" });
-    expect(resolveAddProjectEntry([{ environmentId: local }], null)).toEqual({
-      kind: "choose-environment",
-    });
-  });
-
-  it("goes straight to sources for the only environment", () => {
-    expect(resolveAddProjectEntry([{ environmentId: local }], local)).toEqual({
-      kind: "choose-source",
-      environmentId: local,
+      openIntent: { kind: "new-thread-in" },
+      session: 3,
     });
   });
 });
@@ -789,26 +759,6 @@ describe("buildThreadActionItems", () => {
       "thread:environment-local:word-fresh",
       "thread:environment-local:prefix-stale",
     ]);
-  });
-});
-
-describe("filterPinnedBrowseEntries", () => {
-  it("matches an existing pinned destination without Windows casing", () => {
-    const windowsEntries = [
-      { name: "Repo", fullPath: "C:\\projects\\Repo" },
-      { name: "work", fullPath: "C:\\projects\\work" },
-    ];
-    expect(
-      filterPinnedBrowseEntries({
-        browseEntries: windowsEntries,
-        filterQuery: "repo",
-        pinnedDirectoryName: "repo",
-        caseSensitive: false,
-      }),
-    ).toEqual({
-      visibleEntries: windowsEntries,
-      exactEntry: windowsEntries[0],
-    });
   });
 });
 
