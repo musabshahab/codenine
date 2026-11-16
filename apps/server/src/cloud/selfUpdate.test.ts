@@ -6,6 +6,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -148,12 +149,14 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
     ),
     Effect.provideService(HostProcess.Platform, "linux"),
     Effect.provideService(HostProcess.Architecture, "x64"),
-    Effect.provide(ServerConfig.layer({ ...config, mode: options.mode ?? "web" })),
     Effect.provide(
-      ConfigProvider.layer(
-        ConfigProvider.fromEnv({
-          env: { CODENINE_RELEASE_BASE_URL: "https://releases.example/download" },
-        }),
+      Layer.mergeAll(
+        ServerConfig.layer({ ...config, mode: options.mode ?? "web" }),
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({
+            env: { CODENINE_RELEASE_BASE_URL: "https://releases.example/download" },
+          }),
+        ),
       ),
     ),
   );
