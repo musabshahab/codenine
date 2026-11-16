@@ -47,15 +47,20 @@ function CodenineFolderSection({ environmentId }: { readonly environmentId: Envi
   };
 
   return (
-    <SettingsSection id="codenine-folder" title="Codenine folder">
+    <SettingsSection id="codenine-folder" title="Storage">
       <SettingsRow
         {...searchableSetting("codenine-folder")}
-        description="Your workspaces, accounts, skills, settings and logs, all in one folder. Back it up to keep your setup."
-        control={
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-            <code className="min-w-0 truncate text-xs text-muted-foreground">
+        description={
+          <>
+            Your workspaces, accounts, skills, settings and logs, all in one folder. Back it up to
+            keep your setup.
+            <span className="mt-1 block font-mono break-all text-foreground">
               {codenineFolderPath(config)}
-            </code>
+            </span>
+          </>
+        }
+        control={
+          <div className="flex shrink-0 items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => copyToClipboard(folder, undefined)}>
               {isCopied ? "Copied" : "Copy path"}
             </Button>
