@@ -8,8 +8,9 @@ shared provider settings.
 
 In **Settings → Accounts**, choose **Add account**, pick Claude, then **Sign in with Claude**. Name
 the account, such as Work or Personal, and finish Claude Code's sign-in in the panel that opens.
-Codenine gives each account its own Claude config folder, so there is no path to type. The first
-account uses Claude Code's normal login on the machine.
+Codenine gives each new account its own folder in your Codenine folder
+(`~/.codenine/accounts/claude`), so there is no path to type. If Claude Code is already signed in on
+the machine, the first account uses that login where it is.
 
 Each Claude account keeps its own login and chat history. When you pick another Claude account in a
 chat that has already started, Codenine asks how to go on:
@@ -30,7 +31,7 @@ settings or a router connection. It sets `CLAUDE_CONFIG_DIR` and leaves `HOME` a
 keychain location intact. To sign in from your own terminal, set the same variable:
 
 ```bash
-CLAUDE_CONFIG_DIR=~/.claude-personal claude auth login
+CLAUDE_CONFIG_DIR=~/.codenine/accounts/claude/personal claude auth login
 ```
 
 Setting `HOME` instead can put credentials where this provider will not find them.

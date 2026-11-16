@@ -21,7 +21,11 @@ import { Dialog } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup } from "../ui/wizard";
-import { planSignInAccount, type SignInAccountDriver } from "./addAccount.logic";
+import {
+  codenineAccountsFolder,
+  planSignInAccount,
+  type SignInAccountDriver,
+} from "./addAccount.logic";
 import { MultipleAccountsNote } from "./MultipleAccountsNote";
 import { SettingsRow } from "./settingsLayout";
 
@@ -56,6 +60,7 @@ export function AddSignInAccountDialog({
   const canManageProviders = useEnvironmentScope(environmentId, AuthProvidersManageScope);
   const settings = useEnvironmentSettings(environmentId);
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
   const [name, setName] = useState("Personal");
   const [instanceId, setInstanceId] = useState<ProviderInstanceId | null>(null);
@@ -74,6 +79,8 @@ export function AddSignInAccountDialog({
       name,
       providerInstances: settings.providerInstances,
       providers: providers ?? [],
+      accountsFolder: codenineAccountsFolder(serverConfig),
+      agentHomesFound: serverConfig?.agentHomesFound,
     });
     const result = await persistProviderInstance(plan);
     setPending(false);

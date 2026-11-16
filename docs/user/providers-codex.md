@@ -40,8 +40,9 @@ picker or set it as a workspace's default.
 - **Continue with ChatGPT** connects another ChatGPT account. ChatGPT accounts share chat history,
   so a chat can move between them.
 - **Sign in with Codex CLI** adds another command line login. Codenine keeps each login in its own
-  folder and shares Codex's chat history between them, so a chat can move between these accounts
-  too.
+  folder in your Codenine folder (`~/.codenine/accounts/codex`) and shares Codex's chat history
+  between them, so a chat can move between these accounts too. If Codex is already signed in on the
+  machine, the first account uses that login where it is.
 
 Each command line account needs its own `auth.json` file. If Codex keeps logins in an OS credential
 store, configure file storage for this setup. See
@@ -59,7 +60,7 @@ populate it by copying your whole Codex home. To sign an account in from your ow
 `CODEX_HOME` at its shadow home:
 
 ```bash
-CODEX_HOME=~/.codex-codenine/personal codex login
+CODEX_HOME=~/.codenine/accounts/codex/personal codex login
 ```
 
 Use a completely separate **CODEX_HOME path**, with no shadow home, when you want separate Codex

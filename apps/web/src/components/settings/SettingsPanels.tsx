@@ -74,6 +74,7 @@ import {
 } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { Button } from "../ui/button";
+import { CodenineFolderSettings } from "./CodenineFolderSettings";
 import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -721,6 +722,7 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <CodenineFolderSettings />
       <SettingsSection id="notifications" title="Notifications">
         <NotificationSettings />
         <SettingsRow

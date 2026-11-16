@@ -515,6 +515,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification sound alert completion input approval desktop"],
   },
   {
+    id: "codenine-folder",
+    title: "Codenine folder",
+    to: "/settings/general",
+    searchTerms: [
+      "data folder files location open finder explorer .codenine home workspaces accounts skills logs backup",
+    ],
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",

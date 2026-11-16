@@ -15,6 +15,7 @@ import { isOpenRouterProvider } from "@codenine/shared/openRouter";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { codenineFolderPath } from "../../lib/codenineFolder";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 
 /** Accounts that sign in with the provider's own login command. */
@@ -53,6 +54,14 @@ function instancesOf(
   return entries.some(([id]) => id === driver) ? entries : [[driver, defaultSlot], ...entries];
 }
 
+/** Where Codenine keeps account folders on a machine. */
+export function codenineAccountsFolder(config: Parameters<typeof codenineFolderPath>[0]): string {
+  return `${codenineFolderPath(config)}/accounts`;
+}
+
+const objectConfig = (config: unknown): Record<string, unknown> =>
+  typeof config === "object" && config !== null ? (config as Record<string, unknown>) : {};
+
 /** A login command path no other instance uses, so a new account never signs into an old one. */
 function freeFolder(base: string, taken: ReadonlySet<string>): string {
   if (!taken.has(base)) return base;
@@ -62,21 +71,69 @@ function freeFolder(base: string, taken: ReadonlySet<string>): string {
 }
 
 /**
- * Where a new sign-in account goes: the computer's own login while no account uses it, otherwise
- * a folder Codenine names. Extra Codex CLI accounts keep their own auth in a shadow home and share
- * Codex history with the first one, so a thread can move between them.
+ * Where a new sign-in account goes. The computer's own login (~/.claude, ~/.codex) is reused while
+ * no account uses it and its folder already exists; every other account gets a folder inside
+ * Codenine's folder. Codex CLI accounts keep their own auth in a shadow home and share Codex
+ * history, so a thread can move between them.
  */
 export function planSignInAccount(input: {
   readonly driver: SignInAccountDriver;
   readonly name: string;
   readonly providerInstances: Instances;
   readonly providers: ReadonlyArray<ServerProvider>;
+  /** From codenineAccountsFolder. */
+  readonly accountsFolder: string;
+  /** Agents whose own login folder exists on the machine; unknown reuses it as before. */
+  readonly agentHomesFound: ReadonlyArray<string> | undefined;
 }): PlannedAccount {
-  const { driver } = input;
+  const { driver, accountsFolder } = input;
   const name = input.name.trim();
+  const ownLoginExists = input.agentHomesFound?.includes(driver) ?? true;
   const defaultId = ProviderInstanceId.make(driver);
   const existingDefault = input.providerInstances[defaultId];
   const defaultProvider = input.providers.find((provider) => provider.instanceId === defaultId);
+  const siblings = instancesOf(driver, input.providerInstances);
+  const codenineCodexHome = `${accountsFolder}/codex/shared`;
+  // An account folder inside Codenine's folder, free of every other account's.
+  const placement = (slug: string, placedId?: string): Record<string, unknown> => {
+    if (driver === "claudeAgent") {
+      return {
+        homePath: freeFolder(
+          `${accountsFolder}/claude/${slug}`,
+          new Set(siblings.map(([, instance]) => homePathOf(driver, instance.config))),
+        ),
+      };
+    }
+    // The first Codex CLI login owns the shared home; managed ChatGPT accounts have their own.
+    const appLogins = siblings.filter(
+      ([id, instance]) =>
+        id !== placedId &&
+        readCodexSetupMode(instance.config) === "existing" &&
+        shadowHomePathOf(instance.config) === "",
+    );
+    const sharedHome =
+      appLogins[0] !== undefined
+        ? homePathOf(driver, appLogins[0][1].config)
+        : !ownLoginExists ||
+            siblings.some(
+              ([, instance]) => homePathOf(driver, instance.config) === codenineCodexHome,
+            )
+          ? codenineCodexHome
+          : null;
+    return sharedHome === null
+      ? { setupMode: "existing" }
+      : {
+          setupMode: "existing",
+          homePath: sharedHome,
+          shadowHomePath: freeFolder(
+            `${accountsFolder}/codex/${slug}`,
+            new Set(siblings.map(([, instance]) => shadowHomePathOf(instance.config))),
+          ),
+        };
+  };
+  const slugOf = (instanceId: string) =>
+    instanceId.slice(driver.length + 1).replaceAll("_", "-") || "account";
+
   const defaultIsFree =
     defaultProvider?.auth.status !== "authenticated" &&
     (defaultProvider === undefined || !isOpenRouterProvider(defaultProvider)) &&
@@ -93,6 +150,17 @@ export function planSignInAccount(input: {
         driver: ProviderDriverKind.make(driver),
         enabled: true,
         ...(name ? { displayName: name } : {}),
+        ...(ownLoginExists
+          ? {}
+          : {
+              config: {
+                ...objectConfig(existingDefault?.config),
+                ...placement(
+                  slugOf(deriveInstanceId(driver, name) || `${driver}_account`),
+                  defaultId,
+                ),
+              },
+            }),
       },
     };
   }
@@ -108,35 +176,6 @@ export function planSignInAccount(input: {
     name,
     takenIds,
   );
-  const slug = instanceId.slice(driver.length + 1).replaceAll("_", "-");
-  const siblings = instancesOf(driver, input.providerInstances);
-  const config =
-    driver === "claudeAgent"
-      ? {
-          homePath: freeFolder(
-            `~/.claude-${slug}`,
-            new Set(siblings.map(([, instance]) => homePathOf(driver, instance.config))),
-          ),
-        }
-      : (() => {
-          // The first Codex CLI account owns the shared home; managed ChatGPT accounts have their own.
-          const appLogins = siblings.filter(
-            ([, instance]) =>
-              readCodexSetupMode(instance.config) === "existing" &&
-              shadowHomePathOf(instance.config) === "",
-          );
-          const sharedHome = appLogins[0];
-          return sharedHome === undefined
-            ? { setupMode: "existing" }
-            : {
-                setupMode: "existing",
-                homePath: homePathOf(driver, sharedHome[1].config),
-                shadowHomePath: freeFolder(
-                  `~/.codex-codenine/${slug}`,
-                  new Set(siblings.map(([, instance]) => shadowHomePathOf(instance.config))),
-                ),
-              };
-        })();
   return {
     operation: "create",
     instanceId: ProviderInstanceId.make(instanceId),
@@ -144,7 +183,7 @@ export function planSignInAccount(input: {
       driver: ProviderDriverKind.make(driver),
       enabled: true,
       ...(name ? { displayName: name } : {}),
-      config,
+      config: placement(slugOf(instanceId)),
     },
   };
 }
