@@ -89,7 +89,7 @@ export class CodexShadowHomeFileSystemError extends Schema.TaggedError<CodexShad
 ) {
   override get message(): string {
     const target = this.targetPath === undefined ? "" : ` to '${this.targetPath}'`;
-    return `Codex shadow home filesystem operation '${this.operation}' failed for '${this.path}'${target}.`;
+    return `Codex home filesystem operation '${this.operation}' failed for '${this.path}'${target}.`;
   }
 }
 
@@ -347,19 +347,16 @@ const ensureShadowAuthIsPrivate = Effect.fn("CodexHomeLayout.ensureShadowAuthIsP
   },
 );
 
-export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome")(function* (
+/**
+ * Creates the folders Codex runs in, since Codex refuses a CODEX_HOME that does not exist: the
+ * configured home, or a shadow home linked to its shared home. Without a configured home, Codex
+ * uses ~/.codex and creates it itself.
+ */
+export const materializeCodexHome = Effect.fn("materializeCodexHome")(function* (
   layout: CodexHomeLayout,
 ) {
-  if (layout.mode !== "authOverlay") return;
   const effectiveHomePath = layout.effectiveHomePath;
   if (!effectiveHomePath) return;
-  if (layout.sharedHomePath === effectiveHomePath) {
-    return yield* new CodexShadowHomePathConflictError({
-      sharedHomePath: layout.sharedHomePath,
-      effectiveHomePath,
-    });
-  }
-
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -376,6 +373,14 @@ export const materializeCodexShadowHome = Effect.fn("materializeCodexShadowHome"
           }),
       }),
     );
+
+  if (layout.mode === "direct") return yield* makeDirectory(effectiveHomePath);
+  if (layout.sharedHomePath === effectiveHomePath) {
+    return yield* new CodexShadowHomePathConflictError({
+      sharedHomePath: layout.sharedHomePath,
+      effectiveHomePath,
+    });
+  }
 
   yield* Effect.all(
     [

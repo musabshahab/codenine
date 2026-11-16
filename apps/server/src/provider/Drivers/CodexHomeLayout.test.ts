@@ -6,10 +6,11 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { CodexSettings } from "@codenine/contracts";
+import * as HostProcess from "@codenine/shared/HostProcess";
 import {
   CodexShadowHomeEntryConflictError,
   CodexShadowHomePathConflictError,
-  materializeCodexShadowHome,
+  materializeCodexHome,
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
 import { symlinksSupported } from "@codenine/shared/testing/symlinks";
@@ -64,7 +65,36 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
     );
   });
 
-  describe("materializeCodexShadowHome", () => {
+  describe("materializeCodexHome", () => {
+    it.effect.skipIf(!symlinksSupported)(
+      "creates account homes that do not exist yet, but never a default ~/.codex",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const home = yield* makeTempDir("codenine-codex-home-");
+          const accounts = path.join(home, ".codenine", "accounts", "codex");
+          const materialize = (settings: Parameters<typeof decodeCodexSettings>[0]) =>
+            resolveCodexHomeLayout(decodeCodexSettings(settings)).pipe(
+              Effect.flatMap(materializeCodexHome),
+              Effect.provideService(HostProcess.HomeDirectory, home),
+            );
+
+          yield* materialize({});
+          yield* materialize({ homePath: path.join(accounts, "work") });
+          yield* materialize({
+            homePath: path.join(accounts, "shared"),
+            shadowHomePath: path.join(accounts, "personal"),
+          });
+
+          expect(yield* fileSystem.exists(path.join(home, ".codex"))).toBe(false);
+          expect(yield* fileSystem.exists(path.join(accounts, "work"))).toBe(true);
+          expect(yield* fileSystem.readLink(path.join(accounts, "personal", "skills"))).toBe(
+            path.join(accounts, "shared", "skills"),
+          );
+        }),
+    );
+
     it.effect.skipIf(!symlinksSupported)(
       "keeps Finder metadata local across repeated shadow home setup",
       () =>
@@ -83,15 +113,15 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             decodeCodexSettings({ homePath: sharedHome, shadowHomePath: shadowHome }),
           );
 
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
           expect(yield* fileSystem.readFileString(shadowMetadata)).toBe("shadow Finder metadata");
           yield* fileSystem.remove(shadowMetadata);
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
           expect(yield* fileSystem.exists(shadowMetadata)).toBe(false);
 
           yield* writeTextFile(shadowMetadata, "shadow Finder metadata");
-          yield* materializeCodexShadowHome(layout);
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
+          yield* materializeCodexHome(layout);
 
           expect(yield* fileSystem.readFileString(sharedMetadata)).toBe("shared Finder metadata");
           expect(yield* fileSystem.readFileString(shadowMetadata)).toBe("shadow Finder metadata");
@@ -137,7 +167,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             }),
           );
 
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
 
           const sessionsTarget = yield* fileSystem.readLink(path.join(shadowHome, "sessions"));
           const configTarget = yield* fileSystem.readLink(path.join(shadowHome, "config.toml"));
@@ -187,7 +217,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             }),
           );
 
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
 
           expect(yield* fileSystem.readLink(shadowLock)).toBe(sharedLock);
         }),
@@ -215,7 +245,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             }),
           );
 
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
 
           const locksTarget = yield* fileSystem.readLink(shadowLocks);
           const sharedLockExists = yield* fileSystem.exists(
@@ -250,11 +280,11 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             }),
           );
 
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
           expect(yield* fileSystem.exists(threadLock)).toBe(true);
 
           yield* fileSystem.remove(threadLock);
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
           expect(yield* fileSystem.readLink(shadowLocks)).toBe(
             path.join(sharedHome, "thread-writer-locks"),
           );
@@ -287,7 +317,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             }),
           );
 
-          yield* materializeCodexShadowHome(layout);
+          yield* materializeCodexHome(layout);
 
           const configTarget = yield* fileSystem.readLink(path.join(shadowHome, "config.toml"));
           const logLinkResult = yield* fileSystem
@@ -317,7 +347,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
           }),
         );
 
-        const error = yield* materializeCodexShadowHome(layout).pipe(Effect.flip);
+        const error = yield* materializeCodexHome(layout).pipe(Effect.flip);
 
         expect(error).toBeInstanceOf(CodexShadowHomePathConflictError);
         expect(error).toMatchObject({
@@ -348,7 +378,7 @@ it.layer(NodeServices.layer)("CodexHomeLayout", (it) => {
             }),
           );
 
-          const error = yield* materializeCodexShadowHome(layout).pipe(Effect.flip);
+          const error = yield* materializeCodexHome(layout).pipe(Effect.flip);
 
           expect(error).toBeInstanceOf(CodexShadowHomeEntryConflictError);
           expect(error).toMatchObject({

@@ -576,11 +576,15 @@ it.effect("deletes a project's folder and Codenine worktrees only when asked", (
       const kept = ProjectId.make("project:folder-kept");
       const doomed = ProjectId.make("project:folder-doomed");
       const created = ProjectId.make("project:folder-created");
+      const workspace = ProjectId.make("project:folder-workspace");
+      const promotedChat = ProjectId.make("project:folder-promoted-chat");
       const missing = ProjectId.make("project:folder-missing");
       const roots = new Map([
         [kept, path.join(tmp, "kept")],
         [doomed, path.join(tmp, "doomed")],
         [created, path.join(baseDir, "projects", "created")],
+        [workspace, path.join(baseDir, "workspaces", "created")],
+        [promotedChat, path.join(baseDir, "workspaces", "personal", "2026-01-01-chat")],
         [missing, path.join(tmp, "missing")],
       ]);
       const managedWorktree = path.join(baseDir, "worktrees", "doomed", "feature");
@@ -589,6 +593,8 @@ it.effect("deletes a project's folder and Codenine worktrees only when asked", (
         roots.get(kept)!,
         roots.get(doomed)!,
         roots.get(created)!,
+        roots.get(workspace)!,
+        roots.get(promotedChat)!,
         managedWorktree,
         ownWorktree,
       ]) {
@@ -608,7 +614,7 @@ it.effect("deletes a project's folder and Codenine worktrees only when asked", (
       });
       assert.isTrue(yield* fileSystem.exists(path.join(roots.get(kept)!, "notes.txt")));
 
-      for (const projectId of [doomed, created, missing]) {
+      for (const projectId of [doomed, created, workspace, promotedChat, missing]) {
         const deleted = yield* service.delete({
           commandId: CommandId.make(`command:${projectId}`),
           projectId,
@@ -635,6 +641,9 @@ it.effect("refuses to delete a protected folder before touching the project", ()
       const target = path.join(tmp, "target");
       yield* fileSystem.makeDirectory(path.join(parent, "child"), { recursive: true });
       yield* fileSystem.makeDirectory(path.join(baseDir, "scratch"));
+      yield* fileSystem.makeDirectory(path.join(baseDir, "workspaces", "personal"), {
+        recursive: true,
+      });
       yield* fileSystem.makeDirectory(target);
       yield* fileSystem.symlink(target, path.join(tmp, "link"));
       yield* seedProject(ProjectId.make("project:refusal-child"), path.join(parent, "child"));
@@ -650,6 +659,8 @@ it.effect("refuses to delete a protected folder before touching the project", ()
         [import.meta.dirname, "Codenine itself is running from it"],
         [path.join(baseDir, "worktrees"), "it holds Codenine's worktrees"],
         [path.join(baseDir, "scratch"), "is not a project folder Codenine created"],
+        [path.join(baseDir, "workspaces"), "is not a project folder Codenine created"],
+        [path.join(baseDir, "workspaces", "personal"), "is not a project folder Codenine created"],
         [path.join(baseDir, "userdata"), "is not a project folder Codenine created"],
         [parent, `it contains the project "Deletion test" at ${path.join(parent, "child")}`],
         [path.join(tmp, "link"), "it is a symbolic link"],

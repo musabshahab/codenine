@@ -16,6 +16,7 @@ import * as Scope from "effect/Scope";
 import * as ServerConfig from "../config.ts";
 import * as GitManager from "../git/GitManager.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -71,6 +72,7 @@ const layer = (baseDir: string, options?: HarnessOptions) =>
           ),
     ),
     Layer.provideMerge(RuntimeLayer.layerProjectService),
+    Layer.provideMerge(ProjectStore.layer),
     Layer.provideMerge(layerEnrichment),
     Layer.provideMerge(WorkspacePaths.layer),
     Layer.provideMerge(layerGitWorkflow(options?.vcsProcess)),
@@ -125,10 +127,13 @@ it.effect("offers nothing when the data dir sits inside a Git checkout", () =>
     yield* fileSystem.makeDirectory(baseDir);
     yield* Effect.gen(function* () {
       const scratch = yield* ManagedProjectFolders.ManagedProjectFolders;
+      const projects = yield* ProjectService.ProjectService;
       assert.isTrue(Option.isNone(yield* scratch.scratchRoot));
       assert.isFalse(yield* scratch.isScratchProject(ProjectId.make("project:any")));
       const failure = yield* Effect.flip(scratch.ensureScratchProject);
       assert.equal(failure._tag, "ScratchUnavailableError");
+      yield* ManagedProjectFolders.ensureScratchProjectAtStartup;
+      assert.deepEqual((yield* projects.snapshot).projects, []);
     }).pipe(Effect.provide(layer(baseDir)));
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
@@ -138,7 +143,7 @@ it.effect("offers a Scratch folder when Git is not installed", () =>
     ({ baseDir }) =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
-        assert.equal(yield* requireRoot, path.resolve(baseDir, "scratch"));
+        assert.equal(yield* requireRoot, path.resolve(baseDir, "workspaces", "personal"));
       }),
     {
       vcsProcess: Layer.succeed(VcsProcess.VcsProcess, {
@@ -161,15 +166,23 @@ it.effect("offers a Scratch folder when Git is not installed", () =>
   ),
 );
 
-it.effect("creates one Scratch project, even for concurrent first requests", () =>
+it.effect("creates one Scratch project, even when startup and first requests race", () =>
   withScratch(() =>
     Effect.gen(function* () {
       const scratch = yield* ManagedProjectFolders.ManagedProjectFolders;
       const projects = yield* ProjectService.ProjectService;
-      const racers = yield* Effect.all(
-        Array.from({ length: 8 }, () => scratch.ensureScratchProject),
+      const [racers] = yield* Effect.all(
+        [
+          Effect.all(
+            Array.from({ length: 8 }, () => scratch.ensureScratchProject),
+            { concurrency: "unbounded" },
+          ),
+          ManagedProjectFolders.ensureScratchProjectAtStartup,
+          ManagedProjectFolders.ensureScratchProjectAtStartup,
+        ],
         { concurrency: "unbounded" },
       );
+      yield* ManagedProjectFolders.ensureScratchProjectAtStartup;
       const again = yield* scratch.ensureScratchProject;
       assert.deepEqual(
         new Set(racers.map((result) => result.projectId)),
@@ -188,6 +201,33 @@ it.effect("creates one Scratch project, even for concurrent first requests", () 
       });
     }),
   ),
+);
+
+it.effect("keeps an older install's scratch and projects folders", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "codenine-managed-folders-legacy-",
+    });
+    const legacyScratch = path.resolve(baseDir, "scratch");
+    yield* fileSystem.makeDirectory(legacyScratch);
+    yield* fileSystem.makeDirectory(path.join(baseDir, "projects"));
+    yield* Effect.gen(function* () {
+      const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      assert.equal(yield* requireRoot, legacyScratch);
+      assert.equal(folders.namedProjectsRoot, path.resolve(baseDir, "projects"));
+      const { projectId } = yield* folders.ensureScratchProject;
+
+      // A restart after the folder was deleted still finds Personal's project there.
+      yield* fileSystem.remove(legacyScratch, { recursive: true });
+      const restarted = yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
+        Effect.provide(Layer.fresh(ManagedProjectFolders.layer)),
+      );
+      assert.equal(Option.getOrThrow(yield* restarted.scratchRoot), legacyScratch);
+      assert.equal((yield* restarted.ensureScratchProject).projectId, projectId);
+    }).pipe(Effect.provide(layer(baseDir)));
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("recreates the Scratch folder after it is deleted", () =>
@@ -342,8 +382,19 @@ it.effect("starts a named project as a committed repository, and suffixes a take
         const projects = yield* ProjectService.ProjectService;
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const root = path.resolve(baseDir, "projects");
+        const root = path.resolve(baseDir, "workspaces");
         assert.equal(folders.namedProjectsRoot, root);
+
+        // A workspace named Personal never takes Personal's folder, even before Personal exists.
+        const named = yield* folders.createNamedProject({ name: "Personal" });
+        assert.equal(named.workspaceRoot, path.join(root, "personal-2"));
+        const personal = yield* folders.ensureScratchProject;
+        assert.notEqual(personal.projectId, named.projectId);
+        assert.equal(
+          Option.getOrThrow(yield* projects.getById(personal.projectId)).workspaceRoot,
+          path.join(root, "personal"),
+        );
+
         const attributes = path.join(baseDir, "crlf.gitattributes");
         const crlfConfig = path.join(baseDir, "crlf.gitconfig");
         yield* fileSystem.writeFileString(attributes, "* text=auto eol=crlf\n");
@@ -464,7 +515,7 @@ it.effect("keeps a folder that another project owns when the create conflicts", 
         assert.isTrue(yield* fileSystem.exists(path.join(taken, "README.md")));
         const owner = yield* projects.getByWorkspaceRoot(taken);
         assert.equal(Option.getOrThrow(owner).id, ProjectId.make("project:owner"));
-        assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "projects")), [
+        assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "workspaces")), [
           "taken",
         ]);
       }),
@@ -485,7 +536,10 @@ it.effect("removes the folder when the project create is rejected for another re
           const failure = yield* Effect.flip(folders.createNamedProject({ name: "Rejected" }));
 
           assert.equal(failure._tag, "NamedProjectCreateError");
-          assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "projects")), []);
+          assert.deepEqual(
+            yield* fileSystem.readDirectory(path.resolve(baseDir, "workspaces")),
+            [],
+          );
         }),
       ),
     {
@@ -520,12 +574,15 @@ it.effect("removes the folder when the create is cancelled before the project ex
             .createNamedProject({ name: "Cancelled" })
             .pipe(Effect.forkChild);
           yield* Deferred.await(scaffolding);
-          assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "projects")), [
+          assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "workspaces")), [
             "cancelled",
           ]);
           yield* Fiber.interrupt(fiber);
 
-          assert.deepEqual(yield* fileSystem.readDirectory(path.resolve(baseDir, "projects")), []);
+          assert.deepEqual(
+            yield* fileSystem.readDirectory(path.resolve(baseDir, "workspaces")),
+            [],
+          );
           assert.deepEqual((yield* projects.snapshot).projects, []);
         }),
       {

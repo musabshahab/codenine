@@ -110,7 +110,7 @@ import {
   toMcpElicitationResponse,
 } from "../../provider/CodexMcpElicitation.ts";
 import {
-  materializeCodexShadowHome,
+  materializeCodexHome,
   resolveCodexHomeLayout,
 } from "../../provider/Drivers/CodexHomeLayout.ts";
 import {
@@ -1620,13 +1620,13 @@ export const createCodexAdapterV2 = Effect.fn("CodexAdapterV2.createCodexAdapter
   const serverConfig = yield* ServerConfig;
   const homeLayout = yield* resolveCodexHomeLayout(config);
 
-  yield* materializeCodexShadowHome(homeLayout).pipe(
+  yield* materializeCodexHome(homeLayout).pipe(
     Effect.mapError(
       (cause) =>
         new ProviderAdapterDriverCreateError({
           driver: CODEX_DRIVER_KIND,
           instanceId,
-          detail: "Failed to materialize the Codex shadow home.",
+          detail: "Failed to prepare the Codex home folder.",
           cause,
         }),
     ),

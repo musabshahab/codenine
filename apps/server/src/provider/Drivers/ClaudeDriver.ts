@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 
+import { linkCodenineSkills } from "../../codenineHome.ts";
 import { makeClaudeTextGeneration } from "../../textGeneration/ClaudeTextGeneration.ts";
 import * as ProviderLatestVersions from "@codenine/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@codenine/provider-core/server/ProviderHost";
@@ -104,7 +105,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     const path = yield* Path.Path;
     // The server cwd is $HOME in packaged desktop builds, and `claude`
     // wrappers that scope themselves to their cwd refuse to run there.
-    const { stateDir } = yield* ServerConfig.ServerConfig;
+    const { stateDir, baseDir } = yield* ServerConfig.ServerConfig;
     const httpClient = yield* HttpClient.HttpClient;
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const resetCreditCoordinator = yield* ResetCreditCoordinator.ResetCreditCoordinator;
@@ -239,7 +240,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       Effect.map((result) => result.capabilities),
     );
 
-    const checkProvider = catalogService.refreshInBackground.pipe(
+    // Each check links first: sign-in may only now have made the folder, and the check lists skills.
+    const linkSkills = enabled
+      ? linkCodenineSkills({ baseDir, accountHome: configDir })
+      : Effect.void;
+    const checkProvider = linkSkills.pipe(
+      Effect.andThen(catalogService.refreshInBackground),
       Effect.andThen(
         modelCatalog.pipe(
           Effect.flatMap((catalog) =>

@@ -25,6 +25,7 @@ import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManag
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { ServerActivation } from "./serverActivation.ts";
@@ -141,6 +142,10 @@ it.effect("parks automatic pull until activation without delaying command readin
         Layer.mock(ProjectService.ProjectService)({ snapshot: Effect.succeed(snapshot) }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
           countThreads: () => Effect.succeed(0),
+        }),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: cwd,
+          ensureScratchProject: Effect.fail(new ManagedProjectFolders.ScratchUnavailableError()),
         }),
         Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
         Layer.mock(ServiceLauncherClient.ServiceLauncherClient)({

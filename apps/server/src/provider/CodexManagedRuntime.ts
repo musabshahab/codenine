@@ -11,7 +11,7 @@ import { resolveSelfInvocation, selfInvocationArgs } from "@codenine/shared/node
 import * as CodexInstallation from "./CodexInstallation.ts";
 import { makeCodexChatGptAuth } from "./CodexChatGptAuth.ts";
 import { COMMAND_TIMEOUT_MS } from "./CodexManagedTokenProtocol.ts";
-import { materializeCodexShadowHome } from "./Drivers/CodexHomeLayout.ts";
+import { materializeCodexHome } from "./Drivers/CodexHomeLayout.ts";
 
 export interface CodexEffectiveRuntime {
   readonly config: CodexSettings;
@@ -91,7 +91,7 @@ export const makeCodexManagedRuntime = Effect.fn("makeCodexManagedRuntime")(func
       environmentId,
       profileKey,
     ]);
-    yield* materializeCodexShadowHome(homeLayout).pipe(
+    yield* materializeCodexHome(homeLayout).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),
       Effect.mapError(

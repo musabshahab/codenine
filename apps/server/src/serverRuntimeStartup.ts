@@ -28,6 +28,7 @@ import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "./config.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
+import { writeCodenineHomeGuide } from "./codenineHome.ts";
 import { flushCompileCache } from "./compileCache.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
@@ -38,6 +39,7 @@ import * as ProviderRuntimeRecovery from "./orchestration-v2/ProviderRuntimeReco
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
@@ -553,6 +555,21 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
       ),
       forkParked,
     );
+    yield* runStartupPhase(
+      "codenine-home.prepare",
+      Effect.all(
+        [
+          writeCodenineHomeGuide(serverConfig.baseDir).pipe(
+            Effect.ignore({
+              log: "Warn",
+              message: "Could not write the Codenine folder's guide.",
+            }),
+          ),
+          ManagedProjectFolders.ensureScratchProjectAtStartup,
+        ],
+        { concurrency: "unbounded", discard: true },
+      ),
+    ).pipe(forkParked);
 
     const importPendingTranscripts = legacyV1ThreadImporter.importPendingTranscripts.pipe(
       Effect.tap((summary) =>

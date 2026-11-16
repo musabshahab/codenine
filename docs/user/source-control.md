@@ -46,7 +46,7 @@ custom server name as GitHub once it has a credential for that host.
 
 To start from nothing, click **New workspace** in the sidebar or the command palette (`Cmd/Ctrl+K`)
 and type a name. Codenine makes a Git
-repository in `~/.codenine/projects` (the `projects` folder of your Codenine data directory) with a README,
+repository in `~/.codenine/workspaces` (`~/.codenine/projects` on older installs) with a README,
 an icon, and a first commit, then opens a new thread in it. Until the workspace has a thread, new
 threads work in its folder, even when your default is a new worktree. The folder is named after the workspace,
 like `pinball-stats` for "Pinball Stats". Turn on **Create private repository** to also

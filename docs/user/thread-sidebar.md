@@ -25,8 +25,8 @@ starts on your current machine; before sending, pick another machine from the ma
 **Details** to move it there. A Personal chat cannot ask for a team, since a team works in one
 workspace's folder.
 
-Each Personal chat works in its own folder under `~/.codenine/scratch` (the
-`scratch` folder of your Codenine data directory), named after its date, the first words
+Each Personal chat works in its own folder under `~/.codenine/workspaces/personal`
+(`~/.codenine/scratch` on older installs), named after its date, the first words
 of its first message, and a short id, like
 `2026-09-25-convert-these-pngs-to-webp-a1b2c3d4`. Deleting a thread keeps its
 folder, so the files the agent wrote stay until you delete them. Branch, worktree, and diff controls stay hidden because
@@ -69,7 +69,8 @@ task.
 ## Build
 
 **Skills** lists the skills installed in Claude Code and Codex on each connected machine; agents
-load one when a task needs it. **Connectors** shows each AI provider and whether it is signed in,
+load one when a task needs it. To give a skill to every account on a machine, put its folder in
+`~/.codenine/skills` there. **Connectors** shows each AI provider and whether it is signed in,
 and links to GitHub setup for repositories and pull requests. **Agents** and **Workflows** are where
 you will set up reusable agents and multi-step processes; they are empty for now.
 

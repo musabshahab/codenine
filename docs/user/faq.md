@@ -76,6 +76,18 @@ No. There are no Codenine servers. Your code and prompts go from your machine to
 (Anthropic or OpenAI). [Diagnostics data](./telemetry.md) lists what can leave your machine and how
 to turn it off.
 
+## Where does Codenine keep its files?
+
+In one folder on the machine that runs the server: `~/.codenine`, or the folder you passed with
+`--base-dir`. Its `README.md` explains each folder inside. Your workspaces are in `workspaces/`,
+with Personal chats in `workspaces/personal/`; older installs use `projects/` and `scratch/`.
+Accounts you add in Codenine are in `accounts/`, and the database, settings, and logs are in
+`userdata/`. Put a skill's folder in `skills/` to give it to every Claude and Codex account.
+
+Logins you already had in `~/.claude` and `~/.codex` stay where they are. `userdata/` and
+`accounts/` hold your saved keys and sign-ins as plain files, so treat them like a password.
+`caches/` is safe to delete. Back up the whole folder to keep your setup.
+
 ## Worktrees are eating my disk. How do I clean them up?
 
 Open **Settings → Worktrees → Cleanup** and turn on automatic worktree cleanup. You can also run
