@@ -81,6 +81,7 @@ export interface AgentFormStart {
   readonly instructions: string;
   readonly model: AgentModel | null;
   readonly connectors: ReadonlyArray<AgentConnector>;
+  readonly abilities: AgentAbilities;
 }
 
 /** Making an agent a lead suggested: Save hands it back to join the team, with no chat to start. */
@@ -129,7 +130,9 @@ export function AgentForm({
   const [agentConnectors, setAgentConnectors] = useState<ReadonlyArray<AgentConnector>>(
     agent?.connectors ?? start?.connectors ?? [],
   );
-  const [abilities, setAbilities] = useState<AgentAbilities>(agent?.abilities ?? NO_ABILITIES);
+  const [abilities, setAbilities] = useState<AgentAbilities>(
+    agent?.abilities ?? start?.abilities ?? NO_ABILITIES,
+  );
   const [errors, setErrors] = useState<AgentDraftErrors & { readonly form?: string }>({});
   const [busy, setBusy] = useState(false);
   const [pickingModel, setPickingModel] = useState(false);

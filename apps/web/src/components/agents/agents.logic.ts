@@ -14,6 +14,7 @@ import {
   type ServerProviderModelInfo,
   type SkillName,
   skillTitle,
+  type TeamAgentRole,
 } from "@codenine/contracts";
 import * as Schema from "effect/Schema";
 
@@ -44,6 +45,29 @@ export const NO_ABILITIES: AgentAbilities = {
   runCommands: false,
   searchWeb: false,
 };
+
+/**
+ * What an agent made for a team role starts able to do on the computer: a suggestion carries no
+ * abilities, and an implementer that cannot edit files would fail its step. The user reviews them.
+ */
+export function teamRoleAbilities(role: TeamAgentRole): AgentAbilities {
+  const read = { ...NO_ABILITIES, readFiles: true };
+  const work = { ...read, editFiles: true, runCommands: true };
+  switch (role) {
+    case "plan":
+      return read;
+    case "research":
+      return { ...read, searchWeb: true };
+    case "review":
+      return { ...read, runCommands: true };
+    case "implement":
+    case "test":
+    case "integrate":
+      return work;
+    case "custom":
+      return NO_ABILITIES;
+  }
+}
 
 export interface AgentDraft {
   readonly title: string;

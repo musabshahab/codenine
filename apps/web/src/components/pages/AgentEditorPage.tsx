@@ -25,6 +25,7 @@ import { useThreadStatus } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { environmentThreadDetails } from "../../state/threads";
 import { AgentForm, type AgentFormStart } from "../agents/AgentForm";
+import { teamRoleAbilities } from "../agents/agents.logic";
 import {
   type AgentModelCatalog,
   agentChatModelSelection,
@@ -140,6 +141,7 @@ function suggestionStart(
     connectors: (suggestion?.connectors ?? []).flatMap((id) =>
       connections.some((connection) => connection.id === id) ? [{ id, approvals: {} }] : [],
     ),
+    abilities: teamRoleAbilities(member.role),
   };
 }
 
