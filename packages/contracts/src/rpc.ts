@@ -229,6 +229,23 @@ import {
   ProjectCloneSubscribeInput,
 } from "./projectClone.ts";
 import {
+  BackupDownloadUrlResult,
+  BackupEmptyInput,
+  BackupEmptyResult,
+  BackupError,
+  BackupFileInput,
+  BackupJobSnapshot,
+  BackupListInput,
+  BackupListResult,
+  BackupRestoreReportResult,
+  BackupRestoreResult,
+  BackupRestoreSummary,
+  BackupSetPasswordInput,
+  BackupStatus,
+  BackupSuggestFoldersResult,
+  BackupUnlockInput,
+} from "./backup.ts";
+import {
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
   SourceControlDiscoveryResult,
@@ -357,6 +374,19 @@ export const WS_METHODS = {
   projectCloneCancel: "projectClone.cancel",
   projectCloneRetry: "projectClone.retry",
   subscribeProjectClones: "subscribeProjectClones",
+  backupStatus: "backup.status",
+  subscribeBackupStatus: "subscribeBackupStatus",
+  backupCreate: "backup.create",
+  backupSetPassword: "backup.setPassword",
+  backupSuggestFolders: "backup.suggestFolders",
+  backupList: "backup.list",
+  backupDelete: "backup.delete",
+  backupDownloadUrl: "backup.downloadUrl",
+  backupInspect: "backup.inspect",
+  backupRestore: "backup.restore",
+  backupRestoreReport: "backup.restoreReport",
+  backupDismissRestoreReport: "backup.dismissRestoreReport",
+  backupUndoRestore: "backup.undoRestore",
 
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeVcsBranch: "subscribeVcsBranch",
@@ -753,6 +783,91 @@ const WsSubscribeProjectClonesRpc = Rpc.make(WS_METHODS.subscribeProjectClones, 
   success: ProjectCloneListEvent,
   error: EnvironmentAuthorizationError,
   stream: true,
+});
+
+const BackupRpcError = Schema.Union([BackupError, EnvironmentAuthorizationError]);
+
+const WsBackupStatusRpc = Rpc.make(WS_METHODS.backupStatus, {
+  payload: BackupEmptyInput,
+  success: BackupStatus,
+  error: BackupRpcError,
+});
+
+// Emits the current status first, then again whenever it changes, including backup progress.
+const WsSubscribeBackupStatusRpc = Rpc.make(WS_METHODS.subscribeBackupStatus, {
+  payload: BackupEmptyInput,
+  success: BackupStatus,
+  error: BackupRpcError,
+  stream: true,
+});
+
+// Returns once the backup starts; progress arrives on the status subscription.
+const WsBackupCreateRpc = Rpc.make(WS_METHODS.backupCreate, {
+  payload: BackupEmptyInput,
+  success: BackupJobSnapshot,
+  error: BackupRpcError,
+});
+
+const WsBackupSetPasswordRpc = Rpc.make(WS_METHODS.backupSetPassword, {
+  payload: BackupSetPasswordInput,
+  success: BackupEmptyResult,
+  error: BackupRpcError,
+});
+
+const WsBackupSuggestFoldersRpc = Rpc.make(WS_METHODS.backupSuggestFolders, {
+  payload: BackupEmptyInput,
+  success: BackupSuggestFoldersResult,
+  error: BackupRpcError,
+});
+
+const WsBackupListRpc = Rpc.make(WS_METHODS.backupList, {
+  payload: BackupListInput,
+  success: BackupListResult,
+  error: BackupRpcError,
+});
+
+const WsBackupDeleteRpc = Rpc.make(WS_METHODS.backupDelete, {
+  payload: BackupFileInput,
+  success: BackupEmptyResult,
+  error: BackupRpcError,
+});
+
+const WsBackupDownloadUrlRpc = Rpc.make(WS_METHODS.backupDownloadUrl, {
+  payload: BackupFileInput,
+  success: BackupDownloadUrlResult,
+  error: BackupRpcError,
+});
+
+const WsBackupInspectRpc = Rpc.make(WS_METHODS.backupInspect, {
+  payload: BackupUnlockInput,
+  success: BackupRestoreSummary,
+  error: BackupRpcError,
+});
+
+// Saves a safety backup, stages the restore and restarts; the restore applies before data opens.
+const WsBackupRestoreRpc = Rpc.make(WS_METHODS.backupRestore, {
+  payload: BackupUnlockInput,
+  success: BackupRestoreResult,
+  error: BackupRpcError,
+});
+
+const WsBackupRestoreReportRpc = Rpc.make(WS_METHODS.backupRestoreReport, {
+  payload: BackupEmptyInput,
+  success: BackupRestoreReportResult,
+  error: BackupRpcError,
+});
+
+const WsBackupDismissRestoreReportRpc = Rpc.make(WS_METHODS.backupDismissRestoreReport, {
+  payload: BackupEmptyInput,
+  success: BackupEmptyResult,
+  error: BackupRpcError,
+});
+
+// Restores the safety backup the last restore saved, the same way a restore does.
+const WsBackupUndoRestoreRpc = Rpc.make(WS_METHODS.backupUndoRestore, {
+  payload: BackupEmptyInput,
+  success: BackupRestoreResult,
+  error: BackupRpcError,
 });
 
 const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPublishRepository, {
@@ -1301,6 +1416,19 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectCloneCancelRpc,
   WsProjectCloneRetryRpc,
   WsSubscribeProjectClonesRpc,
+  WsBackupStatusRpc,
+  WsSubscribeBackupStatusRpc,
+  WsBackupCreateRpc,
+  WsBackupSetPasswordRpc,
+  WsBackupSuggestFoldersRpc,
+  WsBackupListRpc,
+  WsBackupDeleteRpc,
+  WsBackupDownloadUrlRpc,
+  WsBackupInspectRpc,
+  WsBackupRestoreRpc,
+  WsBackupRestoreReportRpc,
+  WsBackupDismissRestoreReportRpc,
+  WsBackupUndoRestoreRpc,
   WsProjectsListEntriesRpc,
   WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,

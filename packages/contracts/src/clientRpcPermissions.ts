@@ -18,6 +18,17 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.serverRunStorageCleanup]: AuthSettingsWriteScope,
   // Restarts the server, as an update does.
   [WS_METHODS.serverReclaimDatabaseSpace]: AuthEnvironmentMaintainScope,
+  // Backups hold every saved key and sign-in, and a restore replaces all data and restarts.
+  [WS_METHODS.backupCreate]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupSetPassword]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupSuggestFolders]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupList]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupDelete]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupDownloadUrl]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupInspect]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupRestore]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupUndoRestore]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupDismissRestoreReport]: AuthEnvironmentMaintainScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
   // Listing models spends the stored API key, so only those who can choose a model may.
   [WS_METHODS.serverListTextGeneratorModels]: AuthSettingsWriteScope,

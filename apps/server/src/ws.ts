@@ -77,6 +77,7 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsRpcGroup,
+  BackupError,
 } from "@codenine/contracts";
 import {
   HttpRouter,
@@ -183,6 +184,11 @@ import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import { findExistingAgentHomes } from "./provider/agentHomes.ts";
+
+const backupUnavailable = new BackupError({
+  reason: "failed",
+  detail: "Backups are not available yet.",
+});
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -2190,6 +2196,20 @@ export const layerWsRpc = (
         [WS_METHODS.projectCloneRetry]: (input) =>
           projectCloneTracker.retry(input.projectId).pipe(Effect.map((applied) => ({ applied }))),
         [WS_METHODS.subscribeProjectClones]: () => projectCloneTracker.stream,
+        // Placeholders until the backup service lands.
+        [WS_METHODS.backupStatus]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.subscribeBackupStatus]: () => Stream.fail(backupUnavailable),
+        [WS_METHODS.backupCreate]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupSetPassword]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupSuggestFolders]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupList]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupDelete]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupDownloadUrl]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupInspect]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupRestore]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupRestoreReport]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupDismissRestoreReport]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupUndoRestore]: () => Effect.fail(backupUnavailable),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.
