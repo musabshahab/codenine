@@ -1,7 +1,7 @@
 import { type ModelCapabilities, ProviderInstanceId } from "@codenine/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { agentEffortOption, agentModelSelection } from "./agentModel.ts";
+import { agentEffortOfSelection, agentEffortOption, agentModelSelection } from "./agentModel.ts";
 
 const claude: ModelCapabilities = {
   optionDescriptors: [
@@ -88,6 +88,18 @@ describe("agentEffortOption", () => {
     expect(agentEffortOption("max", null)).toBeNull();
   });
 });
+
+it.each([
+  ["a level of the same name", claude, "effort", "high", "high"],
+  ["the highest level", codex, "reasoningEffort", "xhigh", "max"],
+  ["a level between two, the lower", claude, "effort", "xhigh", "high"],
+  ["a model's own default", reported, "effort", "default", null],
+] as const)(
+  "an agent made from a model's selection keeps its effort: %s",
+  (_name, capabilities, id, value, effort) => {
+    expect(agentEffortOfSelection({ options: [{ id, value }] }, capabilities)).toBe(effort);
+  },
+);
 
 it("runs a chat on the agent's model at the agent's effort", () => {
   const instanceId = ProviderInstanceId.make("claudeAgent");
