@@ -389,53 +389,55 @@ function ReviewStep({
   return (
     <>
       <WizardPanel>
-        <div className="flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm">
-          <div className="min-w-0">
-            <p className="font-medium text-foreground">Backup from {file.computerName}</p>
-            <p className="text-xs text-muted-foreground">
-              {backupLine(file, nowMs, format)} · Codenine {file.codenineVersion}
-            </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm">
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">Backup from {file.computerName}</p>
+              <p className="text-xs text-muted-foreground">
+                {backupLine(file, nowMs, format)} · Codenine {file.codenineVersion}
+              </p>
+            </div>
+            <InlineButton tone="muted" disabled={restoring} onClick={onChooseAnother}>
+              Choose another
+            </InlineButton>
           </div>
-          <InlineButton tone="muted" disabled={restoring} onClick={onChooseAnother}>
-            Choose another
-          </InlineButton>
+          <section className="space-y-2">
+            <h3 className="text-sm font-medium text-foreground">What comes back</h3>
+            <ul className="grid grid-cols-2 gap-2">
+              {restoreContentLines(contents).map((line) => (
+                <li key={line} className="rounded-lg bg-muted/48 px-3 py-2 text-sm text-foreground">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </section>
+          {summary.fromThisComputer ? null : (
+            <Alert variant="warning" controlAlignment="first-line" role="note">
+              <TriangleAlertIcon />
+              <AlertTitle>This backup comes from another computer</AlertTitle>
+              <AlertDescription>
+                <span>
+                  Quit Codenine on {file.computerName} first. A ChatGPT sign-in only works on one
+                  computer at a time.
+                </span>
+                <span>Devices that connect to this computer will need to pair again.</span>
+              </AlertDescription>
+            </Alert>
+          )}
+          <p className="text-sm text-muted-foreground">
+            Codenine saves what is on this computer now before restoring, so you can undo it later.
+          </p>
+          {summary.blockedReason === null ? null : (
+            <p role="alert" className="text-sm text-destructive-foreground">
+              {summary.blockedReason}
+            </p>
+          )}
+          {error === null ? null : (
+            <p role="alert" className="text-sm text-destructive-foreground">
+              {error}
+            </p>
+          )}
         </div>
-        <section className="space-y-2">
-          <h3 className="text-sm font-medium text-foreground">What comes back</h3>
-          <ul className="grid grid-cols-2 gap-2">
-            {restoreContentLines(contents).map((line) => (
-              <li key={line} className="rounded-lg bg-muted/48 px-3 py-2 text-sm text-foreground">
-                {line}
-              </li>
-            ))}
-          </ul>
-        </section>
-        {summary.fromThisComputer ? null : (
-          <Alert variant="warning" controlAlignment="first-line" role="note">
-            <TriangleAlertIcon />
-            <AlertTitle>This backup comes from another computer</AlertTitle>
-            <AlertDescription>
-              <span>
-                Quit Codenine on {file.computerName} first. A ChatGPT sign-in only works on one
-                computer at a time.
-              </span>
-              <span>Devices that connect to this computer will need to pair again.</span>
-            </AlertDescription>
-          </Alert>
-        )}
-        <p className="text-sm text-muted-foreground">
-          Codenine saves what is on this computer now before restoring, so you can undo it later.
-        </p>
-        {summary.blockedReason === null ? null : (
-          <p role="alert" className="text-sm text-destructive-foreground">
-            {summary.blockedReason}
-          </p>
-        )}
-        {error === null ? null : (
-          <p role="alert" className="text-sm text-destructive-foreground">
-            {error}
-          </p>
-        )}
       </WizardPanel>
       <WizardFooter
         leading={
