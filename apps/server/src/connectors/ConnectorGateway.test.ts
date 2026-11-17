@@ -52,6 +52,10 @@ describe("approval card wording", () => {
       "create canvas",
     );
     assert.strictEqual(ConnectorGateway.actionText(undefined, "createIssue"), "create issue");
+    const browser = catalogConnector(ConnectorCatalogId.make("playwright"));
+    assert.strictEqual(ConnectorGateway.actionText(browser, "browser_navigate"), "open a page");
+    // The Browser's tools start with its name rather than its id.
+    assert.strictEqual(ConnectorGateway.actionText(browser, "browser_hover"), "hover");
   });
 
   it("labels short values and keeps one long text as the preview", () => {

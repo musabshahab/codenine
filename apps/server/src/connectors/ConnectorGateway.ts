@@ -86,11 +86,15 @@ export const actionText = (catalog: CatalogConnector | undefined, tool: string):
   const pinned = catalog?.actions?.[tool];
   if (pinned !== undefined) return pinned;
   const parts = words(tool);
-  const prefix = catalog === undefined ? [] : words(catalog.entry.id);
-  const trimmed =
-    prefix.length > 0 && prefix.every((word, index) => parts[index] === word)
-      ? parts.slice(prefix.length)
-      : parts;
+  const prefixes =
+    catalog === undefined ? [] : [words(catalog.entry.id), words(catalog.entry.name)];
+  const prefix = prefixes.find(
+    (candidate) =>
+      candidate.length > 0 &&
+      candidate.length < parts.length &&
+      candidate.every((word, index) => parts[index] === word),
+  );
+  const trimmed = prefix === undefined ? parts : parts.slice(prefix.length);
   return trimmed.length > 0 ? trimmed.join(" ") : `use ${tool}`;
 };
 

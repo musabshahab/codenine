@@ -19,9 +19,12 @@ export const connectionCatalog = (connection: StoredConnection): CatalogConnecto
 export const connectionAuthKind = (connection: StoredConnection): ConnectorAuthKind =>
   connectionCatalog(connection)?.entry.auth ?? connection.custom?.auth ?? "none";
 
+const RUNNING_AS_ROOT = process.getuid?.() === 0;
+
 export const resolveServer = (
   connection: StoredConnection,
   secrets: ConnectionSecrets,
+  options: { readonly root: boolean } = { root: RUNNING_AS_ROOT },
 ): ResolvedServer | undefined => {
   const value = (key: string) => connection.inputs[key] ?? secrets.inputs[key];
   const catalog = connectionCatalog(connection);
@@ -53,7 +56,13 @@ export const resolveServer = (
       return answer === undefined || answer.length === 0 ? [] : [[variable, answer] as const];
     }),
   );
-  return { type: "stdio", command: server.command, args: [...server.args, ...flags], env };
+  const rootArgs = options.root ? (server.argsWhenRoot ?? []) : [];
+  return {
+    type: "stdio",
+    command: server.command,
+    args: [...server.args, ...rootArgs, ...flags],
+    env,
+  };
 };
 
 /** A short, plain name for where the server is, safe to show and log. */

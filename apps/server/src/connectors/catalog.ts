@@ -17,6 +17,8 @@ export type CatalogServer =
       readonly type: "stdio";
       readonly command: string;
       readonly args: ReadonlyArray<string>;
+      /** Added when Codenine runs as root, such as Chromium's `--no-sandbox`, which root requires. */
+      readonly argsWhenRoot?: ReadonlyArray<string>;
       /** Flags followed by an input's value, by input key. */
       readonly flagInputs?: Readonly<Record<string, string>>;
       /** Environment variables set from inputs, by input key. */
@@ -385,7 +387,44 @@ export const CONNECTOR_CATALOG: ReadonlyArray<CatalogConnector> = [
       type: "stdio",
       command: "npx",
       args: ["-y", "@playwright/mcp@latest", "--headless", "--isolated"],
+      argsWhenRoot: ["--no-sandbox"],
       flagInputs: { browserPath: "--executable-path" },
+    },
+    // Moving around is a change; acting on a page can submit forms or run code.
+    risks: {
+      browser_navigate: "change",
+      browser_navigate_back: "change",
+      browser_tabs: "change",
+      browser_resize: "change",
+      browser_close: "change",
+      browser_hover: "change",
+      browser_emulate_media: "change",
+      browser_handle_dialog: "change",
+      browser_click: "irreversible",
+      browser_type: "irreversible",
+      browser_fill_form: "irreversible",
+      browser_press_key: "irreversible",
+      browser_select_option: "irreversible",
+      browser_drag: "irreversible",
+      browser_drop: "irreversible",
+      browser_file_upload: "irreversible",
+      browser_evaluate: "irreversible",
+      browser_run_code_unsafe: "irreversible",
+    },
+    actions: {
+      browser_navigate: "open a page",
+      browser_navigate_back: "go back a page",
+      browser_tabs: "manage tabs",
+      browser_close: "close the browser",
+      browser_handle_dialog: "answer a dialog on a page",
+      browser_click: "click on a page",
+      browser_type: "type on a page",
+      browser_fill_form: "fill in a form",
+      browser_press_key: "press a key on a page",
+      browser_select_option: "choose an option on a page",
+      browser_file_upload: "upload a file to a page",
+      browser_evaluate: "run code on a page",
+      browser_run_code_unsafe: "run code in the browser",
     },
   },
   {

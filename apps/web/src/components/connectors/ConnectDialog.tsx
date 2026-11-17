@@ -334,9 +334,11 @@ export function ConnectDialog({
         </WizardPanel>
         <WizardFooter
           leading={
-            <p className="text-xs text-muted-foreground">
-              Your sign-in stays in Codenine. Model providers never see it.
-            </p>
+            entry.auth === "none" ? undefined : (
+              <p className="text-xs text-muted-foreground">
+                Your sign-in stays in Codenine. Model providers never see it.
+              </p>
+            )
           }
         >
           <Button variant="outline" size="sm" disabled={submitting} onClick={onClose}>

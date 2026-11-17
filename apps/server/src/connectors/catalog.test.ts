@@ -1,8 +1,15 @@
-import { ConnectorCatalogEntry } from "@codenine/contracts";
+import {
+  ConnectionId,
+  ConnectorCatalogEntry,
+  ConnectorCatalogId,
+  DEFAULT_CONNECTOR_APPROVALS,
+} from "@codenine/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
-import { CONNECTOR_CATALOG } from "./catalog.ts";
+import { CONNECTOR_CATALOG, catalogConnector } from "./catalog.ts";
+import { toolRisk } from "./ConnectorApprovals.ts";
+import { resolveServer } from "./connectionServer.ts";
 
 const isCatalogEntry = Schema.is(ConnectorCatalogEntry);
 
@@ -28,4 +35,36 @@ it("every library connector can be shown, reached and signed in to", () => {
     // The whole-mailbox scope can delete everything for good.
     assert.notInclude(scopes ?? [], "https://mail.google.com/");
   }
+});
+
+it("the browser opens pages on its own but asks before acting on them", () => {
+  const risks = catalogConnector(ConnectorCatalogId.make("playwright"))?.risks;
+  assert.strictEqual(toolRisk({ name: "browser_navigate" }, risks), "change");
+  assert.strictEqual(toolRisk({ name: "browser_click" }, risks), "irreversible");
+  assert.strictEqual(
+    toolRisk({ name: "browser_snapshot", annotations: { readOnlyHint: true } }, risks),
+    "read",
+  );
+});
+
+it("starts the browser without its sandbox only when Codenine runs as root", () => {
+  const connection = {
+    id: ConnectionId.make("playwright"),
+    catalogId: ConnectorCatalogId.make("playwright"),
+    custom: null,
+    name: "Browser",
+    onByDefault: true,
+    approvals: DEFAULT_CONNECTOR_APPROVALS,
+    toolApprovals: {},
+    inputs: {},
+    account: null,
+    connectedAt: "2026-11-17T00:00:00.000Z",
+    lastUsedAt: null,
+  };
+  const args = (root: boolean) => {
+    const server = resolveServer(connection, { inputs: {} }, { root });
+    return server?.type === "stdio" ? server.args : [];
+  };
+  assert.include(args(true), "--no-sandbox");
+  assert.notInclude(args(false), "--no-sandbox");
 });
