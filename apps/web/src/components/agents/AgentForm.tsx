@@ -113,7 +113,7 @@ export function AgentForm({
   const disabled = busy || !canSave;
   const model = modelChoice === null ? null : { ...modelChoice, effort };
   const described = model === null ? null : describeAgentModel(catalog, model);
-  const savedName = skillNameFromTitle(title);
+  const savedName = agent?.name ?? skillNameFromTitle(title);
   const shownTitle = agent?.title ?? (title.trim() === "" ? "New agent" : title.trim());
   // The saved agent's status speaks for its saved model only.
   const savedProblem =
@@ -144,6 +144,7 @@ export function AgentForm({
         abilities,
       },
       described?.info?.usesTools ?? null,
+      agent?.name,
     );
     if (checked.errors !== undefined) {
       setErrors(checked.errors);
@@ -467,6 +468,14 @@ export function AgentForm({
                 key={ability.key}
                 title={ability.title}
                 hint={ability.hint}
+                stuckOn={
+                  !abilities[ability.key] &&
+                  described?.account != null &&
+                  described.turnsOff !== null &&
+                  !described.turnsOff.includes(ability.key)
+                    ? `Stays on with ${described.account}, which can't turn it off.`
+                    : null
+                }
                 checked={abilities[ability.key]}
                 disabled={disabled}
                 onCheckedChange={(checked) =>
@@ -620,6 +629,8 @@ function AgentConnectorRow({
 function AbilityRow(props: {
   readonly title: string;
   readonly hint: string;
+  /** Why the ability stays on although the switch is off. */
+  readonly stuckOn: string | null;
   readonly checked: boolean;
   readonly disabled: boolean;
   readonly onCheckedChange: (checked: boolean) => void;
@@ -632,6 +643,9 @@ function AbilityRow(props: {
           {props.title}
         </label>
         <span className="text-xs text-muted-foreground">{props.hint}</span>
+        {props.stuckOn === null ? null : (
+          <span className="text-xs text-warning-foreground">{props.stuckOn}</span>
+        )}
       </span>
       <Switch
         id={id}

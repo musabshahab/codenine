@@ -85,7 +85,7 @@ const connection: ConnectionSnapshot = {
 };
 
 function setup() {
-  state.save.mockReset().mockResolvedValue(AsyncResult.success({ ...agent, name: "mail-helper" }));
+  state.save.mockReset().mockResolvedValue(AsyncResult.success({ ...agent, title: "Mail helper" }));
   state.connections = [connection];
   state.catalog = {
     settings: DEFAULT_UNIFIED_SETTINGS,
@@ -110,17 +110,21 @@ function setup() {
         ],
         slashCommands: [],
         skills: [],
+        agentAbilities: ["readFiles", "editFiles", "runCommands"],
       },
     ]),
   };
 }
 
-it("saves what it shows, leaving the connector's groups the user did not change to the connector", async () => {
+it("saves what it shows under the agent's own name, leaving untouched connector groups to the connector", async () => {
   setup();
   await using _screen = await render(
     <AgentForm environmentId={environmentId} workspace={null} agent={agent} />,
   );
   await expect.element(page.getByText("Claude Sonnet 5.5")).toBeVisible();
+  await expect
+    .element(page.getByText(/^Stays on with .+, which can't turn it off\.$/))
+    .toBeVisible();
   await expect
     .element(page.getByRole("combobox", { name: "Gmail, can't be undone actions" }))
     .toHaveTextContent("Ask every time");
@@ -134,7 +138,7 @@ it("saves what it shows, leaving the connector's groups the user did not change 
   await page.getByRole("button", { name: "Max" }).click();
   await userEvent.clear(page.getByLabelText("Name"));
   await userEvent.type(page.getByLabelText("Name"), "Mail helper");
-  await expect.element(page.getByText("Saved as mail-helper")).toBeVisible();
+  await expect.element(page.getByText("Saved as gmail")).toBeVisible();
   await page.getByRole("button", { name: "Save", exact: true }).click();
 
   await vi.waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
@@ -143,7 +147,7 @@ it("saves what it shows, leaving the connector's groups the user did not change 
     input: {
       previousName: "gmail",
       agent: {
-        name: "mail-helper",
+        name: "gmail",
         title: "Mail helper",
         description: "Reading, sorting and drafting email.",
         instructions: "Keep replies short.",

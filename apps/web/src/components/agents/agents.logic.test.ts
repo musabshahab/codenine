@@ -1,4 +1,4 @@
-import { ConnectionId, ProviderInstanceId } from "@codenine/contracts";
+import { AgentName, ConnectionId, ProviderInstanceId } from "@codenine/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -63,6 +63,12 @@ describe("checkAgentDraft", () => {
     expect(checkAgentDraft({ ...draft, connectors: [] }, false)).toMatchObject({
       agent: { name: "code-reviewer" },
     });
+  });
+
+  it("keeps a saved agent's name when its title changes, since its chats point to the name", () => {
+    expect(
+      checkAgentDraft({ ...draft, title: "Bug finder" }, true, AgentName.make("code-reviewer")),
+    ).toMatchObject({ agent: { name: "code-reviewer", title: "Bug finder" } });
   });
 });
 

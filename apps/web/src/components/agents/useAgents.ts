@@ -1,4 +1,5 @@
 import type {
+  AgentAbility,
   AgentModel,
   AgentName,
   AgentSummary,
@@ -58,6 +59,8 @@ export interface AgentModelDescription {
   readonly info: ServerProviderModelInfo | null;
   /** Whether the model has its own effort levels for the agent's effort. */
   readonly hasEffort: boolean;
+  /** What its account can turn off for an agent; null when the account does not say. */
+  readonly turnsOff: ReadonlyArray<AgentAbility> | null;
 }
 
 /** How the app names an agent's model, and what its account says about it. */
@@ -80,6 +83,7 @@ export function describeAgentModel(
     account: entry?.displayName ?? null,
     info: serverModel?.info ?? null,
     hasEffort: agentEffortOption(model.effort, serverModel?.capabilities) !== null,
+    turnsOff: entry?.snapshot.agentAbilities ?? null,
   };
 }
 

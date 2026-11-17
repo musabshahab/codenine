@@ -66,10 +66,12 @@ export function checkAgentDraft(
   draft: AgentDraft,
   /** Whether the chosen model can use tools; null when its account does not say. */
   modelUsesTools: boolean | null,
+  /** A saved agent keeps its name whatever its title becomes: its chats point to the name. */
+  savedName?: AgentName,
 ):
   | { readonly agent: AgentDefinition; readonly errors?: undefined }
   | { readonly errors: AgentDraftErrors } {
-  const name = skillNameFromTitle(draft.title);
+  const name = savedName ?? skillNameFromTitle(draft.title);
   const title = draft.title.trim();
   const description = draft.description.trim();
   const errors: { title?: string; description?: string; model?: string } = {};
