@@ -59,6 +59,7 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Team tasks](./internals/team-tasks.md)
 - [Remote environments](./internals/remote.md)
 - [Server updates](./internals/server-updates.md)
+- [Backup and restore](./internals/backup.md)
 - [Environment auth](./internals/environment-auth.md)
 - [Codenine Connect](./internals/codenine-connect.md)
 - [Composer context references](./internals/composer-context-references.md)

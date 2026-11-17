@@ -93,6 +93,8 @@ choose **Install** next to **codenine command** in **Settings → About**. The g
 | Set up access from your other devices            | `codenine up` ([details](./remote-access.md))                                 |
 | Keep it running in the background (macOS, Linux) | `codenine service install` ([details](./background-service.md))               |
 | Reclaim database space                           | `codenine doctor` ([details](./background-service.md#reclaim-database-space)) |
+| Back up this Codenine folder                     | `codenine backup` ([details](./backup.md))                                    |
+| Restore a backup                                 | `codenine restore <file>` ([details](./backup.md))                            |
 
 Run `codenine help` or `codenine --help` for the full reference. To start in a new working
 directory, use an explicit path such as `codenine ./my-project`. A bare directory name is accepted

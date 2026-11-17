@@ -77,7 +77,6 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsRpcGroup,
-  BackupError,
 } from "@codenine/contracts";
 import {
   HttpRouter,
@@ -184,11 +183,7 @@ import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts
 import * as ProjectService from "./project/ProjectService.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import { findExistingAgentHomes } from "./provider/agentHomes.ts";
-
-const backupUnavailable = new BackupError({
-  reason: "failed",
-  detail: "Backups are not available yet.",
-});
+import * as BackupService from "./backup/BackupService.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -1355,6 +1350,7 @@ export const layerWsRpc = (
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const storageCleanup = yield* StorageCleanup.StorageCleanup;
       const databaseStorage = yield* DatabaseStorage.DatabaseStorage;
+      const backups = yield* BackupService.BackupService;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const secretResolver = yield* SecretResolver.SecretResolver;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -2196,20 +2192,26 @@ export const layerWsRpc = (
         [WS_METHODS.projectCloneRetry]: (input) =>
           projectCloneTracker.retry(input.projectId).pipe(Effect.map((applied) => ({ applied }))),
         [WS_METHODS.subscribeProjectClones]: () => projectCloneTracker.stream,
-        // Placeholders until the backup service lands.
-        [WS_METHODS.backupStatus]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.subscribeBackupStatus]: () => Stream.fail(backupUnavailable),
-        [WS_METHODS.backupCreate]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupSetPassword]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupSuggestFolders]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupList]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupDelete]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupDownloadUrl]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupInspect]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupRestore]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupRestoreReport]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupDismissRestoreReport]: () => Effect.fail(backupUnavailable),
-        [WS_METHODS.backupUndoRestore]: () => Effect.fail(backupUnavailable),
+        [WS_METHODS.backupStatus]: () => backups.status,
+        [WS_METHODS.subscribeBackupStatus]: () => backups.statusChanges,
+        [WS_METHODS.backupCreate]: () => backups.create,
+        [WS_METHODS.backupSetPassword]: (input) =>
+          backups.setPassword(input.password).pipe(Effect.as({})),
+        [WS_METHODS.backupSuggestFolders]: () =>
+          backups.suggestFolders.pipe(Effect.map((folders) => ({ folders }))),
+        [WS_METHODS.backupList]: (input) =>
+          backups
+            .list({ includeSuggestedFolders: input.includeSuggestedFolders === true })
+            .pipe(Effect.map((found) => ({ backups: found }))),
+        [WS_METHODS.backupDelete]: (input) => backups.remove(input.path).pipe(Effect.as({})),
+        [WS_METHODS.backupDownloadUrl]: (input) => backups.downloadUrl(input.path),
+        [WS_METHODS.backupInspect]: (input) => backups.inspect(input),
+        [WS_METHODS.backupRestore]: (input) => backups.restore(input),
+        [WS_METHODS.backupRestoreReport]: () =>
+          backups.restoreReport.pipe(Effect.map((report) => ({ report }))),
+        [WS_METHODS.backupDismissRestoreReport]: () =>
+          backups.dismissRestoreReport.pipe(Effect.as({})),
+        [WS_METHODS.backupUndoRestore]: () => backups.undoRestore,
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.

@@ -126,6 +126,14 @@ const AssetClaimsSchema = Schema.Union([
   }),
   Schema.Struct({
     version: Schema.Literal(1),
+    kind: Schema.Literal("backup-file"),
+    filePath: Schema.String,
+    device: Schema.String,
+    inode: Schema.String,
+    expiresAt: Schema.Number,
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
     kind: Schema.Literal("attachment"),
     attachmentId: Schema.String,
     download: Schema.optionalKey(Schema.Boolean),
@@ -852,6 +860,33 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   };
 });
 
+/**
+ * A download link for a backup file the caller has checked is in a backup folder; null when the
+ * path is not a regular file. The link stops working if the file is replaced.
+ */
+export const issueBackupDownloadUrl = Effect.fn("AssetAccess.issueBackupDownloadUrl")(function* (
+  filePath: string,
+) {
+  const path = yield* Path.Path;
+  const identity = yield* openMediaFile(filePath).pipe(
+    Effect.map((file) =>
+      file === null ? null : { device: file.info.dev.toString(), inode: file.info.ino.toString() },
+    ),
+    Effect.scoped,
+  );
+  if (identity === null) return null;
+  const expiresAt = (yield* Clock.currentTimeMillis) + ASSET_TOKEN_TTL_MS;
+  const encodedPayload = base64UrlEncode(
+    encodeAssetClaims({ version: 1, kind: "backup-file", filePath, ...identity, expiresAt }),
+  );
+  const signature = yield* (yield* AssetSigner.AssetSigner).sign(encodedPayload);
+  const fileName = path.basename(filePath);
+  return {
+    relativeUrl: `${ASSET_ROUTE_PREFIX}/${encodedPayload}.${signature}/${encodeURIComponent(fileName)}`,
+    expiresAt,
+  };
+});
+
 export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   token: string,
   relativePath: string,
@@ -950,6 +985,27 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   const decodedPath = decodeRelativePath(relativePath);
   if (decodedPath === null) return null;
   const path = yield* Path.Path;
+  if (claims.kind === "backup-file") {
+    if (decodedPath !== path.basename(claims.filePath) || !claims.filePath.endsWith(".c9backup")) {
+      return null;
+    }
+    const file = yield* openMediaFile(claims.filePath, claims).pipe(
+      Effect.tapError((cause) =>
+        Effect.logError("Failed to open backup file.", { filePath: claims.filePath, cause }),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+    return file
+      ? ({
+          kind: "file",
+          path: claims.filePath,
+          file,
+          download: true,
+          fileName: path.basename(claims.filePath),
+          mimeType: "application/octet-stream",
+        } satisfies ResolvedAsset)
+      : null;
+  }
   if (claims.kind === "media-file-exact") {
     if (decodedPath !== path.basename(claims.filePath)) return null;
     const canonicalFile = yield* resolveCanonicalFile(claims.filePath).pipe(

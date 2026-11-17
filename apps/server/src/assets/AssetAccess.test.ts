@@ -32,7 +32,12 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as CodenineProjectFileLoader from "../project/CodenineProjectFileLoader.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { assetFileResponse } from "../http.ts";
-import { ASSET_ROUTE_PREFIX, issueAssetUrl, resolveAsset } from "./AssetAccess.ts";
+import {
+  ASSET_ROUTE_PREFIX,
+  issueAssetUrl,
+  issueBackupDownloadUrl,
+  resolveAsset,
+} from "./AssetAccess.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { symlinksSupported } from "@codenine/shared/testing/symlinks";
@@ -262,6 +267,35 @@ describe("AssetAccess", () => {
         },
       }).pipe(Effect.flip);
       expect(directoryError._tag).toBe("AssetWorkspaceAssetNotFoundError");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("downloads a backup file until it is replaced", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const folder = yield* fs.realPath(
+        yield* fs.makeTempDirectoryScoped({ prefix: "codenine-backup-download-" }),
+      );
+      const filePath = path.join(folder, "Codenine Alpha 2026-11-17 030000.c9backup");
+      yield* fs.writeFileString(filePath, "encrypted bytes");
+      const issued = yield* issueBackupDownloadUrl(filePath);
+      if (issued === null) throw new Error("Expected a download URL");
+      const suffix = issued.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      const token = suffix.slice(0, separator);
+      const name = suffix.slice(separator + 1);
+      const asset = yield* resolveAsset(token, name);
+      if (asset?.kind !== "file") throw new Error("Expected a downloadable file");
+      const response = HttpServerResponse.toWeb(yield* assetFileResponse(asset));
+      expect(response.headers.get("content-disposition")).toContain("attachment;");
+      expect(response.headers.get("content-type")).toBe("application/octet-stream");
+      expect(yield* Effect.promise(() => response.text())).toBe("encrypted bytes");
+      expect(yield* resolveAsset(token, "other.c9backup")).toBeNull();
+      yield* fs.rename(filePath, `${filePath}.old`);
+      yield* fs.writeFileString(filePath, "another file");
+      expect(yield* resolveAsset(token, name)).toBeNull();
+      expect(yield* issueBackupDownloadUrl(folder)).toBeNull();
     }).pipe(Effect.provide(layerTest)),
   );
 
