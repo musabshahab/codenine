@@ -246,6 +246,35 @@ import {
   BackupUnlockInput,
 } from "./backup.ts";
 import {
+  ConnectorActivityInput,
+  ConnectorActivityResult,
+  ConnectorApprovalAnswerInput,
+  ConnectorConnectInput,
+  ConnectorConnectResult,
+  ConnectorError,
+  ConnectorIdInput,
+  ConnectorSignInInput,
+  ConnectorSignInResult,
+  ConnectorTestResult,
+  ConnectorToolsResult,
+  ConnectorUpdateInput,
+  ConnectorsEmptyInput,
+  ConnectorsEmptyResult,
+  ConnectorsState,
+} from "./connectors.ts";
+import {
+  SkillAddFromLibraryInput,
+  SkillDetail,
+  SkillError,
+  SkillImportInput,
+  SkillRefInput,
+  SkillSaveInput,
+  SkillSummary,
+  SkillsEmptyResult,
+  SkillsListInput,
+  SkillsListResult,
+} from "./skills.ts";
+import {
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
   SourceControlDiscoveryResult,
@@ -387,6 +416,22 @@ export const WS_METHODS = {
   backupRestoreReport: "backup.restoreReport",
   backupDismissRestoreReport: "backup.dismissRestoreReport",
   backupUndoRestore: "backup.undoRestore",
+  connectorsList: "connectors.list",
+  subscribeConnectors: "subscribeConnectors",
+  connectorsConnect: "connectors.connect",
+  connectorsSignIn: "connectors.signIn",
+  connectorsUpdate: "connectors.update",
+  connectorsDisconnect: "connectors.disconnect",
+  connectorsTest: "connectors.test",
+  connectorsTools: "connectors.tools",
+  connectorsActivity: "connectors.activity",
+  connectorsAnswerApproval: "connectors.answerApproval",
+  skillsList: "skills.list",
+  skillsRead: "skills.read",
+  skillsSave: "skills.save",
+  skillsDelete: "skills.delete",
+  skillsAddFromLibrary: "skills.addFromLibrary",
+  skillsImport: "skills.import",
 
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeVcsBranch: "subscribeVcsBranch",
@@ -868,6 +913,110 @@ const WsBackupUndoRestoreRpc = Rpc.make(WS_METHODS.backupUndoRestore, {
   payload: BackupEmptyInput,
   success: BackupRestoreResult,
   error: BackupRpcError,
+});
+
+const ConnectorRpcError = Schema.Union([ConnectorError, EnvironmentAuthorizationError]);
+
+const WsConnectorsListRpc = Rpc.make(WS_METHODS.connectorsList, {
+  payload: ConnectorsEmptyInput,
+  success: ConnectorsState,
+  error: ConnectorRpcError,
+});
+
+// Emits the current state first, then again whenever a connection or its status changes.
+const WsSubscribeConnectorsRpc = Rpc.make(WS_METHODS.subscribeConnectors, {
+  payload: ConnectorsEmptyInput,
+  success: ConnectorsState,
+  error: ConnectorRpcError,
+  stream: true,
+});
+
+const WsConnectorsConnectRpc = Rpc.make(WS_METHODS.connectorsConnect, {
+  payload: ConnectorConnectInput,
+  success: ConnectorConnectResult,
+  error: ConnectorRpcError,
+});
+
+// Starts signing in again, such as after the service signed Codenine out.
+const WsConnectorsSignInRpc = Rpc.make(WS_METHODS.connectorsSignIn, {
+  payload: ConnectorSignInInput,
+  success: ConnectorSignInResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsUpdateRpc = Rpc.make(WS_METHODS.connectorsUpdate, {
+  payload: ConnectorUpdateInput,
+  success: ConnectorsEmptyResult,
+  error: ConnectorRpcError,
+});
+
+// Removes the connection with its saved sign-in and activity; chats stop using it.
+const WsConnectorsDisconnectRpc = Rpc.make(WS_METHODS.connectorsDisconnect, {
+  payload: ConnectorIdInput,
+  success: ConnectorsEmptyResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsTestRpc = Rpc.make(WS_METHODS.connectorsTest, {
+  payload: ConnectorIdInput,
+  success: ConnectorTestResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsToolsRpc = Rpc.make(WS_METHODS.connectorsTools, {
+  payload: ConnectorIdInput,
+  success: ConnectorToolsResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsActivityRpc = Rpc.make(WS_METHODS.connectorsActivity, {
+  payload: ConnectorActivityInput,
+  success: ConnectorActivityResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsAnswerApprovalRpc = Rpc.make(WS_METHODS.connectorsAnswerApproval, {
+  payload: ConnectorApprovalAnswerInput,
+  success: ConnectorsEmptyResult,
+  error: ConnectorRpcError,
+});
+
+const SkillRpcError = Schema.Union([SkillError, EnvironmentAuthorizationError]);
+
+const WsSkillsListRpc = Rpc.make(WS_METHODS.skillsList, {
+  payload: SkillsListInput,
+  success: SkillsListResult,
+  error: SkillRpcError,
+});
+
+const WsSkillsReadRpc = Rpc.make(WS_METHODS.skillsRead, {
+  payload: SkillRefInput,
+  success: SkillDetail,
+  error: SkillRpcError,
+});
+
+const WsSkillsSaveRpc = Rpc.make(WS_METHODS.skillsSave, {
+  payload: SkillSaveInput,
+  success: SkillSummary,
+  error: SkillRpcError,
+});
+
+const WsSkillsDeleteRpc = Rpc.make(WS_METHODS.skillsDelete, {
+  payload: SkillRefInput,
+  success: SkillsEmptyResult,
+  error: SkillRpcError,
+});
+
+const WsSkillsAddFromLibraryRpc = Rpc.make(WS_METHODS.skillsAddFromLibrary, {
+  payload: SkillAddFromLibraryInput,
+  success: SkillSummary,
+  error: SkillRpcError,
+});
+
+const WsSkillsImportRpc = Rpc.make(WS_METHODS.skillsImport, {
+  payload: SkillImportInput,
+  success: SkillSummary,
+  error: SkillRpcError,
 });
 
 const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPublishRepository, {
@@ -1429,6 +1578,22 @@ export const WsRpcGroup = RpcGroup.make(
   WsBackupRestoreReportRpc,
   WsBackupDismissRestoreReportRpc,
   WsBackupUndoRestoreRpc,
+  WsConnectorsListRpc,
+  WsSubscribeConnectorsRpc,
+  WsConnectorsConnectRpc,
+  WsConnectorsSignInRpc,
+  WsConnectorsUpdateRpc,
+  WsConnectorsDisconnectRpc,
+  WsConnectorsTestRpc,
+  WsConnectorsToolsRpc,
+  WsConnectorsActivityRpc,
+  WsConnectorsAnswerApprovalRpc,
+  WsSkillsListRpc,
+  WsSkillsReadRpc,
+  WsSkillsSaveRpc,
+  WsSkillsDeleteRpc,
+  WsSkillsAddFromLibraryRpc,
+  WsSkillsImportRpc,
   WsProjectsListEntriesRpc,
   WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,

@@ -77,6 +77,8 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsRpcGroup,
+  ConnectorError,
+  SkillError,
 } from "@codenine/contracts";
 import {
   HttpRouter,
@@ -232,6 +234,14 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import { requestUrl } from "./requestUrl.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
+const connectorsUnavailable = new ConnectorError({
+  reason: "failed",
+  detail: "Connectors are not available yet.",
+});
+const skillsUnavailable = new SkillError({
+  reason: "failed",
+  detail: "Skills are not available yet.",
+});
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
 
 const resolveDiscoveryForConfig = <A, E, R>(
@@ -2212,6 +2222,23 @@ export const layerWsRpc = (
         [WS_METHODS.backupDismissRestoreReport]: () =>
           backups.dismissRestoreReport.pipe(Effect.as({})),
         [WS_METHODS.backupUndoRestore]: () => backups.undoRestore,
+        // Placeholders until the connector and skills services land.
+        [WS_METHODS.connectorsList]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.subscribeConnectors]: () => Stream.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsConnect]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsSignIn]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsUpdate]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsDisconnect]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsTest]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsTools]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsActivity]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.connectorsAnswerApproval]: () => Effect.fail(connectorsUnavailable),
+        [WS_METHODS.skillsList]: () => Effect.fail(skillsUnavailable),
+        [WS_METHODS.skillsRead]: () => Effect.fail(skillsUnavailable),
+        [WS_METHODS.skillsSave]: () => Effect.fail(skillsUnavailable),
+        [WS_METHODS.skillsDelete]: () => Effect.fail(skillsUnavailable),
+        [WS_METHODS.skillsAddFromLibrary]: () => Effect.fail(skillsUnavailable),
+        [WS_METHODS.skillsImport]: () => Effect.fail(skillsUnavailable),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.

@@ -29,6 +29,17 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.backupRestore]: AuthEnvironmentMaintainScope,
   [WS_METHODS.backupUndoRestore]: AuthEnvironmentMaintainScope,
   [WS_METHODS.backupDismissRestoreReport]: AuthEnvironmentMaintainScope,
+  // Connectors hold sign-ins and decide what agents can reach, as saved tokens in Settings do.
+  [WS_METHODS.connectorsConnect]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsSignIn]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsUpdate]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsDisconnect]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsTest]: AuthSettingsWriteScope,
+  // Skills steer every agent that uses them.
+  [WS_METHODS.skillsSave]: AuthSettingsWriteScope,
+  [WS_METHODS.skillsDelete]: AuthSettingsWriteScope,
+  [WS_METHODS.skillsAddFromLibrary]: AuthSettingsWriteScope,
+  [WS_METHODS.skillsImport]: AuthSettingsWriteScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
   // Listing models spends the stored API key, so only those who can choose a model may.
   [WS_METHODS.serverListTextGeneratorModels]: AuthSettingsWriteScope,

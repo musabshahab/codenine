@@ -31,6 +31,8 @@ export * from "./vcs.ts";
 export * from "./sourceControl.ts";
 export * from "./projectClone.ts";
 export * from "./backup.ts";
+export * from "./connectors.ts";
+export * from "./skills.ts";
 export * from "./pullRequest.ts";
 export * from "./orchestrationDispatch.ts";
 export * from "./orchestrationProject.ts";

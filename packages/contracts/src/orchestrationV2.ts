@@ -40,6 +40,8 @@ import {
 } from "./baseSchemas.ts";
 import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
+import { ConnectionId, ConnectorRisk } from "./connectors.ts";
+import { SkillName } from "./skills.ts";
 import { StoredThreadTags, ThreadFolderName, ThreadTag } from "./threadTags.ts";
 import {
   StoredTeamPlan,
@@ -489,6 +491,10 @@ export const OrchestrationV2AppThread = Schema.Struct({
   team: Schema.optional(StoredTeamPlan),
   /** On a team agent's thread: the task it runs. */
   teamTask: Schema.optional(TeamTaskRef),
+  /** Connectors this chat uses; absent until the chat picks its own, so it uses the ones on by default. */
+  connectors: Schema.optional(Schema.Array(ConnectionId)),
+  /** Skills kept on for this chat, by name; a workspace skill wins over a Codenine one of the same name. */
+  skills: Schema.optional(Schema.Array(SkillName)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -1522,6 +1528,36 @@ const OrchestrationV2SecretRequestFields = {
   secretStatus: OrchestrationV2SecretRequestStatus,
 } as const;
 
+export const OrchestrationV2ConnectorApprovalStatus = Schema.Literals([
+  "pending",
+  "allowed",
+  "declined",
+  "cancelled",
+]);
+export type OrchestrationV2ConnectorApprovalStatus =
+  typeof OrchestrationV2ConnectorApprovalStatus.Type;
+
+/**
+ * A connector action that asks first, such as sending email. The call waits for the user's
+ * answer; the card shows what the action would do.
+ */
+const OrchestrationV2ConnectorApprovalFields = {
+  type: Schema.Literal("connector_approval"),
+  connectionId: ConnectionId,
+  connectorName: TrimmedNonEmptyString,
+  tool: TrimmedNonEmptyString,
+  risk: ConnectorRisk,
+  /** What it would do, finishing "Gmail wants to …", such as "send a draft". */
+  action: TrimmedNonEmptyString,
+  /** Labelled facts, such as To and Subject. */
+  details: Schema.Array(Schema.Struct({ label: Schema.String, value: Schema.String })),
+  /** A longer excerpt, such as the email's text. */
+  preview: Schema.optional(Schema.String),
+  approvalStatus: OrchestrationV2ConnectorApprovalStatus,
+  /** Allowed with "always": this action no longer asks on this connector. */
+  remembered: Schema.optional(Schema.Boolean),
+} as const;
+
 export const OrchestrationV2LinkRequestStatus = Schema.Literals([
   "pending",
   "linked",
@@ -1754,6 +1790,10 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     ...OrchestrationV2LinkRequestFields,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemBaseFields,
+    ...OrchestrationV2ConnectorApprovalFields,
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2594,6 +2634,10 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
+    ...OrchestrationV2ConnectorApprovalFields,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("subagent"),
     subagentId: NodeId,
     origin: Schema.Literals(["provider_native", "app_owned"]),
@@ -3025,6 +3069,10 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+    /** The chat's own connectors; null goes back to the ones on by default. */
+    connectors: Schema.optional(Schema.NullOr(Schema.Array(ConnectionId))),
+    /** Skills kept on for the chat. */
+    skills: Schema.optional(Schema.Array(SkillName)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),
@@ -3459,6 +3507,24 @@ const OrchestrationV2InternalCommand = Schema.Union([
     placeholder: Schema.optional(Schema.String),
     delivery: Schema.optional(OrchestrationV2SecretRequestDelivery),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /** Internal so no client can mark an action allowed without the connector gateway. */
+  Schema.Struct({
+    type: Schema.Literal("connector_approval.record"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
+    nodeId: NodeId,
+    turnItemId: TurnItemId,
+    connectionId: ConnectionId,
+    connectorName: TrimmedNonEmptyString,
+    tool: TrimmedNonEmptyString,
+    risk: ConnectorRisk,
+    action: TrimmedNonEmptyString,
+    details: Schema.Array(Schema.Struct({ label: Schema.String, value: Schema.String })),
+    preview: Schema.optional(Schema.String),
+    approvalStatus: OrchestrationV2ConnectorApprovalStatus,
+    remembered: Schema.optional(Schema.Boolean),
   }),
   /** A team task's thread finished. Internal so no client can report a result for an agent. */
   Schema.Struct({
