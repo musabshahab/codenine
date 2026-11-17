@@ -3,6 +3,7 @@ import {
   TEAM_LABEL_MAX_CHARS,
   TEAM_MAX_AGENTS,
   TEAM_MAX_TASKS,
+  type TeamAgent,
   type TeamDraft,
   type TeamPlan,
   type TeamPlanSummary,
@@ -126,6 +127,15 @@ export function validateTeamDraft(draft: TeamDraft): TeamDraftIssue | null {
     };
   }
   return null;
+}
+
+/** Members the lead suggested whose agent the user has not created or chosen; the team waits for them. */
+export function teamMembersWithoutAgent(
+  draft: Pick<TeamDraft, "agents">,
+): ReadonlyArray<TeamAgent> {
+  return draft.agents.filter(
+    (agent) => agent.suggestion !== undefined && agent.agent === undefined,
+  );
 }
 
 type SchedulablePlan = Pick<TeamPlan, "agents" | "tasks" | "maxParallelPerProvider">;
