@@ -35,8 +35,18 @@ A connector sorts its actions into **Read**, **Change** and **Can't be undone**,
 runs **Automatic** or **Ask every time**. An agent shows the connector's own choice for each group.
 Change one, and that choice applies to this agent only; the connector and other chats keep theirs.
 In the agent's chats it also wins over a choice made for a single action, so an agent set to ask
-always asks; its cards have no **Always allow**. A group you leave alone follows the connector, even
-after you change the connector later.
+always asks. To stop it asking, choose **Always allow for this agent** on its card (**Always send
+without asking** when it sends); that changes the agent's own choice in its settings. A group you
+leave alone follows the connector, even after you change the connector later.
+
+What an agent reads, such as an email or a web page, could carry instructions meant to trick it.
+Choose **Automatic** for **Can't be undone** only when you trust what the agent reads.
+
+## In a team
+
+A [team](./thread-sidebar.md#run-a-team) is built from your agents: the lead gives each part of the
+job to one of them. Where none fits, the lead suggests an agent, and you create it from the
+suggestion or choose one of yours instead.
 
 ## Chat with an agent
 

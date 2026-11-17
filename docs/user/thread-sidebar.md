@@ -315,22 +315,32 @@ back the standard rows.
 
 ## Run a team
 
-A team splits one job across several agents, each on the model that fits its part, so a quick
-model can do the routine work while a stronger one reviews. To ask for one, turn on
+A team splits one job across several of your [agents](./agents.md), each on the model that fits its
+part, so a quick model can do the routine work while a stronger one reviews. To ask for one, turn on
 [**Team**](./composer.md#ask-for-a-team) in the composer before you send, or ask in your own words,
 for example "propose a team for this: one agent writes the code, one tests it, one reviews". The
-agent you asked, the lead, plans the team and starts nothing. The plan opens in the **Task** tab of
-the right panel.
+agent you asked, the lead, plans the team from your agents and starts nothing. The plan opens in the
+**Task** tab of the right panel.
+
+Each member of the team runs as one of your agents, with its instructions, skills and connectors,
+and starts on the agent's model. Where none of your agents fits a part of the job, the lead suggests
+one, and the Task tab says what it would do. **Create agent** opens the agent editor filled in from
+the suggestion, with the connectors you have. Nothing is made until you choose **Save**, which brings
+you back to the Task tab with the new agent on the team. **Choose agent** gives that part to one of
+your agents instead. The team cannot start until every member has an agent; Codenine never makes an
+agent for you.
 
 Nothing runs until you approve, from the Task tab or with **Approve team** at the top of the
 lead's thread. The Task tab lists the team's steps in order, each with its brief, the agent that
-runs it, and that agent's model. Choose a step's agent to give the step to another agent or to a new
-one, and its model to change the model or effort; **Use for all agents** puts the whole team on that
-model. **Edit team** adds an agent or removes one that has no steps. You can also edit a step's brief
-or remove the step. To add, reorder or split steps, ask the lead. Your edits apply once you choose
-**Save** or **Approve and start**. If the team changes while you edit, for example because the lead
-proposed a new one, the tab shows the new team and tells you your changes were not applied.
-**Cancel team** drops the plan.
+runs it, and that agent's model. Choose a step's agent to give the step to another member, or to
+another of your agents, and its model to change the model or effort for this team; the agent itself
+keeps its model. **Use for all agents** puts the whole team on that model. **Edit team** adds one of
+your agents, with its role and where it works, or removes one that has no steps; choose a member's
+name there to run it as another of your agents. You can also edit a step's brief or remove the
+step. To add, reorder or split steps, ask the lead. Your edits apply once you choose **Save** or
+**Approve and start**. If the team changes while you edit, for example because the lead proposed a
+new one, the tab shows the new team and tells you your changes were not applied. **Cancel team**
+drops the plan.
 
 Each step runs in a thread of its own. A step starts once the steps whose results it needs are
 done, with at most two running at a time on each provider. The Task tab shows each step's status,
