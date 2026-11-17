@@ -192,9 +192,11 @@ function RestoreReportDialog({
           <>
             <DialogHeader>
               <CircleCheckIcon aria-hidden className="size-7 text-success" />
-              <DialogTitle>Restore complete</DialogTitle>
+              <DialogTitle>{report.undone ? "Restore undone" : "Restore complete"}</DialogTitle>
               <DialogDescription>
-                Your chats, workspaces, accounts and settings from {report.fromComputer} are back.
+                {report.undone
+                  ? "What was on this computer before the restore is back."
+                  : `Your chats, workspaces, accounts and settings from ${report.fromComputer} are back.`}
               </DialogDescription>
             </DialogHeader>
             <ReportTasks environmentId={environmentId} report={report} />

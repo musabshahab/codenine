@@ -584,11 +584,14 @@ const make = Effect.gen(function* () {
   const runRestore = Effect.fn("BackupService.runRestore")(function* (input: {
     readonly filePath: string;
     readonly password: string;
-    readonly keepIdentity: boolean;
+    readonly undo: boolean;
   }) {
     yield* acquire;
     yield* Effect.gen(function* () {
-      yield* startJob("before-restore", "Saving a safety backup of your current data");
+      yield* startJob(
+        "before-restore",
+        input.undo ? "Undoing the restore" : "Saving a safety backup of your current data",
+      );
       const { computerName } = yield* identity;
       yield* runJob(
         "before-restore",
@@ -599,7 +602,7 @@ const make = Effect.gen(function* () {
             password: input.password,
             computerName,
             codenineVersion: packageJson.version,
-            keepIdentity: input.keepIdentity,
+            undo: input.undo,
             onProgress: (fraction, detail) => {
               progress.fraction = fraction;
               progress.detail = detail;
@@ -623,7 +626,7 @@ const make = Effect.gen(function* () {
     readonly password: string;
   }) {
     const filePath = resolveUserPath(input.path);
-    return yield* runRestore({ filePath, password: input.password, keepIdentity: false });
+    return yield* runRestore({ filePath, password: input.password, undo: false });
   }, withServices);
 
   const restoreReport = readRestoreReport(config.stateDir).pipe(
@@ -651,7 +654,7 @@ const make = Effect.gen(function* () {
     return yield* runRestore({
       filePath: safetyBackup.path,
       password: password.value,
-      keepIdentity: true,
+      undo: true,
     });
   }).pipe(Effect.withSpan("BackupService.undoRestore"));
 

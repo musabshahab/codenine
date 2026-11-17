@@ -301,6 +301,32 @@ it.effect(
       assert.equal(report!.safetyBackup?.kind, "before-restore");
       assert.isTrue(yield* fs.exists(report!.safetyBackup!.path));
       assert.equal(report!.undoUntil, "2026-11-24T06:00:00.000Z");
+
+      // Undo brings back this computer's own data and identity, and is final.
+      yield* prepareRestore({
+        paths: beta.paths,
+        filePath: report!.safetyBackup!.path,
+        password: PASSWORD,
+        computerName: "Beta",
+        codenineVersion: "0.1.7",
+        undo: true,
+      }).pipe(withHome(beta, "darwin"));
+      yield* applyPendingRestore(beta.paths).pipe(withHome(beta, "darwin"));
+      assert.equal(
+        yield* fs.readFileString(path.join(betaCodenine, "workspaces", "old", "notes.txt")),
+        "beta",
+      );
+      assert.isFalse(yield* fs.exists(path.join(betaCodenine, "workspaces", "app")));
+      assert.equal((yield* fs.readFileString(beta.paths.environmentIdPath)).trim(), "env-beta");
+      assert.deepEqual(yield* sessionIds(beta.paths.dbPath), ["beta-session"]);
+      const undone = yield* readRestoreReport(beta.paths.stateDir);
+      assert.isTrue(undone?.undone);
+      assert.isTrue(undone?.fromThisComputer);
+      assert.isNull(undone?.safetyBackup);
+      assert.isNull(undone?.undoUntil);
+      assert.deepEqual(yield* fs.readDirectory(path.join(betaCodenine, "restore-undo")), [
+        path.basename(report!.safetyBackup!.path),
+      ]);
     }).pipe(Effect.scoped, Effect.provide(layer)),
 );
 

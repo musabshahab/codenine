@@ -80,6 +80,7 @@ const restoreUndoFolder = (baseDir: string) => restoreFolders(baseDir).undo;
 const RestorePlan = Schema.Struct({
   manifest: BackupManifest,
   keepIdentity: Schema.Boolean,
+  undo: Schema.Boolean,
   restoredFrom: BackupFileInfo,
   safetyBackup: Schema.NullOr(BackupFileInfo),
   stagedAt: Schema.String,
@@ -194,6 +195,7 @@ const stageRestore = Effect.fn("BackupRestore.stage")(function* (input: {
   readonly filePath: string;
   readonly password: string;
   readonly keepIdentity: boolean;
+  readonly undo: boolean;
   readonly safetyBackup: BackupFileInfo | null;
   readonly onProgress?: ((fraction: number) => void) | undefined;
 }) {
@@ -225,6 +227,7 @@ const stageRestore = Effect.fn("BackupRestore.stage")(function* (input: {
     const plan: RestorePlan = {
       manifest,
       keepIdentity: input.keepIdentity,
+      undo: input.undo,
       restoredFrom: backupFileInfo(opened),
       safetyBackup: input.safetyBackup,
       stagedAt: DateTime.formatIso(yield* DateTime.now),
@@ -254,8 +257,8 @@ export const prepareRestore = Effect.fn("BackupRestore.prepare")(function* (inpu
   readonly password: string;
   readonly computerName: string;
   readonly codenineVersion: string;
-  /** Undoing a restore brings back this computer's own identity. */
-  readonly keepIdentity?: boolean;
+  /** Undoing a restore brings back this computer's own data and identity, and is final. */
+  readonly undo?: boolean;
   readonly onProgress?: ((fraction: number, detail: string) => void) | undefined;
 }) {
   const fs = yield* FileSystem.FileSystem;
@@ -269,30 +272,37 @@ export const prepareRestore = Effect.fn("BackupRestore.prepare")(function* (inpu
   const { summary, manifest } = yield* inspectBackup(input);
   if (manifest === null || summary.blockedReason !== null) return yield* newerVersion();
   yield* ensureFreeSpace(input.paths.baseDir, manifest.contentBytes, "Restoring this backup");
+  const undo = input.undo === true;
   // A home that never ran a server has nothing to keep, as on a new computer.
-  const safety = (yield* fs.exists(input.paths.dbPath).pipe(Effect.orElseSucceed(() => false)))
-    ? yield* createBackup({
-        paths: input.paths,
-        folder: folders.undo,
-        password: input.password,
-        kind: "before-restore",
-        includeWorktrees: manifest.includeWorktrees,
-        computerName: input.computerName,
-        environmentId: yield* readEnvironmentId(input.paths.environmentIdPath),
-        codenineVersion: input.codenineVersion,
-        onProgress: (fraction) =>
-          input.onProgress?.(fraction / 2, "Saving a safety backup of your current data"),
-      }).pipe(Effect.map(({ file }) => file))
-    : null;
+  const safety =
+    !undo && (yield* fs.exists(input.paths.dbPath).pipe(Effect.orElseSucceed(() => false)))
+      ? yield* createBackup({
+          paths: input.paths,
+          folder: folders.undo,
+          password: input.password,
+          kind: "before-restore",
+          includeWorktrees: manifest.includeWorktrees,
+          computerName: input.computerName,
+          environmentId: yield* readEnvironmentId(input.paths.environmentIdPath),
+          codenineVersion: input.codenineVersion,
+          onProgress: (fraction) =>
+            input.onProgress?.(fraction / 2, "Saving a safety backup of your current data"),
+        }).pipe(Effect.map(({ file }) => file))
+      : null;
   yield* ensureFreeSpace(input.paths.baseDir, manifest.contentBytes, "Restoring this backup").pipe(
     Effect.andThen(
       stageRestore({
         paths: input.paths,
         filePath: input.filePath,
         password: input.password,
-        keepIdentity: input.keepIdentity === true || summary.fromThisComputer,
+        keepIdentity: undo || summary.fromThisComputer,
+        undo,
         safetyBackup: safety,
-        onProgress: (fraction) => input.onProgress?.(0.5 + fraction / 2, "Unpacking the backup"),
+        onProgress: (fraction) =>
+          input.onProgress?.(
+            safety === null ? fraction : 0.5 + fraction / 2,
+            "Unpacking the backup",
+          ),
       }),
     ),
     // Nothing was restored, so there is nothing to undo.
@@ -1064,6 +1074,7 @@ const finishRestore = Effect.fn("BackupRestore.finish")(function* (
     accountsToSignIn,
     missingWorkspaces,
     devicesSignedOut,
+    undone: plan.undo,
   });
   yield* writeFileStringAtomically({
     filePath: path.join(paths.stateDir, RESTORE_REPORT_FILE),

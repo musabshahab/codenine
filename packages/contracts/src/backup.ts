@@ -195,6 +195,8 @@ export const BackupRestoreReport = Schema.Struct({
   ),
   /** Other browsers and computers were signed out and need to pair again. */
   devicesSignedOut: Schema.Boolean,
+  /** This restore undid the one before it, which is final, so it offers no undo. */
+  undone: Schema.Boolean,
 });
 export type BackupRestoreReport = typeof BackupRestoreReport.Type;
 

@@ -49,7 +49,8 @@ snapshot does not reference, which is harmless.
 
 A restore never touches live data while the server runs: services hold the database open and
 cache what they read. It saves a safety backup of the current data into `restore-undo` (kept for
-seven days, and skipped in a home with no database yet), unpacks the backup into
+seven days, and skipped in a home with no database yet and when undoing a restore, which restores
+that safety backup and is final), unpacks the backup into
 `restore-staging`, verifying every chunk, and writes `restore-pending.json` last.
 [`applyPendingRestore`](../../apps/server/src/backup/BackupRestore.ts) runs after the server takes
 the ownership lock and before anything opens the database; `codenine restore` takes the same lock

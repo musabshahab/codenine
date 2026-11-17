@@ -515,8 +515,12 @@ function RestoreReportNotice({ environmentId }: { readonly environmentId: Enviro
   return (
     <SettingsSection id="backup-restore-report" title="Last restore" hideTitle>
       <SettingsRow
-        title={`Restored from ${report.fromComputer}`}
-        description="A few things may still need you, and you can undo the restore from there."
+        title={report.undone ? "Restore undone" : `Restored from ${report.fromComputer}`}
+        description={
+          report.undone
+            ? "A few things may still need you."
+            : "A few things may still need you, and you can undo the restore from there."
+        }
         control={
           <Button size="sm" variant="outline" onClick={() => setRestoreReportHidden(key, false)}>
             Review
