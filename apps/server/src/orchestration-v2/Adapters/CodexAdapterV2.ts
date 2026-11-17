@@ -105,6 +105,7 @@ import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import { ServerConfig } from "../../config.ts";
 import { expandHomePath } from "@codenine/provider-core/server/pathExpansion";
 import { buildCodexAdditionalContext } from "../../provider/CodexDeveloperInstructions.ts";
+import type { SkillListing } from "@codenine/provider-core/server/skillInstructions";
 import {
   describeMcpElicitation,
   toMcpElicitationResponse,
@@ -426,10 +427,14 @@ function codexItemStatus(status: "inProgress" | "completed" | "failed" | "declin
 
 /**
  * The composers let a skill be typed with any currency sigil (`€review`), but
- * Codex only parses `$name` as a skill mention.
+ * Codex only parses `$name` as a skill mention. A mention Codenine answered with
+ * its own skill loses its sigil, or Codex would attach its own copy of a
+ * workspace skill too.
  */
-function codexSkillMentionText(text: string): string {
-  return text.replace(SKILL_MENTION_PATTERN, "$1$$$2");
+function codexSkillMentionText(text: string, codenineSkills: ReadonlyArray<string> = []): string {
+  return text.replace(SKILL_MENTION_PATTERN, (_match, prefix: string, name: string) =>
+    codenineSkills.includes(name) ? `${prefix}${name}` : `${prefix}$${name}`,
+  );
 }
 
 const BACKGROUND_COMMAND_DETAIL_COMMAND_MAX_LENGTH = 200;
@@ -747,6 +752,8 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
     readonly modelSelection: ModelSelection;
     readonly hasCodenineMcp?: boolean;
+    /** Codenine's skills, listed while its MCP server is attached. */
+    readonly skills?: ReadonlyArray<SkillListing> | undefined;
     /** ChatGPT token sharing does not accept service tiers. */
     readonly omitServiceTier?: boolean;
   }) {
@@ -770,10 +777,13 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
         : getCodexServiceTierOptionValue(input.modelSelection);
     const additionalContext =
       input.hasCodenineMcp === true
-        ? buildCodexAdditionalContext({
-            model: input.modelSelection.model,
-            reasoningEffort: effort ?? undefined,
-          })
+        ? buildCodexAdditionalContext(
+            {
+              model: input.modelSelection.model,
+              reasoningEffort: effort ?? undefined,
+            },
+            input.skills,
+          )
         : undefined;
     return yield* decodeCodexTurnStartParamsWithCollaborationMode({
       threadId: input.nativeThreadId,
@@ -3290,9 +3300,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             "message"
           >,
         ) {
-          const inputItems: Array<CodexSchema.V2TurnStartParams__UserInput> = [];
+          // Codenine's context goes first, as items of its own.
+          const inputItems: Array<CodexSchema.V2TurnStartParams__UserInput> = (
+            turnInput.message.context ?? []
+          ).map((context) => ({ type: "text", text: context }));
           const text = yield* providerMessageTextWithAttachmentPaths({
-            text: codexSkillMentionText(turnInput.message.text),
+            text: codexSkillMentionText(turnInput.message.text, turnInput.message.skills?.attached),
             attachments: turnInput.message.attachments,
             resolveExtractedTextPath: (path) =>
               DocumentText.resolveExtractedTextPath(path).pipe(
@@ -6644,6 +6657,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               runtimePolicy: turnInput.runtimePolicy,
               modelSelection: turnInput.modelSelection,
               hasCodenineMcp: mcpSession !== undefined,
+              skills: turnInput.message.skills?.available,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
             });
             yield* Ref.update(pendingRootTurns, (current) => {

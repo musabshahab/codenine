@@ -55,7 +55,7 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Testing](./internals/testing.md)
 - [Web UI](./internals/web-ui.md)
 - [Connection runtime](./internals/connection-runtime.md)
-- [Providers](./internals/providers.md)
+- [Providers and skills](./internals/providers.md)
 - [Adding a provider](./internals/adding-a-provider.md)
 - [Model classification](./internals/model-manifest.md)
 - [Context handoffs](./internals/context-handoffs.md)

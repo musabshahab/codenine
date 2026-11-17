@@ -96,6 +96,29 @@ workspace checkpoints but cannot roll back its conversation, the
 rejects revert before touching files. Native permission and question option IDs must
 also survive normalization; a display label is not necessarily a valid reply.
 
+## Codenine serves skills; providers do not install them
+
+Codenine keeps one skills library: the Codenine folder's `skills/` and each workspace's
+`.agents/skills/`. Wherever a name is resolved, a workspace skill wins over a Codenine skill of the
+same name ([SkillFolders](../../apps/server/src/skills/SkillFolders.ts)). Codenine never copies or
+links skills into a provider's own folders. Earlier versions linked them into every account's skills
+folder; startup now removes those links, and only those, because each skill would otherwise show
+twice: once from Codenine and once from the provider.
+
+Every provider gets skills the same way:
+
+- While Codenine's MCP server is attached, the session's instructions list the skills, capped to one
+  4,000-byte Codex context entry. Claude carries the list in its system prompt append, fixed for the
+  life of its process; Codex re-sends the entry when it changes. `codenine_skill_list` always reads
+  the current set.
+- `codenine_skill_read` returns a skill's text and its folder path. Agents run on the server's
+  machine, so they run a skill's scripts with their own shell.
+- [Turn start](../../apps/server/src/skills/SkillTurnContext.ts) attaches the SKILL.md of each skill a
+  `$name` mention names, as a block ahead of the user's text, and names the chat's kept-on skills in
+  a short note rather than resending their text every turn. Adapters keep native skill dispatch off
+  the names Codenine attached: Claude would expand its own skill of that name, and Codex parses
+  `$name` itself and also reads `.agents/skills`, so a workspace skill would arrive twice.
+
 ## Attachments and stored history
 
 Attachments live outside the project workspace. The

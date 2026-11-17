@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 
-import { linkCodenineSkills } from "../../codenineHome.ts";
+import { unlinkCodenineSkills } from "../../codenineHome.ts";
 import { makeClaudeTextGeneration } from "../../textGeneration/ClaudeTextGeneration.ts";
 import * as ProviderLatestVersions from "@codenine/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@codenine/provider-core/server/ProviderHost";
@@ -240,12 +240,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       Effect.map((result) => result.capabilities),
     );
 
-    // Each check links first: sign-in may only now have made the folder, and the check lists skills.
-    const linkSkills = enabled
-      ? linkCodenineSkills({ baseDir, accountHome: configDir })
-      : Effect.void;
-    const checkProvider = linkSkills.pipe(
-      Effect.andThen(catalogService.refreshInBackground),
+    yield* unlinkCodenineSkills({ baseDir, accountHome: configDir });
+    const checkProvider = catalogService.refreshInBackground.pipe(
       Effect.andThen(
         modelCatalog.pipe(
           Effect.flatMap((catalog) =>

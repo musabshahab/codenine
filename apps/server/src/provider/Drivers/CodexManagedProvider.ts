@@ -10,7 +10,7 @@ import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
 import { ChildProcessSpawner } from "effect/process";
-import { linkCodenineSkills } from "../../codenineHome.ts";
+import { unlinkCodenineSkills } from "../../codenineHome.ts";
 import * as ServerConfig from "../../config.ts";
 import { makeCodexTextGeneration } from "../../textGeneration/CodexTextGeneration.ts";
 import * as ProviderHost from "@codenine/provider-core/server/ProviderHost";
@@ -50,6 +50,7 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
     config,
     environment: yield* mergeProviderInstanceEnvironment(input.environment),
   });
+  yield* unlinkCodenineSkills({ baseDir, accountHome: runtime.homeLayout.sharedHomePath });
   const continuationIdentity = codexContinuationIdentity(runtime.homeLayout);
   const stamp = withInstanceIdentity({
     instanceId,
@@ -130,8 +131,6 @@ export const makeManagedCodexProvider = Effect.fn("makeManagedCodexProvider")(fu
     return yield* runtime.auth.controller.withAccess!(runtime.resolve).pipe(
       Effect.flatMap((effective) =>
         Effect.gen(function* () {
-          // The runtime has just made the home, and a shadow home reads the shared one's skills.
-          yield* linkCodenineSkills({ baseDir, accountHome: runtime.homeLayout.sharedHomePath });
           const draft = yield* checkCodexProviderStatus(
             effective.config,
             undefined,

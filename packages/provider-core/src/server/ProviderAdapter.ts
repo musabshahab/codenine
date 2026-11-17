@@ -54,6 +54,14 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 
+/** Codenine's own skills for a turn, which every provider gets the same way. */
+const ProviderAdapterV2TurnSkills = Schema.Struct({
+  /** The skills the session's instructions list while Codenine's MCP server is attached. */
+  available: Schema.Array(Schema.Struct({ name: Schema.String, description: Schema.String })),
+  /** Names whose `$name` mentions Codenine answered; native skill dispatch leaves them alone. */
+  attached: Schema.Array(Schema.String),
+});
+
 export const ProviderAdapterV2TurnMessage = Schema.Struct({
   messageId: MessageId,
   text: Schema.String,
@@ -61,6 +69,9 @@ export const ProviderAdapterV2TurnMessage = Schema.Struct({
   createdBy: OrchestrationV2ConversationMessage.fields.createdBy,
   creationSource: OrchestrationV2ConversationMessage.fields.creationSource,
   senderThreadId: OrchestrationV2ConversationMessage.fields.senderThreadId,
+  /** Codenine's context, sent ahead of the text as blocks of their own. */
+  context: Schema.optional(Schema.Array(Schema.String)),
+  skills: Schema.optional(ProviderAdapterV2TurnSkills),
 });
 export type ProviderAdapterV2TurnMessage = typeof ProviderAdapterV2TurnMessage.Type;
 

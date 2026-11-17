@@ -56,7 +56,7 @@ import { codexUsageReader } from "./codexUsage.ts";
 import * as CodexInstallation from "../CodexInstallation.ts";
 import * as CodexManagedTokenBroker from "../CodexManagedTokenBroker.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
-import { linkCodenineSkills } from "../../codenineHome.ts";
+import { unlinkCodenineSkills } from "../../codenineHome.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as HostProcess from "@codenine/shared/HostProcess";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
@@ -231,14 +231,11 @@ export const CodexDriver: ProviderDriver<
       ),
     );
 
-    // A shadow home reads skills through its shared home, so that is where they link.
-    const linkSkills = enabled
-      ? linkCodenineSkills({ baseDir, accountHome: homeLayout.sharedHomePath })
-      : Effect.void;
+    // Older versions linked skills through the shared home, which shadow homes read.
+    yield* unlinkCodenineSkills({ baseDir, accountHome: homeLayout.sharedHomePath });
     // Kick the TTL-gated manifest refresh in the background and classify with the in-memory
     // manifest, so a slow or hung fetch never delays the provider check.
-    const checkProvider = linkSkills.pipe(
-      Effect.andThen(modelCatalog.refreshInBackground),
+    const checkProvider = modelCatalog.refreshInBackground.pipe(
       Effect.andThen(
         Effect.zipWith(
           checkCodexProviderStatus(effectiveConfig, undefined, processEnv),

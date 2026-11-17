@@ -78,7 +78,6 @@ import {
   WS_METHODS,
   WsRpcGroup,
   ConnectorError,
-  SkillError,
 } from "@codenine/contracts";
 import {
   HttpRouter,
@@ -186,6 +185,7 @@ import * as ProjectService from "./project/ProjectService.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import { findExistingAgentHomes } from "./provider/agentHomes.ts";
 import * as BackupService from "./backup/BackupService.ts";
+import * as Skills from "./skills/Skills.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -237,10 +237,6 @@ const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const connectorsUnavailable = new ConnectorError({
   reason: "failed",
   detail: "Connectors are not available yet.",
-});
-const skillsUnavailable = new SkillError({
-  reason: "failed",
-  detail: "Skills are not available yet.",
 });
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
 
@@ -1361,6 +1357,7 @@ export const layerWsRpc = (
       const storageCleanup = yield* StorageCleanup.StorageCleanup;
       const databaseStorage = yield* DatabaseStorage.DatabaseStorage;
       const backups = yield* BackupService.BackupService;
+      const skills = yield* Skills.Skills;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const secretResolver = yield* SecretResolver.SecretResolver;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -2233,12 +2230,12 @@ export const layerWsRpc = (
         [WS_METHODS.connectorsTools]: () => Effect.fail(connectorsUnavailable),
         [WS_METHODS.connectorsActivity]: () => Effect.fail(connectorsUnavailable),
         [WS_METHODS.connectorsAnswerApproval]: () => Effect.fail(connectorsUnavailable),
-        [WS_METHODS.skillsList]: () => Effect.fail(skillsUnavailable),
-        [WS_METHODS.skillsRead]: () => Effect.fail(skillsUnavailable),
-        [WS_METHODS.skillsSave]: () => Effect.fail(skillsUnavailable),
-        [WS_METHODS.skillsDelete]: () => Effect.fail(skillsUnavailable),
-        [WS_METHODS.skillsAddFromLibrary]: () => Effect.fail(skillsUnavailable),
-        [WS_METHODS.skillsImport]: () => Effect.fail(skillsUnavailable),
+        [WS_METHODS.skillsList]: (input) => skills.list(input),
+        [WS_METHODS.skillsRead]: (input) => skills.read(input),
+        [WS_METHODS.skillsSave]: (input) => skills.save(input),
+        [WS_METHODS.skillsDelete]: (input) => skills.remove(input).pipe(Effect.as({})),
+        [WS_METHODS.skillsAddFromLibrary]: (input) => skills.addFromLibrary(input),
+        [WS_METHODS.skillsImport]: (input) => skills.importFound(input),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.

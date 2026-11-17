@@ -32,6 +32,8 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import * as SkillsHandlers from "./toolkits/skills/handlers.ts";
+import { SkillsToolkit } from "./toolkits/skills/tools.ts";
 import { requestUrl } from "../requestUrl.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
@@ -319,6 +321,8 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 );
 
+const layerSkillsToolkit = toolkitRegistration(SkillsToolkit, SkillsHandlers.layer);
+
 /**
  * `McpServer` for in-process calls, which provide `McpInvocationContext`
  * around `callTool` as the auth middleware does for each /mcp request.
@@ -357,6 +361,7 @@ export const layerTools = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
+  layerSkillsToolkit,
 );
 
 export const layer = layerMcpTransport(layerTools);

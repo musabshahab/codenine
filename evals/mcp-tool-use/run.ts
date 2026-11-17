@@ -59,6 +59,7 @@ import {
   CHILD_PULL_REQUEST_REPORT_NEXT,
   PullRequestsToolkit,
 } from "../../apps/server/src/mcp/toolkits/pullRequests/tools.ts";
+import { SkillsToolkit } from "../../apps/server/src/mcp/toolkits/skills/tools.ts";
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
 import {
@@ -268,6 +269,16 @@ export const McpToolUseCase = Schema.Struct({
     sideChat: Schema.optional(
       Schema.Struct({ parentThreadId: Schema.String, digest: Schema.Array(Schema.String) }),
     ),
+    /** The user's skills: Codenine's instructions list them and `codenine_skill_read` returns them. */
+    skills: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          description: Schema.String,
+          instructions: Schema.String,
+        }),
+      ),
+    ),
   }),
   /** Empty to resume a top-level thread without side-chat context after its last tool result. */
   prompt: Schema.String,
@@ -386,6 +397,7 @@ const codenineSourceTools: ReadonlyArray<Tool.Any> = [
   EnvironmentToolkit,
   WorktreeToolkit,
   PullRequestsToolkit,
+  SkillsToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const codenineInputDecoders = new Map(
@@ -436,23 +448,53 @@ const visibleCodenineTools = (options: { readonly subagent?: boolean }) =>
     (tool) => !(options.subagent === true && hiddenFromSubagents.has(tool.name)),
   );
 
+type CaseSkills = NonNullable<McpToolUseCase["setup"]["skills"]>;
+
 /** Codenine's Claude Code options for an eval thread: its system prompt append and its hooks. */
-const claudeQueryOptions = (model: Model) =>
+const claudeQueryOptions = (model: Model, skills?: CaseSkills) =>
   makeClaudeQueryOptions({
     modelSelection: { instanceId: ProviderInstanceId.make(CLAUDE_PROVIDER), model },
     nativeThreadId: "mcp-tool-use-eval",
     resume: false,
     cwd: null,
     mcpServers: { codenine: { type: "http", url: "http://127.0.0.1/mcp" } },
+    skills,
   });
 
 /** Text Codenine appends to Claude Code's system prompt. Delegated children get the same text. */
-export const codenineSystemAppend = (model: Model) => {
-  const { systemPrompt } = claudeQueryOptions(model);
+export const codenineSystemAppend = (model: Model, skills?: CaseSkills) => {
+  const { systemPrompt } = claudeQueryOptions(model, skills);
   if (isRecord(systemPrompt) && systemPrompt.type === "preset" && systemPrompt.append) {
     return systemPrompt.append;
   }
   throw new Error("makeClaudeQueryOptions no longer appends Codenine text to a preset prompt.");
+};
+
+/** A case's skills join Codenine's instructions the way a session with them gets them. */
+const withCaseSkills = (base: Base, skills: CaseSkills | undefined): Base => {
+  if (skills === undefined || skills.length === 0) return base;
+  if (base.codex) {
+    const entry = buildCodexAdditionalContext({ model: base.model }, skills).codenine_skills;
+    if (entry === undefined) return base;
+    const listed = {
+      type: "message",
+      role: "developer",
+      content: [{ type: "input_text", text: `<codenine_skills>${entry.value}</codenine_skills>` }],
+    };
+    return { ...base, codex: { ...base.codex, input: [...base.codex.input, listed] } };
+  }
+  const plain = codenineSystemAppend(base.model);
+  if (!base.system.some((block) => valueText(block.text).includes(plain))) {
+    throw new Error("The template's system prompt no longer carries Codenine's append.");
+  }
+  const listed = codenineSystemAppend(base.model, skills);
+  return {
+    ...base,
+    system: base.system.map((block) => {
+      const value = valueText(block.text);
+      return value.includes(plain) ? { ...block, text: value.replace(plain, () => listed) } : block;
+    }),
+  };
 };
 
 /**
@@ -761,7 +803,8 @@ type Sample = {
 
 const SHELL_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "WebFetch"]);
 
-export const makeSample = (testCase: McpToolUseCase, base: Base): Sample => {
+export const makeSample = (testCase: McpToolUseCase, sharedBase: Base): Sample => {
+  const base = withCaseSkills(sharedBase, testCase.setup.skills);
   const prior = testCase.setup.priorTurns ?? [];
   const priorCalls = prior.flatMap((turn) => turn.toolCalls ?? []);
   const repo = testCase.setup.world?.repo ?? "acme/app";
@@ -1190,6 +1233,28 @@ export const codenineDefault = (
       }
       const { title, status, items } = DEFAULT_THREAD;
       return { thread: { threadId, title, status }, items, nextPosition: 3, hasMore: false };
+    }
+    case "codenine_skill_list":
+      return {
+        skills: (sample.testCase.setup.skills ?? []).map(({ name, description }) => ({
+          name,
+          description,
+          scope: "codenine",
+        })),
+      };
+    case "codenine_skill_read": {
+      const skill = sample.testCase.setup.skills?.find(({ name }) => name === input.name);
+      return skill === undefined
+        ? {
+            code: "invalid_request",
+            message: `There is no skill named ${valueText(input.name)}. codenine_skill_list lists them.`,
+          }
+        : {
+            name: skill.name,
+            folder: `/home/user/.codenine/skills/${skill.name}`,
+            files: [],
+            text: skill.instructions,
+          };
     }
     default:
       return { ok: true };
@@ -1923,7 +1988,7 @@ const runSample = Effect.fn("evaluateMcpToolUse.runSample")(function* (
   const maxSteps = testCase.maxSteps === undefined ? config.maxSteps : testCase.maxSteps + extra;
   for (let step = 0; step < maxSteps; step++) {
     const response = input
-      ? yield* callCodex(config, codexRequest(base, input))
+      ? yield* callCodex(config, codexRequest(sample.base, input))
       : yield* callModel(config.apiKey, requestBody(sample, config.effort, messages));
     addUsage(usage, response.usage);
     if ("raw" in response) {

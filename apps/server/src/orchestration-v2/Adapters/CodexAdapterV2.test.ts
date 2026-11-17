@@ -2293,16 +2293,27 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       Effect.gen(function* () {
         const nativeThreadId = "context-thread";
         const nativeTurnId = "context-turn";
+        const skills = [{ name: "deploy", description: "Ships the app." }];
+        const skillContext = '<codenine_skill name="deploy">Ship it.</codenine_skill>';
         const params = yield* CodexAdapterV2.buildCodexTurnStartParams({
           nativeThreadId,
-          codexInput: [{ type: "text", text: "work" }],
+          // A skill Codenine attached goes first, and loses its sigil so Codex does not attach its own.
+          codexInput: [
+            { type: "text", text: skillContext },
+            { type: "text", text: "deploy the work" },
+          ],
           runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
           modelSelection: CODEX_TEST_MODEL_SELECTION,
           hasCodenineMcp: true,
+          skills,
         });
         assert.include(
           params.additionalContext?.codenine_orchestration_01?.value ?? "",
           "delegate_task",
+        );
+        assert.include(
+          params.additionalContext?.codenine_skills?.value ?? "",
+          "- deploy: Ships the app.",
         );
         const entries = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "work" });
         const transcript = makeCodexReplayTranscript({
@@ -2366,15 +2377,21 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           endpoint: "http://127.0.0.1:43123/mcp",
           authorizationHeader: "Bearer test",
         });
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make("context-attempt"),
-            text: "work",
-          }),
-        );
+        const turnInput = makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("context-attempt"),
+          text: "€deploy the work",
+        });
+        yield* harness.runtime.startTurn({
+          ...turnInput,
+          message: {
+            ...turnInput.message,
+            context: [skillContext],
+            skills: { available: skills, attached: ["deploy"] },
+          },
+        });
         yield* harness.firstTerminal;
         assert.equal(harness.terminalEvents()[0]?.status, "completed");
       }).pipe(

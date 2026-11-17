@@ -6,7 +6,6 @@ import * as Path from "effect/Path";
 import { isWithinRoot } from "./workspace/KnownWorkspaces.ts";
 
 const SKILLS_FOLDER = "skills";
-const SKILL_FILE = "SKILL.md";
 
 const MAINTAINED =
   "Codenine maintains this file and updates it when it starts, so edits here do not last.";
@@ -24,8 +23,8 @@ This folder holds what Codenine keeps on this computer. Back it up to keep your 
   \`codex/<account>/\`. \`codex/shared/\`, when present, holds the history those Codex accounts share.
   Logins you already had in \`~/.claude\` and \`~/.codex\` stay where they are. These folders hold
   sign-ins, so treat them like a password.
-- \`skills/\` holds skills every agent account can use. Each folder in it with a \`SKILL.md\` is one
-  skill.
+- \`skills/\` holds your skills. Each folder in it with a \`SKILL.md\` is one skill, and every agent
+  Codenine runs can use it.
 - \`worktrees/\` holds the separate checkouts Codenine makes so an agent can work on its own branch.
 - \`userdata/\` holds Codenine's database, settings, logs, and the keys you saved, stored as plain
   files. Treat this folder like a password.
@@ -42,12 +41,15 @@ export const CODENINE_SKILLS_README = `${MAINTAINED}
 
 # Skills
 
-Each folder here that holds a \`SKILL.md\` is a skill every agent account can use, in Claude and in
-Codex. Codenine links each skill into every account's own skills folder, so a new skill reaches an
-account the next time Codenine checks it, such as when Codenine starts or after you sign in.
+Each folder here that holds a \`SKILL.md\` is a skill. Codenine gives these skills to every agent it
+runs, in Claude Code and in Codex alike: it tells the agent which skills exist, and the agent reads
+one when a task fits it. A skill you name in a message as \`$name\` goes with that message.
 
-An account keeps its own skill when one here has the same name. Delete a skill here and Codenine
-removes its links.
+A workspace can keep skills of its own in its \`.agents/skills/\` folder. A workspace skill wins over
+a skill here with the same name.
+
+Add and edit skills on Codenine's Skills page, or edit the files here. Delete a skill's folder to
+remove it.
 `;
 
 /** Writes the folder's map and its skills folder; Codenine owns both READMEs. */
@@ -72,62 +74,33 @@ export const writeCodenineHomeGuide = Effect.fn("CodenineHome.writeGuide")(funct
 });
 
 /**
- * Links each skill in the Codenine folder into one account's own skills folder. An account folder
- * that does not exist yet stays missing: Claude creates its own at sign-in, and Codenine never
- * creates ~/.claude or ~/.codex.
+ * Removes the links older versions made from one account's skills folder into the Codenine
+ * folder's skills. Codenine gives agents those skills itself now, so a link would list each one
+ * twice. Real folders and links to anywhere else are the account's own and stay.
  */
-export const linkCodenineSkills = Effect.fn("CodenineHome.linkSkills")(
+export const unlinkCodenineSkills = Effect.fn("CodenineHome.unlinkSkills")(
   function* (input: { readonly baseDir: string; readonly accountHome: string }) {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    if (!(yield* fileSystem.exists(input.accountHome))) return;
     const skillsRoot = path.join(input.baseDir, SKILLS_FOLDER);
     const accountSkills = path.join(input.accountHome, SKILLS_FOLDER);
-    const readEntries = (directory: string) =>
-      fileSystem
-        .readDirectoryEntries(directory)
-        .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])));
-    // Only a broken link into the skills folder is Codenine's to remove; a doubtful one stays.
-    for (const entry of yield* readEntries(accountSkills)) {
+    const entries = yield* fileSystem
+      .readDirectoryEntries(accountSkills)
+      .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])));
+    for (const entry of entries) {
       if (entry.type !== "SymbolicLink") continue;
       const link = path.join(accountSkills, entry.name);
       const target = yield* fileSystem.readLink(link).pipe(Effect.option);
       if (Option.isNone(target)) continue;
       const resolved = path.resolve(accountSkills, target.value);
-      const broken = !(yield* fileSystem.exists(resolved).pipe(Effect.orElseSucceed(() => true)));
-      if (broken && isWithinRoot(path, resolved, skillsRoot)) {
-        yield* fileSystem
-          .remove(link)
-          .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.void));
-      }
-    }
-
-    const skills: Array<string> = [];
-    for (const entry of yield* readEntries(skillsRoot)) {
-      if (entry.name.startsWith(".")) continue;
-      const skillFile = path.join(skillsRoot, entry.name, SKILL_FILE);
-      if (yield* fileSystem.exists(skillFile).pipe(Effect.orElseSucceed(() => false))) {
-        skills.push(entry.name);
-      }
-    }
-    if (skills.length === 0) return;
-    yield* fileSystem.makeDirectory(accountSkills, { recursive: true });
-    for (const name of skills) {
-      const link = path.join(accountSkills, name);
-      // Anything already there, even a broken link, belongs to the account.
-      const taken = yield* fileSystem.lstat(link).pipe(
-        Effect.as(true),
-        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
-      );
-      if (taken) continue;
-      // Accounts sharing one home link it at the same time; the loser finds the link made.
+      if (resolved === skillsRoot || !isWithinRoot(path, resolved, skillsRoot)) continue;
       yield* fileSystem
-        .symlink(path.join(skillsRoot, name), link)
-        .pipe(Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.void));
+        .remove(link)
+        .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.void));
     }
   },
   Effect.ignore({
     log: "Warn",
-    message: "Could not link the Codenine folder's skills into an account.",
+    message: "Could not remove the Codenine folder's old skill links from an account.",
   }),
 );

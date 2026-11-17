@@ -66,10 +66,13 @@ const normalize = (target: string) => {
   }
   return `/${parts.join("/")}`;
 };
-const layerWorktreeLocation = (worktreesDir = managedWorktreesDir) =>
+const layerWorktreeLocation = (worktreesDir = managedWorktreesDir, baseDir?: string) =>
   Layer.mergeAll(
     Path.layer,
-    Layer.mock(ServerConfig.ServerConfig)({ worktreesDir } as ServerConfig.ServerConfig["Service"]),
+    Layer.mock(ServerConfig.ServerConfig)({
+      worktreesDir,
+      ...(baseDir === undefined ? {} : { baseDir }),
+    } as ServerConfig.ServerConfig["Service"]),
     ServerSettings.layerTest(),
   );
 
@@ -303,6 +306,8 @@ function makeLocalCommandHarness(input: {
     readonly switchedProvider?: boolean;
     readonly threadRuntimeMode?: OrchestrationV2ThreadProjection["thread"]["runtimeMode"];
   };
+  /** A Codenine folder with skills, and the skills the chat keeps on. */
+  readonly skills?: { readonly baseDir: string; readonly keptOn: ReadonlyArray<string> };
 }) {
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = ThreadId.make("thread-native-account-command");
@@ -372,6 +377,7 @@ function makeLocalCommandHarness(input: {
       branch: input.worktreePath === undefined ? null : "feature/restore",
       worktreePath: input.worktreePath ?? null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+      ...(input.skills === undefined ? {} : { skills: input.skills.keptOn }),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -939,7 +945,7 @@ function makeLocalCommandHarness(input: {
             }),
         }),
         IdAllocator.layer,
-        layerWorktreeLocation(input.worktreesDir),
+        layerWorktreeLocation(input.worktreesDir, input.skills?.baseDir),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
           : Layer.succeed(FileSystem.FileSystem, input.fileSystem),
@@ -1294,6 +1300,45 @@ effectIt.effect.each([
         },
       ]);
     }),
+);
+
+effectIt.effect("sends the skill a message names and the chat's kept-on skills with the turn", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const baseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-turn-" });
+    for (const name of ["deploy", "review-code"]) {
+      yield* fileSystem.makeDirectory(path.join(baseDir, "skills", name), { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(baseDir, "skills", name, "SKILL.md"),
+        `---\nname: ${name}\ndescription: ${name} help\n---\n\n${name} steps\n`,
+      );
+    }
+    const harness = makeLocalCommandHarness({
+      text: "$deploy to staging",
+      sideChat: { contextRun: "current" },
+      fileSystem,
+      skills: { baseDir, keptOn: ["review-code", "deploy"] },
+    });
+
+    yield* harness.start;
+
+    const message = harness.startTurn.mock.calls[0]?.[0].message;
+    expect(message?.text).toBe(withInlineContext("SIDE_CHAT_CONTEXT", "$deploy to staging"));
+    expect(message?.skills).toEqual({
+      available: [
+        { name: "deploy", description: "deploy help" },
+        { name: "review-code", description: "review-code help" },
+      ],
+      attached: ["deploy"],
+    });
+    expect(message?.context).toEqual([
+      expect.stringMatching(
+        /^<codenine_skill name="deploy"[\s\S]*deploy steps\n<\/codenine_skill>$/,
+      ),
+      expect.stringContaining("keeps these skills on for this chat: review-code."),
+    ]);
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
 
 effectIt.effect.each([

@@ -668,6 +668,42 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
     assert.notInclude(JSON.stringify(logged), "secret-claude-token");
   });
 
+  it("lists Codenine's skills while its MCP server is attached and sends its context first", () => {
+    const append = (
+      mcpServers?: Parameters<typeof ClaudeAdapterV2.makeClaudeQueryOptions>[0]["mcpServers"],
+    ) => {
+      const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+        modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+        nativeThreadId: "native-thread-skills",
+        resume: false,
+        cwd: "/workspace",
+        skills: [{ name: "review-code", description: "Reviews a change." }],
+        ...(mcpServers === undefined ? {} : { mcpServers }),
+      });
+      return (options.systemPrompt as { readonly append?: string }).append ?? "";
+    };
+    assert.include(
+      append({ codenine: { type: "http", url: "http://127.0.0.1/mcp" } }),
+      "- review-code: Reviews a change.",
+    );
+    assert.notInclude(append(), "review-code");
+
+    const message = ClaudeAdapterV2.makeClaudeUserMessage({
+      text: "$review-code then $deploy",
+      context: ['<codenine_skill name="review-code">Review it.</codenine_skill>'],
+      skills: new Map([
+        ["review-code", { path: "/home/user/.claude/skills/review-code/SKILL.md" }],
+        ["deploy", { path: "/home/user/.claude/skills/deploy/SKILL.md" }],
+      ]),
+      codenineSkills: ["review-code"],
+    });
+    assert.deepEqual(message.message.content, [
+      { type: "text", text: '<codenine_skill name="review-code">Review it.</codenine_skill>' },
+      { type: "text", text: "$review-code then /deploy" },
+      { type: "text", text: "/deploy" },
+    ]);
+  });
+
   it("logs --settings key names without their values", () => {
     const options = ClaudeAdapterV2.makeClaudeQueryOptions({
       modelSelection: CLAUDE_TEST_MODEL_SELECTION,

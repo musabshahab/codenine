@@ -5,6 +5,7 @@ import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as BackupService from "./backup/BackupService.ts";
+import * as Skills from "./skills/Skills.ts";
 import { applyPendingRestore } from "./backup/BackupRestore.ts";
 import * as Scheduler from "./scheduling/Scheduler.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
@@ -493,6 +494,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(layerServerRestart),
   ),
   BackupService.layer.pipe(Layer.provide(Scheduler.layer), Layer.provide(layerServerRestart)),
+  Skills.layer,
   layerThreadPullRequestWorker,
   Layer.effectDiscard(
     Effect.gen(function* () {

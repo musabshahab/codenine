@@ -28,6 +28,7 @@ Cases are JSON lines in `cases/`, one file per area. The case schema in `run.ts`
 - `experience`: the real mistake, in a sentence. `source`: where it happened.
 - `setup`: the fake thread, its `world` (repo, branch, files, PRs, pages), `priorTurns`, and `mocks` for tool results.
 - `setup.priorTurns[].toolCalls[].resultFile`: load a repository-relative file as the tool result instead of copying its contents into the case. An empty `prompt` resumes a top-level thread after its last prior tool result without adding a user message. Side-chat and subagent setups require a nonempty prompt.
+- `setup.skills`: the user's skills. Codenine's instructions list them as a session with them gets them, and `codenine_skill_read` and `codenine_skill_list` answer from them unless mocked. Write the user's own skills; Codenine's library skills are its text, so a case never copies them.
 - `expect`: the checks, such as `calls`, `callsMustNot`, `maxCalls`, `order`, `shellMust`, `textMust`, `finalTextMust` (the last text, once the turn ended), and `linked`. A call's `args` match partially: `~text` is a case-insensitive substring, `"<=N"` / `">=N"` bound a number, `null` matches a missing key, and keys may be dotted paths. Secrets cases use `secret` (see [Secrets cases](#secrets-cases)).
 
 Check that the case builds with `--dry-run --case <id>`. Then run it on the text before your fix, where it must fail, and on the text after, where it must pass.
@@ -142,6 +143,8 @@ Passes per case, main's text → the request_secret guidance change stacked on t
 
 - `packages/provider-core/src/server/runtimeInstructions.ts`
 - `packages/provider-core/src/server/orchestrationInstructions.ts`
+- `packages/provider-core/src/server/skillInstructions.ts` (the skills list and what a turn carries about skills)
+- `apps/server/src/skills/SkillLibrary.ts` (the skills Codenine ships)
 - `apps/server/src/provider/CodexDeveloperInstructions.ts`
 - `apps/server/src/mcp/toolkits/*/tools.ts` (tool descriptions)
 - `packages/contracts/src/*Mcp.ts` (parameter descriptions and result text)

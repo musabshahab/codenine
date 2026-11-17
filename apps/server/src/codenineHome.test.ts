@@ -9,7 +9,7 @@ import * as Path from "effect/Path";
 import {
   CODENINE_HOME_README,
   CODENINE_SKILLS_README,
-  linkCodenineSkills,
+  unlinkCodenineSkills,
   writeCodenineHomeGuide,
 } from "./codenineHome.ts";
 
@@ -40,7 +40,7 @@ it.layer(NodeServices.layer)("codenineHome", (it) => {
   );
 
   it.effect.skipIf(!symlinksSupported)(
-    "links each skill into an account, never over its own, and removes only broken links of ours",
+    "removes only an account's links into the Codenine skills, never its own skills or other links",
     () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -48,8 +48,7 @@ it.layer(NodeServices.layer)("codenineHome", (it) => {
         const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-skills-" });
         const baseDir = path.join(root, "codenine");
         const skills = path.join(baseDir, "skills");
-        const accountHome = path.join(root, "account");
-        const accountSkills = path.join(accountHome, "skills");
+        const accountSkills = path.join(root, "account", "skills");
         const writeSkill = (folder: string) =>
           fileSystem
             .makeDirectory(folder, { recursive: true })
@@ -57,71 +56,45 @@ it.layer(NodeServices.layer)("codenineHome", (it) => {
               Effect.andThen(fileSystem.writeFileString(path.join(folder, "SKILL.md"), "---\n")),
             );
         yield* writeSkill(path.join(skills, "review"));
-        yield* writeSkill(path.join(skills, "deploy"));
-        yield* writeSkill(path.join(skills, ".hidden"));
-        yield* fileSystem.makeDirectory(path.join(skills, "draft"));
-        yield* fileSystem.writeFileString(path.join(skills, "README.md"), "guide\n");
         yield* writeSkill(path.join(accountSkills, "deploy"));
+        yield* writeSkill(path.join(root, "shared", "lint"));
+        yield* fileSystem.symlink(path.join(skills, "review"), path.join(accountSkills, "review"));
+        yield* fileSystem.symlink(path.join(skills, "gone"), path.join(accountSkills, "gone"));
         yield* fileSystem.symlink(
-          path.join(skills, "renamed"),
-          path.join(accountSkills, "renamed"),
+          path.join(root, "shared", "lint"),
+          path.join(accountSkills, "lint"),
         );
-        yield* fileSystem.symlink(path.join(root, "gone"), path.join(accountSkills, "elsewhere"));
-
-        const link = () => linkCodenineSkills({ baseDir, accountHome });
-        yield* link();
-        yield* link();
-
-        expect(yield* fileSystem.readLink(path.join(accountSkills, "review"))).toBe(
-          path.join(skills, "review"),
+        yield* fileSystem.symlink(
+          path.join(root, "missing"),
+          path.join(accountSkills, "elsewhere"),
         );
+        yield* fileSystem.symlink(skills, path.join(accountSkills, "all"));
+
+        yield* unlinkCodenineSkills({ baseDir, accountHome: path.join(root, "account") });
+
+        expect([...(yield* fileSystem.readDirectory(accountSkills))].sort()).toEqual([
+          "all",
+          "deploy",
+          "elsewhere",
+          "lint",
+        ]);
         expect((yield* fileSystem.lstat(path.join(accountSkills, "deploy"))).type).toBe(
           "Directory",
         );
-        expect(yield* fileSystem.readLink(path.join(accountSkills, "elsewhere"))).toBe(
-          path.join(root, "gone"),
-        );
-        expect([...(yield* fileSystem.readDirectory(accountSkills))].sort()).toEqual([
-          "deploy",
-          "elsewhere",
-          "review",
-        ]);
-
-        yield* fileSystem.remove(path.join(skills, "review"), { recursive: true });
-        yield* link();
-        expect([...(yield* fileSystem.readDirectory(accountSkills))].sort()).toEqual([
-          "deploy",
-          "elsewhere",
-        ]);
+        expect(yield* fileSystem.exists(path.join(skills, "review", "SKILL.md"))).toBe(true);
       }),
   );
 
-  it.effect.skipIf(!symlinksSupported)(
-    "leaves an account folder that does not exist yet for the agent to create",
-    () =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-skills-" });
-        const baseDir = path.join(root, "codenine");
-        yield* fileSystem.makeDirectory(path.join(baseDir, "skills", "review"), {
-          recursive: true,
-        });
-        yield* fileSystem.writeFileString(
-          path.join(baseDir, "skills", "review", "SKILL.md"),
-          "---\n",
-        );
-        const missing = path.join(root, "accounts", "claude", "work");
-        const signedIn = path.join(root, "accounts", "claude", "personal");
-        yield* fileSystem.makeDirectory(signedIn, { recursive: true });
+  it.effect("leaves an account that has no skills folder alone", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-skills-" });
+      const accountHome = path.join(root, "accounts", "claude", "work");
 
-        yield* linkCodenineSkills({ baseDir, accountHome: missing });
-        yield* linkCodenineSkills({ baseDir, accountHome: signedIn });
+      yield* unlinkCodenineSkills({ baseDir: path.join(root, "codenine"), accountHome });
 
-        expect(yield* fileSystem.exists(missing)).toBe(false);
-        expect(yield* fileSystem.readLink(path.join(signedIn, "skills", "review"))).toBe(
-          path.join(baseDir, "skills", "review"),
-        );
-      }),
+      expect(yield* fileSystem.exists(accountHome)).toBe(false);
+    }),
   );
 });

@@ -189,6 +189,10 @@ import type { ManagedServerProvider } from "@codenine/provider-core/server/snaps
 import { CODENINE_ORCHESTRATION_INSTRUCTIONS } from "@codenine/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@codenine/provider-core/server/runtimeInstructions";
 import {
+  buildSkillsInstructions,
+  type SkillListing,
+} from "@codenine/provider-core/server/skillInstructions";
+import {
   mcpToolPresentation,
   normalizeMcpText,
 } from "@codenine/provider-core/server/mcpToolPresentation";
@@ -1523,6 +1527,8 @@ export function makeClaudeQueryOptions(input: {
   readonly appendSystemPromptFileText?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
   readonly toolSearchOverride?: "true";
+  /** Codenine's skills, listed after its orchestration instructions while its MCP server is attached. */
+  readonly skills?: ReadonlyArray<SkillListing> | undefined;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection, input.modelCatalog);
   const {
@@ -1635,6 +1641,9 @@ export function makeClaudeQueryOptions(input: {
           (input.mcpServers === undefined
             ? ""
             : CODENINE_ORCHESTRATION_INSTRUCTIONS + CLAUDE_BACKGROUND_WAIT_INSTRUCTIONS),
+        ...(input.mcpServers === undefined || input.skills === undefined
+          ? []
+          : [buildSkillsInstructions(input.skills)].filter((text) => text.length > 0)),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -2113,26 +2122,35 @@ function isSupportedClaudeImageMimeType(
 
 export function makeClaudeUserMessage(input: {
   readonly text: string;
+  /** Codenine's context, each a text block ahead of the user's text. */
+  readonly context?: ReadonlyArray<string> | undefined;
   readonly priority?: SDKUserMessage["priority"];
   readonly skills?: ReadonlyMap<string, ClaudeSkillTarget>;
+  readonly codenineSkills?: ReadonlyArray<string> | undefined;
   readonly uuid?: SDKUserMessage["uuid"];
 }): SDKUserMessage {
   // Claude expands a skill only when `/name` starts the last text block.
   // Keep the whole request before that block; see ClaudeSkillDispatch.
   const dispatch =
-    input.skills === undefined ? undefined : planClaudeSkillDispatch(input.text, input.skills);
+    input.skills === undefined
+      ? undefined
+      : planClaudeSkillDispatch(input.text, input.skills, input.codenineSkills);
+  const context = (input.context ?? []).map((text) => ({ type: "text" as const, text }));
   return {
     type: "user",
     message: {
       role: "user",
       content: dispatch
         ? [
+            ...context,
             ...(dispatch.leadingText === undefined
               ? []
               : [{ type: "text" as const, text: dispatch.leadingText }]),
             { type: "text" as const, text: dispatch.commandText },
           ]
-        : input.text,
+        : context.length === 0
+          ? input.text
+          : [...context, { type: "text" as const, text: input.text }],
     },
     parent_tool_use_id: null,
     ...(input.priority === undefined ? {} : { priority: input.priority }),
@@ -2281,10 +2299,14 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   readonly fileSystem: FileSystem.FileSystem;
   readonly pdfReservation: Effect.Success<ReturnType<typeof reserveClaudePdfBudget>>;
   readonly skills?: ReadonlyMap<string, ClaudeSkillTarget>;
+  readonly message: Pick<ProviderAdapter.ProviderAdapterV2TurnMessage, "context" | "skills">;
 }) {
+  const codenineSkills = input.message.skills?.attached;
   if (input.attachments.length === 0) {
     const message = makeClaudeUserMessage({
       text: input.text,
+      context: input.message.context,
+      codenineSkills,
       ...(input.skills === undefined ? {} : { skills: input.skills }),
       ...(input.priority === undefined ? {} : { priority: input.priority }),
       ...(input.uuid === undefined ? {} : { uuid: input.uuid }),
@@ -2309,8 +2331,9 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   const dispatch =
     input.skills === undefined
       ? undefined
-      : planClaudeSkillDispatch(textWithAttachmentPaths, input.skills);
-  const content: Array<ClaudeUserContentBlock> = [];
+      : planClaudeSkillDispatch(textWithAttachmentPaths, input.skills, codenineSkills);
+  const context = (input.message.context ?? []).map((text) => ({ type: "text" as const, text }));
+  const content: Array<ClaudeUserContentBlock> = [...context];
   // Base64 adds a third to the payload. Leave room below Anthropic's 32 MB
   // request limit for text, instructions, and SDK framing. The SDK does not
   // expose document/context-window capabilities, so use the 100-page limit
@@ -2323,16 +2346,17 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   // including images that follow it in attachment order.
   const images = new Map<number, ClaudeUserContentBlock>();
   const textBytes = Buffer.byteLength(
-    encodeClaudeJson(
-      dispatch
+    encodeClaudeJson([
+      ...context,
+      ...(dispatch
         ? [
             ...(dispatch.leadingText === undefined
               ? []
               : [{ type: "text", text: dispatch.leadingText }]),
             { type: "text", text: dispatch.commandText },
           ]
-        : [{ type: "text", text: textWithAttachmentPaths }],
-    ),
+        : [{ type: "text", text: textWithAttachmentPaths }]),
+    ]),
   );
   input.pdfReservation.budget.pending.bytes += textBytes;
   input.pdfReservation.bytes += textBytes;
@@ -10606,6 +10630,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             supportedDialogKinds: ["resume_return"],
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
+            // Fixed while this process lives; codenine_skill_list shows skills added since.
+            skills: turnInput.message.skills?.available,
           });
           const resolvedTurnCwd = yield* fileSystem
             .realPath(turnInput.runtimePolicy.cwd ?? ".")
@@ -10825,6 +10851,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     fileSystem,
                     pdfReservation,
                     skills: yield* userInvocableSkills(turnInput.runtimePolicy.cwd),
+                    message: turnInput.message,
                     uuid: promptUuid,
                   }).pipe(
                     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -11284,6 +11311,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               fileSystem,
               pdfReservation,
               skills: yield* userInvocableSkills(currentTurn.input.runtimePolicy.cwd),
+              message: turnInput.message,
             }).pipe(
               Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
               Effect.provideService(Path.Path, path),
