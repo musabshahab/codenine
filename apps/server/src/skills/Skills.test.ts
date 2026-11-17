@@ -120,6 +120,7 @@ it.layer(NodeServices.layer)("Skills", (it) => {
           description: "Ships the app to production.",
           instructions: "# Deploy\n\nRun scripts/run.sh.",
           scope: "codenine",
+          previousName: "deploy",
         });
         expect(yield* fileSystem.readFileString(skillFile)).toBe(
           "---\nname: deploy\ndescription: Ships the app to production.\nlicense: MIT\n---\n\n# Deploy\n\nRun scripts/run.sh.\n",
@@ -144,6 +145,17 @@ it.layer(NodeServices.layer)("Skills", (it) => {
           instructions: "",
           scope: "codenine",
         });
+        // Creating never replaces a skill that already has the name.
+        expect(
+          yield* reasonOf(
+            skills.save({
+              name: "notes",
+              description: "Other notes.",
+              instructions: "",
+              scope: "codenine",
+            }),
+          ),
+        ).toBe("exists");
         expect(
           yield* reasonOf(
             skills.save({

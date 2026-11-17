@@ -176,9 +176,7 @@ function SkillForm({
         instructions,
         scope,
         ...(scope === "workspace" && projectId !== null ? { projectId } : {}),
-        ...(skill !== null && !moved && skill.name !== checked.name
-          ? { previousName: skill.name }
-          : {}),
+        ...(skill !== null && !moved ? { previousName: skill.name } : {}),
       },
     });
     if (result._tag === "Failure") {

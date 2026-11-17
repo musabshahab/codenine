@@ -103,7 +103,7 @@ export const SkillSaveInput = Schema.Struct({
   instructions: Schema.String,
   scope: SkillScope,
   projectId: Schema.optionalKey(ProjectId),
-  /** Renaming: the skill's current name, in the same scope. */
+  /** Editing: the skill's current name in the same scope. Leave out to create; taken names fail. */
   previousName: Schema.optionalKey(SkillName),
 });
 export type SkillSaveInput = typeof SkillSaveInput.Type;

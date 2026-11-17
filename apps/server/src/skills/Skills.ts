@@ -59,7 +59,7 @@ export class Skills extends Context.Service<
   {
     readonly list: (input: SkillsListInput) => Effect.Effect<SkillsListResult, SkillError>;
     readonly read: (input: SkillRefInput) => Effect.Effect<SkillDetail, SkillError>;
-    /** Creates or updates a skill in place; `previousName` renames it within its scope. */
+    /** Without `previousName` creates a skill and never replaces one; with it, edits or renames that skill. */
     readonly save: (input: SkillSaveInput) => Effect.Effect<SkillSummary, SkillError>;
     readonly remove: (input: SkillRefInput) => Effect.Effect<void, SkillError>;
     readonly addFromLibrary: (input: {
@@ -223,22 +223,21 @@ const make = Effect.gen(function* () {
   const save: Skills["Service"]["save"] = Effect.fn("Skills.save")(function* (input) {
     const root = yield* rootFor(input.scope, input.projectId);
     const target = path.join(root.folder, input.name);
-    const previousName = input.previousName ?? input.name;
+    const previousName = input.previousName;
     const couldNotSave = failed("Could not save the skill.");
     yield* fileSystem
       .makeDirectory(root.folder, { recursive: true })
       .pipe(Effect.catchTags({ PlatformError: couldNotSave }));
-    if (previousName !== input.name) {
-      const source = path.join(root.folder, previousName);
-      if (yield* occupied(target)) {
-        return yield* new SkillError({
-          reason: "exists",
-          detail: `A skill named ${input.name} already exists here.`,
-        });
-      }
-      yield* readOrFail(root, previousName);
+    if (previousName !== input.name && (yield* occupied(target))) {
+      return yield* new SkillError({
+        reason: "exists",
+        detail: `A skill named ${input.name} already exists here.`,
+      });
+    }
+    if (previousName !== undefined) yield* readOrFail(root, previousName);
+    if (previousName !== undefined && previousName !== input.name) {
       yield* fileSystem
-        .rename(source, target)
+        .rename(path.join(root.folder, previousName), target)
         .pipe(Effect.catchTags({ PlatformError: couldNotSave }));
     }
     const skillFile = path.join(target, SKILL_FILE);
