@@ -37,7 +37,7 @@ describe("toolRisk", () => {
     );
   });
 
-  it("one action's own choice wins, then the agent's for its group, then the connection's", () => {
+  it("an agent's choice for the group decides in its chats; elsewhere the action's own choice wins", () => {
     const decide = (
       toolApprovals: Record<string, "auto" | "ask">,
       agentApprovals?: { readonly irreversible?: "auto" | "ask"; readonly read?: "auto" | "ask" },
@@ -49,17 +49,26 @@ describe("toolRisk", () => {
         toolApprovals,
         agentApprovals,
       });
-    assert.strictEqual(decide({}), "ask");
-    assert.strictEqual(decide({ send: "auto" }), "auto");
-    assert.strictEqual(decide({ other: "auto" }), "ask");
-    assert.strictEqual(decide({}, { irreversible: "auto" }), "auto");
-    assert.strictEqual(decide({}, { read: "auto" }), "ask");
-    assert.strictEqual(decide({ send: "ask" }, { irreversible: "auto" }), "ask");
-    assert.strictEqual(decide({ send: "auto" }, { irreversible: "ask" }), "auto");
+    assert.deepStrictEqual(decide({}), { mode: "ask", byAgent: false });
+    assert.deepStrictEqual(decide({ send: "auto" }), { mode: "auto", byAgent: false });
+    assert.deepStrictEqual(decide({ other: "auto" }), { mode: "ask", byAgent: false });
+    assert.deepStrictEqual(decide({}, { irreversible: "auto" }), { mode: "auto", byAgent: true });
+    assert.deepStrictEqual(decide({ send: "auto" }, { read: "ask" }), {
+      mode: "auto",
+      byAgent: false,
+    });
+    assert.deepStrictEqual(decide({ send: "ask" }, { irreversible: "auto" }), {
+      mode: "auto",
+      byAgent: true,
+    });
+    assert.deepStrictEqual(decide({ send: "auto" }, { irreversible: "ask" }), {
+      mode: "ask",
+      byAgent: true,
+    });
   });
 });
 
-const askWithRecorder = Effect.gen(function* () {
+const askWithRecorder = Effect.fn(function* (canRemember: boolean) {
   const approvals = yield* ConnectorApprovals.ConnectorApprovals;
   const recorded = yield* Ref.make<
     ReadonlyArray<readonly [OrchestrationV2ConnectorApprovalStatus, boolean]>
@@ -77,7 +86,7 @@ const askWithRecorder = Effect.gen(function* () {
           Effect.andThen(status === "pending" ? Deferred.succeed(shown, undefined) : Effect.void),
           Effect.asVoid,
         ),
-      remember: Ref.update(remembered, (count) => count + 1),
+      ...(canRemember ? { remember: Ref.update(remembered, (count) => count + 1) } : {}),
       ended: Deferred.succeed(waiting, undefined).pipe(Effect.andThen(Deferred.await(runEnded))),
     })
     .pipe(Effect.forkChild);
@@ -86,31 +95,35 @@ const askWithRecorder = Effect.gen(function* () {
   const answer = (value: ConnectorApprovalAnswer) =>
     approvals.answer({ threadId, turnItemId, answer: value });
   return { fiber, answer, recorded, remembered, runEnded };
-}).pipe(Effect.provide(ConnectorApprovals.layer));
+}, Effect.provide(ConnectorApprovals.layer));
 
 describe("ConnectorApprovals.ask", () => {
   it.effect.each([
-    ["allow", "allowed", false, 0],
-    ["always", "allowed", true, 1],
-    ["decline", "declined", false, 0],
-  ] as const)("%s closes the card as %s", ([answer, outcome, remembered, rememberCalls]) =>
-    Effect.gen(function* () {
-      const harness = yield* askWithRecorder;
-      assert.strictEqual(yield* harness.answer(answer), "answered");
-      assert.strictEqual(yield* Fiber.join(harness.fiber), outcome);
-      assert.deepStrictEqual(yield* Ref.get(harness.recorded), [
-        ["pending", false],
-        [outcome, remembered],
-      ]);
-      assert.strictEqual(yield* Ref.get(harness.remembered), rememberCalls);
-      // A second answer finds nothing waiting.
-      assert.strictEqual(yield* harness.answer("allow"), "not-waiting");
-    }),
+    ["allow", "allowed", true, false, 0],
+    ["always", "allowed", true, true, 1],
+    // An agent's settings decide its chats, so "always" there allows just this once.
+    ["always", "allowed", false, false, 0],
+    ["decline", "declined", true, false, 0],
+  ] as const)(
+    "%s closes the card as %s",
+    ([answer, outcome, canRemember, remembered, rememberCalls]) =>
+      Effect.gen(function* () {
+        const harness = yield* askWithRecorder(canRemember);
+        assert.strictEqual(yield* harness.answer(answer), "answered");
+        assert.strictEqual(yield* Fiber.join(harness.fiber), outcome);
+        assert.deepStrictEqual(yield* Ref.get(harness.recorded), [
+          ["pending", false],
+          [outcome, remembered],
+        ]);
+        assert.strictEqual(yield* Ref.get(harness.remembered), rememberCalls);
+        // A second answer finds nothing waiting.
+        assert.strictEqual(yield* harness.answer("allow"), "not-waiting");
+      }),
   );
 
   it.effect("no answer within the wait cancels the card", () =>
     Effect.gen(function* () {
-      const harness = yield* askWithRecorder;
+      const harness = yield* askWithRecorder(true);
       yield* TestClock.adjust("10 minutes");
       assert.strictEqual(yield* Fiber.join(harness.fiber), "cancelled");
       assert.deepStrictEqual(yield* Ref.get(harness.recorded), [
@@ -123,7 +136,7 @@ describe("ConnectorApprovals.ask", () => {
 
   it.effect("the run ending cancels the card", () =>
     Effect.gen(function* () {
-      const harness = yield* askWithRecorder;
+      const harness = yield* askWithRecorder(true);
       yield* Deferred.succeed(harness.runEnded, undefined);
       assert.strictEqual(yield* Fiber.join(harness.fiber), "cancelled");
       assert.deepStrictEqual((yield* Ref.get(harness.recorded)).at(-1), ["cancelled", false]);
@@ -132,7 +145,7 @@ describe("ConnectorApprovals.ask", () => {
 
   it.effect("an aborted call cancels the card and nothing waits for an answer", () =>
     Effect.gen(function* () {
-      const harness = yield* askWithRecorder;
+      const harness = yield* askWithRecorder(true);
       yield* Fiber.interrupt(harness.fiber);
       assert.deepStrictEqual(yield* Ref.get(harness.recorded), [
         ["pending", false],

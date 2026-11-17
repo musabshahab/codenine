@@ -33,7 +33,9 @@ Choose another model to use the agent again.
 A connector sorts its actions into **Read**, **Change** and **Can't be undone**, and each group
 runs **Automatic** or **Ask every time**. An agent shows the connector's own choice for each group.
 Change one, and that choice applies to this agent only; the connector and other chats keep theirs.
-A group you leave alone follows the connector, even after you change the connector later.
+In the agent's chats it also wins over a choice made for a single action, so an agent set to ask
+always asks; its cards have no **Always allow**. A group you leave alone follows the connector, even
+after you change the connector later.
 
 ## Chat with an agent
 

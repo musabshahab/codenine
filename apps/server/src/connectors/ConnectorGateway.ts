@@ -378,7 +378,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-    if (approval === "ask") {
+    if (approval.mode === "ask") {
       const run = ThreadManagement.latestActiveRun(input.records);
       if (run === undefined || run.rootNodeId === null) {
         yield* logActivity("cancelled", false);
@@ -389,6 +389,7 @@ const make = Effect.gen(function* () {
       const runId = run.id;
       const nodeId = run.rootNodeId;
       const turnItemId = TurnItemId.make(`turn-item:connector-approval:${yield* random.uuidV4()}`);
+      const agent = approval.byAgent ? thread.agent : undefined;
       const record = (status: OrchestrationV2ConnectorApprovalStatus, remembered: boolean) =>
         threads
           .dispatch({
@@ -407,6 +408,7 @@ const make = Effect.gen(function* () {
             ...(call.preview === undefined ? {} : { preview: call.preview }),
             approvalStatus: status,
             ...(remembered ? { remembered: true } : {}),
+            ...(agent === undefined ? {} : { agent }),
           })
           .pipe(
             Effect.asVoid,
@@ -422,12 +424,16 @@ const make = Effect.gen(function* () {
         threadId,
         turnItemId,
         record,
-        remember: store
-          .update(connection.id, (current) => ({
-            ...current,
-            toolApprovals: { ...current.toolApprovals, [tool]: "auto" },
-          }))
-          .pipe(Effect.ignore),
+        ...(approval.byAgent
+          ? {}
+          : {
+              remember: store
+                .update(connection.id, (current) => ({
+                  ...current,
+                  toolApprovals: { ...current.toolApprovals, [tool]: "auto" },
+                }))
+                .pipe(Effect.ignore),
+            }),
         ended: runEnded(threadId, runId),
       });
       if (outcome === "declined") {
@@ -454,7 +460,7 @@ const make = Effect.gen(function* () {
       return toolError(failure.message);
     }
     yield* logActivity(
-      result.success.isError === true ? "failed" : approval === "ask" ? "allowed" : "auto",
+      result.success.isError === true ? "failed" : approval.mode === "ask" ? "allowed" : "auto",
       result.success.isError !== true,
     );
     return result.success;
@@ -583,6 +589,7 @@ const make = Effect.gen(function* () {
           details: item.details,
           ...(item.preview === undefined ? {} : { preview: item.preview }),
           approvalStatus: "cancelled",
+          ...(item.agent === undefined ? {} : { agent: item.agent }),
         })
         .pipe(Effect.ignore);
     }

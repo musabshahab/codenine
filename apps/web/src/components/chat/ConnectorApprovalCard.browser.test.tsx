@@ -1,4 +1,5 @@
 import {
+  AgentName,
   ConnectionId,
   ConnectorError,
   EnvironmentId,
@@ -104,6 +105,23 @@ it("words other actions as allowing, and leaves one quiet line once answered", a
   );
   await expect.element(screen.getByRole("button", { name: "Always allow" })).toBeVisible();
   await expect.element(screen.getByRole("button", { name: "Don't allow" })).toBeVisible();
+
+  // Only the agent's settings change what it asks, so "always" would be an empty promise.
+  await screen.rerender(
+    <ConnectorApprovalCard
+      environmentId={environmentId}
+      item={approval({ agent: AgentName.make("mail-helper") })}
+      visibility="local"
+      canAnswer
+    />,
+  );
+  await expect.element(screen.getByText(/^The Mail helper agent asks first\./)).toBeVisible();
+  await expect
+    .element(screen.getByRole("link", { name: "Change in its settings" }))
+    .toHaveAttribute("href", "/agents/mail-helper/edit?machine=local");
+  await expect
+    .element(screen.getByRole("button", { name: "Always send without asking" }))
+    .not.toBeInTheDocument();
 
   await screen.rerender(
     <ConnectorApprovalCard

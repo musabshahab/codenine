@@ -5,12 +5,14 @@ import type {
   OrchestrationV2ProjectedTurnItem,
   OrchestrationV2TurnItem,
 } from "@codenine/contracts";
+import { Link } from "@tanstack/react-router";
 import { CheckIcon, MinusIcon, PlugIcon } from "lucide-react";
 import { useId, useRef, useState } from "react";
 
 import { commandErrorMessage } from "../../lib/commandError";
 import { connectorsEnvironment } from "../../state/connectors";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { agentTitle, useAgents } from "../agents/useAgents";
 import { approvalChoiceLabels, approvalOutcomeLabel } from "../connectors/connectors.logic";
 import { Button } from "../ui/button";
 import { WorkLogRow } from "./WorkLog";
@@ -61,6 +63,17 @@ function PendingConnectorApproval(props: {
   // Two clicks can land before a render.
   const inFlight = useRef(false);
   const labels = approvalChoiceLabels(item.action);
+  const { agents } = useAgents(item.agent === undefined ? null : props.environmentId);
+  const askingAgent =
+    item.agent === undefined
+      ? null
+      : {
+          name: item.agent,
+          title: agentTitle(
+            item.agent,
+            agents.find((agent) => agent.name === item.agent),
+          ),
+        };
 
   const send = async (choice: ConnectorApprovalAnswer) => {
     if (inFlight.current) return;
@@ -117,14 +130,16 @@ function PendingConnectorApproval(props: {
         >
           {labels.allow}
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!props.canAnswer || answering !== null}
-          onClick={() => void send("always")}
-        >
-          {labels.always}
-        </Button>
+        {askingAgent === null ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!props.canAnswer || answering !== null}
+            onClick={() => void send("always")}
+          >
+            {labels.always}
+          </Button>
+        ) : null}
         <Button
           size="sm"
           variant="ghost-muted"
@@ -136,6 +151,19 @@ function PendingConnectorApproval(props: {
         {props.canAnswer ? null : (
           <span className="text-xs text-muted-foreground">
             This connection cannot answer for this chat.
+          </span>
+        )}
+        {askingAgent === null ? null : (
+          <span className="text-xs text-muted-foreground">
+            The {askingAgent.title} agent asks first.{" "}
+            <Link
+              to="/agents/$name/edit"
+              params={{ name: askingAgent.name }}
+              search={{ machine: props.environmentId }}
+              className="rounded-sm text-foreground underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              Change in its settings
+            </Link>
           </span>
         )}
       </div>

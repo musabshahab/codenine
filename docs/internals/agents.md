@@ -29,9 +29,10 @@ carries the same agent. An agent it cannot read gets no abilities.
   is overwritten, emptied or with a note that the chat has no agent now, rather than left out.
 - **Connectors**: an agent chat reaches the agent's connections, not its own list and not the ones
   on by default, and still only connected ones. Both the session manager and the gateway ask
-  [`Agents.chatConnectors`](../../apps/server/src/agents/Agents.ts). For an action, the
-  connection's own choice for that action (what "Always allow" sets) wins, then the agent's choice
-  for its group, then the connection's.
+  [`Agents.chatConnectors`](../../apps/server/src/agents/Agents.ts). Where the agent chose for a
+  group, that choice decides, over the connection's choice for the single action too, so an agent
+  set to ask always asks. Its card then offers no "Always allow": that writes to the connection,
+  which the agent's choice outranks. A group the agent leaves alone follows the connection.
 - **Skills**: the agent's skills are the chat's kept-on skills; `$name` still attaches any skill.
 - **Abilities** narrow the chat's runtime mode and never widen it. Codenine's MCP tools and
   connector tools stay on, so an agent can still start other chats and subagents, which run with

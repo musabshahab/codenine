@@ -1559,6 +1559,8 @@ const OrchestrationV2ConnectorApprovalFields = {
   approvalStatus: OrchestrationV2ConnectorApprovalStatus,
   /** Allowed with "always": this action no longer asks on this connector. */
   remembered: Schema.optional(Schema.Boolean),
+  /** The chat's agent asked, by its own settings, which alone change that; no "always" then. */
+  agent: Schema.optional(AgentName),
 } as const;
 
 export const OrchestrationV2LinkRequestStatus = Schema.Literals([
@@ -3530,6 +3532,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     preview: Schema.optional(Schema.String),
     approvalStatus: OrchestrationV2ConnectorApprovalStatus,
     remembered: Schema.optional(Schema.Boolean),
+    agent: Schema.optional(AgentName),
   }),
   /** A team task's thread finished. Internal so no client can report a result for an agent. */
   Schema.Struct({

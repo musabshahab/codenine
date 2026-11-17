@@ -36,8 +36,9 @@ export const toolRisk = (
 };
 
 /**
- * The user's choice for this one action wins, then the chat's agent's choice for its group, then
- * the connection's own.
+ * In an agent's chat, the agent's choice for the group decides, so its settings mean what they say.
+ * Otherwise, and for a group the agent leaves to the connection, the user's choice for this one
+ * action wins, then the connection's for the group.
  */
 export const toolApproval = (input: {
   readonly tool: string;
@@ -45,10 +46,12 @@ export const toolApproval = (input: {
   readonly approvals: ConnectorApprovalChoices;
   readonly toolApprovals: Readonly<Record<string, ConnectorApprovalMode>>;
   readonly agentApprovals?: AgentConnector["approvals"] | undefined;
-}): ConnectorApprovalMode =>
-  input.toolApprovals[input.tool] ??
-  input.agentApprovals?.[input.risk] ??
-  input.approvals[input.risk];
+}): { readonly mode: ConnectorApprovalMode; readonly byAgent: boolean } => {
+  const agentMode = input.agentApprovals?.[input.risk];
+  return agentMode === undefined
+    ? { mode: input.toolApprovals[input.tool] ?? input.approvals[input.risk], byAgent: false }
+    : { mode: agentMode, byAgent: true };
+};
 
 export type ApprovalOutcome = "allowed" | "declined" | "cancelled";
 
@@ -76,8 +79,8 @@ export class ConnectorApprovals extends Context.Service<
         status: OrchestrationV2ConnectorApprovalStatus,
         remembered: boolean,
       ) => Effect.Effect<void>;
-      /** Stops asking for this action on this connection. */
-      readonly remember: Effect.Effect<void>;
+      /** Stops asking for this action on this connection; without it "always" allows once. */
+      readonly remember?: Effect.Effect<void>;
       readonly ended: Effect.Effect<void>;
     }) => Effect.Effect<ApprovalOutcome>;
     /** `not-waiting` when no call is waiting on this card. */
@@ -109,10 +112,12 @@ const make = Effect.gen(function* () {
       const key = keyOf(input.threadId, input.turnItemId);
       const entry: Waiting = {
         answered: yield* Deferred.make<ConnectorApprovalAnswer>(),
-        settle: (answer) =>
-          input
-            .record(outcomeOf(answer), answer === "always")
-            .pipe(Effect.andThen(answer === "always" ? input.remember : Effect.void)),
+        settle: (answer) => {
+          const remember = answer === "always" ? input.remember : undefined;
+          return input
+            .record(outcomeOf(answer), remember !== undefined)
+            .pipe(Effect.andThen(remember ?? Effect.void));
+        },
       };
       const closeUnanswered = lock.withPermits(1)(
         take(key, entry).pipe(

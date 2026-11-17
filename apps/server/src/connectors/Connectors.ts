@@ -76,7 +76,7 @@ const describeTools = (input: {
           risk,
           approvals: input.connection.approvals,
           toolApprovals: input.connection.toolApprovals,
-        }),
+        }).mode,
         overridden: input.connection.toolApprovals[tool.name] !== undefined,
         providedByCodenine: extraNames.has(tool.name),
       };

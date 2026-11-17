@@ -54,7 +54,8 @@ draft.
 
 When an action asks first, the chat shows what it would do. **Allow** (or **Send**) lets it run
 once, **Always allow** stops asking for that action on that connector, and **Don't allow** declines
-it. **Recent activity** on the connector's page lists what agents did and who allowed it.
+it. An agent's own choices come first in its chats: see [Agents](agents.md). **Recent activity** on
+the connector's page lists what agents did and who allowed it.
 
 **Test connection** checks that the service still answers. **Sign in again** appears when a
 service has signed Codenine out. **Disconnect** removes the connector with its sign-in and activity.
