@@ -628,42 +628,54 @@ function AgentConnectorRow({
           Remove
         </Button>
       </div>
-      {RISK_GROUPS.map((group) => (
-        <div
-          key={group.risk}
-          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2 ps-16 pe-4"
-        >
-          <span className="flex min-w-48 flex-1 flex-col gap-0.5">
-            <span className="text-sm text-foreground">{group.title}</span>
-            <span className="text-xs text-muted-foreground">{group.hint}</span>
-          </span>
-          <Select
-            value={effectiveApproval(connector, connection, group.risk)}
-            disabled={disabled}
-            onValueChange={(mode) => {
-              if (mode !== "auto" && mode !== "ask") return;
-              onChange({ ...connector, approvals: { ...connector.approvals, [group.risk]: mode } });
-            }}
+      {RISK_GROUPS.map((group) => {
+        const mode = effectiveApproval(connector, connection, group.risk);
+        return (
+          <div
+            key={group.risk}
+            className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2 ps-16 pe-4"
           >
-            <SelectTrigger
-              size="sm"
-              className="w-auto"
-              aria-label={`${name}, ${group.title.toLowerCase()} actions`}
+            <span className="flex min-w-48 flex-1 flex-col gap-0.5">
+              <span className="text-sm text-foreground">{group.title}</span>
+              <span className="text-xs text-muted-foreground">{group.hint}</span>
+            </span>
+            <Select
+              value={mode}
+              disabled={disabled}
+              onValueChange={(next) => {
+                if (next !== "auto" && next !== "ask") return;
+                onChange({
+                  ...connector,
+                  approvals: { ...connector.approvals, [group.risk]: next },
+                });
+              }}
             >
-              <SelectValue>
-                {(mode: ConnectorApprovalMode) => APPROVAL_MODE_LABELS[mode]}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup alignItemWithTrigger={false}>
-              {APPROVAL_MODES.map((mode) => (
-                <SelectItem hideIndicator key={mode} value={mode}>
-                  {APPROVAL_MODE_LABELS[mode]}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
-      ))}
+              <SelectTrigger
+                size="sm"
+                className="w-auto"
+                aria-label={`${name}, ${group.title.toLowerCase()} actions`}
+              >
+                <SelectValue>
+                  {(value: ConnectorApprovalMode) => APPROVAL_MODE_LABELS[value]}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup alignItemWithTrigger={false}>
+                {APPROVAL_MODES.map((option) => (
+                  <SelectItem hideIndicator key={option} value={option}>
+                    {APPROVAL_MODE_LABELS[option]}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            {group.risk === "irreversible" && mode === "auto" ? (
+              <p className="w-full text-xs text-warning-foreground">
+                What this agent reads could carry instructions meant to trick it. Choose Automatic
+                only when you trust what it reads.
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
