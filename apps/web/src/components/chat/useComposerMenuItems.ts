@@ -26,7 +26,9 @@ import { searchProviderSkills } from "../../providerSkillSearch";
 import { useVisibleThreadShells } from "~/state/entities";
 import { useComposerPathSearch, useThreadSearch } from "~/state/queries";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
+import { matchComposerAgentItems } from "./composerAgentMentions";
 import { matchComposerModelItems } from "./composerModelMentions";
+import type { ModelPickerAgents } from "./ModelPickerAgentRow";
 import type { ModelEsque } from "./providerIconUtils";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
@@ -55,6 +57,7 @@ export function useComposerMenuItems({
   showSkillsInSlashMenu,
   workspaceSkillsScanning,
   modelMentions,
+  agents,
 }: {
   readonly composerTrigger: ComposerTrigger | null;
   readonly environmentId: EnvironmentId;
@@ -76,6 +79,8 @@ export function useComposerMenuItems({
     readonly instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
     readonly modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
   };
+  /** The agents `@` can hand the chat to; undefined when there are none. */
+  readonly agents: ModelPickerAgents | undefined;
 }) {
   // Thread mentions rank by recency as of when the composer mounted.
   const [now] = useState(() => Date.now());
@@ -101,6 +106,7 @@ export function useComposerMenuItems({
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       return [
+        ...matchComposerAgentItems(agents, composerTrigger.query),
         ...matchComposerThreadItems({
           shells: environmentThreadShells,
           environmentId,

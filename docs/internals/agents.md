@@ -61,6 +61,12 @@ every turn, but its shell and web search switches only when it loads a thread, s
 manager's load key includes the abilities and it unloads the thread before resuming it, as it does
 for new connections. While the thread still runs background work, Codex keeps the loaded switches.
 
+Each user message records the agent it went to, and the "Handed to" line compares it with the
+agent of the latest message the timeline shows, the way model switches do
+([`modelSwitch.ts`](../../apps/server/src/orchestration-v2/modelSwitch.ts)). Choosing an agent after
+`@` moves the chat at once, through the picker's path, because the send reads the model the
+composer rendered with; its `agent:<name>` token only records the hand-off in the text.
+
 ## What a model can do
 
 `ServerProviderModel.info` is fixed for Claude's and Codex's own models. For an OpenRouter account

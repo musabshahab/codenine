@@ -21,7 +21,8 @@ export interface ModelPickerAgents {
   readonly selected: AgentName | null;
   /** The selected agent's title, also while the list loads or after the agent is gone. */
   readonly selectedTitle: string | null;
-  readonly onPick: (name: AgentName | null) => void;
+  /** False when the chat could not move to the agent's model; a toast or dialog says why. */
+  readonly onPick: (name: AgentName | null) => boolean;
 }
 
 export const ModelPickerAgentRow = memo(function ModelPickerAgentRow(props: {

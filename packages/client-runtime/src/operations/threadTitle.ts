@@ -4,6 +4,7 @@ import { replaceComposerContextReferences } from "@codenine/shared/composerConte
 import { SKILL_MENTION_PATTERN } from "@codenine/shared/composerInlineTokens";
 import { truncate } from "@codenine/shared/String";
 
+import { collectComposerAgentMentions } from "../composerAgentMentions.ts";
 import { collectComposerModelMentions } from "../composerModelMentions.ts";
 
 export interface ThreadTitleSeedInput {
@@ -14,6 +15,17 @@ export interface ThreadTitleSeedInput {
 
 function normalizeTitleSeed(value: string): string {
   return assistantCitationsToPlainText(value).trim().replace(/\s+/gu, " ");
+}
+
+// The agent a message hands the chat to says who does the task, not the task.
+function withoutAgentMentions(value: string): string {
+  let result = "";
+  let cursor = 0;
+  for (const mention of collectComposerAgentMentions(value)) {
+    result += value.slice(cursor, mention.start);
+    cursor = mention.end;
+  }
+  return result + value.slice(cursor);
 }
 
 function modelMentionsAsSlugs(value: string): string {
@@ -38,7 +50,7 @@ export function threadTitleTextFromPrompt(value: string): string {
   // A skill names how to do the task, not the task.
   const withoutSkills = prose.replace(SKILL_MENTION_PATTERN, "$1");
   return (
-    normalizeTitleSeed(modelMentionsAsSlugs(withoutSkills)) ||
+    normalizeTitleSeed(modelMentionsAsSlugs(withoutAgentMentions(withoutSkills))) ||
     (imageIds.size > 0 ? (imageIds.size === 1 ? "Attached image" : "Attached images") : "")
   );
 }

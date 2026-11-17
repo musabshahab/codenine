@@ -46,6 +46,8 @@ import {
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ProviderTurn,
+  type AgentName,
+  type OrchestrationV2AgentSwitch,
   type OrchestrationV2ModelSwitch,
   type OrchestrationV2Run,
   type OrchestrationV2RunAttempt,
@@ -73,7 +75,7 @@ import {
   TrimmedNonEmptyString,
 } from "@codenine/contracts";
 import { modelSelectionsEqual } from "@codenine/shared/model";
-import { modelSwitchSince } from "./modelSwitch.ts";
+import { agentSwitchSince, modelSwitchSince } from "./modelSwitch.ts";
 import { recordThreadOpen } from "@codenine/shared/paletteSearch";
 import {
   backgroundWorkHoldsCompletion,
@@ -2230,6 +2232,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         completedAt: now,
         updatedAt: now,
         ...(activeHandoff === null ? modelSwitchSince(projection, queuedRun.modelSelection) : {}),
+        ...agentSwitchSince(projection),
       };
       const handoffTurnItem: OrchestrationV2TurnItem | null =
         activeHandoff === null
@@ -5057,6 +5060,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         readonly providerThreadId: OrchestrationV2ProviderThread["id"];
         readonly providerInstanceId: ProviderInstanceId;
         readonly modelSwitch?: OrchestrationV2ModelSwitch | undefined;
+        readonly agent?: AgentName | undefined;
+        readonly agentSwitch?: OrchestrationV2AgentSwitch | undefined;
       }) {
         const message: OrchestrationV2ConversationMessage = {
           createdBy: input.createdBy,
@@ -5110,6 +5115,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(messageInput.modelSwitch === undefined
             ? {}
             : { modelSwitch: messageInput.modelSwitch }),
+          ...(messageInput.agent === undefined ? {} : { agent: messageInput.agent }),
+          ...(messageInput.agentSwitch === undefined
+            ? {}
+            : { agentSwitch: messageInput.agentSwitch }),
         };
         yield* emitEvent({
           type: "message.updated",
@@ -5584,6 +5593,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       providerInstanceId: input.modelSelection.instanceId,
       // Measured on the pre-restart projection, so the rewritten run is not its own baseline.
       ...(restartHandoff === null ? modelSwitchSince(input.projection, input.modelSelection) : {}),
+      ...agentSwitchSince(input.projection),
     });
     const interruptedAttemptId = targetRun.activeAttemptId;
     if (interruptedAttemptId === null) {
@@ -6747,6 +6757,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         attachments: command.attachments,
         ...(freshContext ? { freshContext: true } : {}),
         ...(run.contextHandoffId === null ? modelSwitchSince(projection, modelSelection) : {}),
+        ...agentSwitchSince(projection),
       };
       const preparationTurnItem: OrchestrationV2TurnItem | null =
         dispatchMode.type === "defer_start"
@@ -7532,6 +7543,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             sideChatFork ? undefined : sourceRun?.modelSelection,
           )
         : {}),
+      ...agentSwitchSince(projection),
     };
     const activeHandoff = portableForkHandoff ?? mergeBackHandoff ?? providerSwitchHandoff;
     const handoffSourceRuns =

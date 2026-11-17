@@ -117,6 +117,7 @@ import { WorkspaceEntryTooltip } from "./chat/WorkspaceEntryIcon";
 import { FileTagChipContent } from "./chat/FileTagChip";
 import { SkillChipPopover, skillPopoverDescription } from "./chat/SkillInlineText";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
+import { AgentMentionChip } from "./chat/AgentMentionChip";
 import { ModelMentionChip, modelMentionKey, modelMentionKeysAtom } from "./chat/ModelMentionChip";
 import { getTimelinePageScrollKey } from "./chat/pageScrollController";
 import { ContextChip } from "./ContextChip";
@@ -366,6 +367,43 @@ const ComposerModelExtension = Node.create({
   },
   addNodeView() {
     return ReactNodeViewRenderer(ComposerModelNodeView);
+  },
+});
+
+function ComposerAgentNodeView({ node }: NodeViewProps) {
+  const actions = use(ComposerContextActionsContext);
+  return (
+    <NodeViewWrapper as="span" className={CHIP_NODE_SELECTION_CLASS_NAME}>
+      <AgentMentionChip
+        environmentId={actions.environmentId}
+        name={String(node.attrs.name)}
+        source={String(node.attrs.source)}
+      />
+    </NodeViewWrapper>
+  );
+}
+
+/** `agent:<name>` from the `@` menu; `source` is the exact prompt text. */
+const ComposerAgentExtension = Node.create({
+  name: "composer-agent",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      name: { default: "" },
+      source: { default: "" },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-composer-agent]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["span", { "data-composer-agent": "", ...HTMLAttributes }];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ComposerAgentNodeView);
   },
 });
 
@@ -815,6 +853,7 @@ function createComposerExtensions(richText: boolean) {
     ComposerMentionExtension,
     ComposerSkillExtension,
     ComposerModelExtension,
+    ComposerAgentExtension,
     ComposerCitationExtension,
     ComposerContextReferenceExtension,
     ComposerChipSelectionExtension,
@@ -1390,7 +1429,8 @@ function ComposerPromptEditorTiptapInner(
           const isChip = (token: (typeof tokens)[number] | undefined) =>
             token?.type === "mention" ||
             (token?.type === "skill" && skillLabelFor(token.value) !== null) ||
-            (token?.type === "model" && isKnownModel(token.instanceId, token.model));
+            (token?.type === "model" && isKnownModel(token.instanceId, token.model)) ||
+            token?.type === "agent";
           const lastToken = tokens.at(-1);
           if (isChip(lastToken) && lastToken?.end === text.length) {
             text += " ";

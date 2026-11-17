@@ -30,8 +30,7 @@ import {
 } from "./ComposerModelEffort";
 import type { useComposerProviderModel } from "./useComposerProviderModel";
 import { resolveComposerControlsOwnership } from "./composerControlsOwnership";
-import type { ChatChoicesTarget } from "./useChatChoices";
-import { useComposerAgents } from "./useComposerAgents";
+import type { ModelPickerAgents } from "./ModelPickerAgentRow";
 
 /**
  * The composer footer controls: the model picker (which also holds effort, speed and
@@ -44,7 +43,8 @@ const MODEL_TRIGGER_STATES = "data-popup-open:bg-accent data-popup-open:text-for
 export function ComposerControlsBar(props: {
   environmentId: EnvironmentId;
   /** The chat whose agent the picker's Agents tab shows and changes. */
-  chatChoicesTarget: ChatChoicesTarget;
+  /** The picker's Agents tab; undefined when there is no agent to pick. */
+  agents: ModelPickerAgents | undefined;
   routeKind: ChatComposerProps["routeKind"];
   routeThreadRef: ChatComposerProps["routeThreadRef"];
   draftId: ChatComposerProps["draftId"];
@@ -151,14 +151,7 @@ export function ComposerControlsBar(props: {
     measuredHiddenBlockCount,
   });
   const controlSize = composerControlsCollapsed ? "xs" : "sm";
-  const agents = useComposerAgents({
-    target: props.chatChoicesTarget,
-    providerInstanceEntries,
-    modelOptionsByInstance,
-    getModelDisabledReason,
-    onProviderModelSelect,
-    onMultipleModelSelectionsChange,
-  });
+  const agents = props.agents;
   const applyThreadModelPick = useApplyThreadModelPick();
   const applyRouteThreadModelPick = useStableCallback(() => applyThreadModelPick(routeThreadRef));
   const traitsInput = resolveComposerTraitsInput({

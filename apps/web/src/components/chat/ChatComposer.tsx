@@ -39,6 +39,7 @@ import {
 import type { EnvironmentConnectionPresentation } from "@codenine/client-runtime/connection";
 import { settlePromise, squashAtomCommandFailure } from "@codenine/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
+import { formatComposerAgentMention } from "@codenine/client-runtime/composer-agent-mentions";
 import { formatComposerModelMention } from "@codenine/client-runtime/composer-model-mentions";
 import { isPasteAsTextShortcut } from "@codenine/client-runtime/text-paste";
 import { scopedThreadKey } from "@codenine/client-runtime/environment";
@@ -188,6 +189,7 @@ import {
 import { ComposerAddMenu } from "./ComposerAddMenu";
 import { ComposerChoiceChips } from "./ComposerChoiceChips";
 import type { ChatChoicesTarget } from "./useChatChoices";
+import { useComposerAgents } from "./useComposerAgents";
 import { useComposerSkills } from "./useComposerSkills";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions, ComposerTeamToggle } from "./ComposerFooterControls";
@@ -1021,6 +1023,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerDraft.persistedAttachments.length === 0 &&
     composerTerminalContexts.length === 0 &&
     composerReviewComments.length === 0;
+  const chatChoicesTarget: ChatChoicesTarget = {
+    environmentId,
+    threadRef: routeThreadRef,
+    onServer: routeKind === "server",
+    projectId: activeProjectId,
+    canChange: canOperateThread,
+  };
+  const composerAgents = useComposerAgents({
+    target: chatChoicesTarget,
+    providerInstanceEntries,
+    modelOptionsByInstance,
+    getModelDisabledReason,
+    onProviderModelSelect,
+    onMultipleModelSelectionsChange: setMultipleModelSelections,
+  });
   const {
     items: composerMenuItems,
     isLoading: isComposerMenuLoading,
@@ -1043,6 +1060,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     showSkillsInSlashMenu: settings.showSkillsInSlashMenu,
     workspaceSkillsScanning,
     modelMentions: { instanceEntries: providerInstanceEntries, modelOptionsByInstance },
+    agents: composerAgents,
   });
 
   const composerMenuOpen = Boolean(composerTrigger);
@@ -1842,6 +1860,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       return;
     }
+    if (item.type === "agent") {
+      if (trigger.kind !== "path") return;
+      // The chat moves to the agent now, as the picker would; the chip records it in the message.
+      if (composerAgents?.onPick(item.name) !== true) return;
+      const replacement = item.name === null ? "" : `${formatComposerAgentMention(item.name)} `;
+      const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+        snapshot.value,
+        trigger.rangeEnd,
+        replacement,
+      );
+      const applied = applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+        expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+      });
+      if (applied) {
+        setComposerHighlightedItemId(null);
+      }
+      return;
+    }
     if (item.type === "model") {
       if (trigger.kind !== "path") return;
       const replacement = `${formatComposerModelMention(item.instanceId, item.model)} `;
@@ -2196,17 +2232,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     : composerControlsCollapsed
       ? 0
       : expandedControlsIconOnlyBlockCount;
-  const chatChoicesTarget: ChatChoicesTarget = {
-    environmentId,
-    threadRef: routeThreadRef,
-    onServer: routeKind === "server",
-    projectId: activeProjectId,
-    canChange: canOperateThread,
-  };
   const composerControls = (
     <ComposerControlsBar
       environmentId={environmentId}
-      chatChoicesTarget={chatChoicesTarget}
+      agents={composerAgents}
       routeKind={routeKind}
       routeThreadRef={routeThreadRef}
       draftId={draftId}

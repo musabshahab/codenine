@@ -50,20 +50,21 @@ export function useComposerAgents(input: {
 }): ModelPickerAgents | undefined {
   const { agents } = useAgents(input.target.environmentId);
   const choices = useChatChoices(input.target);
-  const onPick = useStableCallback((name: AgentName | null) => {
-    if (!choices.canChange) return;
+  const onPick = useStableCallback((name: AgentName | null): boolean => {
+    if (!choices.canChange) return false;
     if (name === null) {
       void choices.setAgent(null);
-      return;
+      return true;
     }
     const model = agents.find((agent) => agent.name === name)?.model;
-    if (model == null) return;
+    if (model == null) return false;
     const selection = agentChatModelSelection(input.providerInstanceEntries, model);
     input.onMultipleModelSelectionsChange(null);
     const applied = input.onProviderModelSelect(selection.instanceId, selection.model, {
       agentOptions: selection.options ?? [],
     });
     if (applied) void choices.setAgent(name);
+    return applied;
   });
   if (agents.length === 0 && choices.agent === null) return undefined;
   return {

@@ -1466,6 +1466,13 @@ export const OrchestrationV2ModelSwitch = Schema.Struct({
 });
 export type OrchestrationV2ModelSwitch = typeof OrchestrationV2ModelSwitch.Type;
 
+/** A change of the chat's agent that took effect with this message; null is no agent. */
+export const OrchestrationV2AgentSwitch = Schema.Struct({
+  from: Schema.NullOr(AgentName),
+  to: Schema.NullOr(AgentName),
+});
+export type OrchestrationV2AgentSwitch = typeof OrchestrationV2AgentSwitch.Type;
+
 const OrchestrationV2TurnItemBaseFields = {
   /** Wire-only cursor for collapsed work; persisted items keep their complete history. */
   deferredWork: Schema.optionalKey(
@@ -1621,6 +1628,9 @@ export const OrchestrationV2TurnItem = Schema.Union([
     context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
     modelSwitch: Schema.optional(OrchestrationV2ModelSwitch),
+    /** The agent the message went to. */
+    agent: Schema.optional(AgentName),
+    agentSwitch: Schema.optional(OrchestrationV2AgentSwitch),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2469,6 +2479,9 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
     modelSwitch: Schema.optional(OrchestrationV2ModelSwitch),
+    /** The agent the message went to. */
+    agent: Schema.optional(AgentName),
+    agentSwitch: Schema.optional(OrchestrationV2AgentSwitch),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,

@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { Link as LinkIconNode } from "lucide";
 import { Button, InlineButton } from "../ui/button";
-import { FreshSessionRow, ModelSwitchRow } from "./V2LifecycleRow";
+import { AgentSwitchRow, FreshSessionRow, ModelSwitchRow } from "./V2LifecycleRow";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { AttachmentImage } from "../media/AttachmentImage";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
@@ -234,9 +234,13 @@ export function UserMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mes
   const ctx = use(TimelineRowCtx);
   const item = row.projectedItem?.item;
   const modelSwitch = item?.type === "user_message" ? item.modelSwitch : undefined;
+  const agentSwitch = item?.type === "user_message" ? item.agentSwitch : undefined;
   return (
     <>
       {item?.type === "user_message" && item.freshContext ? <FreshSessionRow /> : null}
+      {agentSwitch ? (
+        <AgentSwitchRow environmentId={ctx.activeThreadEnvironmentId} agentSwitch={agentSwitch} />
+      ) : null}
       {modelSwitch ? (
         <ModelSwitchRow environmentId={ctx.activeThreadEnvironmentId} modelSwitch={modelSwitch} />
       ) : null}

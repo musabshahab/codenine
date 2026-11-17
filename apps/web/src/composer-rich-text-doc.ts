@@ -657,6 +657,9 @@ function atomJsonForSegment(
       attrs: { instanceId: segment.instanceId, model: segment.model, source: segment.source },
     };
   }
+  if (segment.type === "agent") {
+    return { type: "composer-agent", attrs: { name: segment.name, source: segment.source } };
+  }
   if (segment.type === "citation") {
     return {
       type: "composer-citation",
@@ -1014,6 +1017,7 @@ function readAtomSource(node: ProseMirrorNode): string {
   switch (node.type.name) {
     case "composer-mention":
     case "composer-model":
+    case "composer-agent":
     case "composer-citation":
     case "composer-context-reference":
       return typeof attrs.source === "string" ? attrs.source : "";
@@ -1598,7 +1602,7 @@ export function skillChipReplacements(
   for (const segment of splitPromptIntoComposerSegments(map.value)) {
     const start = end;
     end += segment.type === "text" ? segment.text.length : segment.source.length;
-    if (segment.type !== "skill" && segment.type !== "model") continue;
+    if (segment.type !== "skill" && segment.type !== "model" && segment.type !== "agent") continue;
     const atom = atomJsonForSegment(segment, chips);
     const type = atom && schema.nodes[atom.type];
     if (!atom || !type) continue;

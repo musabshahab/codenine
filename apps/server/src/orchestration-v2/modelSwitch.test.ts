@@ -1,4 +1,5 @@
 import {
+  AgentName,
   ContextHandoffId,
   MessageId,
   ProviderInstanceId,
@@ -6,7 +7,7 @@ import {
 } from "@codenine/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { modelSwitchSince } from "./modelSwitch.ts";
+import { agentSwitchSince, modelSwitchSince } from "./modelSwitch.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
 const selection = (model: string) => ({ instanceId, model });
@@ -103,5 +104,49 @@ describe("modelSwitchSince", () => {
     expect(
       modelSwitchSince({ runs: [run("first", 1, "a")], turnItems: shown("first") }, selection("a")),
     ).toEqual({});
+  });
+});
+
+describe("agentSwitchSince", () => {
+  const gmail = AgentName.make("gmail");
+  const calendar = AgentName.make("calendar");
+  const sentTo = (message: string, agent?: AgentName) => ({
+    ...shown(message)[0]!,
+    ...(agent === undefined ? {} : { agent }),
+  });
+  const since = (
+    agent: AgentName | undefined,
+    runs: OrchestrationV2ThreadProjection["runs"],
+    turnItems: ReadonlyArray<ReturnType<typeof sentTo>>,
+  ) =>
+    agentSwitchSince({
+      thread: (agent === undefined ? {} : { agent }) as OrchestrationV2ThreadProjection["thread"],
+      runs,
+      turnItems: turnItems as unknown as OrchestrationV2ThreadProjection["turnItems"],
+    });
+
+  it("records the chat's agent and the hand-off from the latest message the timeline shows", () => {
+    expect(
+      since(
+        calendar,
+        [run("first", 1, "a"), run("undone", 2, "a", "rolled_back")],
+        [sentTo("first", gmail), sentTo("undone", calendar)],
+      ),
+    ).toEqual({ agent: calendar, agentSwitch: { from: gmail, to: calendar } });
+    expect(since(undefined, [run("first", 1, "a")], [sentTo("first", gmail)])).toEqual({
+      agentSwitch: { from: gmail, to: null },
+    });
+    expect(since(gmail, [run("first", 1, "a")], [sentTo("first")])).toEqual({
+      agent: gmail,
+      agentSwitch: { from: null, to: gmail },
+    });
+  });
+
+  it("records no hand-off for a first message or the same agent", () => {
+    expect(since(gmail, [], [])).toEqual({ agent: gmail });
+    expect(since(gmail, [run("first", 1, "a")], [sentTo("first", gmail)])).toEqual({
+      agent: gmail,
+    });
+    expect(since(undefined, [run("first", 1, "a")], [sentTo("first")])).toEqual({});
   });
 });

@@ -27,6 +27,10 @@
       "types": "./src/composerModelMentions.ts",
       "default": "./src/composerModelMentions.ts"
     },
+    "./composer-agent-mentions": {
+      "types": "./src/composerAgentMentions.ts",
+      "default": "./src/composerAgentMentions.ts"
+    },
     "./model-search": {
       "types": "./src/modelSearch.ts",
       "default": "./src/modelSearch.ts"

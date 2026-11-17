@@ -50,3 +50,9 @@ links to it. **No agent** goes back to the chat's own connectors and skills and 
 
 Picking another model in an agent's chat changes the model for that chat only. The agent keeps its
 own model, and new chats with it start on that one.
+
+You can also hand a chat to an agent while you write: type `@`, choose the agent at the top of the
+list, and finish your message. The chat moves to the agent as soon as you choose it, the message
+shows the agent's chip, and a line in the chat marks the hand-off. Choose **No agent** after `@` to
+hand the chat back. When the agent runs on a different model, that model reads the conversation so
+far with your next message, as it does after any model change.
