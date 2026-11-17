@@ -9,6 +9,7 @@ import {
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
+  type ProviderOptionSelection,
   type ServerProvider,
   type ThreadId,
   RuntimeMode,
@@ -125,9 +126,12 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   const onProviderModelSelect = (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => {
-    if (!activeThread) return;
+    options?: {
+      focusComposer?: boolean;
+      agentOptions?: ReadonlyArray<ProviderOptionSelection>;
+    },
+  ): boolean => {
+    if (!activeThread) return false;
     const entry = providerStatuses.find((snapshot) => snapshot.instanceId === instanceId);
     const resolvedDriverKind = entry?.driver ?? null;
     if (
@@ -137,7 +141,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       resolvedDriverKind !== lockedProvider
     ) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
     if (
       !supportsProviderSwitchingViaHandoff &&
@@ -153,7 +157,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         currentEntry.continuation.groupKey !== entry.continuation.groupKey
       ) {
         if (options?.focusComposer !== false) scheduleComposerFocus();
-        return;
+        return false;
       }
     }
     const resolvedModel = resolveAppModelSelectionForInstance(
@@ -164,9 +168,10 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     );
     if (!resolvedModel) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
     const rememberedOptions =
+      options?.agentOptions ??
       useComposerDraftStore.getState().stickyOptionsByModelByProvider[instanceId]?.[resolvedModel];
     const nextModelSelection: ModelSelection =
       rememberedOptions !== undefined && rememberedOptions.length > 0
@@ -186,7 +191,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         from: runtimeEntry.instanceId,
         selection: nextModelSelection,
       });
-      return;
+      return false;
     }
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
       hasStartedSession: activeRuntime !== null,
@@ -202,16 +207,18 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         description: modelChangeBlockReason.description,
       });
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     setComposerDraftModelSelection(threadRef, nextModelSelection, {
       explicit: true,
       replaceOptions: true,
     });
-    setStickyComposerModelSelection(nextModelSelection);
+    // An agent's model is the agent's; new chats keep starting on the user's own pick.
+    if (options?.agentOptions === undefined) setStickyComposerModelSelection(nextModelSelection);
     if (!isLocalDraftThread) applyThreadModelPick(threadRef);
     if (options?.focusComposer !== false) scheduleComposerFocus();
+    return true;
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {

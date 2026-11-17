@@ -15,6 +15,7 @@ the terminal, worktrees, and pull requests.
 - [Activity log](./user/activity-log.md)
 - [Permission modes](./user/permission-modes.md)
 - [Secrets](./user/secrets.md)
+- [Agents](./user/agents.md)
 - [Connectors](./user/connectors.md)
 - [Skills](./user/skills.md)
 - [Terminal history](./user/terminal.md)

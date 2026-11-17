@@ -68,9 +68,10 @@ task.
 
 ## Build
 
-**Skills** holds the know-how agents follow, and **Connectors** the services they can use; see
-[Skills](./skills.md) and [Connectors](./connectors.md). **Agents** and **Workflows** are where you
-will set up reusable agents and multi-step processes; they are empty for now.
+**Agents** holds the specialists you set up once, **Skills** the know-how agents follow, and
+**Connectors** the services they can use; see [Agents](./agents.md), [Skills](./skills.md) and
+[Connectors](./connectors.md). **Workflows** is where you will set up multi-step processes; it is
+empty for now.
 
 ## Group chats by workspace
 

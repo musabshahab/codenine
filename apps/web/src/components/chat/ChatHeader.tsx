@@ -47,6 +47,7 @@ import { textDirection } from "~/textDirection";
 import { useThreadProjectGroup } from "../pages/threadPlace";
 import { ThreadKindIcon } from "../ThreadKindIcon";
 import { resolveAgentThreadKind } from "../threadKind.logic";
+import { ChatAgentChip, ChatAgentLine } from "./ChatAgentHeader";
 import { TeamAgentHeaderLine } from "./TeamAgentThread";
 import { useClientSettings } from "../../hooks/useSettings";
 
@@ -497,6 +498,15 @@ export const ChatHeader = memo(function ChatHeader({
                 <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
               </Tooltip>
             )}
+            {renamingTitle === null ? (
+              <span className="hidden shrink-0 @md/header-actions:flex">
+                <ChatAgentChip
+                  environmentId={activeThreadEnvironmentId}
+                  threadRef={activeThreadRef}
+                  onServer={isServerThread}
+                />
+              </span>
+            ) : null}
             {isChat && threadShell !== null && renamingTitle === null ? (
               <span className="hidden @md/header-actions:flex">
                 <ChatPinToggle
@@ -516,7 +526,13 @@ export const ChatHeader = memo(function ChatHeader({
               header={teamAgent}
             />
           </div>
-        ) : null}
+        ) : (
+          <ChatAgentLine
+            environmentId={activeThreadEnvironmentId}
+            threadRef={activeThreadRef}
+            onServer={isServerThread}
+          />
+        )}
       </div>
       <div
         role="toolbar"

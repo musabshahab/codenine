@@ -1,5 +1,6 @@
 import type { ThreadChoices } from "@codenine/client-runtime/operations";
 import {
+  type AgentName,
   type ConnectionId,
   type ConnectionSnapshot,
   type ServerProviderSkill,
@@ -12,6 +13,8 @@ import {
 export interface ChatChoices {
   readonly connectors?: ReadonlyArray<ConnectionId> | undefined;
   readonly skills?: ReadonlyArray<SkillName> | undefined;
+  /** The agent it talks to, whose connectors and skills replace the chat's own. */
+  readonly agent?: AgentName | undefined;
 }
 
 type ConnectionChoice = Pick<ConnectionSnapshot, "id" | "onByDefault">;
@@ -62,10 +65,12 @@ export function threadChoicesFromDraft(
 ): ThreadChoices | undefined {
   const skills = choices?.skills ?? [];
   const connectors = choices?.connectors;
-  if (connectors === undefined && skills.length === 0) return undefined;
+  const agent = choices?.agent;
+  if (connectors === undefined && skills.length === 0 && agent === undefined) return undefined;
   return {
     ...(connectors === undefined ? {} : { connectors }),
     ...(skills.length === 0 ? {} : { skills }),
+    ...(agent === undefined ? {} : { agent }),
   };
 }
 

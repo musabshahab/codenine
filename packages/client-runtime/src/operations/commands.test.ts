@@ -262,13 +262,18 @@ describe("V2 environment commands", () => {
     }).pipe(Effect.provide(layerTestRandom)),
   );
 
-  it.effect("gives a new chat its connectors and skills before its first message", () =>
+  it.effect.each([
+    {
+      chose: "connectors and skills",
+      threadChoices: { connectors: [ConnectionId.make("gmail")], skills: ["write-clear-emails"] },
+    },
+    { chose: "agent", threadChoices: { agent: "gmail-helper" } },
+  ])("gives a new chat its $chose before its first message", ({ threadChoices }) =>
     Effect.gen(function* () {
       const commands: OrchestrationV2Command[] = [];
       const launches: OrchestrationV2ThreadLaunchInput[] = [];
       const requests: string[] = [];
       const supervisor = yield* makeSupervisor({ commands, projects: [], launches, requests });
-      const gmail = ConnectionId.make("gmail");
 
       yield* startThreadTurn({
         commandId: CommandId.make("launch-with-choices"),
@@ -293,7 +298,7 @@ describe("V2 environment commands", () => {
             worktreePath: null,
             createdAt: "2026-06-20T00:00:00.000Z",
           },
-          threadChoices: { connectors: [gmail], skills: ["write-clear-emails"] },
+          threadChoices,
         },
       }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
 
@@ -308,8 +313,7 @@ describe("V2 environment commands", () => {
         type: "thread.metadata.update",
         commandId: "launch-with-choices:choices",
         threadId: v2ThreadId,
-        connectors: [gmail],
-        skills: ["write-clear-emails"],
+        ...threadChoices,
       });
       expect(launches[0]).toMatchObject({ threadId: v2ThreadId, reuseExistingThread: true });
     }).pipe(Effect.provide(layerTestRandom)),

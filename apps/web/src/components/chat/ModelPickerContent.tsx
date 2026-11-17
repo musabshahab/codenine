@@ -1,5 +1,6 @@
 import { useLegendListRef } from "~/hooks/useLegendListRef";
 import {
+  type AgentName,
   type ProviderInstanceId,
   type EnvironmentId,
   type ProviderDriverKind,
@@ -22,11 +23,18 @@ import {
   type RefObject,
 } from "react";
 import { ModelListRow } from "./ModelListRow";
-import { ModelPickerSidebar } from "./ModelPickerSidebar";
+import {
+  type ModelPickerAgent,
+  ModelPickerAgentRow,
+  type ModelPickerAgents,
+} from "./ModelPickerAgentRow";
+import { type ModelPickerListTab, ModelPickerSidebar } from "./ModelPickerSidebar";
 import { getProviderStatusMessage, hasProviderSetup } from "./ProviderStatusBanner";
 import {
+  modelPickerAgentKey,
   modelPickerLegacySectionKey,
   modelPickerModelKey,
+  parseModelPickerAgentKey,
   parseModelPickerLegacySectionKey,
   parseModelPickerModelKey,
 } from "./modelPickerKeys";
@@ -120,12 +128,14 @@ function shouldOfferModelPickerSetup(
 
 function adjacentModelPickerProvider(input: {
   entries: ReadonlyArray<ProviderInstanceEntry>;
-  selectedInstanceId: ProviderInstanceId | "favorites";
+  selectedInstanceId: ProviderInstanceId | ModelPickerListTab;
   direction: 1 | -1;
+  showAgents: boolean;
   disabledInstanceIds: ReadonlySet<ProviderInstanceId> | undefined;
   selectableUnavailableInstanceIds: ReadonlySet<ProviderInstanceId> | undefined;
 }) {
-  const providers: Array<ProviderInstanceId | "favorites"> = [
+  const providers: Array<ProviderInstanceId | ModelPickerListTab> = [
+    ...(input.showAgents ? (["agents"] as const) : []),
     "favorites",
     ...input.entries
       .filter(
@@ -150,6 +160,8 @@ const EMPTY_MODEL_JUMP_LABELS = new Map<string, string>();
 const MODEL_LIST_ESTIMATED_ITEM_SIZE = 32;
 // Rendered heights in `--spacing` units. Chrome is the search box and list padding, plus a 1px border.
 const ROW_UNITS = 8;
+// An agent's row has a second line for what it is for.
+const AGENT_ROW_UNITS = 11;
 const ROW_SEPARATOR_UNITS = 0.5;
 const LIST_CHROME_UNITS = 15.5;
 
@@ -329,6 +341,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onFocusEffort?: () => void;
   /** Closes the list column, inside the popup's fixed height. */
   listFooter?: ReactNode;
+  /** A chat's agents, in their own tab above the models. */
+  agents?: ModelPickerAgents;
 }) {
   const {
     searchInputRef,
@@ -340,6 +354,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     onToggleModel,
     onRequestClose,
     onOpenProviderSetup,
+    agents,
   } = props;
   const [searchQuery, setSearchQuery] = useState("");
   const modelListRef = useRef<LegendListRef | null>(null);
@@ -387,18 +402,20 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       activeEntry,
       modelOptionsByInstance.get(props.activeInstanceId) ?? [],
     );
-  const [selectedInstanceId, setSelectedInstanceId] = useState<ProviderInstanceId | "favorites">(
-    () => {
-      if (
-        props.lockedProvider !== null ||
-        activeInstanceHasSelectableUnavailableModel ||
-        activeInstanceNeedsSetup
-      ) {
-        return props.activeInstanceId;
-      }
-      return favorites.length > 0 ? "favorites" : props.activeInstanceId;
-    },
-  );
+  const [selectedInstanceId, setSelectedInstanceId] = useState<
+    ProviderInstanceId | ModelPickerListTab
+  >(() => {
+    // A chat that talks to an agent opens on it.
+    if (agents?.selected != null) return "agents";
+    if (
+      props.lockedProvider !== null ||
+      activeInstanceHasSelectableUnavailableModel ||
+      activeInstanceNeedsSetup
+    ) {
+      return props.activeInstanceId;
+    }
+    return favorites.length > 0 ? "favorites" : props.activeInstanceId;
+  });
   const favoritesSet = new Set(favorites.map((fav) => providerModelKey(fav.provider, fav.model)));
   const [expandedLegacyInstances, setExpandedLegacyInstances] = useState(
     () =>
@@ -418,7 +435,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     searchInputRef.current?.focus({ preventScroll: true });
   };
 
-  const handleSelectInstance = (instanceId: ProviderInstanceId | "favorites") => {
+  const handleSelectInstance = (instanceId: ProviderInstanceId | ModelPickerListTab) => {
     setSelectedInstanceId(instanceId);
     window.requestAnimationFrame(() => {
       focusSearchInput();
@@ -543,7 +560,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const isSearching = searchQuery.trim().length > 0;
   // Fit the tallest tab so switching tabs never resizes the popup and moves the rail under the cursor.
   const tallestTabUnits = (() => {
-    const unitsByTab = new Map<ProviderInstanceId | "favorites", number>();
+    const unitsByTab = new Map<ProviderInstanceId | ModelPickerListTab, number>();
     const addRow = (tab: ProviderInstanceId | "favorites") => {
       const previous = unitsByTab.get(tab);
       unitsByTab.set(
@@ -563,6 +580,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       }
     }
     for (const instanceId of tabsWithLegacyRow) addRow(instanceId);
+    if (agents !== undefined) {
+      const rows = agents.items.length + 1;
+      unitsByTab.set("agents", rows * AGENT_ROW_UNITS + (rows - 1) * ROW_SEPARATOR_UNITS);
+    }
     return Math.max(0, ...unitsByTab.values());
   })();
   const lockedDisabledInstanceIds = (() => {
@@ -612,6 +633,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       }));
     }
 
+    if (selectedInstanceId === "agents") return [];
     if (lockedProvider !== null) {
       result = result.filter((m) => matchesLockedProvider(m));
       if (selectedInstanceId === "favorites") {
@@ -633,7 +655,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   })();
 
   const legacySection = (() => {
-    if (isSearching || selectedInstanceId === "favorites") {
+    if (isSearching || selectedInstanceId === "favorites" || selectedInstanceId === "agents") {
       return null;
     }
     const currentModels: ModelPickerItem[] = [];
@@ -665,9 +687,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   })();
 
   const selectedEntry =
-    selectedInstanceId === "favorites" ? undefined : entryByInstanceId.get(selectedInstanceId);
+    selectedInstanceId === "favorites" || selectedInstanceId === "agents"
+      ? undefined
+      : entryByInstanceId.get(selectedInstanceId);
   const providerSetupEntries =
-    !isSearching && canOpenProviderSetup
+    !isSearching && canOpenProviderSetup && selectedInstanceId !== "agents"
       ? instanceEntries.filter(
           (entry) =>
             matchesLockedProvider(entry) &&
@@ -693,7 +717,32 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     .filter((model) => !getModelDisabledReason?.(model.instanceId, model.slug))
     .slice(0, MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.length)
     .map((model) => modelPickerModelKey(model.instanceId, model.slug));
+  const agentSearch = searchQuery.trim().toLowerCase();
+  const visibleAgents: ReadonlyArray<ModelPickerAgent | null> =
+    agents === undefined
+      ? []
+      : isSearching
+        ? agents.items.filter(
+            (agent) =>
+              agent.title.toLowerCase().includes(agentSearch) ||
+              agent.detail.toLowerCase().includes(agentSearch),
+          )
+        : selectedInstanceId === "agents"
+          ? [null, ...agents.items]
+          : [];
+  const agentByKey = new Map(
+    visibleAgents.map((agent) => [modelPickerAgentKey(agent?.name ?? null), agent] as const),
+  );
+  const pickAgent = (name: AgentName | null) => {
+    const agent = name === null ? null : agents?.items.find((item) => item.name === name);
+    if (agents === undefined || agent === undefined || agent?.disabledReason != null) return;
+    agents.onPick(name);
+    onRequestClose?.();
+  };
   const allItemKeys = ((): string[] => [
+    ...(agents === undefined
+      ? []
+      : [null, ...agents.items.map((agent) => agent.name)].map(modelPickerAgentKey)),
     ...flatModels.map((model) => modelPickerModelKey(model.instanceId, model.slug)),
     ...new Set(
       flatModels
@@ -706,7 +755,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       modelPickerModelKey(model.instanceId, model.slug),
     );
     // The toggle trails the list, so expanding it reveals older models above it.
-    return legacySection ? [...modelKeys, legacySection.key] : modelKeys;
+    return [...agentByKey.keys(), ...modelKeys, ...(legacySection ? [legacySection.key] : [])];
   })();
   const filteredModelByKey = ((): ReadonlyMap<string, ModelPickerItem> =>
     new Map(
@@ -726,6 +775,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       .map((entry) => entry.instanceId),
   );
   const modelListExtraData = {
+    agents,
     badgedInstanceIds,
     favoritesSet,
     modelJumpLabelByKey,
@@ -755,13 +805,18 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         entries: sidebarInstanceEntries,
         selectedInstanceId,
         direction: command === "modelPicker.nextProvider" ? 1 : -1,
+        showAgents: agents !== undefined,
         disabledInstanceIds: lockedDisabledInstanceIds,
         selectableUnavailableInstanceIds,
       });
       setSearchQuery("");
       handleSelectInstance(next);
       announce(
-        next === "favorites" ? "Favorites" : (entryByInstanceId.get(next)?.displayName ?? next),
+        next === "favorites"
+          ? "Favorites"
+          : next === "agents"
+            ? "Agents"
+            : (entryByInstanceId.get(next)?.displayName ?? next),
         "model-picker",
       );
       return;
@@ -816,6 +871,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             onSelectInstance={handleSelectInstance}
             onFocusSearch={focusSearchInput}
             instanceEntries={sidebarInstanceEntries}
+            showAgents={agents !== undefined}
             showFavorites
             {...(selectableUnavailableInstanceIds ? { selectableUnavailableInstanceIds } : {})}
             {...(lockedDisabledInstanceIds
@@ -855,6 +911,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             if (typeof modelKey !== "string") {
               return;
             }
+            const agentChoice = parseModelPickerAgentKey(modelKey);
+            if (agentChoice) {
+              pickAgent(agentChoice.name);
+              return;
+            }
             const legacyInstanceId = parseModelPickerLegacySectionKey(modelKey);
             if (legacyInstanceId) {
               toggleLegacySection(legacyInstanceId);
@@ -878,7 +939,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           >
             <ComboboxSearchInput
               ref={searchInputRef}
-              placeholder="Search models..."
+              placeholder={
+                agents === undefined ? "Search models..." : "Search agents and models..."
+              }
               value={searchQuery}
               onChange={(e) => {
                 if (!isSearching) setSearchHeight(pickerContentRef.current?.offsetHeight ?? 0);
@@ -945,6 +1008,11 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   (e as typeof e & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
                   e.preventDefault();
                   e.stopPropagation();
+                  const agentChoice = parseModelPickerAgentKey(highlightedModelKeyRef.current);
+                  if (agentChoice) {
+                    pickAgent(agentChoice.name);
+                    return;
+                  }
                   const legacyInstanceId = parseModelPickerLegacySectionKey(
                     highlightedModelKeyRef.current,
                   );
@@ -969,6 +1037,17 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               itemKeys={filteredItemKeys}
               extraData={modelListExtraData}
               renderItem={({ item: modelKey, index }) => {
+                const agent = agentByKey.get(modelKey);
+                if (agent !== undefined) {
+                  return (
+                    <ModelPickerAgentRow
+                      key={modelKey}
+                      index={index}
+                      agent={agent}
+                      isSelected={(agents?.selected ?? null) === (agent?.name ?? null)}
+                    />
+                  );
+                }
                 if (legacySection?.key === modelKey) {
                   return (
                     <ComboboxItem

@@ -6,14 +6,18 @@ import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { type ChatChoicesTarget, useChatChoices } from "./useChatChoices";
 
-/** The chat's connectors and kept-on skills above the message box, each one removable. */
+/**
+ * The chat's connectors and kept-on skills above the message box, each one removable. A chat with
+ * an agent shows none: the agent decides them.
+ */
 export function ComposerChoiceChips(props: { readonly target: ChatChoicesTarget }) {
   const choices = useChatChoices(props.target);
+  if (choices.agent !== null) return null;
   if (choices.usable.length === 0 && choices.skills.length === 0) return null;
   return (
     <ul aria-label="Used in this chat" className="mb-2.5 flex flex-wrap gap-1.5">
       {choices.usable.map((connection) => (
-        <Chip
+        <ChoiceChip
           key={connection.id}
           icon={<PlugIcon />}
           label={connection.name}
@@ -23,7 +27,7 @@ export function ComposerChoiceChips(props: { readonly target: ChatChoicesTarget 
         />
       ))}
       {choices.skills.map((name) => (
-        <Chip
+        <ChoiceChip
           key={name}
           skill
           icon={<SparklesIcon />}
@@ -37,7 +41,8 @@ export function ComposerChoiceChips(props: { readonly target: ChatChoicesTarget 
   );
 }
 
-function Chip(props: {
+/** A removable chip for something a chat or an agent uses, such as a connector or a skill. */
+export function ChoiceChip(props: {
   readonly icon: ReactNode;
   readonly label: string;
   readonly removeLabel: string;

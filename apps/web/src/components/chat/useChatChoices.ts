@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentThread } from "@codenine/client-runtime/state/models";
 import { isAtomCommandInterrupted } from "@codenine/client-runtime/state/runtime";
 import type {
+  AgentName,
   ConnectionId,
   EnvironmentId,
   ProjectId,
@@ -27,7 +28,7 @@ import {
   withSkill,
 } from "./chatChoices.logic";
 
-/** The chat whose connectors and kept-on skills the composer shows and changes. */
+/** The chat whose connectors, kept-on skills and agent the composer shows and changes. */
 export interface ChatChoicesTarget {
   readonly environmentId: EnvironmentId;
   /** The chat's thread; for a new chat, the thread its first message creates. */
@@ -38,10 +39,22 @@ export interface ChatChoicesTarget {
   readonly canChange: boolean;
 }
 
+/** A change to the chat's choices; `agent: null` goes back to no agent. */
+interface ChatChoicesChange {
+  readonly connectors?: ReadonlyArray<ConnectionId>;
+  readonly skills?: ReadonlyArray<SkillName>;
+  readonly agent?: AgentName | null;
+}
+
 const NO_THREAD = Atom.make<EnvironmentThread | null>(null).pipe(
   Atom.withLabel("chat-choices:no-thread"),
 );
 const selectAppThread = (thread: EnvironmentThread | null) => thread?.projection.thread ?? null;
+
+function changedChoices(change: ChatChoicesChange): ChatChoices {
+  const { agent, ...rest } = change;
+  return agent === undefined ? rest : { ...rest, agent: agent ?? undefined };
+}
 
 export function useChatChoices(target: ChatChoicesTarget) {
   const { environmentId, threadRef, onServer } = target;
@@ -66,23 +79,27 @@ export function useChatChoices(target: ChatChoicesTarget) {
       ? (draftChoices ?? {})
       : pending !== null && pending.base === appThread
         ? pending.choices
-        : { connectors: appThread.connectors, skills: appThread.skills };
+        : { connectors: appThread.connectors, skills: appThread.skills, agent: appThread.agent };
   const connections = state.data?.connections ?? [];
   const canChange = target.canChange && (!onServer || appThread !== null);
 
-  const apply = async (change: ChatChoices) => {
+  const apply = async (change: ChatChoicesChange) => {
     if (!canChange) return;
     if (!onServer) {
-      setDraftChatChoices(threadRef.threadId, (current) => ({ ...current, ...change }));
+      setDraftChatChoices(threadRef.threadId, (current) => ({
+        ...current,
+        ...changedChoices(change),
+      }));
       return;
     }
-    setPending({ base: appThread, choices: { ...choices, ...change } });
+    setPending({ base: appThread, choices: { ...choices, ...changedChoices(change) } });
     const result = await updateMetadata({
       environmentId,
       input: {
         threadId: threadRef.threadId,
         ...(change.connectors === undefined ? {} : { connectors: change.connectors }),
         ...(change.skills === undefined ? {} : { skills: change.skills }),
+        ...(change.agent === undefined ? {} : { agent: change.agent }),
       },
     });
     if (result._tag === "Failure") {
@@ -104,10 +121,13 @@ export function useChatChoices(target: ChatChoicesTarget) {
     /** What the chat's agents can use now, as the server attaches it. */
     usable: usableConnections(activeConnections(choices, connections)),
     skills: choices.skills ?? [],
+    /** The agent the chat talks to; its connectors and skills replace the chat's own. */
+    agent: choices.agent ?? null,
     canChange,
     toggleConnection: (connectionId: ConnectionId, on: boolean) =>
       apply({ connectors: toggledConnections(choices, connections, connectionId, on) }),
     addSkill: (name: SkillName) => apply({ skills: withSkill(choices.skills, name) }),
     removeSkill: (name: SkillName) => apply({ skills: withoutSkill(choices.skills, name) }),
+    setAgent: (agent: AgentName | null) => apply({ agent }),
   };
 }

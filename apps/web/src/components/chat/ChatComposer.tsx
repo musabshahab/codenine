@@ -19,6 +19,7 @@ import type {
   EnvironmentId,
   ModelSelection,
   ProjectId,
+  ProviderOptionSelection,
   ThreadContextRecord,
   EnvironmentContextRecord,
   ResolvedKeybindingsConfig,
@@ -451,11 +452,16 @@ export interface ChatComposerProps {
     cursorAdjacentToMention: boolean,
   ) => void;
 
+  /** False when the pick did not apply, such as a provider the thread cannot switch to. */
   onProviderModelSelect: (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => void;
+    options?: {
+      focusComposer?: boolean;
+      /** An agent's effort, in place of the options the model was last used with. */
+      agentOptions?: ReadonlyArray<ProviderOptionSelection>;
+    },
+  ) => boolean;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   /** Opens the Claude Code and Codex setup cards when no provider can take a message. */
   onOpenAgentSetup: () => void;
@@ -2190,9 +2196,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     : composerControlsCollapsed
       ? 0
       : expandedControlsIconOnlyBlockCount;
+  const chatChoicesTarget: ChatChoicesTarget = {
+    environmentId,
+    threadRef: routeThreadRef,
+    onServer: routeKind === "server",
+    projectId: activeProjectId,
+    canChange: canOperateThread,
+  };
   const composerControls = (
     <ComposerControlsBar
       environmentId={environmentId}
+      chatChoicesTarget={chatChoicesTarget}
       routeKind={routeKind}
       routeThreadRef={routeThreadRef}
       draftId={draftId}
@@ -2948,13 +2962,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onRemoveFile={removeComposerFileFromDraft}
       />
     ) : null;
-  const chatChoicesTarget: ChatChoicesTarget = {
-    environmentId,
-    threadRef: routeThreadRef,
-    onServer: routeKind === "server",
-    projectId: activeProjectId,
-    canChange: canOperateThread,
-  };
   const composerAddMenu = (
     <ComposerAddMenu
       target={chatChoicesTarget}

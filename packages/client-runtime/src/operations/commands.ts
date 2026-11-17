@@ -1,5 +1,6 @@
 import { remapComposerContextAttachments } from "@codenine/shared/composerContextReferences";
 import {
+  type AgentName,
   type ThreadLinkedPullRequest,
   CommandId,
   CheckpointId,
@@ -146,12 +147,15 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly connectors?: ReadonlyArray<ConnectionId> | null;
   /** Skills kept on for the chat. */
   readonly skills?: ReadonlyArray<SkillName>;
+  /** The agent the chat talks to; null goes back to no agent. */
+  readonly agent?: AgentName | null;
 }
 
 /** What a new chat chose before it had a thread. */
 export interface ThreadChoices {
   readonly connectors?: ReadonlyArray<ConnectionId>;
   readonly skills?: ReadonlyArray<SkillName>;
+  readonly agent?: AgentName;
 }
 
 export interface SetThreadRuntimeModeInput extends ThreadCommandInput {
@@ -607,7 +611,8 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.linkedPullRequest !== undefined ||
       input.limitRecovery !== undefined ||
       input.connectors !== undefined ||
-      input.skills !== undefined
+      input.skills !== undefined ||
+      input.agent !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
@@ -624,6 +629,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
           : { linkedPullRequest: input.linkedPullRequest }),
         ...(input.connectors === undefined ? {} : { connectors: input.connectors }),
         ...(input.skills === undefined ? {} : { skills: input.skills }),
+        ...(input.agent === undefined ? {} : { agent: input.agent }),
       });
     }
     if (input.modelSelection !== undefined) {
@@ -681,7 +687,9 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
     // Commands run in order: the thread, then its choices, then the launch with the first message.
     const createdFirst =
       bootstrap !== undefined &&
-      (choices?.connectors !== undefined || choices?.skills !== undefined);
+      (choices?.connectors !== undefined ||
+        choices?.skills !== undefined ||
+        choices?.agent !== undefined);
     if (createdFirst) {
       yield* dispatch({
         type: "thread.create",
@@ -703,6 +711,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
         threadId: input.threadId,
         ...(choices?.connectors === undefined ? {} : { connectors: choices.connectors }),
         ...(choices?.skills === undefined ? {} : { skills: choices.skills }),
+        ...(choices?.agent === undefined ? {} : { agent: choices.agent }),
       });
     }
     const existingProjection =

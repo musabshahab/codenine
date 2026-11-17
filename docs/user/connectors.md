@@ -64,7 +64,8 @@ service has signed Codenine out. **Disconnect** removes the connector with its s
 New chats use the connectors that are **On by default in chats**, a switch on each connector's
 page. In a chat, the **+** menu next to the message box turns connectors on or off for that chat
 only, and the ones it uses show above the message box. Once a chat picks its own, changing the
-defaults no longer changes it.
+defaults no longer changes it. A chat with an [agent](./agents.md) uses the agent's connectors
+instead.
 
 ## Not here yet
 

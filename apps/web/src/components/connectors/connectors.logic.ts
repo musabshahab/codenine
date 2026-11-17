@@ -264,7 +264,7 @@ export function customConnectRequest(
   };
 }
 
-const RISK_GROUPS: ReadonlyArray<{
+export const RISK_GROUPS: ReadonlyArray<{
   readonly risk: ConnectorRisk;
   readonly title: string;
   readonly hint: string;

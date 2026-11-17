@@ -25,6 +25,7 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
+  BotIcon,
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
   DatabaseBackupIcon,
@@ -59,6 +60,9 @@ import {
 import type { LegendListRef } from "@legendapp/list/react";
 import { useAtomValue } from "@effect/atom-react";
 
+import { agentModelProblem } from "./agents/agents.logic";
+import { useAgents } from "./agents/useAgents";
+import { useStartAgentChat } from "./agents/useStartAgentChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { copyThreadReference } from "../lib/copyThreadReference";
 import {
@@ -86,7 +90,11 @@ import { useNewProject } from "../hooks/useNewProject";
 import { useProjectFolderPicker } from "../hooks/useProjectFolderPicker";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
-import { useEnvironmentProviders, useEnvironments } from "../state/environments";
+import {
+  useEnvironmentProviders,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "../state/environments";
 import {
   useAnyEnvironmentHiding,
   useHiddenThreadKeys,
@@ -357,6 +365,7 @@ function OpenCommandPaletteDialog(props: {
   const createProject = useNewProject();
   const folderPicker = useProjectFolderPicker();
   const { scratchEnvironmentId, scratchWorkspaceRootFor, startScratchThread } = useScratchProject();
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const loadBrowsePath = useAtomQueryRunner(filesystemEnvironment.browse, {
     reportFailure: false,
     reportDefect: false,
@@ -480,6 +489,10 @@ function OpenCommandPaletteDialog(props: {
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
   const scratchTargetEnvironmentId = scratchEnvironmentId(currentProjectEnvironmentId);
+  // Agents on the chat's machine, else this one's.
+  const agentsEnvironmentId = currentProjectEnvironmentId ?? primaryEnvironmentId;
+  const { agents: paletteAgents } = useAgents(agentsEnvironmentId);
+  const startAgentChat = useStartAgentChat();
   const currentProject = resolveCommandPaletteProject(
     projectByKey,
     currentProjectEnvironmentId,
@@ -1111,6 +1124,51 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/skills/new", search: buildPageSearch });
     },
   });
+  actionItems.push({
+    kind: "action",
+    value: "action:agents",
+    searchTerms: ["agents", "agent", "specialist", "assistant", "persona"],
+    title: "Open agents",
+    icon: <BotIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/agents", search: buildPageSearch });
+    },
+  });
+  actionItems.push({
+    kind: "action",
+    value: "action:new-agent",
+    searchTerms: ["new agent", "create agent", "make agent", "add agent"],
+    title: "New agent",
+    icon: <BotIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/agents/new", search: buildPageSearch });
+    },
+  });
+  const agentChatWorkspace =
+    projects.find(
+      (project) =>
+        project.environmentId === agentsEnvironmentId &&
+        project.id === currentProjectId &&
+        project.archivedAt == null,
+    ) ?? null;
+  for (const agent of paletteAgents) {
+    if (agentsEnvironmentId === null || agentModelProblem(agent.modelStatus) !== null) continue;
+    actionItems.push({
+      kind: "action",
+      value: `action:agent-chat:${agent.name}`,
+      searchTerms: ["chat with", "agent", agent.title, agent.description],
+      title: `Chat with ${agent.title}`,
+      description: agent.description,
+      icon: <BotIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await startAgentChat({
+          environmentId: agentsEnvironmentId,
+          agent,
+          workspace: agentChatWorkspace,
+        });
+      },
+    });
+  }
 
   // Every group, so an archived project's thread still opens its own settings.
   const currentProjectGroup =

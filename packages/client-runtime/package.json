@@ -135,6 +135,10 @@
       "types": "./src/state/backup.ts",
       "default": "./src/state/backup.ts"
     },
+    "./state/agents": {
+      "types": "./src/state/agents.ts",
+      "default": "./src/state/agents.ts"
+    },
     "./state/connectors": {
       "types": "./src/state/connectors.ts",
       "default": "./src/state/connectors.ts"

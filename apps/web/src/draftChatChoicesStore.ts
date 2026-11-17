@@ -4,9 +4,9 @@ import { create } from "zustand";
 import { type ChatChoices, threadChoicesFromDraft } from "./components/chat/chatChoices.logic";
 
 /**
- * Connectors and kept-on skills a new chat picked before the server had its thread, by the id
- * the thread will get. The first send hands them to that thread. Not persisted: a reload goes
- * back to the defaults.
+ * Connectors, kept-on skills and the agent a new chat picked before the server had its thread, by
+ * the id the thread will get. The first send hands them to that thread. Not persisted: a reload
+ * goes back to the defaults.
  */
 export const useDraftChatChoicesStore = create<{
   readonly byThread: Readonly<Record<ThreadId, ChatChoices>>;

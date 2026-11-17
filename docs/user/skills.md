@@ -38,4 +38,5 @@ with the Write a skill skill** on **New skill** to start a chat with it.
 
 Type `$` or `/` in the message box. Codenine skills come first, and a provider skill with the same
 name is left out. To keep a skill on for the whole chat, choose **+** then **Add a skill…** next to
-the message box. It shows above the message box until you remove it.
+the message box. It shows above the message box until you remove it. A chat with an
+[agent](./agents.md) uses the agent's skills instead.

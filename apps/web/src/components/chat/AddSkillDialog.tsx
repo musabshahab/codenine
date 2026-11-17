@@ -26,6 +26,8 @@ export function AddSkillDialog(props: {
   /** Skills the chat keeps on already; they are left out. */
   readonly keptOn: ReadonlyArray<SkillName>;
   readonly emptyMessage: string;
+  /** What choosing a skill does, in the footer. */
+  readonly actionLabel?: string;
   readonly onOpenChange: (open: boolean) => void;
   readonly onPick: (name: SkillName) => void;
 }) {
@@ -68,7 +70,7 @@ export function AddSkillDialog(props: {
             aria-label="Add a skill"
             autoHighlight="always"
             escapeLabel="Close"
-            footerActionLabel="Keep it on in this chat"
+            footerActionLabel={props.actionLabel ?? "Keep it on in this chat"}
             inputProps={{ placeholder: "Search skills…" }}
             mode="none"
             onItemHighlighted={(value) => setHighlighted(typeof value === "string" ? value : null)}

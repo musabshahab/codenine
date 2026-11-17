@@ -104,6 +104,9 @@ Codenine remembers your provider, model, and model options for new threads. A
 workspace's configured model takes precedence; resetting that workspace setting
 returns to the remembered selection.
 
+Once you have [agents](./agents.md), the model picker lists them under **Agents**, above the
+models. Choosing one makes the chat talk to that agent on its model; **No agent** keeps the model.
+
 Leaving reasoning level or service tier unset uses the provider's own configuration.
 
 ## Quote an assistant response
@@ -207,7 +210,7 @@ with the same name is left out. See [Skills](./skills.md).
 
 The **+** menu next to the message box keeps a skill on for the whole chat (**Add a skill…**) and
 turns the chat's [connectors](./connectors.md) on or off. What the chat uses shows above the message
-box, where you can remove it.
+box, where you can remove it. In a chat with an [agent](./agents.md), the agent decides both.
 
 The slash menu also includes skills unless you turn off **Settings → Chat →
 Show skills in slash menu**, under Advanced. Only skills enabled for the provider are listed.

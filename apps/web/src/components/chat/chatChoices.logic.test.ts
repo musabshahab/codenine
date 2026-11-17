@@ -52,6 +52,7 @@ describe("threadChoicesFromDraft", () => {
     expect(threadChoicesFromDraft({ skills: ["write-clear-emails"] })).toEqual({
       skills: ["write-clear-emails"],
     });
+    expect(threadChoicesFromDraft({ skills: [], agent: "gmail" })).toEqual({ agent: "gmail" });
   });
 });
 

@@ -19,6 +19,8 @@ import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
+import { ConnectorMark } from "../connectors/ConnectorMark";
+import type { ModelPickerAgents } from "./ModelPickerAgentRow";
 import { ModelPickerContent, resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ChatGptSharingControl } from "./ChatGptSharingControl";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -123,6 +125,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
    */
   effortColumn?: ReactNode;
   footer?: ReactNode;
+  /** A chat's agents: a tab above the models, and the chat's agent named before its model. */
+  agents?: ModelPickerAgents;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
@@ -162,9 +166,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const triggerTitle = selectedModel
     ? getTriggerDisplayModelName(selectedModel, activeEntry?.driverKind)
     : props.model || "Choose model";
-  const triggerLabel = selectedModel
+  const agentTitle = props.agents?.selected == null ? null : props.agents.selectedTitle;
+  const modelLabel = selectedModel
     ? `${getDisplayModelName(selectedModel)}${selectedModel.isUnavailable ? " (Unavailable)" : ""}`
     : triggerTitle;
+  const triggerLabel = agentTitle === null ? modelLabel : `${agentTitle} · ${modelLabel}`;
   const showInstanceBadge =
     activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
 
@@ -256,7 +262,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     .filter(Boolean)
     .join(" · ");
 
-  const triggerText = props.triggerLabel ?? multipleLabel ?? triggerTitle;
+  const triggerText =
+    props.triggerLabel ??
+    multipleLabel ??
+    (agentTitle === null ? triggerTitle : `${agentTitle} · ${triggerTitle}`);
   const triggerTextProps = {
     className: cn(
       "min-w-0 flex-1 overflow-hidden truncate",
@@ -294,6 +303,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           : (props.getModelDisabledReason?.(instanceId, model) ?? null)
       }
       onInstanceModelChange={handleInstanceModelChange}
+      {...(props.agents ? { agents: props.agents } : {})}
       {...(docked
         ? {
             docked,
@@ -384,6 +394,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   +{selectedEntries.length - 3}
                 </span>
               ) : null}
+            </span>
+          ) : agentTitle !== null && props.triggerLabel === undefined ? (
+            <span data-chat-provider-model-picker-icon className="contents">
+              <ConnectorMark name={agentTitle} size="sm" tone="agent" />
             </span>
           ) : activeEntry && props.triggerLabel === undefined ? (
             // Narrow compacted composers hide the provider icon before truncating the name.
