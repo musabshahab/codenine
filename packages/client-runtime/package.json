@@ -135,6 +135,14 @@
       "types": "./src/state/backup.ts",
       "default": "./src/state/backup.ts"
     },
+    "./state/connectors": {
+      "types": "./src/state/connectors.ts",
+      "default": "./src/state/connectors.ts"
+    },
+    "./state/skills": {
+      "types": "./src/state/skills.ts",
+      "default": "./src/state/skills.ts"
+    },
     "./state/auth": {
       "types": "./src/state/auth.ts",
       "default": "./src/state/auth.ts"

@@ -77,6 +77,7 @@ import {
   type TerminalContextDraft,
 } from "../../lib/terminalContext";
 import { buildMessageContext } from "../../lib/composerContextRecords";
+import { draftThreadChoices } from "../../draftChatChoicesStore";
 import { sendsTeamRequest } from "./composerTeam.logic";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { threadEnvironment } from "../../state/threads";
@@ -1148,6 +1149,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
                     },
+                    ...draftThreadChoices(threadIdForSend),
                   }
                 : {}),
               ...(baseBranchForWorktree

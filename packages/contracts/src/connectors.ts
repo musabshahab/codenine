@@ -8,6 +8,9 @@ import {
   TurnItemId,
 } from "./baseSchemas.ts";
 
+/** Sign-ins come back to `<the origin the browser uses><this path>`. */
+export const CONNECTOR_OAUTH_CALLBACK_PATH = "/oauth/connectors/callback";
+
 const ConnectorSlug = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,47}$/));
 
 /** A connector in the library that ships with Codenine, such as `gmail`. */

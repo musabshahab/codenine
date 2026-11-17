@@ -30,7 +30,7 @@ import { toastManager } from "../ui/toast";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { searchableSetting } from "../settings/settingsSearch";
 import { BACKUP_KIND_LABELS, capitalize, dayAndTime } from "./backup.logic";
-import { commandErrorMessage } from "./commandError";
+import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupClock } from "./useBackupDateFormat";
 
 const RECENT_COUNT = 5;

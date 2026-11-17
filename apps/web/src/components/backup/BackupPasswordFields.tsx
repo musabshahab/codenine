@@ -12,7 +12,7 @@ import { Label } from "../ui/label";
 import { toastManager } from "../ui/toast";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup } from "../ui/wizard";
 import { passwordErrors, type PasswordErrors } from "./backup.logic";
-import { commandErrorMessage } from "./commandError";
+import { commandErrorMessage } from "../../lib/commandError";
 
 export function FieldError({
   id,

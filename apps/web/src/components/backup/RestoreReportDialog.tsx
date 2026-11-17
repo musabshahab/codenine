@@ -49,7 +49,7 @@ import {
 } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
 import { undoAvailability } from "./backup.logic";
-import { commandErrorMessage } from "./commandError";
+import { commandErrorMessage } from "../../lib/commandError";
 import { useAwaitRestartThenReload } from "./useAwaitRestartThenReload";
 import { useBackupClock } from "./useBackupDateFormat";
 

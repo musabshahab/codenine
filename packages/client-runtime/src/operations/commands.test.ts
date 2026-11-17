@@ -3,6 +3,7 @@ import {
   CheckpointRef,
   CheckpointScopeId,
   CommandId,
+  ConnectionId,
   EnvironmentId,
   MessageId,
   NodeId,
@@ -62,10 +63,13 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   readonly projection?: OrchestrationV2ThreadProjection;
   readonly projectionRequests?: ThreadId[];
   readonly advertiseThreadStop?: boolean;
+  /** Every dispatch and launch, in the order the server receives them. */
+  readonly requests?: string[];
 }) {
   const client = {
     [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
       Effect.sync(() => {
+        input.requests?.push(command.type);
         input.commands.push(command);
         return { sequence: input.commands.length };
       }),
@@ -78,6 +82,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
       }),
     [ORCHESTRATION_V2_WS_METHODS.launchThread]: (launchInput: OrchestrationV2ThreadLaunchInput) =>
       Effect.sync(() => {
+        input.requests?.push("launch");
         input.launches?.push(launchInput);
         return {
           threadId: launchInput.threadId ?? v2ThreadId,
@@ -254,6 +259,59 @@ describe("V2 environment commands", () => {
           branch: "feature",
         },
       });
+    }).pipe(Effect.provide(layerTestRandom)),
+  );
+
+  it.effect("gives a new chat its connectors and skills before its first message", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const launches: OrchestrationV2ThreadLaunchInput[] = [];
+      const requests: string[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [], launches, requests });
+      const gmail = ConnectionId.make("gmail");
+
+      yield* startThreadTurn({
+        commandId: CommandId.make("launch-with-choices"),
+        threadId: v2ThreadId,
+        message: {
+          messageId: MessageId.make("message-with-choices"),
+          role: "user",
+          text: "Reply to Sam",
+          attachments: [],
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        titleSeed: "Reply to Sam",
+        bootstrap: {
+          createThread: {
+            projectId: ProjectId.make("project-1"),
+            title: "Thread",
+            modelSelection: v2Projection.thread.modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-06-20T00:00:00.000Z",
+          },
+          threadChoices: { connectors: [gmail], skills: ["write-clear-emails"] },
+        },
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(requests).toEqual(["thread.create", "thread.metadata.update", "launch"]);
+      expect(commands[0]).toMatchObject({
+        type: "thread.create",
+        threadId: v2ThreadId,
+        projectId: "project-1",
+        title: "Reply to Sam",
+      });
+      expect(commands[1]).toEqual({
+        type: "thread.metadata.update",
+        commandId: "launch-with-choices:choices",
+        threadId: v2ThreadId,
+        connectors: [gmail],
+        skills: ["write-clear-emails"],
+      });
+      expect(launches[0]).toMatchObject({ threadId: v2ThreadId, reuseExistingThread: true });
     }).pipe(Effect.provide(layerTestRandom)),
   );
 

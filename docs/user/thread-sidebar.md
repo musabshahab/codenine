@@ -68,11 +68,9 @@ task.
 
 ## Build
 
-**Skills** lists the skills installed in Claude Code and Codex on each connected machine; agents
-load one when a task needs it. To give a skill to every account on a machine, put its folder in
-`~/.codenine/skills` there. **Connectors** shows each AI provider and whether it is signed in,
-and links to GitHub setup for repositories and pull requests. **Agents** and **Workflows** are where
-you will set up reusable agents and multi-step processes; they are empty for now.
+**Skills** holds the know-how agents follow, and **Connectors** the services they can use; see
+[Skills](./skills.md) and [Connectors](./connectors.md). **Agents** and **Workflows** are where you
+will set up reusable agents and multi-step processes; they are empty for now.
 
 ## Group chats by workspace
 

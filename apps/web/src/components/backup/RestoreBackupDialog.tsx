@@ -42,7 +42,7 @@ import {
 } from "./backup.logic";
 import { FieldError } from "./BackupPasswordFields";
 import { useAwaitRestartThenReload } from "./useAwaitRestartThenReload";
-import { commandErrorMessage } from "./commandError";
+import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupClock } from "./useBackupDateFormat";
 
 /** Hosted once at the root, so Settings, the Welcome page, and a backup row open the same flow. */

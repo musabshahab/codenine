@@ -18,6 +18,7 @@ import {
   useComposerDraftStore,
 } from "../../composerDraftStore";
 import type { ComposerHandleRef } from "../../composerHandleContext";
+import { draftThreadChoices } from "../../draftChatChoicesStore";
 import { releaseDraftAttachments } from "../../lib/attachmentUploadQueue";
 import type { buildMessageContext } from "../../lib/composerContextRecords";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
@@ -194,6 +195,8 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
                     runSetupScript: true,
+                    // A new chat's connectors and skills go with each thread it fans out to.
+                    ...draftThreadChoices(threadId),
                   },
                   createdAt: createdAt,
                 },

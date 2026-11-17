@@ -10,6 +10,15 @@ export const SkillName = Schema.String.check(
 );
 export type SkillName = typeof SkillName.Type;
 
+/** "write-clear-emails" reads as "Write clear emails". */
+export function skillTitle(name: string): string {
+  const words = name
+    .split("-")
+    .filter((word) => word.length > 0)
+    .join(" ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /**
  * - `codenine`: in the Codenine folder's `skills/`, for every workspace.
  * - `workspace`: in a workspace's `.agents/skills/`, shared with whoever shares its files.

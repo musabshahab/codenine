@@ -5,6 +5,7 @@ import { resolveNewThreadModelSelection } from "@codenine/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@codenine/client-runtime/queued-run-edit";
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
 import { usePasteToFocusComposer } from "./chat/usePasteToFocusComposer";
+import { useComposerSkills } from "./chat/useComposerSkills";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { announcedRun, isDetailBehindShell } from "./chat/threadActivityAnnouncement";
 import {
@@ -2571,9 +2572,15 @@ export default function ChatView(props: ChatViewProps) {
     isDesktop: isElectron,
   });
   const getShortcutContextStable = useStableCallback(getShortcutContext);
-  const timelineSkills = activeProviderStatus
+  const providerTimelineSkills = activeProviderStatus
     ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
     : EMPTY_PROVIDER_SKILLS;
+  // Sent `$` tokens for Codenine skills show as the same chips the composer inserted.
+  const timelineSkills = useComposerSkills(
+    environmentId,
+    activeProject?.id ?? null,
+    providerTimelineSkills,
+  );
   const threadFindEnabled = isServerThread && serverConfig?.threadFind === true;
   const isThreadFindActive = useThreadFindOpen(activeThreadRef, threadFindEnabled);
   const openThreadFindStable = useStableCallback((threadRef: ScopedThreadRef) => {

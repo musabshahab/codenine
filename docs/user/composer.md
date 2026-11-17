@@ -38,7 +38,8 @@ it. Very large code blocks are shown without syntax highlighting.
 
 ## Attach files
 
-Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
+Choose **+** next to the message box, then **Add files or photos**. Attach up to 100 files per
+message. Each image can be up to 10 MiB, with at most
 80 MiB of images in one message. Other files, including videos, can be up to
 50 MiB each, subject to the environment's upload support and limit. The agent
 receives them on the environment's machine. Provider and model limits still
@@ -201,8 +202,12 @@ composer when it is empty, and is discarded otherwise.
 
 ## Commands and skills
 
-Type `/` for commands or `$` to add a skill from the selected environment and
-provider.
+Type `/` for commands or `$` to add a skill. Your Codenine skills come first; a provider skill
+with the same name is left out. See [Skills](./skills.md).
+
+The **+** menu next to the message box keeps a skill on for the whole chat (**Add a skill…**) and
+turns the chat's [connectors](./connectors.md) on or off. What the chat uses shows above the message
+box, where you can remove it.
 
 The slash menu also includes skills unless you turn off **Settings → Chat →
 Show skills in slash menu**, under Advanced. Only skills enabled for the provider are listed.

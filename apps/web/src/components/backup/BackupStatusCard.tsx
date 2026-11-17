@@ -22,7 +22,7 @@ import { Button } from "../ui/button";
 import { Progress } from "../ui/progress";
 import { toastManager } from "../ui/toast";
 import { type BackupTone, summarizeBackupStatus } from "./backup.logic";
-import { commandErrorMessage } from "./commandError";
+import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupClock } from "./useBackupDateFormat";
 
 // Static icons: the title says when a backup runs, and spinners repaint every frame.

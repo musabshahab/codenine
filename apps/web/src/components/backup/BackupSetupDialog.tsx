@@ -27,7 +27,7 @@ import {
 } from "./backup.logic";
 import { BackupFolderChoice, useBackupFolderChoice } from "./BackupFolderChoice";
 import { BackupPasswordFields, FieldError } from "./BackupPasswordFields";
-import { commandErrorMessage } from "./commandError";
+import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupDateFormat } from "./useBackupDateFormat";
 
 const CADENCES = ["daily", "weekly", "manual"] as const satisfies ReadonlyArray<BackupCadence>;

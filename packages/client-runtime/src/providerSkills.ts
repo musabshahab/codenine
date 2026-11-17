@@ -12,7 +12,14 @@ import { Atom } from "effect/reactivity";
 import { deadlineStore } from "./clock.ts";
 import { type AtomCommand, runAtomCommand } from "./state/runtime.ts";
 
-export type ProviderSkillSourceKind = "app" | "repo" | "project" | "personal" | "system" | "other";
+export type ProviderSkillSourceKind =
+  | "app"
+  | "repo"
+  | "project"
+  | "personal"
+  | "system"
+  | "codenine"
+  | "other";
 
 function normalizePathSeparators(pathValue: string): string {
   return pathValue.replaceAll("\\", "/");
@@ -81,6 +88,8 @@ export function resolveProviderSkillSourceKind(
       return "personal";
     case "system":
       return "system";
+    case "codenine":
+      return "codenine";
     case undefined:
     case "":
       return "other";

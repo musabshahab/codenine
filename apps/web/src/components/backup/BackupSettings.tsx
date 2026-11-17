@@ -53,7 +53,7 @@ import { BackupPasswordDialog } from "./BackupPasswordFields";
 import { BackupRecentList } from "./BackupRecentList";
 import { BackupSetupDialog } from "./BackupSetupDialog";
 import { BackupCard, BackupStatusCard } from "./BackupStatusCard";
-import { commandErrorMessage } from "./commandError";
+import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupDateFormat } from "./useBackupDateFormat";
 
 const FREQUENCIES = [

@@ -21,6 +21,7 @@ import {
   MessagesSquareIcon,
   PackageIcon,
   SettingsIcon,
+  SparklesIcon,
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -291,6 +292,7 @@ const SKILL_SOURCE_ICON_BY_KIND: Record<ProviderSkillSourceKind, LucideIcon> = {
   project: FolderIcon,
   personal: UserRoundIcon,
   system: SettingsIcon,
+  codenine: SparklesIcon,
   other: PackageIcon,
 };
 
@@ -300,6 +302,7 @@ const SKILL_SOURCE_LABEL_BY_KIND: Record<ProviderSkillSourceKind, string> = {
   project: "Workspace",
   personal: "Personal",
   system: "System",
+  codenine: "Codenine",
   other: "Provider",
 };
 

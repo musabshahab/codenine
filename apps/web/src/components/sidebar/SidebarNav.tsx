@@ -29,8 +29,12 @@ const SIDEBAR_PAGES = [
 ] as const;
 export type SidebarPage = (typeof SIDEBAR_PAGES)[number];
 
+/** The page a path belongs to; a connector's or a skill's own page counts as its list's. */
 export function sidebarPageForPath(pathname: string): SidebarPage | null {
-  return SIDEBAR_PAGES.find((page) => pathname === `/${page}`) ?? null;
+  return (
+    SIDEBAR_PAGES.find((page) => pathname === `/${page}` || pathname.startsWith(`/${page}/`)) ??
+    null
+  );
 }
 
 /** Every way to start something new, behind one button. */

@@ -8,6 +8,7 @@ import {
   OrchestrationV2CheckpointUnavailableError,
   WS_METHODS,
   type ChatAttachment,
+  type ConnectionId,
   MessageId,
   type ModelSelection,
   type NodeId,
@@ -23,6 +24,7 @@ import {
   type RunId,
   type RuntimeMode,
   type RuntimeRequestId,
+  type SkillName,
   type ThreadId,
   type ThreadEnvMode,
   type UploadChatAttachment,
@@ -140,6 +142,16 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly regenerateTitle?: boolean;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly expectedEmpty?: boolean;
+  /** The chat's own connectors; null goes back to the ones on by default. */
+  readonly connectors?: ReadonlyArray<ConnectionId> | null;
+  /** Skills kept on for the chat. */
+  readonly skills?: ReadonlyArray<SkillName>;
+}
+
+/** What a new chat chose before it had a thread. */
+export interface ThreadChoices {
+  readonly connectors?: ReadonlyArray<ConnectionId>;
+  readonly skills?: ReadonlyArray<SkillName>;
 }
 
 export interface SetThreadRuntimeModeInput extends ThreadCommandInput {
@@ -169,6 +181,8 @@ interface StartThreadBootstrap {
     readonly startFromOrigin?: boolean;
   };
   readonly runSetupScript?: boolean;
+  /** With `createThread`: applied once the thread exists, before its first message. */
+  readonly threadChoices?: ThreadChoices;
 }
 
 export interface StartThreadTurnInput extends ThreadCommandInput {
@@ -591,7 +605,9 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
       input.linkedPullRequest !== undefined ||
-      input.limitRecovery !== undefined
+      input.limitRecovery !== undefined ||
+      input.connectors !== undefined ||
+      input.skills !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
@@ -606,6 +622,8 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.linkedPullRequest === undefined
           ? {}
           : { linkedPullRequest: input.linkedPullRequest }),
+        ...(input.connectors === undefined ? {} : { connectors: input.connectors }),
+        ...(input.skills === undefined ? {} : { skills: input.skills }),
       });
     }
     if (input.modelSelection !== undefined) {
@@ -659,6 +677,34 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
   const bootstrap = input.bootstrap?.createThread;
   const prepareWorktree = input.bootstrap?.prepareWorktree;
   if (bootstrap !== undefined || prepareWorktree !== undefined) {
+    const choices = input.bootstrap?.threadChoices;
+    // Commands run in order: the thread, then its choices, then the launch with the first message.
+    const createdFirst =
+      bootstrap !== undefined &&
+      (choices?.connectors !== undefined || choices?.skills !== undefined);
+    if (createdFirst) {
+      yield* dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`${commandId}:create`),
+        createdBy: "user",
+        creationSource: input.creationSource ?? "web",
+        threadId: input.threadId,
+        projectId: bootstrap.projectId,
+        title: input.titleSeed ?? bootstrap.title,
+        modelSelection: input.modelSelection ?? bootstrap.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: input.interactionMode,
+        branch: bootstrap.branch,
+        worktreePath: bootstrap.worktreePath,
+      });
+      yield* dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make(`${commandId}:choices`),
+        threadId: input.threadId,
+        ...(choices?.connectors === undefined ? {} : { connectors: choices.connectors }),
+        ...(choices?.skills === undefined ? {} : { skills: choices.skills }),
+      });
+    }
     const existingProjection =
       bootstrap === undefined ? yield* getProjection(input.threadId) : null;
     const thread = bootstrap ?? existingProjection!.thread;
@@ -688,7 +734,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       commandId,
       creationSource: input.creationSource ?? "web",
       threadId: input.threadId,
-      ...(bootstrap === undefined ? { reuseExistingThread: true } : {}),
+      ...(bootstrap === undefined || createdFirst ? { reuseExistingThread: true } : {}),
       projectId: thread.projectId,
       title: input.titleSeed ?? thread.title,
       generateTitle: input.titleSeed !== undefined,

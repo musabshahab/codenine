@@ -178,13 +178,16 @@ import {
   composerSuggestionOptionId,
 } from "./ComposerCommandMenu";
 import {
-  ComposerAttachButton,
   ComposerAttachmentFileList,
   ComposerAttachmentMediaRow,
   ComposerFilePreviewDialog,
   ComposerQueuedAttachmentRow,
   ComposerRestingImagePreviews,
 } from "./ComposerAttachmentStrip";
+import { ComposerAddMenu } from "./ComposerAddMenu";
+import { ComposerChoiceChips } from "./ComposerChoiceChips";
+import type { ChatChoicesTarget } from "./useChatChoices";
+import { useComposerSkills } from "./useComposerSkills";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions, ComposerTeamToggle } from "./ComposerFooterControls";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -842,9 +845,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     attachmentBlockReason;
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = selectedProviderEntry?.snapshot ?? null;
-  const selectedProviderSkills = selectedProviderStatus
+  const providerNativeSkills = selectedProviderStatus
     ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
     : NO_PROVIDER_SKILLS;
+  // `$` and `/` list Codenine skills first; a provider skill of the same name is left out.
+  const selectedProviderSkills = useComposerSkills(
+    environmentId,
+    activeProjectId,
+    providerNativeSkills,
+  );
   const selectedProviderSlashCommands = selectedProviderStatus
     ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
     : NO_PROVIDER_SLASH_COMMANDS;
@@ -2939,12 +2948,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onRemoveFile={removeComposerFileFromDraft}
       />
     ) : null;
-  const composerAttachButton = showComposerAttachAction ? (
-    <ComposerAttachButton
-      addComposerAttachments={addComposerAttachments}
-      focusComposer={focusComposer}
+  const chatChoicesTarget: ChatChoicesTarget = {
+    environmentId,
+    threadRef: routeThreadRef,
+    onServer: routeKind === "server",
+    projectId: activeProjectId,
+    canChange: canOperateThread,
+  };
+  const composerAddMenu = (
+    <ComposerAddMenu
+      target={chatChoicesTarget}
+      attach={showComposerAttachAction ? { add: addComposerAttachments, focusComposer } : null}
     />
-  ) : null;
+  );
   const composerTeamToggle = props.teamOffered ? (
     <ComposerTeamToggle
       pressed={composerDraft.teamRequested === true}
@@ -3179,6 +3195,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   />
                 )}
 
+              <ComposerChoiceChips target={chatChoicesTarget} />
+
               {composerAttachmentMediaRow}
 
               {composerAttachmentFileList}
@@ -3297,13 +3315,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   showMobilePendingAnswerActions && "hidden sm:flex",
                 )}
               >
-                {composerAttachButton || props.projectPicker || composerTeamToggle ? (
-                  <div className="me-2 flex min-w-0 shrink items-center gap-1">
-                    {composerAttachButton}
-                    {props.projectPicker}
-                    {composerTeamToggle}
-                  </div>
-                ) : null}
+                <div className="me-2 flex min-w-0 shrink items-center gap-1">
+                  {composerAddMenu}
+                  {props.projectPicker}
+                  {composerTeamToggle}
+                </div>
                 <div
                   data-chat-composer-actions="right"
                   data-chat-composer-transition-actions="true"

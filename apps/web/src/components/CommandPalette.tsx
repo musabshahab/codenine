@@ -42,6 +42,7 @@ import {
   PinIcon,
   PinOffIcon,
   PlugIcon,
+  SparklesIcon,
   SquarePenIcon,
   TextSearchIcon,
 } from "lucide-react";
@@ -1072,6 +1073,42 @@ function OpenCommandPaletteDialog(props: {
     icon: <DatabaseBackupIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/settings/backup" });
+    },
+  });
+
+  // Build pages open on the chat's machine and workspace when there is one.
+  const buildPageSearch = {
+    machine: currentProjectEnvironmentId ?? undefined,
+    workspace: currentProjectId ?? undefined,
+  };
+  actionItems.push({
+    kind: "action",
+    value: "action:connectors",
+    searchTerms: ["connectors", "connect", "mcp", "gmail", "slack", "github", "sign in", "apps"],
+    title: "Open connectors",
+    icon: <PlugIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/connectors", search: { machine: buildPageSearch.machine } });
+    },
+  });
+  actionItems.push({
+    kind: "action",
+    value: "action:skills",
+    searchTerms: ["skills", "skill", "instructions", "know-how", "library", "import"],
+    title: "Open skills",
+    icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/skills", search: buildPageSearch });
+    },
+  });
+  actionItems.push({
+    kind: "action",
+    value: "action:new-skill",
+    searchTerms: ["new skill", "create skill", "write skill", "add skill"],
+    title: "New skill",
+    icon: <SparklesIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/skills/new", search: buildPageSearch });
     },
   });
 

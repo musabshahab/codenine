@@ -5,8 +5,7 @@ import type {
   ScopedThreadRef,
 } from "@codenine/contracts";
 import { formatAttachmentSize } from "@codenine/client-runtime/state/attachments";
-import { CircleAlertIcon, PaperclipIcon, PlayIcon, XIcon } from "lucide-react";
-import { useRef } from "react";
+import { CircleAlertIcon, PlayIcon, XIcon } from "lucide-react";
 
 import {
   type ComposerFileAttachment,
@@ -578,53 +577,5 @@ export function ComposerQueuedAttachmentRow({
         </div>
       ))}
     </div>
-  );
-}
-
-export function ComposerAttachButton({
-  addComposerAttachments,
-  focusComposer,
-}: {
-  readonly addComposerAttachments: (files: File[]) => Promise<boolean>;
-  readonly focusComposer: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.currentTarget.files ?? []);
-          event.currentTarget.value = "";
-          // Inserting a chip refocuses the editor after the draft renders;
-          // focusing synchronously here would report the editor's stale text
-          // over the prompt that was just written.
-          void addComposerAttachments(files).then((inserted) => {
-            if (!inserted) focusComposer();
-          });
-        }}
-      />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => inputRef.current?.click()}
-              aria-label="Attach files"
-            />
-          }
-        >
-          {/* The clip's weight sits in its upper loop; 1px down reads as centered on the row. */}
-          <PaperclipIcon className="translate-y-px" />
-        </TooltipTrigger>
-        <TooltipPopup>Attach files</TooltipPopup>
-      </Tooltip>
-    </>
   );
 }
