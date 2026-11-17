@@ -77,6 +77,7 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsRpcGroup,
+  AgentError,
 } from "@codenine/contracts";
 import {
   HttpRouter,
@@ -235,6 +236,10 @@ import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import { requestUrl } from "./requestUrl.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
+const agentsUnavailable = new AgentError({
+  reason: "failed",
+  detail: "Agents are not available yet.",
+});
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
 
 const resolveDiscoveryForConfig = <A, E, R>(
@@ -2236,6 +2241,11 @@ export const layerWsRpc = (
         [WS_METHODS.skillsDelete]: (input) => skills.remove(input).pipe(Effect.as({})),
         [WS_METHODS.skillsAddFromLibrary]: (input) => skills.addFromLibrary(input),
         [WS_METHODS.skillsImport]: (input) => skills.importFound(input),
+        // Placeholders until the agents service lands.
+        [WS_METHODS.agentsList]: () => Effect.fail(agentsUnavailable),
+        [WS_METHODS.agentsRead]: () => Effect.fail(agentsUnavailable),
+        [WS_METHODS.agentsSave]: () => Effect.fail(agentsUnavailable),
+        [WS_METHODS.agentsDelete]: () => Effect.fail(agentsUnavailable),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.

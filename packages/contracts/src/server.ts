@@ -70,6 +70,16 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+/** What a model can do and costs, as far as its account says. */
+export const ServerProviderModelInfo = Schema.Struct({
+  /** Null when the account does not say. */
+  usesTools: Schema.NullOr(Schema.Boolean),
+  readsImages: Schema.NullOr(Schema.Boolean),
+  /** US dollars per million tokens, for pay-per-use accounts. */
+  price: Schema.NullOr(Schema.Struct({ input: Schema.Number, output: Schema.Number })),
+});
+export type ServerProviderModelInfo = typeof ServerProviderModelInfo.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -81,6 +91,7 @@ export const ServerProviderModel = Schema.Struct({
   isDefault: Schema.optional(Schema.Boolean),
   isLegacy: Schema.optional(Schema.Boolean),
   capabilities: Schema.NullOr(ModelCapabilities),
+  info: Schema.optional(ServerProviderModelInfo),
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
 

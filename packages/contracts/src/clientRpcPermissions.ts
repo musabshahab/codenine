@@ -40,6 +40,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.skillsDelete]: AuthSettingsWriteScope,
   [WS_METHODS.skillsAddFromLibrary]: AuthSettingsWriteScope,
   [WS_METHODS.skillsImport]: AuthSettingsWriteScope,
+  // Agents decide what a chat may reach, as connectors and skills do.
+  [WS_METHODS.agentsSave]: AuthSettingsWriteScope,
+  [WS_METHODS.agentsDelete]: AuthSettingsWriteScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
   // Listing models spends the stored API key, so only those who can choose a model may.
   [WS_METHODS.serverListTextGeneratorModels]: AuthSettingsWriteScope,

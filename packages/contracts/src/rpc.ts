@@ -263,6 +263,16 @@ import {
   ConnectorsState,
 } from "./connectors.ts";
 import {
+  AgentError,
+  AgentDetail,
+  AgentNameInput,
+  AgentSaveInput,
+  AgentSummary,
+  AgentsEmptyInput,
+  AgentsEmptyResult,
+  AgentsListResult,
+} from "./agents.ts";
+import {
   SkillAddFromLibraryInput,
   SkillDetail,
   SkillError,
@@ -432,6 +442,10 @@ export const WS_METHODS = {
   skillsDelete: "skills.delete",
   skillsAddFromLibrary: "skills.addFromLibrary",
   skillsImport: "skills.import",
+  agentsList: "agents.list",
+  agentsRead: "agents.read",
+  agentsSave: "agents.save",
+  agentsDelete: "agents.delete",
 
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeVcsBranch: "subscribeVcsBranch",
@@ -1019,6 +1033,32 @@ const WsSkillsImportRpc = Rpc.make(WS_METHODS.skillsImport, {
   error: SkillRpcError,
 });
 
+const AgentRpcError = Schema.Union([AgentError, EnvironmentAuthorizationError]);
+
+const WsAgentsListRpc = Rpc.make(WS_METHODS.agentsList, {
+  payload: AgentsEmptyInput,
+  success: AgentsListResult,
+  error: AgentRpcError,
+});
+
+const WsAgentsReadRpc = Rpc.make(WS_METHODS.agentsRead, {
+  payload: AgentNameInput,
+  success: AgentDetail,
+  error: AgentRpcError,
+});
+
+const WsAgentsSaveRpc = Rpc.make(WS_METHODS.agentsSave, {
+  payload: AgentSaveInput,
+  success: AgentSummary,
+  error: AgentRpcError,
+});
+
+const WsAgentsDeleteRpc = Rpc.make(WS_METHODS.agentsDelete, {
+  payload: AgentNameInput,
+  success: AgentsEmptyResult,
+  error: AgentRpcError,
+});
+
 const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPublishRepository, {
   payload: SourceControlPublishRepositoryInput,
   success: SourceControlPublishRepositoryResult,
@@ -1594,6 +1634,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsSkillsDeleteRpc,
   WsSkillsAddFromLibraryRpc,
   WsSkillsImportRpc,
+  WsAgentsListRpc,
+  WsAgentsReadRpc,
+  WsAgentsSaveRpc,
+  WsAgentsDeleteRpc,
   WsProjectsListEntriesRpc,
   WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,

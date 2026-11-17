@@ -40,6 +40,7 @@ import {
 } from "./baseSchemas.ts";
 import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
+import { AgentName } from "./agents.ts";
 import { ConnectionId, ConnectorRisk } from "./connectors.ts";
 import { SkillName } from "./skills.ts";
 import { StoredThreadTags, ThreadFolderName, ThreadTag } from "./threadTags.ts";
@@ -495,6 +496,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   connectors: Schema.optional(Schema.Array(ConnectionId)),
   /** Skills kept on for this chat, by name; a workspace skill wins over a Codenine one of the same name. */
   skills: Schema.optional(Schema.Array(SkillName)),
+  /** The agent this chat talks to; its connectors and skills replace the chat's own. */
+  agent: Schema.optional(AgentName),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -3073,6 +3076,8 @@ export const OrchestrationV2Command = Schema.Union([
     connectors: Schema.optional(Schema.NullOr(Schema.Array(ConnectionId))),
     /** Skills kept on for the chat. */
     skills: Schema.optional(Schema.Array(SkillName)),
+    /** The agent the chat talks to; null goes back to no agent. */
+    agent: Schema.optional(Schema.NullOr(AgentName)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),
