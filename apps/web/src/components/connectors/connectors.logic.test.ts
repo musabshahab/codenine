@@ -162,13 +162,13 @@ describe("custom connectors", () => {
 
 describe("approvals", () => {
   it("words the buttons after what the action does", () => {
-    expect(approvalChoiceLabels("send a draft")).toEqual({
+    expect(approvalChoiceLabels({ action: "send a draft" })).toEqual({
       allow: "Send",
       always: "Always send without asking",
       decline: "Don't send",
     });
-    expect(approvalChoiceLabels("delete a thread").allow).toBe("Allow");
-    expect(approvalChoiceLabels("sending reports").allow).toBe("Allow");
+    expect(approvalChoiceLabels({ action: "delete a thread" }).allow).toBe("Allow");
+    expect(approvalChoiceLabels({ action: "sending reports" }).allow).toBe("Allow");
   });
 
   it("says how an answered card ended", () => {

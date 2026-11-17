@@ -296,11 +296,22 @@ export const ACTIVITY_OUTCOME_LABELS: Record<ConnectorActivityOutcome, string> =
   cancelled: "Cancelled",
 };
 
-/** The approval card's buttons: sending gets words about sending, anything else allow words. */
-export function approvalChoiceLabels(action: string) {
-  return /^send\b/iu.test(action.trim())
-    ? { allow: "Send", always: "Always send without asking", decline: "Don't send" }
-    : { allow: "Allow", always: "Always allow", decline: "Don't allow" };
+/**
+ * The approval card's buttons: sending gets words about sending, anything else allow words. On an
+ * agent's card, "always" changes the agent's own setting, not the connector's.
+ */
+export function approvalChoiceLabels(item: {
+  readonly action: string;
+  readonly agent?: string | undefined;
+}) {
+  if (/^send\b/iu.test(item.action.trim())) {
+    return { allow: "Send", always: "Always send without asking", decline: "Don't send" };
+  }
+  return {
+    allow: "Allow",
+    always: item.agent === undefined ? "Always allow" : "Always allow for this agent",
+    decline: "Don't allow",
+  };
 }
 
 /** The quiet line an answered approval card leaves, or null while it waits. */

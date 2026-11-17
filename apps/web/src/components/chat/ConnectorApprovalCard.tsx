@@ -62,7 +62,7 @@ function PendingConnectorApproval(props: {
   const [error, setError] = useState<string | null>(null);
   // Two clicks can land before a render.
   const inFlight = useRef(false);
-  const labels = approvalChoiceLabels(item.action);
+  const labels = approvalChoiceLabels(item);
   const { agents } = useAgents(item.agent === undefined ? null : props.environmentId);
   const askingAgent =
     item.agent === undefined
@@ -130,16 +130,14 @@ function PendingConnectorApproval(props: {
         >
           {labels.allow}
         </Button>
-        {askingAgent === null ? (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!props.canAnswer || answering !== null}
-            onClick={() => void send("always")}
-          >
-            {labels.always}
-          </Button>
-        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!props.canAnswer || answering !== null}
+          onClick={() => void send("always")}
+        >
+          {labels.always}
+        </Button>
         <Button
           size="sm"
           variant="ghost-muted"
