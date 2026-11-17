@@ -205,6 +205,8 @@ export class ConnectorStore extends Context.Service<
       id: ConnectionId,
       auth: ConnectionAuth | undefined,
     ) => Effect.Effect<void, ConnectorStoreError>;
+    /** Where a program the connector runs works: inside its own folder, removed on disconnect. */
+    readonly workDirectory: (id: ConnectionId) => Effect.Effect<string, ConnectorStoreError>;
     readonly readSecrets: (
       id: ConnectionId,
     ) => Effect.Effect<ConnectionSecrets, ConnectorStoreError>;
@@ -442,6 +444,16 @@ const make = Effect.gen(function* () {
       yield* notifyChanged;
     },
   );
+  const workDirectory: ConnectorStore["Service"]["workDirectory"] = Effect.fn(
+    "ConnectorStore.workDirectory",
+  )(function* (id) {
+    const folder = path.join(connectionDirectory(id), "files");
+    yield* fileSystem
+      .makeDirectory(folder, { recursive: true })
+      .pipe(Effect.mapError(storeError("write")));
+    return folder;
+  });
+
   const readSecrets: ConnectorStore["Service"]["readSecrets"] = (id) =>
     readJsonSecret(ConnectionSecrets, secretsSecret(id)).pipe(
       Effect.map((secrets) => secrets ?? { inputs: {} }),
@@ -554,6 +566,7 @@ const make = Effect.gen(function* () {
     create,
     update,
     remove,
+    workDirectory,
     readAuth,
     writeAuth,
     readSecrets,

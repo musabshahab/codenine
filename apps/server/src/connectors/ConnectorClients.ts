@@ -334,6 +334,9 @@ const make = Effect.gen(function* () {
           : undefined;
     const fetchFn = yield* ConnectorFetch;
     const environment = yield* HostProcess.Environment;
+    // A program writes beside itself, such as the Browser's snapshots, so keep it out of the server's folder.
+    const workFolder =
+      server.type === "stdio" ? yield* store.workDirectory(connection.id) : undefined;
     const client = new Client(
       { name: "Codenine", version: packageJson.version },
       { capabilities: {}, jsonSchemaValidator: passThroughValidator },
@@ -348,6 +351,7 @@ const make = Effect.gen(function* () {
         return new StdioClientTransport({
           command: server.command,
           args: [...server.args],
+          ...(workFolder === undefined ? {} : { cwd: workFolder }),
           env: {
             ...Object.fromEntries(
               NETWORK_ENV_KEYS.flatMap((key) => {

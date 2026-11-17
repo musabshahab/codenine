@@ -8,6 +8,7 @@ import {
 } from "@codenine/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 
@@ -104,6 +105,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorStore",
         { name: "search_threads", inputSchema: { type: "object" } },
       ]);
       for (const index of [1, 2, 3]) yield* store.appendActivity(gmail.id, activity(index));
+      // A program the connector runs works in its own folder, never the server's.
+      const fileSystem = yield* FileSystem.FileSystem;
+      const workFolder = yield* store.workDirectory(gmail.id);
+      assert.isTrue(yield* fileSystem.exists(workFolder));
+      assert.match(workFolder, /[\\/]connectors[\\/]gmail[\\/]/);
 
       const reopened = yield* freshStore;
       assert.deepStrictEqual(
@@ -131,6 +137,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorStore",
       assert.deepStrictEqual(yield* reopened.readSecrets(gmail.id), { inputs: {} });
       assert.isUndefined(yield* reopened.readTools(gmail.id));
       assert.deepStrictEqual(yield* reopened.readActivity(gmail.id, 10), []);
+      assert.isFalse(yield* fileSystem.exists(workFolder));
       assert.isDefined(yield* reopened.get(secondGmail.id));
     }).pipe(Effect.provide(layerStoreDependencies)),
   );
