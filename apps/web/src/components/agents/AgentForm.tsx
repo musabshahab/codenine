@@ -385,7 +385,7 @@ export function AgentForm({
             <h3 className="text-base font-semibold text-foreground">Connectors</h3>
             <p className="text-sm text-muted-foreground">
               Services this agent may use, and which of their actions ask you first. These choices
-              apply only to this agent.
+              apply only to this agent; a group you leave alone follows the connector.
             </p>
           </div>
           {agentConnectors.length === 0 ? null : (

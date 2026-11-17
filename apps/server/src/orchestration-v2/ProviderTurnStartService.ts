@@ -14,6 +14,7 @@ import {
   isCompactionCommandMessage,
   parseGoalCommand,
   RunId,
+  skillTitle,
   ThreadId,
 } from "@codenine/contracts";
 import * as Context from "effect/Context";
@@ -79,7 +80,7 @@ class ChatAgentMissingError extends Schema.TaggedError<ChatAgentMissingError>()(
   { agent: AgentName },
 ) {
   override get message(): string {
-    return `This chat talks to the ${this.agent} agent, which is gone or cannot be read. Choose another agent for the chat, or none.`;
+    return `This chat talks to the ${skillTitle(this.agent)} agent, which is gone or cannot be read. Choose another agent for the chat, or none.`;
   }
 }
 

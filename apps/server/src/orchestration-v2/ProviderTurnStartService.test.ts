@@ -1392,7 +1392,7 @@ effectIt.effect("refuses a turn whose agent is gone and says how to go on", () =
         type: "error",
         failure: {
           message:
-            "This chat talks to the release-manager agent, which is gone or cannot be read. Choose another agent for the chat, or none.",
+            "This chat talks to the Release manager agent, which is gone or cannot be read. Choose another agent for the chat, or none.",
         },
       },
     ]);
