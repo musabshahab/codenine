@@ -11,4 +11,13 @@ describe("threadTitleTextFromPrompt", () => {
       threadTitleTextFromPrompt("model:opencode/anthropic/opus, then model:codex/gpt-5.4."),
     ).toBe("anthropic/opus, then gpt-5.4.");
   });
+
+  it("leaves skill mentions out, but keeps prices", () => {
+    expect(threadTitleTextFromPrompt("$our-email-tone Reply to Sam about Friday")).toBe(
+      "Reply to Sam about Friday",
+    );
+    expect(threadTitleTextFromPrompt("Plan a $500 offsite with $plan-a-project")).toBe(
+      "Plan a $500 offsite with",
+    );
+  });
 });

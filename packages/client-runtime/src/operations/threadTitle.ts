@@ -1,6 +1,7 @@
 import type { ChatAttachment } from "@codenine/contracts";
 import { assistantCitationsToPlainText } from "@codenine/shared/assistantCitations";
 import { replaceComposerContextReferences } from "@codenine/shared/composerContextReferences";
+import { SKILL_MENTION_PATTERN } from "@codenine/shared/composerInlineTokens";
 import { truncate } from "@codenine/shared/String";
 
 import { collectComposerModelMentions } from "../composerModelMentions.ts";
@@ -34,8 +35,10 @@ export function threadTitleTextFromPrompt(value: string): string {
     }
     return reference.label;
   });
+  // A skill names how to do the task, not the task.
+  const withoutSkills = prose.replace(SKILL_MENTION_PATTERN, "$1");
   return (
-    normalizeTitleSeed(modelMentionsAsSlugs(prose)) ||
+    normalizeTitleSeed(modelMentionsAsSlugs(withoutSkills)) ||
     (imageIds.size > 0 ? (imageIds.size === 1 ? "Attached image" : "Attached images") : "")
   );
 }
