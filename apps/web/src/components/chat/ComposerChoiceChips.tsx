@@ -9,10 +9,10 @@ import { type ChatChoicesTarget, useChatChoices } from "./useChatChoices";
 /** The chat's connectors and kept-on skills above the message box, each one removable. */
 export function ComposerChoiceChips(props: { readonly target: ChatChoicesTarget }) {
   const choices = useChatChoices(props.target);
-  if (choices.active.length === 0 && choices.skills.length === 0) return null;
+  if (choices.usable.length === 0 && choices.skills.length === 0) return null;
   return (
     <ul aria-label="Used in this chat" className="mb-2.5 flex flex-wrap gap-1.5">
-      {choices.active.map((connection) => (
+      {choices.usable.map((connection) => (
         <Chip
           key={connection.id}
           icon={<PlugIcon />}

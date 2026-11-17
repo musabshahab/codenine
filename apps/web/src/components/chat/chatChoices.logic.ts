@@ -27,6 +27,13 @@ export function activeConnections<T extends ConnectionChoice>(
   );
 }
 
+/** The chat's connections agents can use now; the rest wait for a sign-in or a fix. */
+export function usableConnections<T extends Pick<ConnectionSnapshot, "status">>(
+  active: ReadonlyArray<T>,
+): T[] {
+  return active.filter((connection) => connection.status === "connected");
+}
+
 /** The chat's whole list after turning one connection on or off. */
 export function toggledConnections(
   choices: ChatChoices,

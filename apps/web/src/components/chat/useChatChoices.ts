@@ -22,6 +22,7 @@ import {
   activeConnections,
   type ChatChoices,
   toggledConnections,
+  usableConnections,
   withoutSkill,
   withSkill,
 } from "./chatChoices.logic";
@@ -100,6 +101,8 @@ export function useChatChoices(target: ChatChoicesTarget) {
     connections,
     connectionsError: state.error,
     active: activeConnections(choices, connections),
+    /** What the chat's agents can use now, as the server attaches it. */
+    usable: usableConnections(activeConnections(choices, connections)),
     skills: choices.skills ?? [],
     canChange,
     toggleConnection: (connectionId: ConnectionId, on: boolean) =>

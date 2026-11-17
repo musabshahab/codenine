@@ -6,6 +6,7 @@ import {
   composerSkills,
   threadChoicesFromDraft,
   toggledConnections,
+  usableConnections,
 } from "./chatChoices.logic";
 
 const gmail = ConnectionId.make("gmail");
@@ -25,6 +26,15 @@ describe("a chat's connectors", () => {
         (entry) => entry.id,
       ),
     ).toEqual([github]);
+  });
+
+  it("shows only the connections agents can use now", () => {
+    const active = [
+      { id: gmail, status: "needs-sign-in" as const },
+      { id: browser, status: "connected" as const },
+      { id: github, status: "connecting" as const },
+    ];
+    expect(usableConnections(active).map((entry) => entry.id)).toEqual([browser]);
   });
 
   it("turns one on or off and keeps the rest of what the chat uses", () => {
