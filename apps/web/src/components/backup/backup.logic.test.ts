@@ -331,10 +331,16 @@ describe("restore flow", () => {
 });
 
 describe("restore report", () => {
-  it("counts what comes back, singular and plural", () => {
+  it("counts what comes back, singular and plural, and leaves out what is empty", () => {
     expect(
-      restoreContentLines({ workspaces: 1, chats: 12, accounts: 2, savedKeys: 1, skills: 0 }),
-    ).toEqual(["1 workspace", "12 chats", "2 accounts and 1 saved key", "Settings and 0 skills"]);
+      restoreContentLines({ workspaces: 1, chats: 12, accounts: 2, savedKeys: 1, skills: 3 }),
+    ).toEqual(["1 workspace", "12 chats", "2 accounts and 1 saved key", "Settings and 3 skills"]);
+    expect(
+      restoreContentLines({ workspaces: 2, chats: 0, accounts: 0, savedKeys: 1, skills: 0 }),
+    ).toEqual(["2 workspaces", "No chats", "1 saved key", "Settings"]);
+    expect(
+      restoreContentLines({ workspaces: 1, chats: 1, accounts: 0, savedKeys: 0, skills: 1 }),
+    ).toEqual(["1 workspace", "1 chat", "No accounts", "Settings and 1 skill"]);
   });
 
   it("offers undo until the window closes", () => {

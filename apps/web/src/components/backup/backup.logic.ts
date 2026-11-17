@@ -378,11 +378,15 @@ export function restoreStepIndex(flow: RestoreFlow): number {
 
 /** The four counts of what a restore brings back, in reading order for a 2 by 2 grid. */
 export function restoreContentLines(contents: BackupContents): ReadonlyArray<string> {
+  const accounts = [
+    contents.accounts > 0 ? plural(contents.accounts, "account") : null,
+    contents.savedKeys > 0 ? plural(contents.savedKeys, "saved key") : null,
+  ].filter((part) => part !== null);
   return [
     plural(contents.workspaces, "workspace"),
-    plural(contents.chats, "chat"),
-    `${plural(contents.accounts, "account")} and ${plural(contents.savedKeys, "saved key")}`,
-    `Settings and ${plural(contents.skills, "skill")}`,
+    contents.chats > 0 ? plural(contents.chats, "chat") : "No chats",
+    accounts.length > 0 ? accounts.join(" and ") : "No accounts",
+    contents.skills > 0 ? `Settings and ${plural(contents.skills, "skill")}` : "Settings",
   ];
 }
 

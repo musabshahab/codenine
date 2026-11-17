@@ -389,9 +389,9 @@ function ReviewStep({
   return (
     <>
       <WizardPanel>
-        <div className="flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5">
+        <div className="flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">Backup from {file.computerName}</p>
+            <p className="font-medium text-foreground">Backup from {file.computerName}</p>
             <p className="text-xs text-muted-foreground">
               {backupLine(file, nowMs, format)} · Codenine {file.codenineVersion}
             </p>
