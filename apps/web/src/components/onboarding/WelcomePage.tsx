@@ -12,6 +12,7 @@ import { Link, useBlocker } from "@tanstack/react-router";
 import { CheckIcon, ChevronDownIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { openRestoreDialog } from "../../backupDialogStore";
 import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
@@ -30,6 +31,7 @@ import {
   welcomeCardInstanceId,
   welcomeAgentState,
 } from "../../onboarding/welcomePage.logic";
+import { backupEnvironment } from "../../state/backup";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentScope } from "../../state/session";
@@ -76,6 +78,7 @@ export function WelcomePage({
         ? "Personal is unavailable because the Codenine data directory is inside a Git checkout."
         : `Personal opens once ${label} is connected.`;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const canRestore = useAtomValue(backupEnvironment.restore.permissionAtom(environmentId));
   // `codenine` on PATH belongs to the primary computer, so only it offers that.
   const isPrimary = primaryEnvironmentId === environmentId;
   // True while setup is saved before a landing; leaving earlier would drop the landing.
@@ -170,6 +173,14 @@ export function WelcomePage({
                 ? null
                 : " Your Personal workspace is ready, so you can start chatting right away."}
             </p>
+            {canRestore ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Moving from another computer?{" "}
+                <InlineButton onClick={() => openRestoreDialog({ environmentId })}>
+                  Restore from a backup
+                </InlineButton>
+              </p>
+            ) : null}
             <div className="mt-8 border-t border-border/60">
               <AgentsSection
                 environmentId={environmentId}

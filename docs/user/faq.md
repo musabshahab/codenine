@@ -86,7 +86,9 @@ Accounts you add in Codenine are in `accounts/`, and the database, settings, and
 
 Logins you already had in `~/.claude` and `~/.codex` stay where they are. `userdata/` and
 `accounts/` hold your saved keys and sign-ins as plain files, so treat them like a password.
-`caches/` is safe to delete. Back up the whole folder to keep your setup.
+`caches/` is safe to delete. To keep your setup, turn on backups in **Settings → Backup**: they
+are encrypted copies of what matters in this folder, and restore it here or on a new computer.
+[Backup and restore](./backup.md)
 
 ## Worktrees are eating my disk. How do I clean them up?
 

@@ -27,6 +27,7 @@ import {
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
+  DatabaseBackupIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
@@ -1060,6 +1061,17 @@ function OpenCommandPaletteDialog(props: {
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/settings" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:backup",
+    searchTerms: ["backup", "back up", "restore", "recover", "move computer", "migrate"],
+    title: "Back up or restore",
+    icon: <DatabaseBackupIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/settings/backup" });
     },
   });
 

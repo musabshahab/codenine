@@ -131,6 +131,10 @@
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
     },
+    "./state/backup": {
+      "types": "./src/state/backup.ts",
+      "default": "./src/state/backup.ts"
+    },
     "./state/auth": {
       "types": "./src/state/auth.ts",
       "default": "./src/state/auth.ts"

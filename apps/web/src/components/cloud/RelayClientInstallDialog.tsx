@@ -18,6 +18,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
+import { Progress } from "../ui/progress";
 const installSteps: ReadonlyArray<{
   readonly stage: RelayClientInstallProgressStage;
   readonly label: string;
@@ -84,9 +85,8 @@ export function RelayClientInstallDialog() {
                   {activeStepIndex + 1} of {installSteps.length}
                 </p>
               </div>
-              <progress
+              <Progress
                 aria-label="Relay client installation progress"
-                className="h-2 w-full appearance-none overflow-hidden rounded-full bg-muted [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-primary [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-primary"
                 max={installSteps.length}
                 value={activeStepIndex + 1}
               />

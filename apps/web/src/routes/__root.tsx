@@ -19,6 +19,8 @@ import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { UseInAnotherAppDialogHost } from "../components/mcp/UseInAnotherAppDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { NewProjectDialogHost } from "../components/NewProjectDialog";
+import { RestoreBackupDialogHost } from "../components/backup/RestoreBackupDialog";
+import { RestoreReportCoordinator } from "../components/backup/RestoreReportDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
@@ -162,6 +164,8 @@ function RootRouteBranch() {
       <AddProjectToMachineDialogHost />
       <NewProjectDialogHost />
       <UseInAnotherAppDialogHost />
+      <RestoreBackupDialogHost />
+      <RestoreReportCoordinator />
     </>
   );
   const appShell = (

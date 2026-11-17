@@ -12,12 +12,11 @@ import type {
 } from "@codenine/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { FolderIcon } from "lucide-react";
-import { lazy, type ReactNode, type RefObject, Suspense, useId, useRef, useState } from "react";
+import { lazy, type RefObject, Suspense, useId, useRef, useState } from "react";
 
 import { useEnvironmentSettings } from "../hooks/useSettings";
 import { useNewProject } from "../hooks/useNewProject";
 import { useProjectFolderPicker } from "../hooks/useProjectFolderPicker";
-import { cn } from "../lib/utils";
 import { resolveEffectiveDefaultModelSelection } from "../modelSelection";
 import {
   clearNewProjectDialog,
@@ -63,7 +62,7 @@ import {
 } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Radio, RadioGroup } from "./ui/radio-group";
+import { RadioCard, RadioGroup } from "./ui/radio-group";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
 // All Lucide icons load with the picker, only once the user opens it.
@@ -99,12 +98,12 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
   const machine =
     machines.find((candidate) => candidate.environmentId === pickedEnvironmentId) ??
     defaultNewProjectMachine(machines, request);
-  const [name, setName] = useState("");
-  const [nameEdited, setNameEdited] = useState(false);
+  const [name, setName] = useState(request.name ?? "");
+  const [nameEdited, setNameEdited] = useState(request.name !== undefined);
   const [pickedSource, setPickedSource] = useState<NewProjectSource>(request.source ?? "empty");
   const source = resolveNewProjectSource(pickedSource, machine);
-  const [folderPath, setFolderPath] = useState("");
-  const [repository, setRepository] = useState("");
+  const [folderPath, setFolderPath] = useState(request.folderPath ?? "");
+  const [repository, setRepository] = useState(request.repository ?? "");
   const [publishes, setPublishes] = useState(false);
   const [publishKind, setPublishKind] = useState<SourceControlProviderKind | null>(null);
   const [projectIcon, setProjectIcon] = useState<ProjectIconOverride | null>(null);
@@ -270,8 +269,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
                   clearError("source");
                 }}
               >
-                <SourceOption
-                  id={`${id}-empty`}
+                <RadioCard
                   value="empty"
                   title="Start empty"
                   description={
@@ -340,9 +338,8 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
                       ) : null}
                     </div>
                   )}
-                </SourceOption>
-                <SourceOption
-                  id={`${id}-folder`}
+                </RadioCard>
+                <RadioCard
                   value="folder"
                   title="Use a folder"
                   description="Files already on this computer"
@@ -369,9 +366,8 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
                       onPickFailed={setSubmitError}
                     />
                   )}
-                </SourceOption>
-                <SourceOption
-                  id={`${id}-clone`}
+                </RadioCard>
+                <RadioCard
                   value="clone"
                   title="Clone a repository"
                   description="From GitHub or any Git URL"
@@ -401,7 +397,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
                     )}
                     <FieldError id={`${id}-repository-error`} message={errors.repository} />
                   </div>
-                </SourceOption>
+                </RadioCard>
               </RadioGroup>
               <FieldError id={`${id}-source-error`} message={errors.source} />
             </div>
@@ -519,52 +515,6 @@ function ProjectIconPreview({
   if (name.trim().length === 0) return <FolderIcon aria-hidden />;
   const identity = deriveProjectIdentity(name);
   return <ProjectMonogram text={identity.monogram} color={identity.color} className="size-5" />;
-}
-
-function SourceOption(props: {
-  id: string;
-  value: NewProjectSource;
-  title: string;
-  description: string;
-  selected: boolean;
-  disabled?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-lg border transition-colors",
-        props.selected ? "border-primary/48 bg-primary/4" : "border-border",
-      )}
-    >
-      <label
-        className={cn(
-          "flex items-start gap-3 px-3 py-2.5",
-          props.disabled ? "cursor-not-allowed opacity-64" : "cursor-pointer",
-        )}
-      >
-        <span className="flex h-5 items-center">
-          <Radio
-            value={props.value}
-            disabled={props.disabled ?? false}
-            aria-labelledby={`${props.id}-title`}
-            aria-describedby={`${props.id}-description`}
-          />
-        </span>
-        <span className="flex min-w-0 flex-col">
-          <span id={`${props.id}-title`} className="font-medium text-foreground text-sm">
-            {props.title}
-          </span>
-          <span id={`${props.id}-description`} className="text-muted-foreground text-xs">
-            {props.description}
-          </span>
-        </span>
-      </label>
-      {props.selected ? (
-        <div className="flex flex-col gap-2 ps-10 pe-3 pb-3">{props.children}</div>
-      ) : null}
-    </div>
-  );
 }
 
 function FolderField({

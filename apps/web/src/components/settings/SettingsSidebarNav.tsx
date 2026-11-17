@@ -11,6 +11,7 @@ import {
   ArchiveIcon,
   FlaskConicalIcon,
   BotIcon,
+  DatabaseBackupIcon,
   FileDiffIcon,
   FolderTreeIcon,
   GitBranchIcon,
@@ -27,9 +28,13 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react";
+import { useAtomValue } from "@effect/atom-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
+import { backupNeedsAttentionAtom } from "../../state/backup";
+import { environmentIdsKey } from "../../state/environmentAtomList";
+import { useConnectedEnvironmentIds } from "../../state/environments";
 import { Button } from "../ui/button";
 import { Kbd } from "../ui/kbd";
 import {
@@ -81,6 +86,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/worktrees": FolderTreeIcon,
   "/settings/connections": ServerIcon,
   "/settings/access": ShieldCheckIcon,
+  "/settings/backup": DatabaseBackupIcon,
   "/settings/maintenance": WrenchIcon,
   "/settings/labs": FlaskConicalIcon,
   "/settings/about": InfoIcon,
@@ -120,6 +126,10 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const [compactSearchOpen, setCompactSearchOpen] = useState(false);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const searchableItems = useAvailableSettingsSearchItems();
+  const connectedEnvironmentIds = useConnectedEnvironmentIds();
+  const backupNeedsAttention = useAtomValue(
+    backupNeedsAttentionAtom(environmentIdsKey(connectedEnvironmentIds)),
+  ).includes(true);
   const results = searchSettings(query, searchableItems);
   const isSearching = query.trim().length > 0;
   const hasResults = results.length > 0;
@@ -397,6 +407,11 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                                 >
                                   {SETTINGS_SECTION_LABELS[to]}
                                 </span>
+                                {to === "/settings/backup" && backupNeedsAttention ? (
+                                  <span className="ms-auto size-1.5 shrink-0 rounded-full bg-warning">
+                                    <span className="sr-only">Needs attention</span>
+                                  </span>
+                                ) : null}
                               </SidebarMenuButton>
                             </SidebarMenuItem>
                           );

@@ -29,6 +29,7 @@ export type SettingsPath =
   | "/settings/worktrees"
   | "/settings/connections"
   | "/settings/access"
+  | "/settings/backup"
   | "/settings/maintenance"
   | "/settings/labs"
   | "/settings/about"
@@ -96,6 +97,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/worktrees": "Worktrees",
   "/settings/connections": "Environments",
   "/settings/access": "Sharing & access",
+  "/settings/backup": "Backup",
   "/settings/maintenance": "Maintenance",
   "/settings/labs": "Labs",
   "/settings/about": "About",
@@ -131,7 +133,13 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   },
   {
     heading: null,
-    paths: ["/settings/maintenance", "/settings/labs", "/settings/about", "/settings/archived"],
+    paths: [
+      "/settings/backup",
+      "/settings/maintenance",
+      "/settings/labs",
+      "/settings/about",
+      "/settings/archived",
+    ],
   },
 ];
 
@@ -590,6 +598,51 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["queue steer running turn send default behavior composer"],
   },
   {
+    id: "backup-status",
+    title: "Back up now",
+    to: "/settings/backup",
+    searchTerms: ["backup copy save recover move new computer migrate export last backup"],
+  },
+  {
+    id: "backup-restore",
+    title: "Restore from a backup",
+    to: "/settings/backup",
+    targetId: "backup-status",
+    searchTerms: ["restore recover import move new computer migrate backup file undo"],
+  },
+  {
+    id: "backup-schedule",
+    title: "Automatic backups",
+    to: "/settings/backup",
+    searchTerms: ["backup schedule how often daily weekly off time day keep last older"],
+  },
+  {
+    id: "backup-folder",
+    title: "Where backups go",
+    to: "/settings/backup",
+    searchTerms: [
+      "backup folder location path icloud dropbox onedrive google drive external drive open",
+    ],
+  },
+  {
+    id: "backup-password",
+    title: "Backup password",
+    to: "/settings/backup",
+    searchTerms: ["backup encryption encrypted protection change password"],
+  },
+  {
+    id: "backup-worktrees",
+    title: "Back up unfinished task copies",
+    to: "/settings/backup",
+    searchTerms: ["backup worktrees include what a backup holds contents size"],
+  },
+  {
+    id: "backup-recent",
+    title: "Recent backups",
+    to: "/settings/backup",
+    searchTerms: ["backup list history download delete restore show all"],
+  },
+  {
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/maintenance",
@@ -971,6 +1024,8 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/worktrees": "project-defaults",
   "/settings/connections": "connections",
   "/settings/access": "connections",
+  // The page picks its machine itself.
+  "/settings/backup": null,
   "/settings/maintenance": null,
   "/settings/labs": null,
   "/settings/about": null,

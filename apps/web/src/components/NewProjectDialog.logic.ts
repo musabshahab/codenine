@@ -36,6 +36,10 @@ export type NewProjectSource = "empty" | "folder" | "clone";
 export interface NewProjectRequest {
   readonly environmentId?: EnvironmentId;
   readonly source?: NewProjectSource;
+  /** Fields filled in up front, as when a restore asks to find a workspace's folder again. */
+  readonly name?: string;
+  readonly folderPath?: string;
+  readonly repository?: string;
 }
 
 /** What `newProjectMachines` reads from an environment. */

@@ -31,6 +31,7 @@ the terminal, worktrees, and pull requests.
 - [Outside agents (MCP)](./user/outside-agents.md)
 - [Running in the background](./user/background-service.md)
 - [Updating Codenine](./user/updating.md)
+- [Backup and restore](./user/backup.md)
 - [Threads from an older database](./user/thread-migration.md)
 - [Open source licenses](./user/open-source-licenses.md)
 - Provider guides: [Codex](./user/providers-codex.md) · [Claude](./user/providers-claude.md)

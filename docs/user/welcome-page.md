@@ -8,6 +8,10 @@ workspace every installation starts with.
 To see the page again, go to **Settings → About → Welcome page** and select
 **Open**. Direct links, such as Settings, open normally before setup is done.
 
+Moving from another computer? **Restore from a backup** at the top of the page brings back your
+chats, workspaces, accounts and settings instead. See
+[Move to a new computer](./backup.md#move-to-a-new-computer).
+
 If Codenine cannot confirm the workspace during startup, it shows
 **Still connecting** instead of opening the app. Select **Reload** to try again.
 

@@ -4,6 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@codenine/client-runtime/state/runtime";
 import { AuthOrchestrationOperateScope, type EnvironmentId } from "@codenine/contracts";
+import { Link } from "@tanstack/react-router";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { codenineFolderPath } from "../../lib/codenineFolder";
@@ -12,7 +13,7 @@ import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
 import { shellEnvironment } from "../../state/shell";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
@@ -52,8 +53,8 @@ function CodenineFolderSection({ environmentId }: { readonly environmentId: Envi
         {...searchableSetting("codenine-folder")}
         description={
           <>
-            Your workspaces, accounts, skills, settings and logs, all in one folder. Back it up to
-            keep your setup.
+            Your workspaces, accounts, skills, settings and logs, all in one folder.{" "}
+            <InlineButton render={<Link to="/settings/backup" />}>Back up this folder</InlineButton>
             <span className="mt-1 block font-mono break-all text-foreground">
               {codenineFolderPath(config)}
             </span>
