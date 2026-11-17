@@ -46,7 +46,11 @@ import {
   ThreadId,
 } from "@codenine/contracts";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
-import { validateTeamDraft } from "@codenine/shared/team";
+import {
+  teamMemberChoiceMessage,
+  unknownTeamAgentMessage,
+  validateTeamDraft,
+} from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
@@ -1037,6 +1041,13 @@ const linkedEntry = (sample: Sample, url: string) => {
   return { ...pr, state: seeded?.state ?? "open", title: seeded?.title ?? null };
 };
 
+/** The user's agents, as the case's `orchestrator_capabilities` mock lists them. */
+const listedAgentNames = ({ testCase }: Sample): ReadonlySet<string> => {
+  const mock = testCase.setup.mocks?.orchestrator_capabilities;
+  const agents = isRecord(mock) && Array.isArray(mock.agents) ? mock.agents : [];
+  return new Set(agents.filter(isRecord).map((agent) => valueText(agent.name)));
+};
+
 /** A believable Codenine result for a tool the case does not mock. */
 export const codenineDefault = (
   sample: Sample,
@@ -1108,23 +1119,31 @@ export const codenineDefault = (
     case "task_cancel":
       return { taskId: input.taskId, status: "cancel_requested" };
     case "propose_team": {
-      // Codenine refuses a team whose tasks name unknown agents or depend on each other in a cycle.
+      // Codenine refuses a member that is not exactly one of the user's agents or a suggestion,
+      // and a team whose tasks name unknown members or depend on each other in a cycle.
       const proposal = Option.getOrUndefined(decodeProposeTeam(input));
+      const agents = listedAgentNames(sample);
+      const memberIssue = proposal?.agents.flatMap(({ id, agent, suggestion }) =>
+        (agent === undefined) === (suggestion === undefined)
+          ? [{ message: teamMemberChoiceMessage(id) }]
+          : agent !== undefined && !agents.has(agent)
+            ? [{ message: unknownTeamAgentMessage(id, agent) }]
+            : [],
+      )[0];
       const issue =
         proposal === undefined
           ? { message: "Invalid propose_team input." }
-          : validateTeamDraft({
-              agents: proposal.agents.map((agent) => ({
-                id: agent.id,
-                label: agent.label,
-                role: agent.role,
+          : (memberIssue ??
+            validateTeamDraft({
+              agents: proposal.agents.map((member) => ({
+                id: member.id,
+                label: member.label ?? member.id,
+                role: member.role,
                 modelSelection: {
-                  instanceId: ProviderInstanceId.make(
-                    agent.target?.providerInstanceId ?? "claudeAgent",
-                  ),
-                  model: agent.target?.model ?? sample.base.model,
+                  instanceId: ProviderInstanceId.make("claudeAgent"),
+                  model: sample.base.model,
                 },
-                workspace: agent.workspace ?? "shared",
+                workspace: member.workspace ?? "shared",
               })),
               tasks: proposal.tasks.map((task) => ({
                 id: task.id,
@@ -1133,7 +1152,7 @@ export const codenineDefault = (
                 agentId: task.agent,
                 dependsOn: task.dependsOn ?? [],
               })),
-            });
+            }));
       return issue === null
         ? {
             planId: "team-plan-1",

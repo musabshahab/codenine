@@ -6,6 +6,7 @@ import { FetchHttpClient } from "effect/http";
 import { assert, expect, it } from "@effect/vitest";
 import { ComposerContextId, EnvironmentId, ThreadId } from "@codenine/contracts";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
+import { teamMemberChoiceMessage, unknownTeamAgentMessage } from "@codenine/shared/team";
 
 import {
   answerToolCall,
@@ -480,19 +481,42 @@ it("replays earlier capability results with the model under test as the caller",
   }
 });
 
-it("refuses a proposed team whose task names an agent that is not on it, as Codenine does", () => {
+it("refuses a proposed team as Codenine does, knowing only the case's agents", () => {
   const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
-  const propose = (agent: string) =>
-    codenineDefault(makeSample(childCase, base), "propose_team", {
+  const withAgents: McpToolUseCase = {
+    ...childCase,
+    setup: {
+      ...childCase.setup,
+      mocks: { orchestrator_capabilities: { agents: [{ name: "builder", title: "Builder" }] } },
+    },
+  };
+  const propose = (member: Record<string, unknown>, agent = "builder") =>
+    codenineDefault(makeSample(withAgents, base), "propose_team", {
       goal: "Ship the rate limiter",
-      agents: [{ id: "builder", label: "Builder", role: "implement" }],
+      agents: [{ id: "builder", role: "implement", ...member }],
       tasks: [{ id: "build", title: "Build", brief: "Write the token bucket.", agent }],
     });
-  assert.deepInclude(propose("builder"), { status: "proposed", revision: 1 });
-  assert.deepEqual(propose("reviewer"), {
+  const suggestion = {
+    title: "Rate limiter builder",
+    description: "Builds rate limiters.",
+    instructions: "Write a token bucket with tests.",
+  };
+  assert.deepInclude(propose({ agent: "builder" }), { status: "proposed", revision: 1 });
+  assert.deepInclude(propose({ suggestion }), { status: "proposed", revision: 1 });
+  assert.deepEqual(propose({ agent: "builder" }, "reviewer"), {
     code: "invalid_request",
     message: 'Task "build" names agent "reviewer", which is not on the team.',
   });
+  assert.deepEqual(propose({ agent: "designer" }), {
+    code: "invalid_request",
+    message: unknownTeamAgentMessage("builder", "designer"),
+  });
+  for (const member of [{}, { agent: "builder", suggestion }]) {
+    assert.deepEqual(propose(member), {
+      code: "invalid_request",
+      message: teamMemberChoiceMessage("builder"),
+    });
+  }
 });
 
 it("gives each launched thread its own id, and reading it back shows that thread's brief", () => {
