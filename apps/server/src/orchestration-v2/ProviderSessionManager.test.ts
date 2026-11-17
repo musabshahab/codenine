@@ -4,6 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { AgentScope } from "@codenine/shared/AgentScope";
 import {
+  ConnectionId,
   EnvironmentId,
   type ModelSelection,
   type OrchestrationV2AppThread,
@@ -37,6 +38,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpProviderSession from "@codenine/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@codenine/provider-core/server/McpProviderSessions";
+import * as ConnectorStore from "../connectors/ConnectorStore.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -602,6 +604,7 @@ function layerTest(input: {
   readonly spawnBeforeOpen?: boolean;
   readonly scopeCloseReached?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
+  readonly connectorStoreLayer?: Layer.Layer<ConnectorStore.ConnectorStore>;
 }) {
   const layerConfiguredEventSink =
     input.flakyReleaseWrites !== undefined
@@ -685,6 +688,7 @@ function layerTest(input: {
           layerConfiguredMcpRegistry,
           layerTestStores,
           ...(input.serverSettingsLayer === undefined ? [] : [input.serverSettingsLayer]),
+          ...(input.connectorStoreLayer === undefined ? [] : [input.connectorStoreLayer]),
         ),
       ),
     ),
@@ -1994,6 +1998,70 @@ it.effect("ProviderSessionManagerV2 revokes MCP credentials when release persist
       ),
     );
   }),
+);
+
+it.effect.each([
+  ["unloads it first so the provider loads the new ones", false, ["native-connectors"]],
+  ["keeps it loaded while its background work runs", true, []],
+] as const)(
+  "ProviderSessionManagerV2 resumes a thread whose connections changed: %s",
+  ([, backgroundWork, unloaded]) =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(emptyState);
+      const connections = yield* Ref.make<ReadonlyArray<ConnectionId>>([]);
+      yield* Effect.gen(function* () {
+        const eventSink = yield* EventSink.EventSinkV2;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+        const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+        const now = yield* DateTime.now;
+        const threadId = ThreadId.make("thread-provider-session-manager-connectors");
+        const providerSessionId = idAllocator.derive.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+        });
+        yield* eventSink.write({
+          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+        });
+        const runtime = yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const resume = runtime.resumeThread({
+          threadId,
+          providerThread: makeProviderThread({
+            idAllocator,
+            threadId,
+            providerSessionId,
+            now,
+            nativeThreadId: "native-connectors",
+          }),
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* resume;
+        yield* resume;
+        assert.equal((yield* Ref.get(state)).resumeCount, 1);
+
+        yield* Ref.set(connections, [ConnectionId.make("gmail")]);
+        yield* resume;
+        assert.equal((yield* Ref.get(state)).resumeCount, 2);
+        assert.deepEqual((yield* Ref.get(state)).unloadedNativeThreadIds, unloaded);
+        assert.deepEqual((yield* mcpSessions.read(threadId))?.connectors, ["gmail"]);
+      }).pipe(
+        Effect.provide(
+          layerTest({
+            state,
+            idleTimeoutMs: 60_000,
+            hasPendingBackgroundWorkForThread: Effect.succeed(backgroundWork),
+            connectorStoreLayer: Layer.mock(ConnectorStore.ConnectorStore)({
+              effectiveConnectionIds: () => Ref.get(connections),
+            }),
+          }),
+        ),
+      );
+    }),
 );
 
 it.effect(

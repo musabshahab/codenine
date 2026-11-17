@@ -7,6 +7,13 @@ import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as BackupService from "./backup/BackupService.ts";
 import * as Skills from "./skills/Skills.ts";
 import { applyPendingRestore } from "./backup/BackupRestore.ts";
+import * as ConnectorApprovals from "./connectors/ConnectorApprovals.ts";
+import * as ConnectorClients from "./connectors/ConnectorClients.ts";
+import * as ConnectorGateway from "./connectors/ConnectorGateway.ts";
+import * as ConnectorRoutes from "./connectors/connectorRoutes.ts";
+import * as Connectors from "./connectors/Connectors.ts";
+import * as ConnectorSignIn from "./connectors/ConnectorSignIn.ts";
+import * as ConnectorStore from "./connectors/ConnectorStore.ts";
 import * as Scheduler from "./scheduling/Scheduler.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
@@ -495,6 +502,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ),
   BackupService.layer.pipe(Layer.provide(Scheduler.layer), Layer.provide(layerServerRestart)),
   Skills.layer,
+  ConnectorGateway.layer.pipe(
+    Layer.provideMerge(Connectors.layer),
+    Layer.provideMerge(ConnectorClients.layer),
+    Layer.provideMerge(ConnectorSignIn.layer),
+    Layer.provideMerge(ConnectorApprovals.layer),
+  ),
   layerThreadPullRequestWorker,
   Layer.effectDiscard(
     Effect.gen(function* () {
@@ -561,6 +574,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
       ResetCreditCoordinator.layer,
       ProviderLatestVersions.layer,
       McpProviderSessions.layer,
+      ConnectorStore.layer,
     ),
   ),
   Layer.provideMerge(layerWorkspace),
@@ -619,6 +633,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAttachmentUploadRoute,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
+    ConnectorRoutes.layer,
   ),
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),

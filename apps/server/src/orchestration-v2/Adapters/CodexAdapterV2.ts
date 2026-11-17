@@ -1395,6 +1395,20 @@ function codexThreadRuntimeParams(input: {
           tool_timeout_sec: CODEX_CODENINE_MCP_TOOL_TIMEOUT_SEC,
           http_headers: { Authorization: mcpSession.authorizationHeader },
         };
+  const connectorServers =
+    mcpSession === undefined || codenineServer === undefined
+      ? {}
+      : Object.fromEntries(
+          (mcpSession.connectors ?? []).map((connectionId) => [
+            `mcp_servers.${connectionId}`,
+            {
+              ...codenineServer,
+              url: McpProviderSession.connectorEndpoint(mcpSession, connectionId),
+              // Codenine asks before a connector action itself, so Codex must not ask again.
+              default_tools_approval_mode: "approve",
+            },
+          ]),
+        );
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
@@ -1415,6 +1429,7 @@ function codexThreadRuntimeParams(input: {
               enabled_tools: [CODEX_DIRECT_ONLY_CODENINE_TOOL],
               omit_tools_from: ["code_mode", "deferred"],
             },
+            ...connectorServers,
           }),
     },
   };

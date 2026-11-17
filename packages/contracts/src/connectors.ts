@@ -91,6 +91,12 @@ export const ConnectorApprovals = Schema.Struct({
 });
 export type ConnectorApprovals = typeof ConnectorApprovals.Type;
 
+export const DEFAULT_CONNECTOR_APPROVALS: ConnectorApprovals = {
+  read: "auto",
+  change: "auto",
+  irreversible: "ask",
+};
+
 export const ConnectionStatus = Schema.Literals([
   "connected",
   "connecting",

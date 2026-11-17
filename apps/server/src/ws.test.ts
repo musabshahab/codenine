@@ -90,6 +90,8 @@ import * as StorageCleanup from "./storageCleanup.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as BackupService from "./backup/BackupService.ts";
 import * as Skills from "./skills/Skills.ts";
+import * as ConnectorGateway from "./connectors/ConnectorGateway.ts";
+import * as Connectors from "./connectors/Connectors.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
@@ -793,6 +795,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(DatabaseStorage.DatabaseStorage)({}),
   Layer.mock(BackupService.BackupService)({}),
   Layer.mock(Skills.Skills)({}),
+  Layer.mock(Connectors.Connectors)({}),
+  Layer.mock(ConnectorGateway.ConnectorGateway)({}),
   Layer.mock(TerminalManager.TerminalManager)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ThreadManagement.ThreadManagementService)({}),

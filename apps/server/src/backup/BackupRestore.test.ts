@@ -145,6 +145,13 @@ const seedAlpha = Effect.fn(function* (home: Home) {
     "tokens",
   );
   yield* writeFile(path.join(home.paths.secretsDir, "provider-env-a.bin"), "user key");
+  yield* writeFile(
+    path.join(home.paths.stateDir, "connectors.json"),
+    JSON.stringify({
+      version: 1,
+      connections: [{ custom: { transport: { command: `${home.userHome}/bin/mcp-server` } } }],
+    }),
+  );
 });
 
 const withHome =
@@ -257,6 +264,13 @@ it.effect(
       assert.equal(
         settings.providerInstances.codex_work.config.homePath,
         `${betaCodenine}/accounts/codex/work`,
+      );
+      const connectors = JSON.parse(
+        yield* fs.readFileString(path.join(beta.paths.stateDir, "connectors.json")),
+      );
+      assert.equal(
+        connectors.connections[0].custom.transport.command,
+        `${beta.userHome}/bin/mcp-server`,
       );
 
       // A new identity: sessions, runs in flight, signing keys and the ChatGPT session are gone.

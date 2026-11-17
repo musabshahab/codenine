@@ -1768,9 +1768,28 @@ export function claudeMcpQueryOverrides(input: {
   const mcpAllowedTools = input.readOnlySandbox
     ? CLAUDE_READ_ONLY_CODENINE_MCP_ALLOWED_TOOLS
     : [CLAUDE_CODENINE_MCP_TOOL_WILDCARD];
+  const connectors = session.connectors ?? [];
   return {
-    allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
+    allowedTools: Array.from(
+      new Set([
+        ...(input.allowedTools ?? []),
+        ...mcpAllowedTools,
+        // Codenine asks before a connector action itself, so Claude must not ask again.
+        ...connectors.map((connectionId) => `mcp__${connectionId}__*`),
+      ]),
+    ),
     mcpServers: {
+      ...Object.fromEntries(
+        connectors.map((connectionId) => [
+          connectionId,
+          {
+            type: "http" as const,
+            url: McpProviderSession.connectorEndpoint(session, connectionId),
+            headers: { Authorization: session.authorizationHeader },
+            timeout: CLAUDE_CODENINE_MCP_TOOL_TIMEOUT_MS,
+          },
+        ]),
+      ),
       codenine: {
         type: "http",
         url: session.endpoint,

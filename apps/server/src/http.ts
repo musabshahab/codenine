@@ -2,6 +2,7 @@ import * as Mime from "effect/http/Mime";
 import {
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
+  CONNECTOR_OAUTH_CALLBACK_PATH,
   EnvironmentHttpApi,
 } from "@codenine/contracts";
 import { isDevProxiedPath } from "@codenine/shared/devProxy";
@@ -363,7 +364,11 @@ export const layerOtlpTracesProxyRoute = HttpRouter.add(
   ),
 );
 
-const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([OTLP_TRACES_PROXY_PATH]);
+// A connector sign-in comes back with its authorization code in the query.
+const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([
+  OTLP_TRACES_PROXY_PATH,
+  CONNECTOR_OAUTH_CALLBACK_PATH,
+]);
 
 // HttpRouter.serve builds routes privately; provide the server-wide TracerDisabledWhen to the served layer.
 const layerUntracedRequests = Layer.succeed(HttpMiddleware.TracerDisabledWhen)((request) => {

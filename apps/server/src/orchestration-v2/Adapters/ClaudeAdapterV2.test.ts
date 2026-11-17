@@ -565,7 +565,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     );
   });
 
-  it("invalidates live-query reuse when MCP credentials rotate", () => {
+  it("invalidates live-query reuse when MCP credentials or connectors change", () => {
     const threadId = ThreadId.make("thread-claude-mcp-credential-rotation");
     const mcpSession = mcpSessionFor(threadId);
     const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
@@ -588,6 +588,23 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       }),
     );
     assert.notEqual(rotatedKey, initialKey);
+
+    const withGmail = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession: { ...mcpSession, connectors: ["gmail"] },
+      readOnlySandbox: false,
+    });
+    // Codenine asks before a connector action, so Claude never does.
+    assert.include(withGmail.allowedTools ?? [], "mcp__gmail__*");
+    assert.deepEqual(withGmail.mcpServers?.["gmail"], {
+      type: "http",
+      url: "http://127.0.0.1:43123/mcp/connectors/gmail",
+      headers: { Authorization: "Bearer secret-claude-token" },
+      timeout: ClaudeAdapterV2.CLAUDE_CODENINE_MCP_TOOL_TIMEOUT_MS,
+    });
+    assert.notEqual(
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(queryPolicy, withGmail),
+      initialKey,
+    );
   });
 
   it("matches the read-only allowlist to the orchestrator toolkit annotations", () => {

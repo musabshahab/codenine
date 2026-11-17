@@ -969,6 +969,15 @@ const finishRestore = Effect.fn("BackupRestore.finish")(function* (
   if (settings !== savedSettings) {
     yield* writeFileStringAtomically({ filePath: paths.settingsPath, contents: settings });
   }
+  // A custom connector's program or a connector's inputs can name paths in the old home.
+  const connectorsPath = path.join(paths.stateDir, "connectors.json");
+  const savedConnectors = yield* fs
+    .readFileString(connectorsPath)
+    .pipe(Effect.orElseSucceed(() => ""));
+  const connectors = rewriter.rewriteText(savedConnectors);
+  if (connectors !== savedConnectors) {
+    yield* writeFileStringAtomically({ filePath: connectorsPath, contents: connectors });
+  }
   if (rewriter.active) yield* rewriteGitLinks(paths, rewriter);
 
   const accounts = readProviderAccounts(settings);

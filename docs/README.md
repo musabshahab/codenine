@@ -60,6 +60,7 @@ source alone does not explain. Most code changes do not need an internal documen
 - [Model classification](./internals/model-manifest.md)
 - [Context handoffs](./internals/context-handoffs.md)
 - [Team tasks](./internals/team-tasks.md)
+- [Connectors](./internals/connectors.md)
 - [Remote environments](./internals/remote.md)
 - [Server updates](./internals/server-updates.md)
 - [Backup and restore](./internals/backup.md)

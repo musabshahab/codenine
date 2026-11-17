@@ -1491,10 +1491,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
   );
 
-  it.effect("adds the session MCP server without replacing launch-argument servers", () =>
+  it.effect("adds the session MCP servers without replacing launch-argument servers", () =>
     Effect.gen(function* () {
       const scenario = "launch-mcp-servers";
-      yield* (yield* McpProviderSessions.McpProviderSessions).set({
+      const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+      yield* mcpSessions.set({
         environmentId: EnvironmentId.make("environment-codex-mcp"),
         threadId: ThreadId.make(`thread-${scenario}`),
         providerSessionId: `provider-session-${scenario}`,
@@ -1502,6 +1503,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         endpoint: "http://127.0.0.1:43123/mcp",
         authorizationHeader: "Bearer secret-codex-token",
       });
+      yield* mcpSessions.setConnectors(ThreadId.make(`thread-${scenario}`), ["gmail"]);
       const requests: Array<unknown> = [];
       yield* makeCodexReplayHarness(
         makeCodexReplayTranscript({
@@ -1538,6 +1540,13 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               http_headers: { Authorization: "Bearer secret-codex-token" },
               enabled_tools: ["codenine_thread_wait"],
               omit_tools_from: ["code_mode", "deferred"],
+            },
+            // Codenine asks before a connector action, so Codex never does.
+            "mcp_servers.gmail": {
+              url: "http://127.0.0.1:43123/mcp/connectors/gmail",
+              tool_timeout_sec: 3_900,
+              http_headers: { Authorization: "Bearer secret-codex-token" },
+              default_tools_approval_mode: "approve",
             },
           },
         },

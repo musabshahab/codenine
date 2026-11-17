@@ -1,0 +1,253 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import {
+  ConnectionId,
+  ConnectorCatalogId,
+  DEFAULT_CONNECTOR_APPROVALS,
+  type OrchestrationV2AppThread,
+  type OrchestrationV2Run,
+  type OrchestrationV2ServerCommand,
+  NodeId,
+  RunId,
+  ThreadId,
+} from "@codenine/contracts";
+import { assert, describe, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
+
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ServerConfig from "../config.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import { catalogConnector } from "./catalog.ts";
+import * as ConnectorApprovals from "./ConnectorApprovals.ts";
+import * as ConnectorClients from "./ConnectorClients.ts";
+import * as ConnectorGateway from "./ConnectorGateway.ts";
+import * as Connectors from "./Connectors.ts";
+import * as ConnectorSignIn from "./ConnectorSignIn.ts";
+import * as ConnectorStore from "./ConnectorStore.ts";
+
+const threadId = ThreadId.make("thread:connector-gateway");
+const run = {
+  id: RunId.make("run:connector-gateway"),
+  status: "running",
+  ordinal: 1,
+  rootNodeId: NodeId.make("node:connector-gateway"),
+} as unknown as OrchestrationV2Run;
+
+describe("approval card wording", () => {
+  it("names the action from the catalogue, else from the tool without the service's prefix", () => {
+    assert.strictEqual(
+      ConnectorGateway.actionText(catalogConnector(ConnectorCatalogId.make("gmail")), "send_draft"),
+      "send a draft",
+    );
+    assert.strictEqual(
+      ConnectorGateway.actionText(
+        catalogConnector(ConnectorCatalogId.make("slack")),
+        "slack_create_canvas",
+      ),
+      "create canvas",
+    );
+    assert.strictEqual(ConnectorGateway.actionText(undefined, "createIssue"), "create issue");
+  });
+
+  it("labels short values and keeps one long text as the preview", () => {
+    const body = "word ".repeat(100);
+    const described = ConnectorGateway.describeArguments({
+      channelId: "C123",
+      text: body,
+      unfurl: false,
+      thread: null,
+    });
+    assert.deepStrictEqual(described.details, [
+      { label: "Channel id", value: "C123" },
+      { label: "Unfurl", value: "false" },
+    ]);
+    assert.strictEqual(described.preview, body);
+  });
+});
+
+const call = (connectionId: string, method: string, params?: unknown) => ({
+  connectionId,
+  message: { jsonrpc: "2.0", id: 1, method, ...(params === undefined ? {} : { params }) },
+});
+
+const makeHarness = (thread: Partial<OrchestrationV2AppThread>) =>
+  Effect.gen(function* () {
+    const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
+    const cardShown = yield* Deferred.make<OrchestrationV2ServerCommand>();
+    const upstreamCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+    const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
+      getThreadRecords: () =>
+        Effect.succeed({
+          thread: {
+            id: threadId,
+            title: "Release",
+            interactionMode: "default",
+            ...thread,
+          } as OrchestrationV2AppThread,
+          runs: [run],
+        } as never),
+      getThreadEventSequence: () => Effect.succeed(0),
+      streamStoredEventsFrom: () => Stream.never,
+      dispatch: (command) =>
+        Ref.update(dispatched, (current) => [...current, command]).pipe(
+          Effect.andThen(
+            command.type === "connector_approval.record" && command.approvalStatus === "pending"
+              ? Deferred.succeed(cardShown, command)
+              : Effect.void,
+          ),
+          Effect.as({ sequence: 1 } as never),
+        ),
+    });
+    const clients = Layer.mock(ConnectorClients.ConnectorClients)({
+      callTool: (input) =>
+        Ref.update(upstreamCalls, (current) => [...current, input.name]).pipe(
+          Effect.as({ content: [{ type: "text" as const, text: `${input.name} done` }] }),
+        ),
+      close: () => Effect.void,
+    });
+    const layer = ConnectorGateway.layer.pipe(
+      Layer.provideMerge(Connectors.layer),
+      Layer.provideMerge(ConnectorApprovals.layer),
+      Layer.provideMerge(
+        Layer.mergeAll(threads, clients, Layer.mock(ConnectorSignIn.ConnectorSignIn)({})),
+      ),
+      Layer.provideMerge(ConnectorStore.layer),
+      Layer.provideMerge(ServerSecretStore.layer),
+      Layer.provideMerge(
+        ServerConfig.layerTest(process.cwd(), { prefix: "codenine-connector-gateway-test-" }),
+      ),
+    );
+    return { dispatched, cardShown, upstreamCalls, layer };
+  });
+
+const connectGitHub = Effect.gen(function* () {
+  const store = yield* ConnectorStore.ConnectorStore;
+  const github = yield* store.create("github", (id) => ({
+    id,
+    catalogId: ConnectorCatalogId.make("github"),
+    custom: null,
+    name: "GitHub",
+    onByDefault: true,
+    approvals: DEFAULT_CONNECTOR_APPROVALS,
+    toolApprovals: {},
+    inputs: {},
+    account: null,
+    connectedAt: "2026-11-17T10:00:00.000Z",
+    lastUsedAt: null,
+  }));
+  yield* store.writeSecrets(github.id, { token: "ghp", inputs: {} });
+  yield* store.writeTools(github.id, [
+    { name: "search_code", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+    { name: "merge_pull_request", inputSchema: { type: "object" } },
+  ]);
+  return github;
+});
+
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway", (it) => {
+  it.effect("runs reads at once and waits for the user before an irreversible action", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({});
+      yield* Effect.gen(function* () {
+        const gateway = yield* ConnectorGateway.ConnectorGateway;
+        const store = yield* ConnectorStore.ConnectorStore;
+        const github = yield* connectGitHub;
+        const handle = (request: ReturnType<typeof call>) =>
+          gateway.handle({ threadId, ...request });
+
+        const listed = yield* handle(call(github.id, "tools/list"));
+        assert.deepStrictEqual(
+          listed !== undefined && "result" in listed
+            ? (listed.result as { tools: ReadonlyArray<{ name: string }> }).tools.map(
+                (tool) => tool.name,
+              )
+            : listed,
+          ["search_code", "merge_pull_request"],
+        );
+
+        yield* handle(
+          call(github.id, "tools/call", { name: "search_code", arguments: { q: "x" } }),
+        );
+        assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), ["search_code"]);
+        assert.deepStrictEqual(yield* Ref.get(harness.dispatched), []);
+
+        const merging = yield* handle(
+          call(github.id, "tools/call", { name: "merge_pull_request", arguments: { pull: 7 } }),
+        ).pipe(Effect.forkChild);
+        const card = yield* Deferred.await(harness.cardShown);
+        assert.deepInclude(card, {
+          type: "connector_approval.record",
+          approvalStatus: "pending",
+          action: "merge a pull request",
+          risk: "irreversible",
+        });
+        assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), ["search_code"]);
+        assert.ok(card.type === "connector_approval.record");
+        yield* gateway.answerApproval({ threadId, turnItemId: card.turnItemId, answer: "always" });
+        const merged = yield* Fiber.join(merging);
+        assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), [
+          "search_code",
+          "merge_pull_request",
+        ]);
+        assert.deepStrictEqual(
+          merged !== undefined && "result" in merged ? merged.result : merged,
+          {
+            content: [{ type: "text", text: "merge_pull_request done" }],
+          },
+        );
+        assert.deepStrictEqual(
+          (yield* Ref.get(harness.dispatched)).map((command) =>
+            command.type === "connector_approval.record"
+              ? [command.approvalStatus, command.remembered ?? false]
+              : command.type,
+          ),
+          [
+            ["pending", false],
+            ["allowed", true],
+          ],
+        );
+        assert.deepStrictEqual((yield* store.get(github.id))?.toolApprovals, {
+          merge_pull_request: "auto",
+        });
+        assert.deepStrictEqual(
+          (yield* store.readActivity(github.id, 10)).map((entry) => [entry.tool, entry.outcome]),
+          [
+            ["merge_pull_request", "allowed"],
+            ["search_code", "auto"],
+          ],
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("refuses changes in Plan mode and connections the chat does not use", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        interactionMode: "plan",
+        connectors: [ConnectionId.make("github")],
+      });
+      yield* Effect.gen(function* () {
+        const gateway = yield* ConnectorGateway.ConnectorGateway;
+        const github = yield* connectGitHub;
+        const refused = yield* gateway.handle({
+          threadId,
+          ...call(github.id, "tools/call", { name: "merge_pull_request", arguments: {} }),
+        });
+        assert.deepInclude(
+          refused !== undefined && "result" in refused ? (refused.result as object) : {},
+          { isError: true },
+        );
+        const unused = yield* gateway.handle({ threadId, ...call("notion", "tools/list") });
+        assert.deepInclude(unused !== undefined && "error" in unused ? unused.error : {}, {
+          code: -32001,
+        });
+        assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), []);
+        assert.deepStrictEqual(yield* Ref.get(harness.dispatched), []);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+});

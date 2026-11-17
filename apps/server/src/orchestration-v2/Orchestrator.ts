@@ -3861,8 +3861,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                     snooze: command.limitRecovery.snooze ?? previousRecovery?.snooze ?? false,
                     requestId: command.commandId,
                   };
+          // Null drops the chat's own list, so it follows the connectors on by default again.
+          const { connectors: _ownConnectors, ...threadOnDefaultConnectors } = thread;
           return {
-            ...thread,
+            ...(command.connectors === null ? threadOnDefaultConnectors : thread),
+            ...(command.connectors == null
+              ? {}
+              : { connectors: Array.from(new Set(command.connectors)) }),
+            ...(command.skills === undefined
+              ? {}
+              : { skills: Array.from(new Set(command.skills)) }),
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
@@ -8662,6 +8670,101 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
+  const dispatchConnectorApprovalRecord = Effect.fn(
+    "orchestrationV2.dispatch.connectorApprovalRecord",
+  )(function* (
+    command: Extract<
+      OrchestrationV2InternalCommand,
+      { readonly type: "connector_approval.record" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const projection = yield* projectionStore
+      .getThreadRecords(
+        command.threadId,
+        ["runs", "nodes", "turnItems", "attempts", "providerTurns"],
+        { turnItemTypes: ["connector_approval"], messageRoles: [] },
+      )
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const run = projection.runs.find((candidate) => candidate.id === command.runId);
+    if (run === undefined || run.rootNodeId !== command.nodeId) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Node ${command.nodeId} is not the root of run ${command.runId}.`,
+      });
+    }
+    const existing = projection.turnItems.find((item) => item.id === command.turnItemId);
+    if (existing !== undefined && existing.type !== "connector_approval") {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Turn item ${command.turnItemId} is not a connector approval.`,
+      });
+    }
+    if (existing !== undefined && existing.runId !== command.runId) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Connector approval ${command.turnItemId} belongs to another run.`,
+      });
+    }
+    const now = yield* DateTime.now;
+    // The first answer stands: a late cancel cannot undo an action the user let through.
+    const unchanged =
+      existing !== undefined &&
+      (existing.approvalStatus !== "pending" || command.approvalStatus === "pending");
+    const pending = command.approvalStatus === "pending";
+    const turnItem: OrchestrationV2TurnItem = unchanged
+      ? existing
+      : {
+          id: command.turnItemId,
+          threadId: command.threadId,
+          runId: command.runId,
+          nodeId: command.nodeId,
+          providerThreadId: run.providerThreadId,
+          providerTurnId: providerTurnForRun(projection, run)?.id ?? null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: existing?.ordinal ?? (yield* nextTurnItemOrdinal(projection)),
+          status: pending
+            ? "waiting"
+            : command.approvalStatus === "allowed"
+              ? "completed"
+              : "cancelled",
+          title: `${command.connectorName} wants to ${command.action}`,
+          startedAt: existing?.startedAt ?? now,
+          completedAt: pending ? null : now,
+          updatedAt: now,
+          type: "connector_approval",
+          connectionId: command.connectionId,
+          connectorName: command.connectorName,
+          tool: command.tool,
+          risk: command.risk,
+          action: command.action,
+          details: command.details,
+          ...(command.preview === undefined ? {} : { preview: command.preview }),
+          approvalStatus: command.approvalStatus,
+          ...(command.remembered === undefined ? {} : { remembered: command.remembered }),
+        };
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "turn-item.updated",
+      threadId: command.threadId,
+      runId: command.runId,
+      nodeId: command.nodeId,
+      providerInstanceId: run.providerInstanceId,
+      occurredAt: now,
+      payload: turnItem,
+    });
+  });
+
   /**
    * Closes the link cards still waiting for the user. Their agent stopped
    * waiting long ago, so nobody is woken: stopping or archiving the thread
@@ -13099,6 +13202,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "secret_request.record":
         yield* dispatchSecretRequestRecord(command, events);
+        break;
+      case "connector_approval.record":
+        yield* dispatchConnectorApprovalRecord(command, events);
         break;
       case "team.propose":
       case "team.edit":
