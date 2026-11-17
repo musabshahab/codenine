@@ -6,6 +6,7 @@ import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
 import * as BackupService from "./backup/BackupService.ts";
 import * as Skills from "./skills/Skills.ts";
+import * as Agents from "./agents/Agents.ts";
 import { applyPendingRestore } from "./backup/BackupRestore.ts";
 import * as ConnectorApprovals from "./connectors/ConnectorApprovals.ts";
 import * as ConnectorClients from "./connectors/ConnectorClients.ts";
@@ -548,6 +549,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
+  // Beneath the orchestration runtime, whose turns apply a chat's agent.
+  Layer.provideMerge(Agents.layer),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
   Layer.provideMerge(SecretResolver.layer),

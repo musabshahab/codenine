@@ -29,6 +29,9 @@ capabilities, never the driver kind.
   request needs a way to decline that the provider honors.
 - **Interaction modes.** Hide the plan toggle (`showInteractionModeToggle: false`) unless the
   provider's plan output becomes Codenine's proposed-plan card.
+- **Agents.** Apply `runtimePolicy.agent`: its instructions once per session, and each ability the
+  provider can turn off. List those in `agentAbilities` in the provider presentation; see
+  [Agents](./agents.md).
 
 ## Process, account, and setup boundaries
 

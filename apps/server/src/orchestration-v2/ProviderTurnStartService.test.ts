@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
+  type AgentDefinition,
   CheckpointScopeId,
   ContextHandoffId,
   ContextTransferId,
@@ -34,6 +35,7 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+import * as Agents from "../agents/Agents.ts";
 import * as ServerConfig from "../config.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
@@ -195,6 +197,7 @@ function startWithMissingWorktree(
         }),
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
+        Layer.mock(Agents.Agents)({}),
       ),
     ),
   );
@@ -308,6 +311,8 @@ function makeLocalCommandHarness(input: {
   };
   /** A Codenine folder with skills, and the skills the chat keeps on. */
   readonly skills?: { readonly baseDir: string; readonly keptOn: ReadonlyArray<string> };
+  /** The agent the chat talks to; without a definition its file is gone. */
+  readonly agent?: { readonly name: string; readonly definition?: AgentDefinition };
 }) {
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = ThreadId.make("thread-native-account-command");
@@ -378,6 +383,7 @@ function makeLocalCommandHarness(input: {
       worktreePath: input.worktreePath ?? null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
       ...(input.skills === undefined ? {} : { skills: input.skills.keptOn }),
+      ...(input.agent === undefined ? {} : { agent: input.agent.name }),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -1002,6 +1008,9 @@ function makeLocalCommandHarness(input: {
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({
           resolve: resolveRuntimePolicy,
         }),
+        Layer.mock(Agents.Agents)({
+          find: () => Effect.succeed(Option.fromUndefinedOr(input.agent?.definition)),
+        }),
       ),
     ),
   );
@@ -1338,7 +1347,56 @@ effectIt.effect("sends the skill a message names and the chat's kept-on skills w
       ),
       expect.stringContaining("keeps these skills on for this chat: review-code."),
     ]);
+
+    // An agent's skills stand in for the chat's own.
+    const withAgent = makeLocalCommandHarness({
+      text: "Ship it",
+      sideChat: { contextRun: "current" },
+      fileSystem,
+      skills: { baseDir, keptOn: ["review-code"] },
+      agent: {
+        name: "release-manager",
+        definition: {
+          name: "release-manager",
+          title: "Release manager",
+          description: "Ships releases.",
+          instructions: "",
+          model: null,
+          skills: ["deploy"],
+          connectors: [],
+          abilities: { readFiles: true, editFiles: true, runCommands: true, searchWeb: true },
+        },
+      },
+    });
+    yield* withAgent.start;
+    expect(withAgent.startTurn.mock.calls[0]?.[0].message.context).toEqual([
+      expect.stringContaining("keeps these skills on for this chat: deploy."),
+    ]);
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+effectIt.effect("refuses a turn whose agent is gone and says how to go on", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      agent: { name: "release-manager" },
+    });
+
+    yield* harness.start;
+
+    expect(harness.open).not.toHaveBeenCalled();
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+    expect(harness.projection().runs.at(-1)).toMatchObject({ status: "failed" });
+    expect(harness.projection().turnItems).toMatchObject([
+      {
+        type: "error",
+        failure: {
+          message:
+            "This chat talks to the release-manager agent, which is gone or cannot be read. Choose another agent for the chat, or none.",
+        },
+      },
+    ]);
+  }),
 );
 
 effectIt.effect.each([

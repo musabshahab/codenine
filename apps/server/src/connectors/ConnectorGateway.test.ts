@@ -19,8 +19,10 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
+import * as Agents from "../agents/Agents.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { catalogConnector } from "./catalog.ts";
 import * as ConnectorApprovals from "./ConnectorApprovals.ts";
@@ -121,6 +123,13 @@ const makeHarness = (thread: Partial<OrchestrationV2AppThread>) =>
         Layer.mergeAll(threads, clients, Layer.mock(ConnectorSignIn.ConnectorSignIn)({})),
       ),
       Layer.provideMerge(ConnectorStore.layer),
+      Layer.provideMerge(
+        Agents.layer.pipe(
+          Layer.provide(
+            Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+          ),
+        ),
+      ),
       Layer.provideMerge(ServerSecretStore.layer),
       Layer.provideMerge(
         ServerConfig.layerTest(process.cwd(), { prefix: "codenine-connector-gateway-test-" }),
@@ -253,5 +262,50 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
         assert.deepStrictEqual(yield* Ref.get(harness.dispatched), []);
       }).pipe(Effect.provide(harness.layer));
     }),
+  );
+
+  it.effect(
+    "a chat's agent picks its connectors, and its choices come before the connection's",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ agent: "triager" });
+        yield* Effect.gen(function* () {
+          const gateway = yield* ConnectorGateway.ConnectorGateway;
+          const agents = yield* Agents.Agents;
+          const github = yield* connectGitHub;
+          const listTools = gateway.handle({ threadId, ...call(github.id, "tools/list") });
+          const refusedCode = (response: ConnectorGateway.JsonRpcResponse | undefined) =>
+            response !== undefined && "error" in response ? response.error.code : undefined;
+          const triager = {
+            name: "triager",
+            title: "Triager",
+            description: "Sorts new issues.",
+            instructions: "",
+            model: null,
+            skills: [],
+            connectors: [],
+            abilities: { readFiles: false, editFiles: false, runCommands: false, searchWeb: false },
+          };
+
+          // GitHub is on by default, yet an agent that is gone or leaves it out reaches nothing.
+          assert.strictEqual(refusedCode(yield* listTools), -32001);
+          yield* agents.save({ agent: triager });
+          assert.strictEqual(refusedCode(yield* listTools), -32001);
+
+          yield* agents.save({
+            agent: {
+              ...triager,
+              connectors: [{ id: github.id, approvals: { irreversible: "auto" } }],
+            },
+            previousName: "triager",
+          });
+          yield* gateway.handle({
+            threadId,
+            ...call(github.id, "tools/call", { name: "merge_pull_request", arguments: {} }),
+          });
+          assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), ["merge_pull_request"]);
+          assert.deepStrictEqual(yield* Ref.get(harness.dispatched), []);
+        }).pipe(Effect.provide(harness.layer));
+      }),
   );
 });

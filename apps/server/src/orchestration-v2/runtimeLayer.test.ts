@@ -76,6 +76,7 @@ import { PULL_REQUEST_WATCH_WAKE_LIMIT } from "./pullRequestWatch.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
+import * as Agents from "../agents/Agents.ts";
 import * as RuntimeLayer from "./runtimeLayer.ts";
 import * as TeamTaskService from "./TeamTaskService.ts";
 import { shellStreamItemFromThreadShell } from "./ShellStream.ts";
@@ -276,6 +277,7 @@ const moveProject = (projectId: ProjectId, workspaceRoot: string, updatedAt: str
 // Team tasks launch threads, which the runtime layer leaves to its production wiring.
 const layerRuntime = RuntimeLayer.layer.pipe(
   Layer.provide(Layer.mock(TeamTaskService.TeamTaskService)({})),
+  Layer.provide(Layer.mock(Agents.Agents)({ find: () => Effect.succeedNone })),
 );
 
 // Read-only oracle: projections still equal a replay of these unpruned test logs.

@@ -88,6 +88,8 @@ const CLAUDE_PRESENTATION = {
   displayName: "Claude",
   showInteractionModeToggle: true,
   reportsContextWindow: true,
+  agentAbilities: ["readFiles", "editFiles", "runCommands", "searchWeb"],
+  builtInModelInfo: { usesTools: true, readsImages: true, price: null },
 } as const;
 
 const OPENROUTER_PRESENTATION = { ...CLAUDE_PRESENTATION, displayName: "OpenRouter" } as const;

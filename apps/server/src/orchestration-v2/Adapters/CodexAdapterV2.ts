@@ -104,7 +104,11 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import { ServerConfig } from "../../config.ts";
 import { expandHomePath } from "@codenine/provider-core/server/pathExpansion";
-import { buildCodexAdditionalContext } from "../../provider/CodexDeveloperInstructions.ts";
+import {
+  buildCodexAdditionalContext,
+  buildCodexAgentContext,
+  replaceDroppedAgentContext,
+} from "../../provider/CodexDeveloperInstructions.ts";
 import type { SkillListing } from "@codenine/provider-core/server/skillInstructions";
 import {
   describeMcpElicitation,
@@ -745,6 +749,23 @@ function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
   }
 }
 
+// Codex writes files through its sandbox, so an agent that may not edit gets a read-only one with
+// the network it had.
+function readOnlySandboxPolicy(
+  policy: CodexSchema.V2TurnStartParams__SandboxPolicy,
+): CodexSchema.V2TurnStartParams__SandboxPolicy {
+  switch (policy.type) {
+    case "readOnly":
+      return policy;
+    case "dangerFullAccess":
+      return { type: "readOnly", networkAccess: true };
+    case "workspaceWrite":
+      return { type: "readOnly", networkAccess: policy.networkAccess ?? false };
+    case "externalSandbox":
+      return { type: "readOnly", networkAccess: policy.networkAccess === "enabled" };
+  }
+}
+
 export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTurnStartParams")(
   function* (input: {
     readonly nativeThreadId: string;
@@ -756,16 +777,24 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly skills?: ReadonlyArray<SkillListing> | undefined;
     /** ChatGPT token sharing does not accept service tiers. */
     readonly omitServiceTier?: boolean;
+    /** What the thread's last turn sent, so agent entries that went away can be replaced. */
+    readonly previousAdditionalContext?:
+      | Readonly<Record<string, CodexSchema.V2TurnStartParams__AdditionalContextEntry>>
+      | undefined;
   }) {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
+    const mayEdit = input.runtimePolicy.agent?.abilities.editFiles !== false;
     const approvalPolicy =
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
+    const requestedSandboxPolicy =
       input.runtimePolicy.sandboxPolicy === undefined
         ? runtimeModeDefaults.sandboxPolicy
         : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
+    const sandboxPolicy = mayEdit
+      ? requestedSandboxPolicy
+      : readOnlySandboxPolicy(requestedSandboxPolicy ?? { type: "readOnly" });
     const selectedEffort =
       getModelSelectionStringOptionValue(input.modelSelection, "reasoningEffort") ??
       codexDefaultReasoningEffortOverride(input.modelSelection.model);
@@ -775,26 +804,32 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
       input.omitServiceTier === true
         ? undefined
         : getCodexServiceTierOptionValue(input.modelSelection);
-    const additionalContext =
-      input.hasCodenineMcp === true
-        ? buildCodexAdditionalContext(
-            {
-              model: input.modelSelection.model,
-              reasoningEffort: effort ?? undefined,
-            },
-            input.skills,
-          )
-        : undefined;
+    const additionalContext = replaceDroppedAgentContext(
+      {
+        ...(input.hasCodenineMcp === true
+          ? buildCodexAdditionalContext(
+              {
+                model: input.modelSelection.model,
+                reasoningEffort: effort ?? undefined,
+              },
+              input.skills,
+            )
+          : {}),
+        ...buildCodexAgentContext(input.runtimePolicy.agent?.instructions ?? ""),
+      },
+      input.previousAdditionalContext,
+    );
     return yield* decodeCodexTurnStartParamsWithCollaborationMode({
       threadId: input.nativeThreadId,
       input: input.codexInput,
-      ...(additionalContext ? { additionalContext } : {}),
+      ...(Object.keys(additionalContext).length === 0 ? {} : { additionalContext }),
       cwd: input.runtimePolicy.cwd,
       model: input.modelSelection.model,
       // Catalogues can default summaries to "none"; request them explicitly on every turn.
       summary: "detailed",
-      // Omitting the reviewer on resume preserves the previous Auto reviewer.
-      approvalsReviewer: runtimeModeDefaults.approvalsReviewer,
+      // Omitting the reviewer on resume preserves the previous Auto reviewer. Only the user may
+      // allow a write by an agent that may not edit.
+      approvalsReviewer: mayEdit ? runtimeModeDefaults.approvalsReviewer : "user",
       ...(approvalPolicy === undefined ? {} : { approvalPolicy }),
       ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
       ...(effort === undefined ? {} : { effort }),
@@ -1376,7 +1411,7 @@ const CODEX_CODENINE_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
 const CODEX_CODENINE_DIRECT_MCP_SERVER = "codenine-direct";
 const CODEX_DIRECT_ONLY_CODENINE_TOOL = "codenine_thread_wait";
 
-function codexThreadRuntimeParams(input: {
+export function codexThreadRuntimeParams(input: {
   readonly threadId: ThreadId | null;
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly modelSelection?: { readonly model: string };
@@ -1409,11 +1444,15 @@ function codexThreadRuntimeParams(input: {
             },
           ]),
         );
+  const abilities = input.runtimePolicy?.agent?.abilities;
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      // Codex reads files through its shell too, so an agent without commands cannot read them.
+      ...(abilities?.runCommands === false ? { "features.shell_tool": false } : {}),
+      ...(abilities?.searchWeb === false ? { web_search: "disabled" } : {}),
       ...(codenineServer === undefined
         ? {}
         : {
@@ -6674,6 +6713,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               hasCodenineMcp: mcpSession !== undefined,
               skills: turnInput.message.skills?.available,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
+              previousAdditionalContext: (yield* Ref.get(additionalContextByThread)).get(threadId),
             });
             yield* Ref.update(pendingRootTurns, (current) => {
               const updated = new Map(current);

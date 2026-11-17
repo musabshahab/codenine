@@ -1,4 +1,5 @@
 import type {
+  AgentAbility,
   CustomModelSetting,
   ProviderDriverKind,
   ModelCapabilities,
@@ -8,6 +9,7 @@ import type {
   ServerProviderSkill,
   ServerProviderSlashCommand,
   ServerProviderModel,
+  ServerProviderModelInfo,
   ServerProviderUpdateRequiredModel,
   ServerProviderState,
   ServerProviderUsageLimits,
@@ -87,6 +89,9 @@ export interface ServerProviderPresentation {
   readonly reportsContextWindow?: boolean;
   readonly supportedRuntimeModes?: ReadonlyArray<RuntimeMode>;
   readonly supportsConversationRollback?: boolean;
+  readonly agentAbilities?: ReadonlyArray<AgentAbility>;
+  /** What the provider's own models can do; models a user adds are left unknown. */
+  readonly builtInModelInfo?: ServerProviderModelInfo;
 }
 
 export type ServerProviderDraft = Omit<ServerProvider, "instanceId" | "driver">;
@@ -165,6 +170,14 @@ export function providerModelsFromSettings(
   return [...resolvedBuiltInModels, ...customEntries];
 }
 
+const withBuiltInModelInfo = (
+  models: ReadonlyArray<ServerProviderModel>,
+  info: ServerProviderModelInfo | undefined,
+): ReadonlyArray<ServerProviderModel> =>
+  info === undefined
+    ? models
+    : models.map((model) => (model.isCustom || model.info ? model : { ...model, info }));
+
 export function buildServerProvider(input: {
   driver?: ProviderDriverKind;
   presentation: ServerProviderPresentation;
@@ -198,6 +211,9 @@ export function buildServerProvider(input: {
     ...(input.presentation.supportedRuntimeModes === undefined
       ? {}
       : { supportedRuntimeModes: [...input.presentation.supportedRuntimeModes] }),
+    ...(input.presentation.agentAbilities === undefined
+      ? {}
+      : { agentAbilities: [...input.presentation.agentAbilities] }),
     enabled: input.enabled,
     installed: input.probe.installed,
     version: input.probe.version,
@@ -207,7 +223,7 @@ export function buildServerProvider(input: {
     setup: { canAuthenticate: false, canInstall: false },
     checkedAt: input.checkedAt,
     ...(input.probe.message ? { message: input.probe.message } : {}),
-    models: input.models,
+    models: withBuiltInModelInfo(input.models, input.presentation.builtInModelInfo),
     ...(input.updateRequiredModels?.length
       ? { updateRequiredModels: input.updateRequiredModels }
       : {}),

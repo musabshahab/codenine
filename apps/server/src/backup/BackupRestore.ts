@@ -798,7 +798,7 @@ const removeExpiredSafetyBackups = Effect.fn("BackupRestore.removeExpiredSafetyB
   }
 });
 
-const ROOT_FOLDERS = ["accounts", "skills", "workspaces", "scratch", "projects"] as const;
+const ROOT_FOLDERS = ["accounts", "skills", "agents", "workspaces", "scratch", "projects"] as const;
 const DATABASE_SIDE_FILES = ["-wal", "-shm", "-journal"] as const;
 
 /** One rename per state-folder entry and per top-level folder, so excluded files stay put. */

@@ -48,6 +48,7 @@ it.live(
       yield* write("workspaces/app/node_modules/pkg/index.js");
       yield* write("workspaces/plain/node_modules/kept.js");
       yield* write("skills/review/SKILL.md");
+      yield* write("agents/code-reviewer/AGENT.md");
       yield* fs.symlink(
         path.join(baseDir, "skills", "review"),
         path.join(baseDir, "workspaces", "plain", "review"),
@@ -84,6 +85,7 @@ it.live(
         "workspaces/app/.git/HEAD",
         "workspaces/plain/node_modules/kept.js",
         "skills/review/SKILL.md",
+        "agents/code-reviewer/AGENT.md",
         "userdata/settings.json",
         "userdata/secrets/provider-env-a.bin",
       ]) {

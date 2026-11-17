@@ -124,6 +124,7 @@ export type ArchiveRootName =
   | "userdata"
   | "accounts"
   | "skills"
+  | "agents"
   | "workspaces"
   | "scratch"
   | "projects"
@@ -133,6 +134,7 @@ const ARCHIVE_ROOT_NAMES: ReadonlySet<string> = new Set<ArchiveRootName>([
   "userdata",
   "accounts",
   "skills",
+  "agents",
   "workspaces",
   "scratch",
   "projects",
@@ -154,6 +156,7 @@ export const archiveRoots = (
   { name: "userdata", diskPath: paths.stateDir, gitAware: false, include: isBackedUpStatePath },
   { name: "accounts", diskPath: NodePath.join(paths.baseDir, "accounts"), gitAware: true },
   { name: "skills", diskPath: NodePath.join(paths.baseDir, "skills"), gitAware: true },
+  { name: "agents", diskPath: NodePath.join(paths.baseDir, "agents"), gitAware: true },
   { name: "workspaces", diskPath: NodePath.join(paths.baseDir, "workspaces"), gitAware: true },
   { name: "scratch", diskPath: NodePath.join(paths.baseDir, "scratch"), gitAware: true },
   { name: "projects", diskPath: NodePath.join(paths.baseDir, "projects"), gitAware: true },

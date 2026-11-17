@@ -34,7 +34,7 @@ decrypted payload.
 ## What a backup holds
 
 The state folder minus logs, caches, runtime files and the backup's own state; `accounts/`,
-`skills/`, the workspace folders, and `worktrees/` when asked. In a Git repository only what Git
+`skills/`, `agents/`, the workspace folders, and `worktrees/` when asked. In a Git repository only what Git
 tracks or would track is copied, plus all of `.git`, so ignored build output stays behind but every
 commit, stash and branch comes back. A symlink into the archive is stored relative, so links like a
 Codex shadow home's links into its shared home work in a new home; a symlink out of it is left out.

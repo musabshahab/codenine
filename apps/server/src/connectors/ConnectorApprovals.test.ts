@@ -37,17 +37,25 @@ describe("toolRisk", () => {
     );
   });
 
-  it("one action's own choice wins over its group's", () => {
-    const decide = (toolApprovals: Record<string, "auto" | "ask">) =>
+  it("one action's own choice wins, then the agent's for its group, then the connection's", () => {
+    const decide = (
+      toolApprovals: Record<string, "auto" | "ask">,
+      agentApprovals?: { readonly irreversible?: "auto" | "ask"; readonly read?: "auto" | "ask" },
+    ) =>
       ConnectorApprovals.toolApproval({
         tool: "send",
         risk: "irreversible",
         approvals: DEFAULT_CONNECTOR_APPROVALS,
         toolApprovals,
+        agentApprovals,
       });
     assert.strictEqual(decide({}), "ask");
     assert.strictEqual(decide({ send: "auto" }), "auto");
     assert.strictEqual(decide({ other: "auto" }), "ask");
+    assert.strictEqual(decide({}, { irreversible: "auto" }), "auto");
+    assert.strictEqual(decide({}, { read: "auto" }), "ask");
+    assert.strictEqual(decide({ send: "ask" }, { irreversible: "auto" }), "ask");
+    assert.strictEqual(decide({ send: "auto" }, { irreversible: "ask" }), "auto");
   });
 });
 

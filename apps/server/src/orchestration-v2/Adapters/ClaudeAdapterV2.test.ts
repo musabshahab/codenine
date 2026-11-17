@@ -518,6 +518,57 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       installPermissionCallback: true,
     });
   });
+
+  it("takes away the tools a chat's agent may not use and tells Claude who it is", () => {
+    const agent = {
+      instructions: "You are the Code reviewer agent. Reviews code.",
+      abilities: { readFiles: true, editFiles: false, runCommands: false, searchWeb: true },
+    };
+    const policyFor = (interactionMode: "default" | "plan", instructions = agent.instructions) =>
+      ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
+        ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode,
+          cwd: "/workspace",
+          agent: { ...agent, instructions },
+        }),
+      );
+    const disallowedTools = [
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "EnterWorktree",
+      "ExitWorktree",
+      "Bash",
+      "PowerShell",
+      "Monitor",
+    ];
+    for (const interactionMode of ["default", "plan"] as const) {
+      assert.deepInclude(policyFor(interactionMode), {
+        disallowedTools,
+        agentInstructions: agent.instructions,
+      });
+    }
+    // Changed instructions reopen the query, as a changed policy does.
+    assert.notEqual(
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(policyFor("default"), {}),
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(policyFor("default", "Be brief."), {}),
+    );
+
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "native-thread-agent",
+      resume: false,
+      cwd: "/workspace",
+      disallowedTools,
+      agentInstructions: agent.instructions,
+    });
+    assert.deepEqual(options.disallowedTools, disallowedTools);
+    assert.include(
+      (options.systemPrompt as { readonly append?: string }).append ?? "",
+      "You are the Code reviewer agent. Reviews code.",
+    );
+  });
 });
 
 describe("ClaudeAdapterV2 MCP query overrides", () => {

@@ -220,6 +220,58 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.equal(fullAccess.sandboxPolicy?.type, "dangerFullAccess");
     }),
   );
+
+  it.effect("keeps an agent that may not edit in a read-only sandbox, with its network", () =>
+    Effect.gen(function* () {
+      const agent = {
+        instructions: "You are the Code reviewer agent. Reviews code.",
+        abilities: { readFiles: true, editFiles: false, runCommands: true, searchWeb: true },
+      };
+      const build = (runtimeMode: "auto" | "full-access") =>
+        CodexAdapterV2.buildCodexTurnStartParams({
+          nativeThreadId: `native-agent-${runtimeMode}`,
+          codexInput: [{ type: "text", text: "test" }],
+          runtimePolicy: { runtimeMode, interactionMode: "default", cwd: null, agent },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+        });
+
+      const auto = yield* build("auto");
+      assert.deepEqual(auto.sandboxPolicy, { type: "readOnly", networkAccess: false });
+      // Auto's reviewer never allows a write the agent may not make; the user decides.
+      assert.equal(auto.approvalsReviewer, "user");
+      assert.equal(auto.approvalPolicy, "on-request");
+      const fullAccess = yield* build("full-access");
+      assert.deepEqual(fullAccess.sandboxPolicy, { type: "readOnly", networkAccess: true });
+      assert.equal(fullAccess.approvalPolicy, "never");
+      // The agent's instructions travel without Codenine's MCP server too.
+      assert.deepEqual(fullAccess.additionalContext, {
+        codenine_agent_001: { kind: "application", value: agent.instructions },
+      });
+    }),
+  );
+
+  it("turns off Codex's shell and web search when a thread loads for an agent without them", () => {
+    const configFor = (runCommands: boolean, searchWeb: boolean) =>
+      CodexAdapterV2.codexThreadRuntimeParams({
+        threadId: null,
+        mcpSession: undefined,
+        runtimePolicy: {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: null,
+          agent: {
+            instructions: "",
+            abilities: { readFiles: true, editFiles: true, runCommands, searchWeb },
+          },
+        },
+      }).config;
+    assert.deepEqual(configFor(true, true), CodexAdapterV2.CODEX_THREAD_CONFIG);
+    assert.deepEqual(configFor(false, false), {
+      ...CodexAdapterV2.CODEX_THREAD_CONFIG,
+      "features.shell_tool": false,
+      web_search: "disabled",
+    });
+  });
 });
 
 describe("CodexAdapterV2 native protocol logging", () => {

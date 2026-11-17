@@ -2004,7 +2004,7 @@ it.effect.each([
   ["unloads it first so the provider loads the new ones", false, ["native-connectors"]],
   ["keeps it loaded while its background work runs", true, []],
 ] as const)(
-  "ProviderSessionManagerV2 resumes a thread whose connections changed: %s",
+  "ProviderSessionManagerV2 resumes a thread whose connections or agent abilities changed: %s",
   ([, backgroundWork, unloaded]) =>
     Effect.gen(function* () {
       const state = yield* Ref.make(emptyState);
@@ -2028,18 +2028,20 @@ it.effect.each([
           modelSelection,
           runtimePolicy,
         });
-        const resume = runtime.resumeThread({
-          threadId,
-          providerThread: makeProviderThread({
-            idAllocator,
+        const resumeWith = (policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy) =>
+          runtime.resumeThread({
             threadId,
-            providerSessionId,
-            now,
-            nativeThreadId: "native-connectors",
-          }),
-          modelSelection,
-          runtimePolicy,
-        });
+            providerThread: makeProviderThread({
+              idAllocator,
+              threadId,
+              providerSessionId,
+              now,
+              nativeThreadId: "native-connectors",
+            }),
+            modelSelection,
+            runtimePolicy: policy,
+          });
+        const resume = resumeWith(runtimePolicy);
         yield* resume;
         yield* resume;
         assert.equal((yield* Ref.get(state)).resumeCount, 1);
@@ -2049,6 +2051,24 @@ it.effect.each([
         assert.equal((yield* Ref.get(state)).resumeCount, 2);
         assert.deepEqual((yield* Ref.get(state)).unloadedNativeThreadIds, unloaded);
         assert.deepEqual((yield* mcpSessions.read(threadId))?.connectors, ["gmail"]);
+
+        const reviewer = {
+          instructions: "You are the Code reviewer agent. Reviews code.",
+          abilities: { readFiles: true, editFiles: false, runCommands: false, searchWeb: false },
+        };
+        yield* resumeWith({ ...runtimePolicy, agent: reviewer });
+        assert.equal((yield* Ref.get(state)).resumeCount, 3);
+        assert.deepEqual((yield* Ref.get(state)).unloadedNativeThreadIds, [
+          ...unloaded,
+          ...unloaded,
+        ]);
+        // New instructions reach the next turn without a fresh load.
+        yield* resumeWith({ ...runtimePolicy, agent: { ...reviewer, instructions: "Be brief." } });
+        assert.equal((yield* Ref.get(state)).resumeCount, 4);
+        assert.deepEqual((yield* Ref.get(state)).unloadedNativeThreadIds, [
+          ...unloaded,
+          ...unloaded,
+        ]);
       }).pipe(
         Effect.provide(
           layerTest({

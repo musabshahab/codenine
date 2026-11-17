@@ -30,8 +30,9 @@ twice and skip the user's per-connection choices. Plan mode refuses anything tha
 
 ## Which connections a chat reaches
 
-A chat uses its own list when it has one, otherwise the connections on by default, minus those
-missing a credential. The gateway checks this on every request. The provider session manager
+A chat that talks to an [agent](./agents.md) uses the agent's list. Any other chat uses its own list
+when it has one, otherwise the connections on by default. Either way, connections missing a
+credential are left out. The gateway checks this on every request. The provider session manager
 hands each provider the current list before every turn and makes it part of the thread's load key:
 Claude rebuilds its query when the MCP servers change, and Codex keeps a loaded thread's servers on
 resume, so its thread is unloaded first when the list changed.

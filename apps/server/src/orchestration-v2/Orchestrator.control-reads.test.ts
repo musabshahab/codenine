@@ -428,6 +428,7 @@ it.effect(
         title: "After",
         connectors: [ConnectionId.make("gmail"), ConnectionId.make("gmail")],
         skills: ["review"],
+        agent: "code-reviewer",
       });
       yield* orchestrator.dispatch({
         type: "thread.runtime-mode.set",
@@ -628,6 +629,7 @@ it.effect(
       // Updates that leave the chat's choices out keep them.
       assert.deepEqual(thread.connectors, [ConnectionId.make("gmail")]);
       assert.deepEqual(thread.skills, ["review"]);
+      assert.equal(thread.agent, "code-reviewer");
       yield* orchestrator.dispatch({
         type: "thread.metadata.update",
         commandId: CommandId.make("connectors-default-control"),
@@ -637,6 +639,16 @@ it.effect(
       const onDefaults = yield* projections.getThread(threadId);
       assert.isFalse("connectors" in onDefaults);
       assert.deepEqual(onDefaults.skills, ["review"]);
+      assert.equal(onDefaults.agent, "code-reviewer");
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("agent-none-control"),
+        threadId,
+        agent: null,
+      });
+      const withoutAgent = yield* projections.getThread(threadId);
+      assert.isFalse("agent" in withoutAgent);
+      assert.deepEqual(withoutAgent.skills, ["review"]);
       assert.deepEqual(
         (yield* projections.getThreadProviderContext(threadId)).providerSessions,
         [],

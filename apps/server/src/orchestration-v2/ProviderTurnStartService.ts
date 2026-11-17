@@ -1,6 +1,7 @@
 import { modelSelectionsEqual } from "@codenine/shared/model";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
 import {
+  AgentName,
   CommandId,
   latestProviderTurnForAttempt,
   type OrchestrationV2DomainEvent,
@@ -25,6 +26,7 @@ import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
+import * as Agents from "../agents/Agents.ts";
 import * as ServerConfig from "../config.ts";
 import { skillRoots } from "../skills/SkillFolders.ts";
 import { skillTurnContext } from "../skills/SkillTurnContext.ts";
@@ -71,6 +73,15 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
+
+class ChatAgentMissingError extends Schema.TaggedError<ChatAgentMissingError>()(
+  "ChatAgentMissingError",
+  { agent: AgentName },
+) {
+  override get message(): string {
+    return `This chat talks to the ${this.agent} agent, which is gone or cannot be read. Choose another agent for the chat, or none.`;
+  }
+}
 
 class WorktreeRecreateError extends Schema.TaggedError<WorktreeRecreateError>()(
   "WorktreeRecreateError",
@@ -132,6 +143,7 @@ export class ProviderTurnStartServiceV2 extends Context.Service<
 export const layer: Layer.Layer<
   ProviderTurnStartServiceV2,
   never,
+  | Agents.Agents
   | EventSink.EventSinkV2
   | ContextHandoffService.ContextHandoffServiceV2
   | IdAllocator.IdAllocatorV2
@@ -161,6 +173,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const agents = yield* Agents.Agents;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
     const { baseDir } = yield* ServerConfig.ServerConfig;
 
@@ -697,6 +710,17 @@ export const layer: Layer.Layer<
       });
       const resolvedRuntimePolicy = resolvedPolicy;
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;
+      const agentName = projection.thread.agent;
+      const chatAgent =
+        agentName === undefined ? undefined : Option.getOrUndefined(yield* agents.find(agentName));
+      if (agentName !== undefined && chatAgent === undefined) {
+        yield* settleStartFailure({
+          signal: "chat-agent-missing",
+          title: "Agent not found",
+          error: new ChatAgentMissingError({ agent: agentName }),
+        });
+        return;
+      }
       const existingSessionProjection = projection.providerSessions.find(
         (candidate) => candidate.id === providerSessionId,
       );
@@ -1666,7 +1690,7 @@ export const layer: Layer.Layer<
                   path,
                 ),
                 text: goalCommand ? "" : message.text,
-                keptOn: goalCommand ? [] : (projection.thread.skills ?? []),
+                keptOn: goalCommand ? [] : (chatAgent?.skills ?? projection.thread.skills ?? []),
               }),
             ),
             Effect.provideService(FileSystem.FileSystem, fileSystem),

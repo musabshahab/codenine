@@ -3,6 +3,7 @@ import * as KeyedLock from "@codenine/shared/KeyedLock";
 import {
   isOrchestrationV2WorkActive,
   ModelSelection,
+  type OrchestrationV2AppThread,
   OrchestrationV2DomainEvent,
   OrchestrationV2ProviderSession,
   type OrchestrationV2PromptSuggestion,
@@ -44,6 +45,7 @@ import {
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as McpProviderSessions from "@codenine/provider-core/server/McpProviderSessions";
 import * as ServerSettings from "../serverSettings.ts";
+import * as Agents from "../agents/Agents.ts";
 import * as ConnectorStore from "../connectors/ConnectorStore.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
@@ -308,6 +310,14 @@ function providerThreadRuntimeKey(
     : `${nativeThreadRef.driver}:${nativeThreadRef.nativeId}`;
 }
 
+/** What a provider applies only when it loads a thread: its connections and its agent's abilities. */
+function providerThreadLoadSetup(
+  connectors: string,
+  runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy | undefined,
+): string {
+  return JSON.stringify({ connectors, abilities: runtimePolicy?.agent?.abilities ?? null });
+}
+
 function providerThreadLoadKey(input: {
   readonly providerThread: Parameters<
     ProviderAdapter.ProviderAdapterV2SessionRuntime["resumeThread"]
@@ -320,12 +330,12 @@ function providerThreadLoadKey(input: {
     providerThread: providerThreadRuntimeKey(input.providerThread),
     modelSelection: input.modelSelection ?? null,
     runtimePolicy: input.runtimePolicy ?? null,
-    connectors: input.connectors,
+    loadSetup: providerThreadLoadSetup(input.connectors, input.runtimePolicy),
   });
 }
 
-const decodeLoadedConnectors = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Struct({ connectors: Schema.String })),
+const decodeLoadedSetup = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ loadSetup: Schema.String })),
 );
 
 export const layerWithOptions = (
@@ -352,6 +362,7 @@ export const layerWithOptions = (
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
       const connectorStore = yield* Effect.serviceOption(ConnectorStore.ConnectorStore);
+      const agents = yield* Effect.serviceOption(Agents.Agents);
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
       const promptSuggestionStore = yield* SubscriptionRef.make<
@@ -1326,13 +1337,22 @@ export const layerWithOptions = (
       const loadNatively = <A, E>(load: Effect.Effect<A, E>) =>
         load.pipe(Effect.map((loaded) => ({ loaded })));
 
+      // A chat that names an agent this server cannot read reaches no connection.
+      const connectorSelection = (thread: OrchestrationV2AppThread) =>
+        Option.match(agents, {
+          onNone: () => Effect.succeed(thread.agent === undefined ? thread.connectors : []),
+          onSome: (service) =>
+            service.chatConnectors(thread).pipe(Effect.map((chat) => chat.selection)),
+        });
+
       /** Hands adapters the connections the thread uses now and returns them as a load key part. */
       const syncConnectors = (threadId: ThreadId): Effect.Effect<string> =>
         Option.match(connectorStore, {
           onNone: () => Effect.succeed(""),
           onSome: (store) =>
             projectionStore.getThread(threadId).pipe(
-              Effect.flatMap((thread) => store.effectiveConnectionIds(thread.connectors)),
+              Effect.flatMap(connectorSelection),
+              Effect.flatMap((selection) => store.effectiveConnectionIds(selection)),
               Effect.tap((ids) => mcpSessions.setConnectors(threadId, ids)),
               Effect.map((ids) => ids.join(",")),
               Effect.catchCause((cause) =>
@@ -1348,16 +1368,17 @@ export const layerWithOptions = (
         });
 
       /**
-       * A provider that hosts many threads applies MCP servers when it loads a thread, and a
-       * resume of a thread it still holds keeps the old ones. Unload it first when the
-       * thread's connections changed, unless that would cut off work still running.
+       * A provider that hosts many threads applies MCP servers and tool switches when it loads a
+       * thread, and a resume of a thread it still holds keeps the old ones. Unload it first when
+       * the thread's connections or its agent's abilities changed, unless that would cut off work
+       * still running.
        */
-      const unloadForNewConnectors = Effect.fn("ProviderSessionManager.unloadForNewConnectors")(
+      const unloadForNewLoadSetup = Effect.fn("ProviderSessionManager.unloadForNewLoadSetup")(
         function* (input: {
           readonly providerSessionId: ProviderSessionId;
           readonly threadId: ThreadId;
           readonly providerThread: OrchestrationV2ProviderThread;
-          readonly connectors: string;
+          readonly loadSetup: string;
         }) {
           const entry = (yield* Ref.get(sessions)).get(sessionKey(input.providerSessionId));
           const unloadThread = entry?.exposedRuntime.unloadThread;
@@ -1367,9 +1388,9 @@ export const layerWithOptions = (
             unloadThread === undefined ||
             loadedKey === undefined ||
             input.providerThread.nativeThreadRef === null ||
-            Option.match(decodeLoadedConnectors(loadedKey), {
+            Option.match(decodeLoadedSetup(loadedKey), {
               onNone: () => true,
-              onSome: (loaded) => loaded.connectors === input.connectors,
+              onSome: (loaded) => loaded.loadSetup === input.loadSetup,
             }) ||
             hasBusyTurn(entry, input.providerThread.id)
           ) {
@@ -1385,7 +1406,7 @@ export const layerWithOptions = (
           yield* unloadThread({ providerThread: input.providerThread }).pipe(
             Effect.timeout(UNLOAD_THREAD_TIMEOUT_MS),
             Effect.catchCause((cause) =>
-              Effect.logWarning("orchestration-v2.driver-session.connector-unload-failed", {
+              Effect.logWarning("orchestration-v2.driver-session.load-setup-unload-failed", {
                 providerSessionId: input.providerSessionId,
                 threadId: input.threadId,
                 cause,
@@ -1853,11 +1874,11 @@ export const layerWithOptions = (
                   Effect.flatMap((loaded) =>
                     loaded
                       ? Effect.succeed({ loaded: input.providerThread })
-                      : unloadForNewConnectors({
+                      : unloadForNewLoadSetup({
                           providerSessionId,
                           threadId,
                           providerThread: input.providerThread,
-                          connectors,
+                          loadSetup: providerThreadLoadSetup(connectors, input.runtimePolicy),
                         }).pipe(Effect.andThen(loadNatively(runtime.resumeThread(input)))),
                   ),
                   Effect.tap(({ loaded: providerThread }) =>

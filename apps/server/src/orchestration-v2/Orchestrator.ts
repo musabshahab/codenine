@@ -3863,8 +3863,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   };
           // Null drops the chat's own list, so it follows the connectors on by default again.
           const { connectors: _ownConnectors, ...threadOnDefaultConnectors } = thread;
+          const withConnectors = command.connectors === null ? threadOnDefaultConnectors : thread;
+          const { agent: _agent, ...withoutAgent } = withConnectors;
           return {
-            ...(command.connectors === null ? threadOnDefaultConnectors : thread),
+            ...(command.agent === null ? withoutAgent : withConnectors),
+            ...(command.agent == null ? {} : { agent: command.agent }),
             ...(command.connectors == null
               ? {}
               : { connectors: Array.from(new Set(command.connectors)) }),

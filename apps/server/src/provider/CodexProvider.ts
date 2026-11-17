@@ -85,6 +85,9 @@ const CODEX_PRESENTATION = {
   displayName: "Codex",
   showInteractionModeToggle: true,
   reportsContextWindow: true,
+  // Codex reads files through its shell, so reading stays on while commands are.
+  agentAbilities: ["editFiles", "runCommands", "searchWeb"],
+  builtInModelInfo: { usesTools: true, readsImages: true, price: null },
 } as const;
 
 export interface CodexAppServerProviderSnapshot {

@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as Agents from "../agents/Agents.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
@@ -140,6 +141,7 @@ const layerRuntime = (dbPath: string) => {
       Layer.provide(RuntimeLayer.layerProjectService),
       // Team tasks launch threads, which the runtime layer leaves to its production wiring.
       Layer.provide(Layer.mock(TeamTaskService.TeamTaskService)({})),
+      Layer.provide(Layer.mock(Agents.Agents)({ find: () => Effect.succeedNone })),
     ),
     RuntimeLayer.layerProjectService,
   ).pipe(

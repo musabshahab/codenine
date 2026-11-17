@@ -11,9 +11,11 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import type { ProviderInstance } from "@codenine/provider-core/server/driver";
+import * as Agents from "../agents/Agents.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
@@ -74,8 +76,25 @@ const providerInstanceFor = (instanceId: ProviderInstanceId) =>
     },
   }) as ProviderInstance;
 
+const reviewer = {
+  name: "code-reviewer",
+  title: "Code reviewer",
+  description: "Reviews pull requests.",
+  instructions: "Read the diff before the description.",
+  model: null,
+  skills: [],
+  connectors: [],
+  abilities: { readFiles: true, editFiles: false, runCommands: true, searchWeb: false },
+};
+
 const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
   Layer.provide(ServerSettings.layerTest()),
+  Layer.provide(
+    Layer.mock(Agents.Agents)({
+      find: (name) =>
+        Effect.succeed(name === reviewer.name ? Option.some(reviewer) : Option.none()),
+    }),
+  ),
   Layer.provide(
     Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
       getInstance: (instanceId) => Effect.succeed(providerInstanceFor(instanceId)),
@@ -125,6 +144,34 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       assert.equal(yield* modeFor(grokInstanceId, "auto"), "auto");
       assert.equal(yield* modeFor(grokInstanceId, "full-access"), "full-access");
       assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
+    }),
+  );
+
+  it.effect("carries the chat's agent, and one that cannot be read may do nothing", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const agentOf = (agent: string | undefined) =>
+        policy
+          .resolve({
+            thread: {
+              ...makeThread({ now, worktreePath: null }),
+              ...(agent === undefined ? {} : { agent }),
+            },
+            modelSelection,
+          })
+          .pipe(Effect.map((resolved) => resolved.agent));
+
+      assert.isUndefined(yield* agentOf(undefined));
+      assert.deepEqual(yield* agentOf("code-reviewer"), {
+        instructions:
+          "You are the Code reviewer agent. Reviews pull requests.\n\nRead the diff before the description.",
+        abilities: reviewer.abilities,
+      });
+      assert.deepEqual(yield* agentOf("deleted-agent"), {
+        instructions: "",
+        abilities: { readFiles: false, editFiles: false, runCommands: false, searchWeb: false },
+      });
     }),
   );
 });

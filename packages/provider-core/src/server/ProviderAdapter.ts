@@ -1,5 +1,6 @@
 import type { OrchestrationV2HistoricalMessage } from "@codenine/contracts";
 import {
+  AgentAbilities,
   ChatAttachment,
   CheckpointId,
   MessageId,
@@ -45,12 +46,22 @@ import type {
   ProviderSelectionTransitionPlan,
 } from "./selectionTransition.ts";
 
+/** The agent a chat talks to, as its provider session carries it. */
+export const ProviderAdapterV2Agent = Schema.Struct({
+  /** Who the agent is and how it works, for the session's instructions; empty for none. */
+  instructions: Schema.String,
+  /** Which of the provider's own tools stay on. Codenine's MCP tools and connectors always do. */
+  abilities: AgentAbilities,
+});
+export type ProviderAdapterV2Agent = typeof ProviderAdapterV2Agent.Type;
+
 export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   cwd: Schema.NullOr(Schema.String),
   approvalPolicy: Schema.optional(Schema.Unknown),
   sandboxPolicy: Schema.optional(Schema.Unknown),
+  agent: Schema.optional(ProviderAdapterV2Agent),
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 

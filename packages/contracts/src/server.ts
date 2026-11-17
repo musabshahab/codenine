@@ -6,6 +6,7 @@ import {
   ServerSelfUpdateMethod,
 } from "./environment.ts";
 import { ServerAuthDescriptor } from "./auth.ts";
+import { AgentAbility } from "./agents.ts";
 import {
   ForwardCompatibleArray,
   IsoDateTime,
@@ -227,6 +228,8 @@ export const ServerProvider = Schema.Struct({
   supportedRuntimeModes: Schema.optional(ForwardCompatibleArray(RuntimeMode)),
   supportsConversationRollback: Schema.optional(Schema.Boolean),
   supportsTextGeneration: Schema.optional(Schema.Boolean),
+  /** What this provider can turn off for an agent; an ability left out stays on. Absent when unknown. */
+  agentAbilities: Schema.optional(ForwardCompatibleArray(AgentAbility)),
   setup: Schema.optional(
     Schema.Struct({
       canAuthenticate: Schema.Boolean,

@@ -1,4 +1,5 @@
 import {
+  type AgentConnector,
   CommandId,
   ConnectionId,
   type ConnectorActivityOutcome,
@@ -20,6 +21,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import packageJson from "../../package.json" with { type: "json" };
+import * as Agents from "../agents/Agents.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { type CatalogConnector } from "./catalog.ts";
 import { codenineTools, describeDraft, GMAIL_SEND_DRAFT, sendDraft } from "./codenineTools.ts";
@@ -162,6 +164,7 @@ const make = Effect.gen(function* () {
   const signIn = yield* ConnectorSignIn.ConnectorSignIn;
   const approvals = yield* ConnectorApprovals.ConnectorApprovals;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const agents = yield* Agents.Agents;
   const random = yield* SecureRandom.SecureRandom;
 
   const readThread = (threadId: ThreadId) =>
@@ -178,10 +181,17 @@ const make = Effect.gen(function* () {
     if (connection === undefined) return undefined;
     const records = yield* readThread(threadId).pipe(Effect.option);
     if (records._tag === "None") return undefined;
-    const reachable = ConnectorStore.effectiveConnectionIds(records.value.thread.connectors, [
+    const chat = yield* agents.chatConnectors(records.value.thread);
+    const reachable = ConnectorStore.effectiveConnectionIds(chat.selection, [
       { ...connection, ready: yield* store.isReady(connection) },
     ]);
-    return reachable.length === 0 ? undefined : { connection, records: records.value };
+    return reachable.length === 0
+      ? undefined
+      : {
+          connection,
+          records: records.value,
+          agentApprovals: chat.approvals.get(connection.id),
+        };
   });
 
   const tokenFor = (connectionId: ConnectionId, renew: boolean) =>
@@ -295,6 +305,7 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly connection: ConnectorStore.StoredConnection;
     readonly records: Effect.Success<ReturnType<typeof readThread>>;
+    readonly agentApprovals: AgentConnector["approvals"] | undefined;
     readonly tool: string;
     readonly args: Readonly<Record<string, unknown>>;
   }) {
@@ -318,6 +329,7 @@ const make = Effect.gen(function* () {
       risk,
       approvals: connection.approvals,
       toolApprovals: connection.toolApprovals,
+      agentApprovals: input.agentApprovals,
     });
     const thread = input.records.thread;
     const action = actionText(catalog, tool);
@@ -519,6 +531,7 @@ const make = Effect.gen(function* () {
               threadId: input.threadId,
               connection,
               records: found.records,
+              agentApprovals: found.agentApprovals,
               tool: params.value.name,
               args: params.value.arguments ?? {},
             }),

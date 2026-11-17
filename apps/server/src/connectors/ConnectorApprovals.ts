@@ -1,4 +1,5 @@
 import type {
+  AgentConnector,
   ConnectorApprovalAnswer,
   ConnectorApprovalAnswerInput,
   ConnectorApprovalMode,
@@ -34,13 +35,20 @@ export const toolRisk = (
   return "irreversible";
 };
 
-/** The user's choice for this one action wins over its group's. */
+/**
+ * The user's choice for this one action wins, then the chat's agent's choice for its group, then
+ * the connection's own.
+ */
 export const toolApproval = (input: {
   readonly tool: string;
   readonly risk: ConnectorRisk;
   readonly approvals: ConnectorApprovalChoices;
   readonly toolApprovals: Readonly<Record<string, ConnectorApprovalMode>>;
-}): ConnectorApprovalMode => input.toolApprovals[input.tool] ?? input.approvals[input.risk];
+  readonly agentApprovals?: AgentConnector["approvals"] | undefined;
+}): ConnectorApprovalMode =>
+  input.toolApprovals[input.tool] ??
+  input.agentApprovals?.[input.risk] ??
+  input.approvals[input.risk];
 
 export type ApprovalOutcome = "allowed" | "declined" | "cancelled";
 

@@ -77,6 +77,7 @@ import {
   formatClaudeResumeCompactionQuestion,
 } from "@codenine/shared/claudeCompaction";
 import {
+  AgentAbility,
   type ChatAttachment,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   ClaudeSettings,
@@ -490,6 +491,14 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
+
+/** Claude Code's own tools behind each ability an agent can lose, as the Agent SDK names them. */
+const CLAUDE_TOOLS_BY_AGENT_ABILITY: Readonly<Record<AgentAbility, ReadonlyArray<string>>> = {
+  readFiles: ["Read", "Glob", "Grep", "LSP"],
+  editFiles: ["Edit", "Write", "NotebookEdit", "EnterWorktree", "ExitWorktree"],
+  runCommands: ["Bash", "PowerShell", "Monitor"],
+  searchWeb: ["WebSearch", "WebFetch"],
+};
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,
@@ -1529,6 +1538,8 @@ export function makeClaudeQueryOptions(input: {
   readonly toolSearchOverride?: "true";
   /** Codenine's skills, listed after its orchestration instructions while its MCP server is attached. */
   readonly skills?: ReadonlyArray<SkillListing> | undefined;
+  /** Who the chat's agent is and how it works. */
+  readonly agentInstructions?: string;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection, input.modelCatalog);
   const {
@@ -1644,6 +1655,7 @@ export function makeClaudeQueryOptions(input: {
         ...(input.mcpServers === undefined || input.skills === undefined
           ? []
           : [buildSkillsInstructions(input.skills)].filter((text) => text.length > 0)),
+        ...(input.agentInstructions ? [input.agentInstructions] : []),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -2629,8 +2641,25 @@ export interface ClaudeRuntimeQueryPolicy {
   readonly permissionMode: PermissionMode;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
+  /** The built-in tools the chat's agent may not use. */
+  readonly disallowedTools?: ReadonlyArray<string>;
+  readonly agentInstructions?: string;
   readonly allowDangerouslySkipPermissions?: true;
   readonly installPermissionCallback: boolean;
+}
+
+/** What the chat's agent changes about the query: tools it may not use and its instructions. */
+function claudeAgentQueryPolicy(
+  agent: ProviderAdapter.ProviderAdapterV2RuntimePolicy["agent"],
+): Pick<ClaudeRuntimeQueryPolicy, "disallowedTools" | "agentInstructions"> {
+  if (agent === undefined) return {};
+  const disallowedTools = AgentAbility.literals.flatMap((ability) =>
+    agent.abilities[ability] ? [] : CLAUDE_TOOLS_BY_AGENT_ABILITY[ability],
+  );
+  return {
+    ...(disallowedTools.length === 0 ? {} : { disallowedTools }),
+    ...(agent.instructions === "" ? {} : { agentInstructions: agent.instructions }),
+  };
 }
 
 interface ClaudeBypassAvailability {
@@ -2670,11 +2699,13 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
         runtimePolicy.runtimeMode === "auto-accept-edits"
       : runtimePolicy.approvalPolicy !== "never");
 
+  const agent = claudeAgentQueryPolicy(runtimePolicy.agent);
   if (permissionMode === "plan") {
     return {
       permissionMode,
       ...(readOnlyTools === undefined ? {} : { tools: readOnlyTools }),
       ...(allowedTools === undefined ? {} : { allowedTools }),
+      ...agent,
       // Claude routes Plan-mode writes to the callback even in Auto or Full access.
       installPermissionCallback: true,
     };
@@ -2684,6 +2715,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
     permissionMode,
     ...(readOnlyTools === undefined ? {} : { tools: readOnlyTools }),
     ...(allowedTools === undefined ? {} : { allowedTools }),
+    ...agent,
     ...(permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
     installPermissionCallback,
   };
@@ -2792,6 +2824,8 @@ function claudeRuntimeQueryPolicyKey(policy: ClaudeRuntimeQueryPolicy): string {
     permissionMode: policy.permissionMode,
     tools: policy.tools,
     allowedTools: policy.allowedTools,
+    disallowedTools: policy.disallowedTools,
+    agentInstructions: policy.agentInstructions,
     allowDangerouslySkipPermissions: policy.allowDangerouslySkipPermissions,
     installPermissionCallback: policy.installPermissionCallback,
   });
@@ -10634,6 +10668,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(mcpOverrides.allowedTools === undefined
               ? {}
               : { allowedTools: mcpOverrides.allowedTools }),
+            ...(queryPolicy.disallowedTools === undefined
+              ? {}
+              : { disallowedTools: queryPolicy.disallowedTools }),
+            ...(queryPolicy.agentInstructions === undefined
+              ? {}
+              : { agentInstructions: queryPolicy.agentInstructions }),
             ...(mcpOverrides.mcpServers === undefined
               ? {}
               : { mcpServers: mcpOverrides.mcpServers }),

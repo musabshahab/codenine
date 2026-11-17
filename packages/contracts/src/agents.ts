@@ -43,6 +43,9 @@ export const AgentAbilities = Schema.Struct({
 });
 export type AgentAbilities = typeof AgentAbilities.Type;
 
+export const AgentAbility = Schema.Literals(["readFiles", "editFiles", "runCommands", "searchWeb"]);
+export type AgentAbility = typeof AgentAbility.Type;
+
 export const AgentTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(80));
 export const AgentDescription = TrimmedNonEmptyString.check(Schema.isMaxLength(1024));
 

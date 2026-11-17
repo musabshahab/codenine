@@ -115,6 +115,7 @@ const seedAlpha = Effect.fn(function* (home: Home) {
     ]),
   );
   yield* writeFile(path.join(codenine, "workspaces", "app", "README.md"), "app");
+  yield* writeFile(path.join(codenine, "agents", "code-reviewer", "AGENT.md"), "---\n---\n");
   yield* writeFile(
     path.join(home.userHome, "code", "site", ".git", "config"),
     '[remote "origin"]\n\turl = https://example.com/me/site.git\n',
@@ -233,6 +234,9 @@ it.effect(
       const betaCodenine = beta.paths.baseDir;
       // Data moved in; the replaced data is gone; this computer's runtime files stayed.
       assert.isTrue(yield* fs.exists(path.join(betaCodenine, "workspaces", "app", "README.md")));
+      assert.isTrue(
+        yield* fs.exists(path.join(betaCodenine, "agents", "code-reviewer", "AGENT.md")),
+      );
       assert.isFalse(yield* fs.exists(path.join(betaCodenine, "workspaces", "old")));
       assert.equal(
         yield* fs.readFileString(path.join(beta.paths.stateDir, "logs", "server.log")),
@@ -331,6 +335,7 @@ it.effect(
         "beta",
       );
       assert.isFalse(yield* fs.exists(path.join(betaCodenine, "workspaces", "app")));
+      assert.isFalse(yield* fs.exists(path.join(betaCodenine, "agents")));
       assert.equal((yield* fs.readFileString(beta.paths.environmentIdPath)).trim(), "env-beta");
       assert.deepEqual(yield* sessionIds(beta.paths.dbPath), ["beta-session"]);
       const undone = yield* readRestoreReport(beta.paths.stateDir);

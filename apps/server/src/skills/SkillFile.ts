@@ -19,7 +19,7 @@ export interface SkillFile {
   readonly instructions: string;
 }
 
-const splitFrontmatter = (contents: string) => {
+export const splitFrontmatter = (contents: string) => {
   const match = FRONTMATTER_PATTERN.exec(contents);
   return match === null
     ? { yaml: undefined, body: contents }
@@ -36,7 +36,7 @@ const quoteColonScalars = (yaml: string) =>
     return `${prefix}${JSON.stringify(scalar)}${value.slice(scalar.length)}`;
   });
 
-const parseFrontmatterMap = (yaml: string) => {
+export const parseFrontmatterMap = (yaml: string) => {
   for (const source of [yaml, quoteColonScalars(yaml)]) {
     const document = parseDocument(source);
     if (document.errors.length === 0 && (document.contents === null || isMap(document.contents))) {
@@ -46,7 +46,7 @@ const parseFrontmatterMap = (yaml: string) => {
   return undefined;
 };
 
-const instructionsOf = (body: string) => body.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
+export const instructionsOf = (body: string) => body.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
 
 /** Reads what it can: a skill with broken frontmatter still has its instructions. */
 export function parseSkillFile(contents: string): SkillFile {
