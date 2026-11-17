@@ -20,7 +20,8 @@ to each model's own levels, and a model without levels runs at its default.
 
 **On this computer** decides what the agent may do besides its connectors: read files, edit files,
 run commands, and search the web. A new agent starts with all of them off. Turn on only what the job
-needs; an email agent needs none of them.
+needs; an email agent needs none of them. An agent works within these limits on its own: it cannot
+start, read or message other chats, so use a chat without an agent for work that spans chats.
 
 **Save and start a chat** saves the agent and opens a chat with it. **Duplicate**, in an agent's
 menu on the Agents page, makes a copy to change.

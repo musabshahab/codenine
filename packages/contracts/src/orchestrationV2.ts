@@ -2145,6 +2145,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   tags: Schema.optional(StoredThreadTags),
   /** The chat folder this thread sits in; absent or null when it is in none. */
   folder: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The agent the chat talks to. */
+  agent: Schema.optional(AgentName),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   opens: Schema.optional(LenientThreadOpens),
   titleRegeneration: Schema.optional(

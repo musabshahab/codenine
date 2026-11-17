@@ -630,6 +630,8 @@ it.effect(
       assert.deepEqual(thread.connectors, [ConnectionId.make("gmail")]);
       assert.deepEqual(thread.skills, ["review"]);
       assert.equal(thread.agent, "code-reviewer");
+      // Codenine's MCP tools read the chat's agent from its shell.
+      assert.equal((yield* projections.getThreadShell(threadId))?.agent, "code-reviewer");
       yield* orchestrator.dispatch({
         type: "thread.metadata.update",
         commandId: CommandId.make("connectors-default-control"),
@@ -648,6 +650,7 @@ it.effect(
       });
       const withoutAgent = yield* projections.getThread(threadId);
       assert.isFalse("agent" in withoutAgent);
+      assert.isUndefined((yield* projections.getThreadShell(threadId))?.agent);
       assert.deepEqual(withoutAgent.skills, ["review"]);
       assert.deepEqual(
         (yield* projections.getThreadProviderContext(threadId)).providerSessions,
