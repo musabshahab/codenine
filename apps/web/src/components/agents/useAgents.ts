@@ -4,11 +4,16 @@ import type {
   AgentName,
   AgentSummary,
   EnvironmentId,
+  ModelSelection,
   ServerProviderModelInfo,
 } from "@codenine/contracts";
 import { skillTitle } from "@codenine/contracts";
 import type { UnifiedSettings } from "@codenine/contracts/settings";
-import { agentEffortOption, agentModelSelection } from "@codenine/shared/agentModel";
+import {
+  agentEffortOfSelection,
+  agentEffortOption,
+  agentModelSelection,
+} from "@codenine/shared/agentModel";
 import { formatModelSlugName } from "@codenine/shared/model";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -87,15 +92,33 @@ export function describeAgentModel(
   };
 }
 
+function modelCapabilities(
+  entries: ReadonlyArray<ProviderInstanceEntry>,
+  model: Pick<AgentModel, "instanceId" | "model">,
+) {
+  return entries
+    .find((entry) => entry.instanceId === model.instanceId)
+    ?.models.find((candidate) => candidate.slug === model.model)?.capabilities;
+}
+
 /** What a chat runs on for the agent's model, its effort matched to the model's own levels. */
 export function agentChatModelSelection(
   entries: ReadonlyArray<ProviderInstanceEntry>,
   model: AgentModel,
 ) {
-  const capabilities = entries
-    .find((entry) => entry.instanceId === model.instanceId)
-    ?.models.find((candidate) => candidate.slug === model.model)?.capabilities;
-  return agentModelSelection(model, capabilities);
+  return agentModelSelection(model, modelCapabilities(entries, model));
+}
+
+/** An agent's model made from a chat's or team member's, its effort matched back to Codenine's. */
+export function agentModelOfSelection(
+  entries: ReadonlyArray<ProviderInstanceEntry>,
+  selection: ModelSelection,
+): AgentModel {
+  return {
+    instanceId: selection.instanceId,
+    model: selection.model,
+    effort: agentEffortOfSelection(selection, modelCapabilities(entries, selection)) ?? "medium",
+  };
 }
 
 /** The accounts turned on, with their models in the composer's order. */

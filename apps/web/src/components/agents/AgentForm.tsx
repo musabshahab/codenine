@@ -5,6 +5,8 @@ import {
   type AgentConnector,
   type AgentDetail,
   type AgentEffort,
+  type AgentModel,
+  type AgentSummary,
   type ConnectionSnapshot,
   type ConnectorApprovalMode,
   type EnvironmentId,
@@ -72,15 +74,33 @@ const ABILITIES = [
 
 const NO_CONNECTIONS: ReadonlyArray<ConnectionSnapshot> = [];
 
+/** What a new agent made from a team's suggestion starts with. */
+export interface AgentFormStart {
+  readonly title: string;
+  readonly description: string;
+  readonly instructions: string;
+  readonly model: AgentModel | null;
+  readonly connectors: ReadonlyArray<AgentConnector>;
+}
+
+/** Making an agent a lead suggested: Save hands it back to join the team, with no chat to start. */
+export interface AgentFormForTeam {
+  readonly start: AgentFormStart;
+  readonly onSaved: (agent: AgentSummary) => void;
+  readonly onCancel: () => void;
+}
+
 /** The agent editor's form; `agent` is null for a new agent. */
 export function AgentForm({
   environmentId,
   workspace,
   agent,
+  forTeam,
 }: {
   readonly environmentId: EnvironmentId;
   readonly workspace: ProjectId | null;
   readonly agent: AgentDetail | null;
+  readonly forTeam?: AgentFormForTeam | undefined;
 }) {
   const instructionsId = useId();
   const effortId = useId();
@@ -94,16 +114,20 @@ export function AgentForm({
   const codenineSkills = useCodenineSkills(environmentId, null);
   const connectors = useEnvironmentQuery(connectorsEnvironment.state({ environmentId, input: {} }));
   const connections = connectors.data?.connections ?? NO_CONNECTIONS;
-  const [title, setTitle] = useState(agent?.title ?? "");
-  const [description, setDescription] = useState(agent?.description ?? "");
-  const [instructions, setInstructions] = useState(agent?.instructions ?? "");
-  const [modelChoice, setModelChoice] = useState<AgentModelChoiceValue | null>(
-    agent?.model == null ? null : { instanceId: agent.model.instanceId, model: agent.model.model },
+  const start = forTeam?.start;
+  const startModel = agent === null ? (start?.model ?? null) : agent.model;
+  const [title, setTitle] = useState(agent?.title ?? start?.title ?? "");
+  const [description, setDescription] = useState(agent?.description ?? start?.description ?? "");
+  const [instructions, setInstructions] = useState(
+    agent?.instructions ?? start?.instructions ?? "",
   );
-  const [effort, setEffort] = useState<AgentEffort>(agent?.model?.effort ?? "medium");
+  const [modelChoice, setModelChoice] = useState<AgentModelChoiceValue | null>(
+    startModel === null ? null : { instanceId: startModel.instanceId, model: startModel.model },
+  );
+  const [effort, setEffort] = useState<AgentEffort>(startModel?.effort ?? "medium");
   const [skills, setSkills] = useState<ReadonlyArray<SkillName>>(agent?.skills ?? []);
   const [agentConnectors, setAgentConnectors] = useState<ReadonlyArray<AgentConnector>>(
-    agent?.connectors ?? [],
+    agent?.connectors ?? start?.connectors ?? [],
   );
   const [abilities, setAbilities] = useState<AgentAbilities>(agent?.abilities ?? NO_ABILITIES);
   const [errors, setErrors] = useState<AgentDraftErrors & { readonly form?: string }>({});
@@ -172,6 +196,10 @@ export function AgentForm({
     }
     const saved = result.value;
     toastManager.add({ type: "success", title: `Saved ${saved.title}` });
+    if (forTeam !== undefined) {
+      forTeam.onSaved(saved);
+      return;
+    }
     if (then === "list") {
       backToAgents();
       return;
@@ -224,7 +252,9 @@ export function AgentForm({
           <span className="flex min-w-0 flex-col gap-1">
             <h2 className="truncate text-2xl font-semibold text-foreground">{shownTitle}</h2>
             <span className="text-sm text-muted-foreground">
-              What it does, the model it runs on, and what it may use.
+              {forTeam === undefined
+                ? "What it does, the model it runs on, and what it may use."
+                : "The lead suggested this agent for its team. Save it to add it to the team."}
             </span>
           </span>
         </div>
@@ -505,15 +535,27 @@ export function AgentForm({
             </Button>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={backToAgents}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={forTeam?.onCancel ?? backToAgents}
+            >
               Cancel
             </Button>
-            <Button type="submit" variant="outline" size="sm" disabled={disabled}>
+            <Button
+              type="submit"
+              variant={forTeam === undefined ? "outline" : "default"}
+              size="sm"
+              disabled={disabled}
+            >
               {busy ? "Saving…" : "Save"}
             </Button>
-            <Button size="sm" disabled={disabled} onClick={() => void submit("chat")}>
-              Save and start a chat
-            </Button>
+            {forTeam === undefined ? (
+              <Button size="sm" disabled={disabled} onClick={() => void submit("chat")}>
+                Save and start a chat
+              </Button>
+            ) : null}
           </div>
         </div>
       </form>

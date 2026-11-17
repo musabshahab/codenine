@@ -8,6 +8,7 @@ import {
   editTeamDraft,
   resolveTeamDraft,
   savedTeamDraftEdit,
+  teamApproveBlock,
   teamApproveCommands,
   teamCancelCommand,
   teamCommandFailure,
@@ -50,7 +51,8 @@ interface TeamPlanUiState {
 
 const IDLE: TeamPlanUiState = { edit: null, notice: null, error: null, pending: null };
 
-// Shared so the thread header approves exactly the draft the Task panel shows, edits included.
+// Shared so the thread header approves exactly the draft the Task panel shows, edits included,
+// and so an agent made from a suggestion joins the edits the Task tab returns to.
 const useTeamPlanUiStore = create<{
   byLead: Record<string, TeamPlanUiState>;
   patch: (leadKey: string, patch: Partial<TeamPlanUiState>) => void;
@@ -62,10 +64,37 @@ const useTeamPlanUiStore = create<{
     })),
 }));
 
+function leadKeyOf(leadRef: ScopedThreadRef): string {
+  return `${leadRef.environmentId}:${leadRef.threadId}`;
+}
+
+/** The user's unsaved edits to the lead's team, which the Task tab shows. */
+export function useTeamDraftEdit(leadRef: ScopedThreadRef): TeamDraftEdit | null {
+  return useTeamPlanUiStore((state) => state.byLead[leadKeyOf(leadRef)]?.edit ?? null);
+}
+
+/**
+ * Applies a change to the lead's unsaved team edits, from the Task tab or a page it opened. It
+ * reads the store, not a render's edit, so several changes from one handler all apply.
+ */
+export function changeTeamPlanDraft(
+  leadRef: ScopedThreadRef,
+  plan: TeamPlan,
+  change: TeamDraftChange,
+): void {
+  const leadKey = leadKeyOf(leadRef);
+  const { byLead, patch } = useTeamPlanUiStore.getState();
+  patch(leadKey, {
+    notice: null,
+    error: null,
+    edit: editTeamDraft(plan, byLead[leadKey]?.edit ?? null, change),
+  });
+}
+
 /** The lead's team plan as the user edits it, and the commands that save, approve and run it. */
 export function useTeamPlanActions(leadRef: ScopedThreadRef, plan: TeamPlan) {
   const { environmentId, threadId } = leadRef;
-  const leadKey = `${environmentId}:${threadId}`;
+  const leadKey = leadKeyOf(leadRef);
   const ui = useTeamPlanUiStore((state) => state.byLead[leadKey] ?? IDLE);
   const patch = useTeamPlanUiStore((state) => state.patch);
   const hasOperateScope = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
@@ -80,6 +109,7 @@ export function useTeamPlanActions(leadRef: ScopedThreadRef, plan: TeamPlan) {
   const proposed = plan.status === "proposed";
   const resolved = resolveTeamDraft(plan, ui.edit);
   const issue = proposed ? teamDraftIssue(resolved.draft) : null;
+  const approveBlock = proposed ? teamApproveBlock(resolved.draft) : null;
   // While this client approves or cancels, the plan leaves `proposed` before its edits are cleared.
   const notice = ui.notice ?? (resolved.overtaken && ui.pending === null ? OVERTAKEN_NOTICE : null);
   const newCommandId = () => CommandId.make(randomUUID());
@@ -135,20 +165,21 @@ export function useTeamPlanActions(leadRef: ScopedThreadRef, plan: TeamPlan) {
     proposed,
     resolved,
     issue,
+    /** Why Approve waits although the team can be saved, such as a member with no agent yet. */
+    approveBlock,
     notice,
     error: ui.error,
     pending: ui.pending,
     busy: ui.pending !== null || !canOperate,
-    // Reads the store, not this render's edit, so several changes from one handler all apply.
-    change: (next: TeamDraftChange) => {
-      const current = useTeamPlanUiStore.getState().byLead[leadKey] ?? IDLE;
-      patch(leadKey, { notice: null, error: null, edit: editTeamDraft(plan, current.edit, next) });
-    },
+    change: (next: TeamDraftChange) => changeTeamPlanDraft(leadRef, plan, next),
     discard: () => patch(leadKey, { edit: null }),
     dismissNotice: () =>
       patch(leadKey, resolved.overtaken ? { notice: null, edit: null } : { notice: null }),
     save: () => run("save", [teamSaveCommand({ threadId, resolved, commandId: newCommandId() })]),
-    approve: () => run("approve", teamApproveCommands({ threadId, resolved, newCommandId })),
+    approve: () =>
+      approveBlock === null
+        ? run("approve", teamApproveCommands({ threadId, resolved, newCommandId }))
+        : Promise.resolve(false),
     cancel,
     retry: (task: TeamTask, agentId?: TeamAgentId) =>
       run(`retry:${task.id}`, [

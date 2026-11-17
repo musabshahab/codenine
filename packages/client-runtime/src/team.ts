@@ -1,4 +1,5 @@
 import {
+  type AgentName,
   type CommandId,
   type ModelSelection,
   type OrchestrationV2Actor,
@@ -21,7 +22,7 @@ import {
   type TeamWorkspace,
   type ThreadId,
 } from "@codenine/contracts";
-import { validateTeamDraft } from "@codenine/shared/team";
+import { teamMembersWithoutAgent, validateTeamDraft } from "@codenine/shared/team";
 
 type TeamCommand<T extends OrchestrationV2Command["type"]> = Extract<
   OrchestrationV2Command,
@@ -58,13 +59,23 @@ export type TeamDraftChange =
       readonly modelSelection: ModelSelection;
     }
   | {
+      /** Adds one of the user's agents to the team, on its model. */
       readonly type: "agent.add";
+      readonly agent: AgentName;
       readonly label: string;
       readonly role: TeamAgentRole;
       readonly modelSelection: ModelSelection;
       readonly workspace: TeamWorkspace;
       /** A task to give the new agent, whose id only exists once it is added. */
       readonly assign?: TeamTaskId;
+    }
+  | {
+      /** Runs a member as one of the user's agents, which settles the lead's suggestion for it. */
+      readonly type: "agent.assign";
+      readonly agentId: TeamAgentId;
+      readonly agent: AgentName;
+      readonly label: string;
+      readonly modelSelection: ModelSelection;
     }
   | { readonly type: "agent.remove"; readonly agentId: TeamAgentId }
   | { readonly type: "task.assign"; readonly taskId: TeamTaskId; readonly agentId: TeamAgentId }
@@ -110,6 +121,7 @@ export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): Team
             role: change.role,
             modelSelection: change.modelSelection,
             workspace: change.workspace,
+            agent: change.agent,
           },
         ],
         tasks: draft.tasks.map((task) =>
@@ -117,6 +129,20 @@ export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): Team
         ),
       };
     }
+    case "agent.assign":
+      return {
+        ...draft,
+        agents: draft.agents.map((member) => {
+          if (member.id !== change.agentId) return member;
+          const { suggestion: _suggestion, ...kept } = member;
+          return {
+            ...kept,
+            agent: change.agent,
+            label: change.label.trim(),
+            modelSelection: change.modelSelection,
+          };
+        }),
+      };
     case "agent.remove":
       return teamAgentInUse(draft, change.agentId)
         ? draft
@@ -155,7 +181,14 @@ export function teamDraftChangeCount(base: TeamDraft, draft: TeamDraft): number 
   let count = base.agents.filter((agent) => !agentsAfter.has(agent.id)).length;
   for (const agent of draft.agents) {
     const before = agentsBefore.get(agent.id);
-    if (before === undefined || !sameJson(before.modelSelection, agent.modelSelection)) count += 1;
+    // A member's new agent brings its model, so the two count as one choice.
+    if (
+      before === undefined ||
+      before.agent !== agent.agent ||
+      !sameJson(before.modelSelection, agent.modelSelection)
+    ) {
+      count += 1;
+    }
   }
   for (const task of base.tasks) {
     const after = tasksAfter.get(task.id);
@@ -263,6 +296,16 @@ export function teamDraftIssue(draft: TeamDraft): string | null {
   const briefless = draft.tasks.find((task) => task.brief.trim() === "");
   if (briefless !== undefined) return `Task "${briefless.title}" needs a brief.`;
   return validateTeamDraft(trimmedTeamDraft(draft))?.message ?? null;
+}
+
+/** Why the team cannot be approved yet although it can be saved: members still need an agent. */
+export function teamApproveBlock(draft: Pick<TeamDraft, "agents">): string | null {
+  const waiting = teamMembersWithoutAgent(draft).map(
+    (member) => member.suggestion?.title ?? member.label,
+  );
+  return waiting.length === 0
+    ? null
+    : `Create or choose an agent for ${listLabels(waiting)} first.`;
 }
 
 export function teamSaveCommand(input: {

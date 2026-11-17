@@ -56,7 +56,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { TeamModelLabel, useTeamModelCatalog, type TeamModelCatalog } from "./TeamAgentModel";
 import { TeamDraftEditor } from "./TeamDraftEditor";
 import {
-  TeamAgentAvatar,
+  TeamMemberMark,
   TeamSectionHeading,
   TeamStepFlow,
   TeamStepRow,
@@ -228,6 +228,7 @@ function TeamPlanView(props: {
     proposed,
     resolved,
     issue,
+    approveBlock,
     notice: shownNotice,
     error,
     pending,
@@ -249,7 +250,14 @@ function TeamPlanView(props: {
       {pending === "cancel" ? "Cancelling…" : "Cancel team"}
     </Button>
   ) : null;
-  const note = footerNote({ plan, proposed, dirty: resolved.dirty, canOperate, agentTask });
+  const note = footerNote({
+    plan,
+    proposed,
+    dirty: resolved.dirty,
+    canOperate,
+    approveBlock,
+    agentTask,
+  });
   const buttons = proposed ? (
     <>
       {cancelButton}
@@ -264,7 +272,11 @@ function TeamPlanView(props: {
             {pending === "save" ? "Saving…" : "Save"}
           </Button>
         ) : null}
-        <Button size="xs" disabled={busy || issue !== null} onClick={() => void actions.approve()}>
+        <Button
+          size="xs"
+          disabled={busy || issue !== null || approveBlock !== null}
+          onClick={() => void actions.approve()}
+        >
           {pending === "approve" ? "Approving…" : "Approve and start"}
         </Button>
       </span>
@@ -329,6 +341,7 @@ function TeamPlanView(props: {
       <TeamPlanHeader plan={plan} draft={proposed ? resolved.draft : null} />
       {proposed ? (
         <TeamDraftEditor
+          leadRef={leadRef}
           draft={resolved.draft}
           catalog={catalog}
           defaultModelSelection={lead?.modelSelection ?? null}
@@ -355,11 +368,13 @@ function footerNote(input: {
   proposed: boolean;
   dirty: boolean;
   canOperate: boolean;
+  approveBlock: string | null;
   agentTask: AgentTask | null;
 }): string | null {
   const { plan } = input;
   if (input.proposed) {
     if (!input.canOperate) return "This connection cannot change or approve the team.";
+    if (input.approveBlock !== null) return input.approveBlock;
     return input.dirty
       ? null
       : "Nothing runs until you approve. To add, reorder or split steps, ask the lead.";
@@ -627,7 +642,7 @@ function TeamRunStep(props: {
         {agent === null ? null : (
           <>
             <span className="inline-flex min-w-0 items-center gap-1.5 text-foreground/85">
-              <TeamAgentAvatar role={agent.role} size="xs" />
+              <TeamMemberMark member={agent} size="xs" />
               <span className="truncate">{agent.label}</span>
             </span>
             <TeamModelLabel catalog={props.catalog} selection={agent.modelSelection} />
@@ -760,7 +775,7 @@ function TeamTaskRetry(props: {
                 <MenuGroupLabel>Retry on</MenuGroupLabel>
                 {others.map((agent) => (
                   <MenuItem key={agent.id} onClick={() => props.onRetry(task, agent.id)}>
-                    <TeamAgentAvatar role={agent.role} size="md" />
+                    <TeamMemberMark member={agent} size="md" />
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate">{agent.label}</span>
                       <span className="text-muted-foreground text-xs">

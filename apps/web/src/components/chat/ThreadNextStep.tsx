@@ -19,6 +19,7 @@ import GitActionsControl from "../GitActionsControl";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { openPullRequestOf } from "../threadKind.logic";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useTeamPlanActions } from "./useTeamPlanActions";
 
 /**
@@ -114,11 +115,11 @@ function TeamPlanStepButton(props: {
   const { plan, onOpenTask } = props;
   const actions = useTeamPlanActions(props.leadRef, plan);
   if (plan.status === "proposed") {
-    return (
+    const approve = (
       <Button
         size="xs"
         aria-label="Approve team"
-        disabled={actions.pending !== null}
+        disabled={actions.pending !== null || actions.approveBlock !== null}
         onClick={() => {
           // The Task tab shows why a team cannot start yet, and any error approving it.
           if (actions.issue !== null || !actions.canOperate) return onOpenTask();
@@ -128,6 +129,16 @@ function TeamPlanStepButton(props: {
         <CheckIcon aria-hidden />
         <NarrowHidden>{actions.pending === "approve" ? "Approving…" : "Approve team"}</NarrowHidden>
       </Button>
+    );
+    return actions.approveBlock === null ? (
+      approve
+    ) : (
+      <Tooltip>
+        <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+          {approve}
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">{actions.approveBlock}</TooltipPopup>
+      </Tooltip>
     );
   }
   const ownTask = props.teamTask === null ? null : teamTaskOfThread(plan, props.teamTask);
