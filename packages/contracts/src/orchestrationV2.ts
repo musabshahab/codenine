@@ -2965,6 +2965,8 @@ export const OrchestrationV2Command = Schema.Union([
     ),
     /** Set by the server when it launches a team task; dropped from a client's command. */
     teamTask: Schema.optional(TeamTaskRef),
+    /** The agent the new chat talks to, such as a team task's agent. */
+    agent: Schema.optional(AgentName),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.archive"),

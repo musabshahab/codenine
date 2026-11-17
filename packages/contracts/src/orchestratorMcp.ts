@@ -36,11 +36,14 @@ import {
 } from "./orchestrationV2.ts";
 import { ProviderOptionSelection, ProviderOptionSelectionValue } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { AgentDescription, AgentName, AgentTitle } from "./agents.ts";
+import { ConnectionId } from "./connectors.ts";
 import {
   TEAM_BRIEF_MAX_CHARS,
   TEAM_LABEL_MAX_CHARS,
   TEAM_MAX_AGENTS,
   TEAM_MAX_TASKS,
+  TEAM_SUGGESTION_INSTRUCTIONS_MAX_CHARS,
   TeamAgentId,
   TeamAgentRole,
   TeamPlanId,
@@ -231,9 +234,32 @@ export const OrchestratorMcpProposeTeamInput = Schema.Struct({
   agents: Schema.Array(
     Schema.Struct({
       id: TeamAgentId.annotate({ description: "Short slug. Tasks name it in `agent`." }),
-      label: OrchestratorMcpTeamLabel,
+      agent: Schema.optional(
+        AgentName.annotate({
+          description:
+            "One of the user's agents, from `orchestrator_capabilities` `agents`. It brings its own model, instructions, skills and connectors.",
+        }),
+      ),
+      suggestion: Schema.optional(
+        Schema.Struct({
+          title: AgentTitle,
+          description: AgentDescription.annotate({ description: "What to use it for." }),
+          instructions: TrimmedNonEmptyString.check(
+            Schema.isMaxLength(TEAM_SUGGESTION_INSTRUCTIONS_MAX_CHARS),
+          ),
+          target: Schema.optional(OrchestratorMcpTarget),
+          connectors: Schema.optional(
+            Schema.Array(ConnectionId).annotate({
+              description: "Ids from `orchestrator_capabilities` `connections`.",
+            }),
+          ),
+        }).annotate({
+          description:
+            "Only when none of the user's agents fits: the agent to create. The user creates it, or picks one of theirs, before the team starts.",
+        }),
+      ),
+      label: Schema.optional(OrchestratorMcpTeamLabel),
       role: TeamAgentRole,
-      target: Schema.optional(OrchestratorMcpTarget),
       workspace: Schema.optional(
         TeamWorkspace.annotate({
           description:
@@ -626,6 +652,21 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
 });
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;
 
+/** One of the user's agents, which a team is built from. */
+export const OrchestratorMcpAgentCapability = Schema.Struct({
+  name: AgentName,
+  title: Schema.String,
+  /** What to use it for. */
+  description: Schema.String,
+  /** `providerInstanceId/model`; null when it has none. */
+  model: Schema.NullOr(Schema.String),
+  /** False when its model cannot run now; the user can choose another in the team. */
+  ready: Schema.Boolean,
+  connectors: Schema.Array(Schema.String),
+  skills: Schema.Array(Schema.String),
+});
+export type OrchestratorMcpAgentCapability = typeof OrchestratorMcpAgentCapability.Type;
+
 export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
   parentThreadId: Schema.NullOr(ThreadId),
   inheritedProviderInstanceId: Schema.NullOr(ProviderInstanceId),
@@ -634,6 +675,12 @@ export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   providers: Schema.Array(OrchestratorMcpProviderCapability),
+  /** The user's agents, which a team is built from. */
+  agents: Schema.optional(Schema.Array(OrchestratorMcpAgentCapability)),
+  /** The user's connected services, for a suggested agent's `connectors`. */
+  connections: Schema.optional(
+    Schema.Array(Schema.Struct({ id: ConnectionId, name: Schema.String })),
+  ),
   features: Schema.Struct({
     appOwnedSubagents: Schema.Boolean,
     asyncPolling: Schema.Boolean,

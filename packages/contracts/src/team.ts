@@ -8,6 +8,8 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { AgentDescription, AgentName, AgentTitle } from "./agents.ts";
+import { ConnectionId } from "./connectors.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
 export const TEAM_MAX_AGENTS = 8;
@@ -16,6 +18,8 @@ export const TEAM_LABEL_MAX_CHARS = 120;
 export const TEAM_BRIEF_MAX_CHARS = 6_000;
 export const TEAM_RESULT_MAX_CHARS = 4_000;
 export const TEAM_DEFAULT_MAX_PARALLEL_PER_PROVIDER = 2;
+/** Every event on the lead carries the plan, so a suggested agent's instructions stay short. */
+export const TEAM_SUGGESTION_INSTRUCTIONS_MAX_CHARS = 2_000;
 
 export const TeamPlanId = TrimmedNonEmptyString.pipe(Schema.brand("TeamPlanId"));
 export type TeamPlanId = typeof TeamPlanId.Type;
@@ -42,12 +46,34 @@ export type TeamAgentRole = typeof TeamAgentRole.Type;
 export const TeamWorkspace = Schema.Literals(["shared", "worktree"]);
 export type TeamWorkspace = typeof TeamWorkspace.Type;
 
+/**
+ * What the lead suggests for a part of the work none of the user's agents fits. The user creates
+ * the agent from it, or gives the part to an agent they have; Codenine never creates one.
+ */
+export const TeamAgentSuggestion = Schema.Struct({
+  title: AgentTitle,
+  description: AgentDescription,
+  instructions: Schema.String.check(Schema.isMaxLength(TEAM_SUGGESTION_INSTRUCTIONS_MAX_CHARS)),
+  /** Connections the agent would use. */
+  connectors: Schema.Array(ConnectionId),
+});
+export type TeamAgentSuggestion = typeof TeamAgentSuggestion.Type;
+
+/**
+ * A team member. A team is built from the user's agents: `agent` names the one the member runs
+ * as, on `modelSelection`, which starts as the agent's model and the user may change for this team.
+ * A member the lead suggested has `suggestion` and no `agent` until the user picks or creates one,
+ * and a team cannot start until every member has an agent. Members of plans from before agents
+ * have neither and run as plain threads.
+ */
 export const TeamAgent = Schema.Struct({
   id: TeamAgentId,
   label: TrimmedNonEmptyString,
   role: TeamAgentRole,
   modelSelection: ModelSelection,
   workspace: TeamWorkspace,
+  agent: Schema.optional(AgentName),
+  suggestion: Schema.optional(TeamAgentSuggestion),
 });
 export type TeamAgent = typeof TeamAgent.Type;
 
