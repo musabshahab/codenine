@@ -197,7 +197,8 @@ export function useComposerMenuItems({
           (item.command.name !== "clear" || !freshSessionAvailable),
       );
       const slashCommandItems = slashCommandItemsForPromptPosition(
-        [...builtInSlashCommandItems, ...visibleProviderSlashCommandItems, ...skillItems],
+        // Skills come before provider commands, Codenine's first, as composerSkills orders them.
+        [...builtInSlashCommandItems, ...skillItems, ...visibleProviderSlashCommandItems],
         composerTrigger.rangeStart === 0,
       );
       return searchSlashCommandItems(slashCommandItems, query);
