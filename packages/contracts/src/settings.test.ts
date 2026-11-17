@@ -481,3 +481,18 @@ describe("server model preferences", () => {
     expect(decodeServerSettingsPatch(input)).toEqual(input);
   });
 });
+
+describe("ServerSettings backup", () => {
+  // Saving drops values equal to the defaults, so a stored backup entry is often partial.
+  it("fills in backup settings that were left at their defaults", () => {
+    const settings = decodeServerSettings({
+      backup: { folder: "~/Codenine Backups", schedule: { time: "04:30" } },
+    });
+    expect(settings.backup).toEqual({
+      folder: "~/Codenine Backups",
+      schedule: { frequency: "daily", time: "04:30", weekday: 0 },
+      keep: 7,
+      includeWorktrees: false,
+    });
+  });
+});

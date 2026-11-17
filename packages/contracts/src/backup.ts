@@ -8,12 +8,17 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 export const BackupFrequency = Schema.Literals(["off", "daily", "weekly"]);
 export type BackupFrequency = typeof BackupFrequency.Type;
 
+// Saving settings drops values equal to their defaults, so every field needs its own default.
 export const BackupSchedule = Schema.Struct({
-  frequency: BackupFrequency,
+  frequency: BackupFrequency.pipe(Schema.withDecodingDefault(Effect.succeed("daily" as const))),
   /** Local time of day, 24-hour "HH:MM". */
-  time: Schema.String.check(Schema.isPattern(/^([01]\d|2[0-3]):[0-5]\d$/)),
+  time: Schema.String.check(Schema.isPattern(/^([01]\d|2[0-3]):[0-5]\d$/)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("03:00")),
+  ),
   /** 0 is Sunday; read only when weekly. */
-  weekday: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })),
+  weekday: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(0)),
+  ),
 });
 export type BackupSchedule = typeof BackupSchedule.Type;
 
@@ -27,12 +32,16 @@ const DEFAULT_BACKUP_KEEP = 7;
 /** Saved in server settings. Backups are set up once a folder and a backup password exist. */
 export const BackupSettings = Schema.Struct({
   /** Where backup files go; may start with `~`. Empty until backups are set up. */
-  folder: TrimmedString,
-  schedule: BackupSchedule,
+  folder: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  schedule: BackupSchedule.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_BACKUP_SCHEDULE)),
+  ),
   /** How many automatic backups to keep; manual ones stay until deleted. */
-  keep: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 365 })),
+  keep: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 365 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_BACKUP_KEEP)),
+  ),
   /** Unfinished task copies (worktrees) make backups much larger, so they are opt-in. */
-  includeWorktrees: Schema.Boolean,
+  includeWorktrees: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 export type BackupSettings = typeof BackupSettings.Type;
 
