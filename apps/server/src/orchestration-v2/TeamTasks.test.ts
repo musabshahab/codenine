@@ -417,6 +417,47 @@ it.effect("a proposed team starts nothing, and only the revision the user saw ca
   ),
 );
 
+it.effect("a team waits for an agent for every member, and its task chats talk to them", () =>
+  withTeam((launched) =>
+    Effect.gen(function* () {
+      const suggested: TeamAgent = {
+        ...agent("writer", fast),
+        label: "Copywriter",
+        suggestion: {
+          title: "Copywriter",
+          description: "Writes product copy.",
+          instructions: "Write short, plain copy.",
+          connectors: [],
+        },
+      };
+      yield* propose([task("copy", [], suggested)], [suggested]);
+      assert.include(
+        rejection(yield* Effect.exit(approve(1))),
+        "team_agent_needed: Create or choose an agent for Copywriter first.",
+      );
+
+      // The user creates the agent from the suggestion, and the client saves the whole draft.
+      const { suggestion: _suggestion, ...member } = suggested;
+      const withAgent = { ...member, agent: "copywriter" };
+      yield* dispatch({
+        type: "team.edit",
+        commandId: CommandId.make("edit"),
+        threadId: leadThreadId,
+        expectedRevision: 1,
+        agents: [withAgent],
+        tasks: [task("copy", [], suggested)],
+      });
+      assert.deepEqual((yield* team).agents, [withAgent]);
+      yield* approve(2);
+      const [copyThreadId] = yield* runEffects(launched, 1);
+      assert.deepInclude((yield* thread(copyThreadId!)).thread, {
+        agent: "copywriter",
+        modelSelection: fast,
+      });
+    }),
+  ),
+);
+
 it.effect(
   "approval starts what the cap allows, and a finished task hands its result to the tasks it unblocks",
   () =>

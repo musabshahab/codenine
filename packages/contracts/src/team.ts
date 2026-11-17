@@ -60,11 +60,10 @@ export const TeamAgentSuggestion = Schema.Struct({
 export type TeamAgentSuggestion = typeof TeamAgentSuggestion.Type;
 
 /**
- * A team member. A team is built from the user's agents: `agent` names the one the member runs
- * as, on `modelSelection`, which starts as the agent's model and the user may change for this team.
- * A member the lead suggested has `suggestion` and no `agent` until the user picks or creates one,
- * and a team cannot start until every member has an agent. Members of plans from before agents
- * have neither and run as plain threads.
+ * A member runs as one of the user's agents, `agent`, on `modelSelection`, which starts as the
+ * agent's model and the user may change. A member the lead suggested has `suggestion` and no
+ * `agent` until the user picks or creates one; the team cannot start until every member has one.
+ * Members of plans from before agents have neither and run as plain threads.
  */
 export const TeamAgent = Schema.Struct({
   id: TeamAgentId,

@@ -104,7 +104,7 @@ const TaskCancelTool = Tool.make("task_cancel", {
 
 const ProposeTeamTool = Tool.make("propose_team", {
   description:
-    "Propose a team of agents for the user to edit and approve. Use when the user asks for a team, or for different models on parts of a task. One agent per model or role. Order tasks with `dependsOn`. Agents that edit in parallel: `workspace:'worktree'`, plus a last `integrate` task that depends on them. Models and option ids come from `orchestrator_capabilities` (effort is `effort` on Claude, `reasoningEffort` on Codex). Calling again replaces a team not yet approved.",
+    "Propose a team of the user's agents for the user to edit and approve. Use when the user asks for a team, or for different models on parts of a task. Each member names one of the user's agents in `agent`, from `orchestrator_capabilities` `agents`; it brings its own model. Never invent an agent name. Where none fits part of the work, give that member a `suggestion` instead and say so in your reply: the user creates that agent or picks another before the team starts. Order tasks with `dependsOn`. Members that edit in parallel: `workspace:'worktree'`, plus a last `integrate` task that depends on them. Calling again replaces a team not yet approved.",
   parameters: OrchestratorMcpProposeTeamInput,
   success: OrchestratorMcpProposeTeamResult,
   failure: OrchestratorMcpFailure,

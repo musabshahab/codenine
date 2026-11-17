@@ -2,8 +2,11 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  type AgentDefinition,
   CommandId,
+  ConnectionId,
   ContextTransferId,
+  DEFAULT_CONNECTOR_APPROVALS,
   EnvironmentId,
   MessageId,
   NodeId,
@@ -18,6 +21,7 @@ import {
   ProviderThreadId,
   ProviderTurnId,
   RunId,
+  type TeamAgent,
   TeamAgentId,
   TeamPlanId,
   TeamTaskId,
@@ -33,11 +37,14 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import * as Agents from "../agents/Agents.ts";
+import * as ConnectorStore from "../connectors/ConnectorStore.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as EffectWorker from "../orchestration-v2/EffectWorker.ts";
@@ -71,10 +78,20 @@ import type * as ProviderAdapter from "@codenine/provider-core/server/ProviderAd
 
 const decodeTarget = Schema.decodeUnknownEffect(OrchestratorMcpTarget);
 
-const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
-  Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
-  Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-);
+/** `userData` is the user's agents and connections; none by default. */
+const layerOrchestratorServiceWith = (
+  userData: Layer.Layer<Agents.Agents | ConnectorStore.ConnectorStore> = Layer.mergeAll(
+    Layer.mock(Agents.Agents)({ list: Effect.succeed({ agents: [] }) }),
+    Layer.mock(ConnectorStore.ConnectorStore)({ list: Effect.succeed([]) }),
+  ),
+) =>
+  OrchestratorMcpService.layer.pipe(
+    Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(userData),
+  );
+
+const layerOrchestratorService = layerOrchestratorServiceWith();
 
 describe("OrchestratorMcpService", () => {
   it.effect("retries terminal acknowledgement with a fresh command id", () =>
@@ -1817,17 +1834,53 @@ describe("OrchestratorMcpService provider resolution", () => {
   );
 
   it.effect(
-    "propose_team resolves each agent as delegate_task does, and refuses a team agent's thread",
+    "propose_team runs each member as one of the user's agents, on its model where that can run",
     () =>
       Effect.gen(function* () {
         const dispatched: Array<OrchestrationV2ServerCommand> = [];
         let callerIsTeamAgent = false;
+        const offInstanceId = ProviderInstanceId.make("codex-off");
+        const elsewhereInstanceId = ProviderInstanceId.make("codex-elsewhere");
+        const userAgent = (
+          name: string,
+          title: string,
+          model: AgentDefinition["model"],
+        ): AgentDefinition => ({
+          name,
+          title,
+          description: `${title} work.`,
+          instructions: "",
+          model,
+          skills: [],
+          connectors: [],
+          abilities: { readFiles: true, editFiles: true, runCommands: true, searchWeb: false },
+        });
+        const userAgents = [
+          userAgent("builder", "Builder", {
+            instanceId: codexInstanceId,
+            model: "gpt-5.4",
+            effort: "high",
+          }),
+          userAgent("writer", "Writer", null),
+          userAgent("stale", "Stale", {
+            instanceId: codexInstanceId,
+            model: "gpt-9",
+            effort: "low",
+          }),
+          userAgent("off", "Off", { instanceId: offInstanceId, model: "gpt-5.4", effort: "low" }),
+          userAgent("elsewhere", "Elsewhere", {
+            instanceId: elsewhereInstanceId,
+            model: "gpt-5.4",
+            effort: "low",
+          }),
+        ];
         const layerDependencies = Layer.mergeAll(
           NodeServices.layer,
           NodeCrypto.layer,
           Layer.mock(ThreadManagementService.ThreadManagementService)({
             hasReceipt: () => Effect.succeed(false),
-            isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+            isProviderInstanceEnabledForProject: ({ instanceId }) =>
+              Effect.succeed(instanceId !== elsewhereInstanceId),
             getThreadRecords: () =>
               Effect.sync(() => {
                 const parent = parentProjection([]);
@@ -1876,37 +1929,70 @@ describe("OrchestratorMcpService provider resolution", () => {
                 },
               ],
             } as ServerProvider,
+            providerSnapshot({
+              instanceId: offInstanceId,
+              driver: ProviderDriverKind.make("codex"),
+              model: "gpt-5.4",
+              enabled: false,
+            }),
+            providerSnapshot({
+              instanceId: elsewhereInstanceId,
+              driver: ProviderDriverKind.make("codex"),
+              model: "gpt-5.4",
+            }),
           ]),
-          adapterRegistryLayer([codexInstanceId]),
+          adapterRegistryLayer([codexInstanceId, elsewhereInstanceId]),
           Layer.mock(ProjectService.ProjectService)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
+        );
+        const layerUserAgents = Layer.mergeAll(
+          Layer.mock(Agents.Agents)({
+            find: (name) =>
+              Effect.succeed(
+                Option.fromUndefinedOr(userAgents.find((agent) => agent.name === name)),
+              ),
+          }),
+          Layer.mock(ConnectorStore.ConnectorStore)({}),
         );
 
         yield* Effect.gen(function* () {
           const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-          const propose = (target: Parameters<typeof service.delegateTask>[1]["target"]) =>
+          type Member = Parameters<typeof service.proposeTeam>[1]["agents"][number];
+          const member = (id: string, fields: Omit<Member, "id" | "role">): Member => ({
+            id: TeamAgentId.make(id),
+            role: "implement",
+            ...fields,
+          });
+          const propose = (members: ReadonlyArray<Member>) =>
             service.proposeTeam(scope, {
               goal: "Ship the feature",
-              agents: [
-                { id: TeamAgentId.make("builder"), label: "Builder", role: "implement", target },
-                { id: TeamAgentId.make("reviewer"), label: "Reviewer", role: "review" },
-              ],
-              tasks: [
-                {
-                  id: TeamTaskId.make("build"),
-                  title: "Build",
-                  brief: "Build it.",
-                  agent: TeamAgentId.make("builder"),
-                },
-                {
-                  id: TeamTaskId.make("review"),
-                  title: "Review",
-                  brief: "Review it.",
-                  agent: TeamAgentId.make("reviewer"),
-                  dependsOn: [TeamTaskId.make("build")],
-                },
-              ],
+              agents: members,
+              tasks: members.map((candidate, index) => ({
+                id: TeamTaskId.make(candidate.id),
+                title: `Task ${candidate.id}`,
+                brief: "Do it.",
+                agent: candidate.id,
+                ...(index === 0 ? {} : { dependsOn: [TeamTaskId.make(members[0]!.id)] }),
+              })),
             });
+          const copywriter = {
+            title: "Copywriter",
+            description: "Writes product copy.",
+            instructions: "Write short, plain copy.",
+          };
+
+          for (const fields of [{}, { agent: "builder", suggestion: copywriter }]) {
+            const refused = yield* propose([member("builder", fields)]).pipe(Effect.flip);
+            assert.equal(refused.code, "invalid_request");
+            assert.include(refused.message, "exactly one of `agent`");
+          }
+          const unknown = yield* propose([member("designer", { agent: "designer" })]).pipe(
+            Effect.flip,
+          );
+          assert.equal(unknown.code, "invalid_request");
+          assert.include(unknown.message, 'no agent named "designer"');
+          assert.include(unknown.message, "`suggestion`");
+          // A suggested agent's model resolves as a delegate_task target does.
           for (const target of [
             { model: "gpt-9" },
             { options: [{ id: "effort", value: "high" }] },
@@ -1915,11 +2001,28 @@ describe("OrchestratorMcpService provider resolution", () => {
             const delegated = yield* service
               .delegateTask(scope, { task: "Build it.", target })
               .pipe(Effect.flip);
-            assert.deepEqual(yield* propose(target).pipe(Effect.flip), delegated);
+            const suggested = member("copy", { suggestion: { ...copywriter, target } });
+            assert.deepEqual(yield* propose([suggested]).pipe(Effect.flip), delegated);
           }
           assert.isEmpty(dispatched);
 
-          const proposed = yield* propose({ options: [{ id: "reasoningEffort", value: "low" }] });
+          const proposed = yield* propose([
+            member("builder", { agent: "builder" }),
+            member("writer", { agent: "writer", label: "Docs" }),
+            member("stale", { agent: "stale" }),
+            member("off", { agent: "off" }),
+            member("elsewhere", { agent: "elsewhere" }),
+            {
+              ...member("copy", {
+                suggestion: {
+                  ...copywriter,
+                  target: { options: [{ id: "reasoningEffort", value: "low" }] },
+                },
+              }),
+              role: "custom",
+              workspace: "worktree",
+            },
+          ]);
           assert.deepEqual(proposed, {
             planId: TeamPlanId.make("plan-1"),
             revision: 1,
@@ -1935,44 +2038,163 @@ describe("OrchestratorMcpService provider resolution", () => {
             OrchestrationV2ServerCommand,
             { readonly type: "team.propose" }
           >;
-          assert.deepEqual(
-            command.agents.map((agent): ReadonlyArray<unknown> => [
-              agent.id,
-              agent.modelSelection,
-              agent.workspace,
-            ]),
-            [
-              [
-                "builder",
-                {
-                  instanceId: codexInstanceId,
-                  model: "gpt-5.4",
-                  options: [{ id: "reasoningEffort", value: "low" }],
-                },
-                "shared",
-              ],
-              ["reviewer", { instanceId: codexInstanceId, model: "gpt-5.4" }, "shared"],
-            ],
-          );
-          assert.deepEqual(
-            command.tasks.map((task): ReadonlyArray<unknown> => [
-              task.id,
-              task.agentId,
-              task.dependsOn,
-            ]),
-            [
-              ["build", "builder", []],
-              ["review", "reviewer", ["build"]],
-            ],
-          );
+          const lead = { instanceId: codexInstanceId, model: "gpt-5.4" };
+          const runsAs = (
+            id: string,
+            label: string,
+            modelSelection: TeamAgent["modelSelection"],
+          ): TeamAgent => ({
+            id: TeamAgentId.make(id),
+            role: "implement",
+            workspace: "shared",
+            label,
+            modelSelection,
+            agent: id,
+          });
+          assert.deepEqual(command.agents, [
+            runsAs("builder", "Builder", {
+              ...lead,
+              options: [{ id: "reasoningEffort", value: "high" }],
+            }),
+            // Without a model, or with one that cannot run here now, a member starts on the lead's.
+            runsAs("writer", "Docs", lead),
+            runsAs("stale", "Stale", lead),
+            runsAs("off", "Off", lead),
+            runsAs("elsewhere", "Elsewhere", lead),
+            {
+              id: TeamAgentId.make("copy"),
+              role: "custom",
+              workspace: "worktree",
+              label: "Copywriter",
+              modelSelection: { ...lead, options: [{ id: "reasoningEffort", value: "low" }] },
+              suggestion: { ...copywriter, connectors: [] },
+            },
+          ]);
+          assert.deepEqual(command.tasks.at(-1), {
+            id: TeamTaskId.make("copy"),
+            title: "Task copy",
+            brief: "Do it.",
+            agentId: TeamAgentId.make("copy"),
+            dependsOn: [TeamTaskId.make("builder")],
+          });
 
           callerIsTeamAgent = true;
-          const refused = yield* propose(undefined).pipe(Effect.flip);
+          const refused = yield* propose([member("builder", { agent: "builder" })]).pipe(
+            Effect.flip,
+          );
           assert.equal(refused.code, "invalid_request");
           assert.include(refused.message, "cannot propose a team");
           assert.lengthOf(dispatched, 1);
-        }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+        }).pipe(
+          Effect.provide(
+            layerOrchestratorServiceWith(layerUserAgents).pipe(Layer.provide(layerDependencies)),
+          ),
+        );
       }),
+  );
+
+  it.effect("capabilities list the user's agents and connected services to build a team from", () =>
+    Effect.gen(function* () {
+      const connection = (id: string, name: string): ConnectorStore.StoredConnection => ({
+        id: ConnectionId.make(id),
+        catalogId: null,
+        custom: null,
+        name,
+        onByDefault: true,
+        approvals: DEFAULT_CONNECTOR_APPROVALS,
+        toolApprovals: {},
+        inputs: {},
+        account: null,
+        connectedAt: "2026-11-17T10:00:00.000Z",
+        lastUsedAt: null,
+      });
+      const github = connection("github", "GitHub");
+      const gmail = connection("gmail", "Gmail");
+      const summary = {
+        path: "/codenine/agents",
+        updatedAt: "2026-11-17T10:00:00.000Z",
+        abilities: { readFiles: true, editFiles: false, runCommands: false, searchWeb: false },
+      };
+      const layerUserData = Layer.mergeAll(
+        Layer.mock(Agents.Agents)({
+          list: Effect.succeed({
+            agents: [
+              {
+                ...summary,
+                name: "reviewer",
+                title: "Reviewer",
+                description: "Reviews pull requests.",
+                model: { instanceId: codexInstanceId, model: "gpt-5.4", effort: "high" },
+                modelStatus: "ready",
+                skills: ["review-pr"],
+                connectors: [
+                  { id: github.id, approvals: {} },
+                  { id: ConnectionId.make("linear"), approvals: {} },
+                  { id: gmail.id, approvals: { change: "ask" } },
+                ],
+              },
+              {
+                ...summary,
+                name: "writer",
+                title: "Writer",
+                description: "Writes the docs.",
+                model: null,
+                modelStatus: "no-model",
+                skills: [],
+                connectors: [],
+              },
+            ],
+          }),
+        }),
+        Layer.mock(ConnectorStore.ConnectorStore)({
+          list: Effect.succeed([github, gmail]),
+          isReady: (stored) => Effect.succeed(stored.id === github.id),
+        }),
+      );
+      const layerDependencies = Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: () => Effect.succeed(parentProjection([])),
+        }),
+        ServerSettings.layerTest(),
+        providerRegistryLayer([]),
+        adapterRegistryLayer([]),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+      );
+
+      yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const { agents, connections } = yield* service.capabilities(scope);
+        assert.deepEqual(agents, [
+          {
+            name: "reviewer",
+            title: "Reviewer",
+            description: "Reviews pull requests.",
+            model: "codex/gpt-5.4",
+            ready: true,
+            connectors: ["GitHub", "Gmail"],
+            skills: ["review-pr"],
+          },
+          {
+            name: "writer",
+            title: "Writer",
+            description: "Writes the docs.",
+            model: null,
+            ready: false,
+            connectors: [],
+            skills: [],
+          },
+        ]);
+        // A suggested agent can use only what is connected.
+        assert.deepEqual(connections, [{ id: github.id, name: "GitHub" }]);
+      }).pipe(
+        Effect.provide(
+          layerOrchestratorServiceWith(layerUserData).pipe(Layer.provide(layerDependencies)),
+        ),
+      );
+    }),
   );
 
   it.effect("driver-only delegation skips an instance the project turned off", () =>

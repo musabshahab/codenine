@@ -14,6 +14,7 @@ import {
 import {
   settledTeamPlanStatus,
   startableTeamTasks,
+  teamMembersWithoutAgent,
   validateTeamDraft,
 } from "@codenine/shared/team";
 
@@ -181,6 +182,13 @@ export function decideTeamCommand(input: {
       }
       if (current.revision !== command.expectedRevision) {
         return revisionConflict(current, command.expectedRevision);
+      }
+      const waiting = teamMembersWithoutAgent(current);
+      if (waiting.length > 0) {
+        const labels = new Intl.ListFormat("en", { type: "conjunction" }).format(
+          waiting.map((member) => member.label),
+        );
+        return rejected("team_agent_needed", `Create or choose an agent for ${labels} first.`);
       }
       return advance({ ...current, status: "running" }, false);
     }

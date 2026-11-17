@@ -25,6 +25,18 @@ thread of every attempt of every task (attempt ids are derived from the plan, ta
 failed plan keeps its threads active, because the user reads and retries them there. The lead is never settled, and a
 thread the user explicitly unsettled keeps that choice.
 
+## Members are the user's agents
+
+A member names one of the user's agents in `agent`, and its task's thread is created with that agent
+as `thread.agent`, so the task runs with the agent's instructions, abilities, connectors and skills,
+on the member's model. `propose_team` starts that model as the agent's own, or as the lead's when
+the agent has none or its model cannot run there. Where none of the user's agents fits, the lead
+adds a member with `suggestion` instead, and the user creates the agent or picks another; Codenine
+never creates one. The decider refuses `team.approve` until every member has an agent
+(`teamMembersWithoutAgent`). It cannot read agent files, so an agent deleted after approval fails
+its task's turn instead. A task thread is an agent chat, so Codenine's MCP tools that reach other
+chats refuse there. Members of plans from before agents have neither field and run plain threads.
+
 ## The plan lives in the thread payload
 
 Plan changes are `thread.metadata-updated` events, so the thread stream delivers them with no new

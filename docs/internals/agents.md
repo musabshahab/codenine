@@ -15,7 +15,7 @@ Parsing gives an agent less, never more: an ability that is missing or not `true
 unreadable connector, skill or model is dropped. A file with no frontmatter map is left out of the
 list, and a chat that names an agent the server cannot read refuses its next turn with a message
 instead of running as a plain chat with the chat's own, possibly wider, reach. Forks keep the
-chat's agent; subagents and team task threads start without one.
+chat's agent, subagents start without one, and a team task's thread starts with its member's agent.
 
 ## How a chat's agent reaches the provider
 

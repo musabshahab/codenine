@@ -294,6 +294,7 @@ const make = Effect.gen(function* () {
             taskId: task.id,
             attempt: task.attempt,
           },
+          ...(agent.agent === undefined ? {} : { agent: agent.agent }),
           createdBy: "system",
           creationSource: "server",
         });
