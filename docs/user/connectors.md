@@ -35,7 +35,8 @@ such as Gmail, walks you through it:
    then paste its client ID and secret.
 
 Codenine saves the app with your other keys, so the next Google connector goes straight to signing
-in. Slack works the same way, with an app you create at api.slack.com/apps.
+in. To fix a mistyped secret or switch apps, choose **Use a different Google app** when you
+connect. Slack works the same way, with an app you create at api.slack.com/apps.
 
 ## Sign-ins need localhost or https
 
