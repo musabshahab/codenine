@@ -15,7 +15,7 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { commandErrorMessage } from "../../lib/commandError";
 import { connectorsEnvironment } from "../../state/connectors";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { TextField } from "../TextField";
 import { toastManager } from "../ui/toast";
@@ -86,7 +86,10 @@ export function ConnectDialog({
     readonly opened: boolean;
   } | null>(null);
   const ownApp = entry.auth === "own-app" ? (entry.ownApp ?? "google") : null;
-  const setupApp = needsOwnAppSetup(entry, savedApps);
+  // Setting the app up again replaces the saved one, such as after a mistyped secret.
+  const [replaceApp, setReplaceApp] = useState(false);
+  const appsInUse = replaceApp ? savedApps.filter((app) => app !== ownApp) : savedApps;
+  const setupApp = needsOwnAppSetup(entry, appsInUse);
   const signsIn = entry.auth === "sign-in" || entry.auth === "own-app";
   const company = ownApp === null ? entry.name : OWN_APP_COMPANY[ownApp];
   const tokenHelpUrl = webPageUrl(entry.tokenHelpUrl);
@@ -95,7 +98,7 @@ export function ConnectDialog({
 
   const submit = async () => {
     if (submitting) return;
-    const request = libraryConnectRequest(entry, values, { savedApps, returnOrigin });
+    const request = libraryConnectRequest(entry, values, { savedApps: appsInUse, returnOrigin });
     if (request.errors !== undefined) {
       setErrors(request.errors);
       return;
@@ -233,6 +236,14 @@ export function ConnectDialog({
           >
             {signsIn ? (
               <SignInAddressWarning returnOrigin={returnOrigin} service={company} />
+            ) : null}
+            {ownApp !== null && !setupApp ? (
+              <p className="text-sm text-muted-foreground">
+                Set it up with the wrong details?{" "}
+                <InlineButton disabled={submitting} onClick={() => setReplaceApp(true)}>
+                  Use a different {company} app
+                </InlineButton>
+              </p>
             ) : null}
             {appSteps ? (
               <ol className="grid gap-5">

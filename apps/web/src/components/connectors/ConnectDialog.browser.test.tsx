@@ -103,3 +103,30 @@ it("goes straight to signing in with the Google app already saved", async () => 
     input: { catalogId: "google-calendar", redirectOrigin: "http://localhost:3773" },
   });
 });
+
+it("replaces the saved Google app when asked", async () => {
+  setup();
+  await using _screen = await render(
+    <ConnectDialog
+      environmentId={environmentId}
+      entry={calendar}
+      savedApps={["google"]}
+      connections={[]}
+      onClose={() => undefined}
+    />,
+  );
+  await userEvent.click(page.getByRole("button", { name: "Use a different Google app" }));
+  await expect.element(page.getByText("Create the app in Google Cloud")).toBeVisible();
+  await userEvent.type(page.getByLabelText("Client ID"), "new-client-id");
+  await userEvent.type(page.getByLabelText("Client secret"), "new-client-secret");
+  await userEvent.click(page.getByRole("button", { name: "Sign in with Google" }));
+  await expect.element(page.getByText("Finish signing in to Google")).toBeVisible();
+  expect(state.connect).toHaveBeenCalledWith({
+    environmentId,
+    input: {
+      catalogId: "google-calendar",
+      ownApp: { clientId: "new-client-id", clientSecret: "new-client-secret" },
+      redirectOrigin: "http://localhost:3773",
+    },
+  });
+});
