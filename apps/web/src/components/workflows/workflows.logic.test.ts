@@ -473,14 +473,28 @@ describe("runs", () => {
     },
   );
 
-  it("goes on after a limit with that limit raised by what the workflow sets", () => {
+  it("goes on after a limit with what the run used plus what the workflow sets", () => {
     const run = { spendUsd: 4, minutes: 60 };
-    expect(raisedLimits(run, { spendUsd: 2, minutes: 30 }, "spend")).toEqual({
+    const within = { costUsd: 3.5, minutes: 40 };
+    expect(raisedLimits(run, { spendUsd: 2, minutes: 30 }, "spend", within)).toEqual({
       spendUsd: 6,
       minutes: 60,
     });
-    expect(raisedLimits(run, null, "time")).toEqual({ spendUsd: 4, minutes: 120 });
-    expect(raisedLimits({ spendUsd: null, minutes: 10 }, null, "spend")).toEqual({
+    expect(raisedLimits(run, null, "time", within)).toEqual({ spendUsd: 4, minutes: 120 });
+    // A step that was already working finished past the limit.
+    expect(
+      raisedLimits(run, { spendUsd: 2, minutes: 30 }, "spend", { costUsd: 4.61, minutes: 62.5 }),
+    ).toEqual({
+      spendUsd: 6.61,
+      minutes: 60,
+    });
+    expect(
+      raisedLimits(run, { spendUsd: 2, minutes: 30 }, "time", { costUsd: 4.61, minutes: 62.5 }),
+    ).toEqual({
+      spendUsd: 4,
+      minutes: 93,
+    });
+    expect(raisedLimits({ spendUsd: null, minutes: 10 }, null, "spend", within)).toEqual({
       spendUsd: null,
       minutes: 10,
     });

@@ -454,6 +454,7 @@ function RunActions(props: {
   const run = plan.run;
   const { canOperate, pending, send } = useRunCommand(props.environmentId);
   const [sendingBack, setSendingBack] = useState<TeamTask | null>(null);
+  const clock = useWorkflowClock();
   if (run === undefined) return null;
   const threadId = leadRef.threadId;
   const reviewing = plan.tasks.filter((task) => canReviewTeamTask(plan, task));
@@ -462,7 +463,10 @@ function RunActions(props: {
   const raised =
     limitReason === null
       ? null
-      : raisedLimits(run.limits, props.workflow?.lead.limits ?? null, limitReason);
+      : raisedLimits(run.limits, props.workflow?.lead.limits ?? null, limitReason, {
+          costUsd: run.costUsd,
+          minutes: (clock.nowMs - Date.parse(run.startedAt)) / 60_000,
+        });
   const review = (task: TeamTask, verdict: "accept" | "revise", notes?: string) =>
     send(
       `review:${task.id}`,

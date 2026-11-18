@@ -1081,23 +1081,29 @@ export function leadActivity(
 }
 
 /**
- * The limits a run goes on with after stopping at one: that limit raised by the amount it started
- * with, which is the workflow's own when it has one.
+ * The limits a run goes on with after stopping at one: what it has used so far plus the amount it
+ * started with (the workflow's own when it has one). A step already working when the run stopped
+ * can finish past the limit, so raising the limit itself could leave the run stopped again.
  */
 export function raisedLimits(
   run: WorkflowLimits,
   workflow: WorkflowLimits | null,
   reason: "spend" | "time",
+  used: { readonly costUsd: number | null; readonly minutes: number },
 ): WorkflowLimits {
   if (reason === "spend") {
     const current = run.spendUsd;
     if (current === null) return run;
     const step = workflow?.spendUsd ?? current;
-    return { ...run, spendUsd: Math.round((current + step) * 100) / 100 };
+    const from = Math.max(current, used.costUsd ?? current);
+    return { ...run, spendUsd: Math.ceil((from + step) * 100) / 100 };
   }
   const current = run.minutes;
   if (current === null) return run;
-  return { ...run, minutes: current + (workflow?.minutes ?? current) };
+  return {
+    ...run,
+    minutes: Math.max(current, Math.ceil(used.minutes)) + (workflow?.minutes ?? current),
+  };
 }
 
 /** What raising a limit adds, for the button that goes on: "$2.00 more", "1 h more". */
@@ -1109,11 +1115,11 @@ export function raisedLimitLine(
   if (reason === "spend") {
     return run.spendUsd === null || raised.spendUsd === null
       ? null
-      : `${formatCost(raised.spendUsd - run.spendUsd)} more`;
+      : `up to ${formatCost(raised.spendUsd)}`;
   }
   return run.minutes === null || raised.minutes === null
     ? null
-    : `${formatDuration((raised.minutes - run.minutes) * MINUTE_MS)} more`;
+    : `up to ${formatDuration(raised.minutes * MINUTE_MS)}`;
 }
 
 /** A workflow run as thread lists know it, from the lead's shell without its plan. */
