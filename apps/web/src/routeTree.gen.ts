@@ -27,6 +27,8 @@ import { Route as ChatConnectorsRouteImport } from './routes/_chat.connectors'
 import { Route as ChatArchiveRouteImport } from './routes/_chat.archive'
 import { Route as ChatAgentsRouteImport } from './routes/_chat.agents'
 import { Route as ThreadsEnvironmentIdThreadIdRouteImport } from './routes/threads.$environmentId.$threadId'
+import { Route as ChatWorkflowsNewRouteImport } from './routes/_chat.workflows_.new'
+import { Route as ChatWorkflowsNameRouteImport } from './routes/_chat.workflows_.$name'
 import { Route as ChatSkillsNewRouteImport } from './routes/_chat.skills_.new'
 import { Route as ChatSettingsWorktreesRouteImport } from './routes/_chat.settings.worktrees'
 import { Route as ChatSettingsThreadsRouteImport } from './routes/_chat.settings.threads'
@@ -55,8 +57,10 @@ import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draf
 import { Route as ChatConnectorsConnectionIdRouteImport } from './routes/_chat.connectors_.$connectionId'
 import { Route as ChatAgentsNewRouteImport } from './routes/_chat.agents_.new'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ChatWorkflowsNameRunsRouteImport } from './routes/_chat.workflows_.$name_.runs'
 import { Route as ChatSkillsScopeNameRouteImport } from './routes/_chat.skills_.$scope.$name'
 import { Route as ChatAgentsNameEditRouteImport } from './routes/_chat.agents_.$name.edit'
+import { Route as ChatWorkflowsNameRunsRunRouteImport } from './routes/_chat.workflows_.$name_.runs_.$run'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
@@ -148,6 +152,16 @@ const ThreadsEnvironmentIdThreadIdRoute =
     path: '/threads/$environmentId/$threadId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ChatWorkflowsNewRoute = ChatWorkflowsNewRouteImport.update({
+  id: '/workflows_/new',
+  path: '/workflows/new',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatWorkflowsNameRoute = ChatWorkflowsNameRouteImport.update({
+  id: '/workflows_/$name',
+  path: '/workflows/$name',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatSkillsNewRoute = ChatSkillsNewRouteImport.update({
   id: '/skills_/new',
   path: '/skills/new',
@@ -293,6 +307,11 @@ const ChatEnvironmentIdThreadIdRoute =
     path: '/$environmentId/$threadId',
     getParentRoute: () => ChatRoute,
   } as any)
+const ChatWorkflowsNameRunsRoute = ChatWorkflowsNameRunsRouteImport.update({
+  id: '/workflows_/$name_/runs',
+  path: '/workflows/$name/runs',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatSkillsScopeNameRoute = ChatSkillsScopeNameRouteImport.update({
   id: '/skills_/$scope/$name',
   path: '/skills/$scope/$name',
@@ -303,6 +322,12 @@ const ChatAgentsNameEditRoute = ChatAgentsNameEditRouteImport.update({
   path: '/agents/$name/edit',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatWorkflowsNameRunsRunRoute =
+  ChatWorkflowsNameRunsRunRouteImport.update({
+    id: '/workflows_/$name_/runs_/$run',
+    path: '/workflows/$name/runs/$run',
+    getParentRoute: () => ChatRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
@@ -349,9 +374,13 @@ export interface FileRoutesByFullPath {
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/skills/new': typeof ChatSkillsNewRoute
+  '/workflows/$name': typeof ChatWorkflowsNameRoute
+  '/workflows/new': typeof ChatWorkflowsNewRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
   '/agents/$name/edit': typeof ChatAgentsNameEditRoute
   '/skills/$scope/$name': typeof ChatSkillsScopeNameRoute
+  '/workflows/$name/runs': typeof ChatWorkflowsNameRunsRoute
+  '/workflows/$name/runs/$run': typeof ChatWorkflowsNameRunsRunRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
@@ -398,9 +427,13 @@ export interface FileRoutesByTo {
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/skills/new': typeof ChatSkillsNewRoute
+  '/workflows/$name': typeof ChatWorkflowsNameRoute
+  '/workflows/new': typeof ChatWorkflowsNewRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
   '/agents/$name/edit': typeof ChatAgentsNameEditRoute
   '/skills/$scope/$name': typeof ChatSkillsScopeNameRoute
+  '/workflows/$name/runs': typeof ChatWorkflowsNameRunsRoute
+  '/workflows/$name/runs/$run': typeof ChatWorkflowsNameRunsRunRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -449,9 +482,13 @@ export interface FileRoutesById {
   '/_chat/settings/threads': typeof ChatSettingsThreadsRoute
   '/_chat/settings/worktrees': typeof ChatSettingsWorktreesRoute
   '/_chat/skills_/new': typeof ChatSkillsNewRoute
+  '/_chat/workflows_/$name': typeof ChatWorkflowsNameRoute
+  '/_chat/workflows_/new': typeof ChatWorkflowsNewRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
   '/_chat/agents_/$name/edit': typeof ChatAgentsNameEditRoute
   '/_chat/skills_/$scope/$name': typeof ChatSkillsScopeNameRoute
+  '/_chat/workflows_/$name_/runs': typeof ChatWorkflowsNameRunsRoute
+  '/_chat/workflows_/$name_/runs_/$run': typeof ChatWorkflowsNameRunsRunRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -500,9 +537,13 @@ export interface FileRouteTypes {
     | '/settings/threads'
     | '/settings/worktrees'
     | '/skills/new'
+    | '/workflows/$name'
+    | '/workflows/new'
     | '/threads/$environmentId/$threadId'
     | '/agents/$name/edit'
     | '/skills/$scope/$name'
+    | '/workflows/$name/runs'
+    | '/workflows/$name/runs/$run'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
@@ -549,9 +590,13 @@ export interface FileRouteTypes {
     | '/settings/threads'
     | '/settings/worktrees'
     | '/skills/new'
+    | '/workflows/$name'
+    | '/workflows/new'
     | '/threads/$environmentId/$threadId'
     | '/agents/$name/edit'
     | '/skills/$scope/$name'
+    | '/workflows/$name/runs'
+    | '/workflows/$name/runs/$run'
   id:
     | '__root__'
     | '/_chat'
@@ -599,9 +644,13 @@ export interface FileRouteTypes {
     | '/_chat/settings/threads'
     | '/_chat/settings/worktrees'
     | '/_chat/skills_/new'
+    | '/_chat/workflows_/$name'
+    | '/_chat/workflows_/new'
     | '/threads/$environmentId/$threadId'
     | '/_chat/agents_/$name/edit'
     | '/_chat/skills_/$scope/$name'
+    | '/_chat/workflows_/$name_/runs'
+    | '/_chat/workflows_/$name_/runs_/$run'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -741,6 +790,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/threads/$environmentId/$threadId'
       preLoaderRoute: typeof ThreadsEnvironmentIdThreadIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_chat/workflows_/new': {
+      id: '/_chat/workflows_/new'
+      path: '/workflows/new'
+      fullPath: '/workflows/new'
+      preLoaderRoute: typeof ChatWorkflowsNewRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/workflows_/$name': {
+      id: '/_chat/workflows_/$name'
+      path: '/workflows/$name'
+      fullPath: '/workflows/$name'
+      preLoaderRoute: typeof ChatWorkflowsNameRouteImport
+      parentRoute: typeof ChatRoute
     }
     '/_chat/skills_/new': {
       id: '/_chat/skills_/new'
@@ -938,6 +1001,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/workflows_/$name_/runs': {
+      id: '/_chat/workflows_/$name_/runs'
+      path: '/workflows/$name/runs'
+      fullPath: '/workflows/$name/runs'
+      preLoaderRoute: typeof ChatWorkflowsNameRunsRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/skills_/$scope/$name': {
       id: '/_chat/skills_/$scope/$name'
       path: '/skills/$scope/$name'
@@ -950,6 +1020,13 @@ declare module '@tanstack/react-router' {
       path: '/agents/$name/edit'
       fullPath: '/agents/$name/edit'
       preLoaderRoute: typeof ChatAgentsNameEditRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/workflows_/$name_/runs_/$run': {
+      id: '/_chat/workflows_/$name_/runs_/$run'
+      path: '/workflows/$name/runs/$run'
+      fullPath: '/workflows/$name/runs/$run'
+      preLoaderRoute: typeof ChatWorkflowsNameRunsRunRouteImport
       parentRoute: typeof ChatRoute
     }
   }
@@ -1027,8 +1104,12 @@ interface ChatRouteChildren {
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
   ChatProjectProjectKeyRoute: typeof ChatProjectProjectKeyRoute
   ChatSkillsNewRoute: typeof ChatSkillsNewRoute
+  ChatWorkflowsNameRoute: typeof ChatWorkflowsNameRoute
+  ChatWorkflowsNewRoute: typeof ChatWorkflowsNewRoute
   ChatAgentsNameEditRoute: typeof ChatAgentsNameEditRoute
   ChatSkillsScopeNameRoute: typeof ChatSkillsScopeNameRoute
+  ChatWorkflowsNameRunsRoute: typeof ChatWorkflowsNameRunsRoute
+  ChatWorkflowsNameRunsRunRoute: typeof ChatWorkflowsNameRunsRunRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
@@ -1049,8 +1130,12 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
   ChatProjectProjectKeyRoute: ChatProjectProjectKeyRoute,
   ChatSkillsNewRoute: ChatSkillsNewRoute,
+  ChatWorkflowsNameRoute: ChatWorkflowsNameRoute,
+  ChatWorkflowsNewRoute: ChatWorkflowsNewRoute,
   ChatAgentsNameEditRoute: ChatAgentsNameEditRoute,
   ChatSkillsScopeNameRoute: ChatSkillsScopeNameRoute,
+  ChatWorkflowsNameRunsRoute: ChatWorkflowsNameRunsRoute,
+  ChatWorkflowsNameRunsRunRoute: ChatWorkflowsNameRunsRunRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)

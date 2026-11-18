@@ -1,4 +1,4 @@
-import { TeamAgentId, ThreadId } from "@codenine/contracts";
+import { TeamAgentId, ThreadId, WorkflowStepId } from "@codenine/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 
@@ -7,11 +7,17 @@ import { type SkillsSearch, validateSkillsSearch } from "../components/skills/sk
 
 const isThreadId = Schema.is(ThreadId);
 const isTeamAgentId = Schema.is(TeamAgentId);
+const isWorkflowStepId = Schema.is(WorkflowStepId);
 
-/** Also, for an agent a lead suggested: the lead's chat and the team member that waits for it. */
+/**
+ * Also, for an agent a lead suggested: the lead's chat and the team member that waits for it, or
+ * the workflow edit and the step that waits for it.
+ */
 interface NewAgentSearch extends SkillsSearch {
   readonly lead?: ThreadId | undefined;
   readonly member?: TeamAgentId | undefined;
+  readonly workflowEdit?: string | undefined;
+  readonly step?: WorkflowStepId | undefined;
 }
 
 function validateNewAgentSearch(raw: Record<string, unknown>): NewAgentSearch {
@@ -19,6 +25,11 @@ function validateNewAgentSearch(raw: Record<string, unknown>): NewAgentSearch {
     ...validateSkillsSearch(raw),
     ...(isThreadId(raw.lead) && isTeamAgentId(raw.member)
       ? { lead: raw.lead, member: raw.member }
+      : {}),
+    ...(typeof raw.workflowEdit === "string" &&
+    raw.workflowEdit !== "" &&
+    isWorkflowStepId(raw.step)
+      ? { workflowEdit: raw.workflowEdit, step: raw.step }
       : {}),
   };
 }
@@ -28,9 +39,11 @@ function NewAgentRouteView() {
   return (
     <AgentEditorPage
       target={
-        search.lead === undefined || search.member === undefined
-          ? { kind: "new" }
-          : { kind: "suggested", lead: search.lead, member: search.member }
+        search.lead !== undefined && search.member !== undefined
+          ? { kind: "suggested", lead: search.lead, member: search.member }
+          : search.workflowEdit !== undefined && search.step !== undefined
+            ? { kind: "workflow-step", edit: search.workflowEdit, step: search.step }
+            : { kind: "new" }
       }
       machine={search.machine ?? null}
       workspace={search.workspace ?? null}

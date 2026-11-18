@@ -12,6 +12,8 @@ import {
   type TeamAgent,
   type TeamAgentId,
   type ThreadId,
+  type WorkflowStep,
+  type WorkflowStepId,
 } from "@codenine/contracts";
 import { teamMembersWithoutAgent } from "@codenine/shared/team";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -25,7 +27,7 @@ import { useThreadStatus } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { environmentThreadDetails } from "../../state/threads";
 import { AgentForm, type AgentFormStart } from "../agents/AgentForm";
-import { teamRoleAbilities } from "../agents/agents.logic";
+import { NO_ABILITIES, teamRoleAbilities } from "../agents/agents.logic";
 import {
   type AgentModelCatalog,
   agentChatModelSelection,
@@ -37,12 +39,22 @@ import { useAccessEnvironment } from "../settings/useAccessEnvironment";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { toastManager } from "../ui/toast";
+import {
+  parseWorkflowEditKey,
+  readWorkflowEdit,
+  setWorkflowEdit,
+  setWorkflowSelection,
+  useWorkflowEdit,
+} from "../workflows/workflowEditStore";
+import { assignStepAgent } from "../workflows/workflows.logic";
 import { WorkspacePage } from "./WorkspacePage";
 
 export type AgentEditorTarget =
   | { readonly kind: "new" }
   /** A new agent for a team member the lead suggested one for, on the lead's computer. */
   | { readonly kind: "suggested"; readonly lead: ThreadId; readonly member: TeamAgentId }
+  /** A new agent for a step of a workflow being edited, named by its edit key on the machine. */
+  | { readonly kind: "workflow-step"; readonly edit: string; readonly step: WorkflowStepId }
   | { readonly kind: "edit"; readonly name: AgentName }
   | { readonly kind: "invalid" };
 
@@ -57,6 +69,7 @@ export function AgentEditorPage(props: {
   const connected = environment?.connection.phase === "connected";
   const editing = props.target.kind === "edit" ? props.target : null;
   const suggested = props.target.kind === "suggested" ? props.target : null;
+  const forStep = props.target.kind === "workflow-step" ? props.target : null;
   const detail = useEnvironmentQuery(
     editing !== null && environmentId !== null && connected
       ? agentsEnvironment.read({ environmentId, input: { name: editing.name } })
@@ -96,6 +109,13 @@ export function AgentEditorPage(props: {
             workspace={props.workspace}
             leadRef={scopeThreadRef(environmentId, suggested.lead)}
             memberId={suggested.member}
+          />
+        ) : forStep !== null ? (
+          <WorkflowStepAgentForm
+            environmentId={environmentId}
+            workspace={props.workspace}
+            editKey={forStep.edit}
+            stepId={forStep.step}
           />
         ) : editing === null ? (
           <AgentForm environmentId={environmentId} workspace={props.workspace} agent={null} />
@@ -231,5 +251,96 @@ function SuggestedAgentForm(props: {
         Back to the team
       </Button>
     </Empty>
+  );
+}
+
+/** The lead's suggestion for a workflow step, with only the connectors the user has. */
+function workflowStepStart(
+  step: WorkflowStep | null,
+  connections: ReadonlyArray<ConnectionSnapshot>,
+): AgentFormStart {
+  const suggestion = step?.suggestion;
+  return {
+    title: suggestion?.title ?? "",
+    description: suggestion?.description ?? "",
+    instructions: suggestion?.instructions ?? "",
+    model: step?.model ?? null,
+    connectors: (suggestion?.connectors ?? []).flatMap((id) =>
+      connections.some((connection) => connection.id === id) ? [{ id, approvals: {} }] : [],
+    ),
+    abilities: NO_ABILITIES,
+  };
+}
+
+/**
+ * Makes the agent a workflow step waits for. Save gives the step the agent in the workflow's
+ * unsaved edits and returns to its canvas; the workflow itself saves with its own Save.
+ */
+function WorkflowStepAgentForm(props: {
+  readonly environmentId: EnvironmentId;
+  readonly workspace: ProjectId | null;
+  readonly editKey: string;
+  readonly stepId: WorkflowStepId;
+}) {
+  const { environmentId, editKey, stepId } = props;
+  const navigate = useNavigate();
+  const edit = useWorkflowEdit(environmentId, editKey);
+  const connectors = useEnvironmentQuery(connectorsEnvironment.state({ environmentId, input: {} }));
+  const step = edit?.definition.steps.find((candidate) => candidate.id === stepId) ?? null;
+  // The form starts from the suggestion once, and stays open if the workflow changes meanwhile.
+  const [start, setStart] = useState<AgentFormStart | null>(null);
+  if (start === null && (connectors.data !== null || connectors.error !== null)) {
+    setStart(workflowStepStart(step, connectors.data?.connections ?? NO_CONNECTIONS));
+  }
+  const backToWorkflow = () => {
+    const target = parseWorkflowEditKey(editKey);
+    const machine = environmentId;
+    if (target === null) {
+      void navigate({ to: "/workflows", search: { machine }, replace: true });
+    } else if (target.kind === "saved") {
+      void navigate({
+        to: "/workflows/$name",
+        params: { name: target.name },
+        search: { machine },
+        replace: true,
+      });
+    } else {
+      const from = target.from;
+      void navigate({
+        to: "/workflows/new",
+        search: {
+          machine,
+          ...(from.kind === "draft" ? { fromThread: from.threadId } : {}),
+          ...(from.kind === "team" ? { fromTeam: from.threadId } : {}),
+        },
+        replace: true,
+      });
+    }
+  };
+  const onSaved = (agent: AgentSummary) => {
+    const current = readWorkflowEdit(environmentId, editKey);
+    if (current !== null && current.definition.steps.some((candidate) => candidate.id === stepId)) {
+      setWorkflowEdit(environmentId, editKey, {
+        ...current,
+        definition: assignStepAgent(current.definition, stepId, agent),
+      });
+      setWorkflowSelection(environmentId, editKey, { kind: "step", id: stepId });
+    } else {
+      toastManager.add({
+        type: "info",
+        title: "The workflow changed",
+        description: `Choose ${agent.title} for the step on the workflow's canvas.`,
+      });
+    }
+    backToWorkflow();
+  };
+  if (start === null) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  return (
+    <AgentForm
+      environmentId={environmentId}
+      workspace={props.workspace}
+      agent={null}
+      forTeam={{ start, onSaved, onCancel: backToWorkflow }}
+    />
   );
 }
