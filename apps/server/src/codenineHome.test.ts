@@ -27,6 +27,7 @@ it.layer(NodeServices.layer)("codenineHome", (it) => {
       expect(CODENINE_HOME_README.split("\n")[0]).toContain("Codenine maintains this file");
       expect(yield* fileSystem.readFileString(skillsReadme)).toBe(CODENINE_SKILLS_README);
       expect((yield* fileSystem.stat(path.join(baseDir, "agents"))).type).toBe("Directory");
+      expect((yield* fileSystem.stat(path.join(baseDir, "workflows"))).type).toBe("Directory");
 
       yield* fileSystem.utimes(readme, 0, 0);
       yield* writeCodenineHomeGuide(baseDir);

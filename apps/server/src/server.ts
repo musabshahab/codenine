@@ -8,6 +8,7 @@ import * as BackupService from "./backup/BackupService.ts";
 import * as Skills from "./skills/Skills.ts";
 import * as Agents from "./agents/Agents.ts";
 import * as ActionReviewer from "./approvals/ActionReviewer.ts";
+import * as Workflows from "./workflows/Workflows.ts";
 import { applyPendingRestore } from "./backup/BackupRestore.ts";
 import * as ConnectorApprovals from "./connectors/ConnectorApprovals.ts";
 import * as ConnectorClients from "./connectors/ConnectorClients.ts";
@@ -504,6 +505,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ),
   BackupService.layer.pipe(Layer.provide(Scheduler.layer), Layer.provide(layerServerRestart)),
   Skills.layer,
+  Workflows.layer.pipe(Layer.provide(Scheduler.layer), Layer.provide(ProjectionStoreV2.layer)),
   ConnectorGateway.layer.pipe(
     Layer.provideMerge(Connectors.layer),
     Layer.provideMerge(ConnectorClients.layer),

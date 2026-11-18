@@ -110,7 +110,7 @@ export const backupCommand = Command.make("backup", {
   ),
 }).pipe(
   Command.withDescription(
-    "Save an encrypted backup of this Codenine folder: chats, workspaces, accounts, saved keys, settings, skills and agents.",
+    "Save an encrypted backup of this Codenine folder: chats, workspaces, accounts, saved keys, settings, skills, agents and workflows.",
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {

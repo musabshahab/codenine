@@ -116,6 +116,7 @@ const seedAlpha = Effect.fn(function* (home: Home) {
   );
   yield* writeFile(path.join(codenine, "workspaces", "app", "README.md"), "app");
   yield* writeFile(path.join(codenine, "agents", "code-reviewer", "AGENT.md"), "---\n---\n");
+  yield* writeFile(path.join(codenine, "workflows", "weekly-digest", "workflow.json"), "{}\n");
   yield* writeFile(
     path.join(home.userHome, "code", "site", ".git", "config"),
     '[remote "origin"]\n\turl = https://example.com/me/site.git\n',
@@ -237,6 +238,9 @@ it.effect(
       assert.isTrue(
         yield* fs.exists(path.join(betaCodenine, "agents", "code-reviewer", "AGENT.md")),
       );
+      assert.isTrue(
+        yield* fs.exists(path.join(betaCodenine, "workflows", "weekly-digest", "workflow.json")),
+      );
       assert.isFalse(yield* fs.exists(path.join(betaCodenine, "workspaces", "old")));
       assert.equal(
         yield* fs.readFileString(path.join(beta.paths.stateDir, "logs", "server.log")),
@@ -336,6 +340,7 @@ it.effect(
       );
       assert.isFalse(yield* fs.exists(path.join(betaCodenine, "workspaces", "app")));
       assert.isFalse(yield* fs.exists(path.join(betaCodenine, "agents")));
+      assert.isFalse(yield* fs.exists(path.join(betaCodenine, "workflows")));
       assert.equal((yield* fs.readFileString(beta.paths.environmentIdPath)).trim(), "env-beta");
       assert.deepEqual(yield* sessionIds(beta.paths.dbPath), ["beta-session"]);
       const undone = yield* readRestoreReport(beta.paths.stateDir);
