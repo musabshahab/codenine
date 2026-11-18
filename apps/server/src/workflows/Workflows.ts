@@ -857,7 +857,27 @@ const make = Effect.gen(function* () {
     costCheckedAt.delete(threadId);
     const updatedAt = DateTime.formatIso(shell.updatedAt);
     if (ended?.updatedAt !== updatedAt) {
-      const planRun = (yield* projections.getThread(threadId)).team?.run;
+      // The lead's last turn comes after its plan ends; wait for it so the cost and note are final.
+      if (!(yield* leadIsIdle(threadId))) return;
+      const lead = yield* projections.getThread(threadId);
+      const planRun = lead.team?.run;
+      if (lead.team != null && planRun !== undefined) {
+        const estimate = yield* estimateCost(lead, { ...lead.team, run: planRun });
+        if (
+          estimate !== null &&
+          (planRun.costUsd === null || Math.abs(estimate - planRun.costUsd) >= 0.001)
+        ) {
+          yield* dispatchQuietly({
+            type: "team.run.update",
+            commandId: CommandId.make(
+              `server:workflow-cost:${lead.team.id}:final:${Math.round(estimate * 10_000)}`,
+            ),
+            threadId,
+            planId: lead.team.id,
+            costUsd: estimate,
+          });
+        }
+      }
       if (planRun?.note != null) {
         const note = planRun.note;
         yield* whileLocked(found.workflow.name, found.id, (current) =>

@@ -677,11 +677,19 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
           status: "completed",
           run: { ...plan().run!, note: "Readers liked\n  the charts." },
         };
+        // The lead's last turn comes after the plan ends: its note and cost wait for it.
+        lead.runs = [{ status: "running" }];
         lead.updatedAt = 1;
         yield* workflows.superviseRuns;
+        expect((yield* workflows.read({ name: "weekly-digest" })).notes).toBe("");
+        world.pricePerToken = 0.001;
+        lead.turns.push(turn(1_000));
+        lead.runs = [];
         lead.updatedAt = 2;
         yield* TestClock.adjust("2 minutes");
         yield* workflows.superviseRuns;
+        expect(sent().at(-1)).toBe(`server:workflow-cost:${planId}:final:72000`);
+        expect(plan().run?.costUsd).toBe(7.2);
         expect((yield* workflows.read({ name: "weekly-digest" })).notes).toBe(
           "- 2026-11-18 run 1: Readers liked the charts.",
         );
