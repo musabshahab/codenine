@@ -7,6 +7,7 @@ import {
   ContextTransferId,
   CheckpointRef,
   CheckpointScopeId,
+  ConnectionId,
   MessageId,
   type ModelSelection,
   type OrchestrationV2ProviderThread,
@@ -6605,158 +6606,201 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
-  it.effect("selects the latest waiting secret only from active runs", () =>
-    Effect.gen(function* () {
-      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
-      const sql = yield* SqlClient.SqlClient;
-      const suffix = "shell-pending-secret";
-      const threadId = yield* addRolledBackRecoveryCandidate(suffix);
-      const runId = RunId.make(`run:${suffix}:rolled-back`);
-      const nodeId = NodeId.make(`node:${suffix}:rolled-back`);
-      const now = yield* DateTime.now;
-      const addSecret = (id: string, ordinal: number, status: "waiting" | "completed") =>
-        projectionStore.apply({
-          id: EventId.make(`event:${id}`),
-          type: "turn-item.updated",
-          threadId,
-          runId,
-          nodeId,
-          driver,
-          occurredAt: now,
-          payload: {
-            id: TurnItemId.make(id),
-            threadId,
-            runId,
-            nodeId,
-            providerThreadId: null,
-            providerTurnId: null,
-            nativeItemRef: null,
-            parentItemId: null,
-            ordinal,
-            status,
-            title: null,
-            startedAt: now,
-            completedAt: null,
-            updatedAt: DateTime.add(now, { seconds: ordinal }),
-            type: "secret_request",
-            label: "Test credential",
-            reason: "Test pending input",
-            secretStatus: status === "waiting" ? "pending" : "saved",
-          },
-        });
-      yield* addSecret("secret:a", 2, "waiting");
-      yield* addSecret("secret:b", 3, "waiting");
-      yield* addSecret("secret:c", 4, "completed");
-
-      yield* sql`
-        UPDATE orchestration_v2_projection_runs
-        SET status = 'running', payload_json = json_set(payload_json, '$.status', 'running')
-        WHERE run_id = ${runId}
-      `;
-      yield* assertShellIndexCoversShells();
-      const secretOnlyShell = (yield* projectionStore.getShellSnapshot()).threads.find(
-        (thread) => thread.id === threadId,
-      );
-      const secretOnlyProjection = yield* projectionStore.getThreadProjection(threadId);
-      for (const shell of [
-        secretOnlyShell,
-        ProjectionStore.threadShellFromProjection(secretOnlyProjection),
-      ]) {
-        assert.equal(shell?.pendingRuntimeRequest?.id, "secret:b");
-        assert.isTrue(shell?.pendingRuntimeRequest?.blocking);
-      }
-
-      const requestId = RuntimeRequestId.make(`request:${suffix}:async`);
-      yield* projectionStore.apply({
-        id: EventId.make(`event:${suffix}:async`),
-        type: "runtime-request.updated",
-        threadId,
-        runId,
-        nodeId,
-        driver,
-        occurredAt: now,
-        payload: {
-          id: requestId,
-          nodeId,
-          providerTurnId: null,
-          nativeRequestRef: null,
-          kind: "user_input",
-          status: "pending",
-          responseCapability: { type: "message" },
-          createdAt: DateTime.subtract(now, { seconds: 1 }),
-          resolvedAt: null,
-        },
-      });
-
-      for (const responseCapability of [
-        { type: "live", providerSessionId: ProviderSessionId.make("session:pending-secret") },
-        { type: "message" },
-      ] as const) {
-        for (const fresh of [true, false]) {
-          yield* projectionStore.apply({
-            id: EventId.make("event:" + suffix + ":fresh-" + fresh),
-            type: "runtime-request.updated",
+  it.effect(
+    "selects the latest waiting secret and a waiting connector approval only from active runs",
+    () =>
+      Effect.gen(function* () {
+        const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+        const sql = yield* SqlClient.SqlClient;
+        const suffix = "shell-pending-secret";
+        const threadId = yield* addRolledBackRecoveryCandidate(suffix);
+        const runId = RunId.make(`run:${suffix}:rolled-back`);
+        const nodeId = NodeId.make(`node:${suffix}:rolled-back`);
+        const now = yield* DateTime.now;
+        const addSecret = (id: string, ordinal: number, status: "waiting" | "completed") =>
+          projectionStore.apply({
+            id: EventId.make(`event:${id}`),
+            type: "turn-item.updated",
             threadId,
             runId,
             nodeId,
             driver,
             occurredAt: now,
             payload: {
-              id: requestId,
+              id: TurnItemId.make(id),
+              threadId,
+              runId,
               nodeId,
+              providerThreadId: null,
               providerTurnId: null,
-              nativeRequestRef: null,
-              kind: "user_input",
-              status: "pending",
-              responseCapability,
-              createdAt: fresh
-                ? DateTime.add(now, { seconds: 5 })
-                : DateTime.subtract(now, { seconds: 1 }),
-              resolvedAt: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal,
+              status,
+              title: null,
+              startedAt: now,
+              completedAt: null,
+              updatedAt: DateTime.add(now, { seconds: ordinal }),
+              type: "secret_request",
+              label: "Test credential",
+              reason: "Test pending input",
+              secretStatus: status === "waiting" ? "pending" : "saved",
             },
           });
-          for (const shell of [
-            (yield* projectionStore.getShellSnapshot()).threads.find(
-              (thread) => thread.id === threadId,
-            ),
-            ProjectionStore.threadShellFromProjection(
-              yield* projectionStore.getThreadProjection(threadId),
-            ),
-          ]) {
-            assert.equal(shell?.pendingRuntimeRequest?.id, fresh ? requestId : "secret:b");
+        yield* addSecret("secret:a", 2, "waiting");
+        yield* addSecret("secret:b", 3, "waiting");
+        yield* addSecret("secret:c", 4, "completed");
+        const addConnectorApproval = (id: string, ordinal: number, answered: boolean) =>
+          projectionStore.apply({
+            id: EventId.make(`event:${id}`),
+            type: "turn-item.updated",
+            threadId,
+            runId,
+            nodeId,
+            driver,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make(id),
+              threadId,
+              runId,
+              nodeId,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal,
+              status: answered ? "completed" : "waiting",
+              title: "Gmail wants to send a draft",
+              startedAt: now,
+              completedAt: answered ? now : null,
+              updatedAt: now,
+              type: "connector_approval",
+              connectionId: ConnectionId.make("gmail"),
+              connectorName: "Gmail",
+              tool: "send_draft",
+              risk: "irreversible",
+              action: "send a draft",
+              details: [],
+              approvalStatus: answered ? "allowed" : "pending",
+            },
+          });
+        yield* addConnectorApproval("approval:answered", 5, true);
+        yield* addConnectorApproval("approval:waiting", 6, false);
+
+        yield* sql`
+        UPDATE orchestration_v2_projection_runs
+        SET status = 'running', payload_json = json_set(payload_json, '$.status', 'running')
+        WHERE run_id = ${runId}
+      `;
+        yield* assertShellIndexCoversShells();
+        const secretOnlyShell = (yield* projectionStore.getShellSnapshot()).threads.find(
+          (thread) => thread.id === threadId,
+        );
+        const secretOnlyProjection = yield* projectionStore.getThreadProjection(threadId);
+        for (const shell of [
+          secretOnlyShell,
+          ProjectionStore.threadShellFromProjection(secretOnlyProjection),
+        ]) {
+          assert.equal(shell?.pendingRuntimeRequest?.id, "secret:b");
+          assert.isTrue(shell?.pendingRuntimeRequest?.blocking);
+        }
+
+        const requestId = RuntimeRequestId.make(`request:${suffix}:async`);
+        yield* projectionStore.apply({
+          id: EventId.make(`event:${suffix}:async`),
+          type: "runtime-request.updated",
+          threadId,
+          runId,
+          nodeId,
+          driver,
+          occurredAt: now,
+          payload: {
+            id: requestId,
+            nodeId,
+            providerTurnId: null,
+            nativeRequestRef: null,
+            kind: "user_input",
+            status: "pending",
+            responseCapability: { type: "message" },
+            createdAt: DateTime.subtract(now, { seconds: 1 }),
+            resolvedAt: null,
+          },
+        });
+
+        for (const responseCapability of [
+          { type: "live", providerSessionId: ProviderSessionId.make("session:pending-secret") },
+          { type: "message" },
+        ] as const) {
+          for (const fresh of [true, false]) {
+            yield* projectionStore.apply({
+              id: EventId.make("event:" + suffix + ":fresh-" + fresh),
+              type: "runtime-request.updated",
+              threadId,
+              runId,
+              nodeId,
+              driver,
+              occurredAt: now,
+              payload: {
+                id: requestId,
+                nodeId,
+                providerTurnId: null,
+                nativeRequestRef: null,
+                kind: "user_input",
+                status: "pending",
+                responseCapability,
+                createdAt: fresh
+                  ? DateTime.add(now, { seconds: 5 })
+                  : DateTime.subtract(now, { seconds: 1 }),
+                resolvedAt: null,
+              },
+            });
+            for (const shell of [
+              (yield* projectionStore.getShellSnapshot()).threads.find(
+                (thread) => thread.id === threadId,
+              ),
+              ProjectionStore.threadShellFromProjection(
+                yield* projectionStore.getThreadProjection(threadId),
+              ),
+            ]) {
+              assert.equal(shell?.pendingRuntimeRequest?.id, fresh ? requestId : "secret:b");
+            }
           }
         }
-      }
 
-      for (const status of [
-        "preparing",
-        "starting",
-        "running",
-        "waiting",
-        "completed",
-        "rolled_back",
-      ]) {
-        yield* sql`
+        for (const status of [
+          "preparing",
+          "starting",
+          "running",
+          "waiting",
+          "completed",
+          "rolled_back",
+        ]) {
+          yield* sql`
           UPDATE orchestration_v2_projection_runs
           SET status = ${status}, payload_json = json_set(payload_json, '$.status', ${status})
           WHERE run_id = ${runId}
         `;
-        const shell = yield* projectionStore.getShellSnapshot();
-        const thread = shell.threads.find((candidate) => candidate.id === threadId);
-        assert.isDefined(thread);
-        const projection = yield* projectionStore.getThreadProjection(threadId);
-        const memoryShell = ProjectionStore.threadShellFromProjection(projection);
-        const terminal = status === "completed" || status === "rolled_back";
-        assert.deepEqual(
-          [thread?.pendingRuntimeRequest?.id, memoryShell.pendingRuntimeRequest?.id],
-          terminal ? [requestId, requestId] : ["secret:b", "secret:b"],
-        );
-        assert.deepEqual(
-          [thread?.pendingRuntimeRequest?.blocking, memoryShell.pendingRuntimeRequest?.blocking],
-          terminal ? [false, false] : [true, true],
-        );
-      }
-    }),
+          const shell = yield* projectionStore.getShellSnapshot();
+          const thread = shell.threads.find((candidate) => candidate.id === threadId);
+          assert.isDefined(thread);
+          const projection = yield* projectionStore.getThreadProjection(threadId);
+          const memoryShell = ProjectionStore.threadShellFromProjection(projection);
+          const terminal = status === "completed" || status === "rolled_back";
+          assert.deepEqual(
+            [thread?.pendingRuntimeRequest?.id, memoryShell.pendingRuntimeRequest?.id],
+            terminal ? [requestId, requestId] : ["secret:b", "secret:b"],
+          );
+          assert.deepEqual(
+            [thread?.pendingRuntimeRequest?.blocking, memoryShell.pendingRuntimeRequest?.blocking],
+            terminal ? [false, false] : [true, true],
+          );
+          // A restart leaves a connector approval pending, but only a live run waits on it.
+          assert.deepEqual(
+            [thread?.pendingConnectorApproval, memoryShell.pendingConnectorApproval],
+            terminal ? [undefined, undefined] : [true, true],
+          );
+        }
+      }),
   );
 
   it.effect("counts history inherited by fork shells, but not by side chats", () =>
