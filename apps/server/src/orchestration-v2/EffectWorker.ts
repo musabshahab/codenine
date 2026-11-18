@@ -584,12 +584,37 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
-          case "team.lead-wake":
+          case "team.lead-wake": {
+            const { taskId, attempt, round } = effect.request;
             return teamTasks
               .wakeLead({
                 leadThreadId: effect.threadId,
                 planId: effect.request.planId,
                 commandId: effect.commandId,
+                ...(taskId === undefined || attempt === undefined || round === undefined
+                  ? {}
+                  : { step: { taskId, attempt, round } }),
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationEffectExecutionError({
+                      effectId: effect.id,
+                      effectType: effect.request.type,
+                      cause,
+                    }),
+                ),
+              );
+          }
+          case "team-task.continue":
+            return teamTasks
+              .continueTask({
+                leadThreadId: effect.threadId,
+                planId: effect.request.planId,
+                taskId: effect.request.taskId,
+                attempt: effect.request.attempt,
+                round: effect.request.round,
+                notes: effect.request.notes,
               })
               .pipe(
                 Effect.mapError(

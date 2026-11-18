@@ -9,13 +9,17 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  type RunId,
   type TeamAgent,
   TeamAgentId,
+  type TeamPlanRun,
   type TeamPlanStatus,
   type TeamTaskDraft,
   TeamTaskId,
   ThreadId,
   TurnItemId,
+  WorkflowId,
+  WorkflowStepId,
 } from "@codenine/contracts";
 import * as IdAllocator from "@codenine/provider-core/server/IdAllocator";
 import type * as ProviderAdapter from "@codenine/provider-core/server/ProviderAdapter";
@@ -198,6 +202,7 @@ const layerTeam = (
   return Layer.mergeAll(
     TeamTaskReactor.layer.pipe(
       Layer.provide(ProjectionStore.layer.pipe(Layer.provide(layerDatabase))),
+      Layer.provide(layerTeamTasks),
     ),
     layerTeamTasks,
     // A shell subscription reads these from the same database; see `streamedShell`.
@@ -311,7 +316,7 @@ const runEffects = (launched: Queue.Queue<ThreadId>, expectedLaunches: number) =
     return yield* Queue.takeN(launched, expectedLaunches);
   });
 
-/** Ends a team agent's run as its provider would, then lets the reactor see it unless `unheard`. */
+/** Ends a team agent's latest run as its provider would, then lets the reactor see it unless `unheard`. */
 const endRun = (
   threadId: ThreadId,
   status: "completed" | "failed" | "interrupted",
@@ -321,15 +326,15 @@ const endRun = (
   Effect.gen(function* () {
     const sink = yield* EventSink.EventSinkV2;
     const reactor = yield* TeamTaskReactor.TeamTaskReactor;
-    const run = (yield* thread(threadId)).runs[0]!;
+    const run = (yield* thread(threadId)).runs.at(-1)!;
     const now = yield* DateTime.now;
     const ended = {
-      id: EventId.make(`event:${threadId}:ended`),
+      id: EventId.make(`event:${run.id}:ended`),
       type: "run.updated",
       threadId,
       runId: run.id,
       occurredAt: now,
-      payload: { ...run, status, completedAt: now },
+      payload: { ...run, status, startedAt: run.startedAt ?? now, completedAt: now },
     } satisfies OrchestrationV2DomainEvent;
     yield* sink.write({
       events: [
@@ -337,13 +342,13 @@ const endRun = (
           ? []
           : [
               {
-                id: EventId.make(`event:${threadId}:result`),
+                id: EventId.make(`event:${run.id}:result`),
                 type: "turn-item.updated" as const,
                 threadId,
                 runId: run.id,
                 occurredAt: now,
                 payload: {
-                  id: TurnItemId.make(`item:${threadId}:result`),
+                  id: TurnItemId.make(`item:${run.id}:result`),
                   threadId,
                   runId: run.id,
                   nodeId: null,
@@ -358,7 +363,7 @@ const endRun = (
                   completedAt: now,
                   updatedAt: now,
                   type: "assistant_message" as const,
-                  messageId: MessageId.make(`message:${threadId}:result`),
+                  messageId: MessageId.make(`message:${run.id}:result`),
                   text: result,
                   streaming: false,
                 },
@@ -369,6 +374,26 @@ const endRun = (
     });
     if (!unheard) yield* reactor.handle(ended);
     return ended;
+  });
+
+/** Restart recovery cancels a run that never started, and no reactor listens yet. */
+const cancelUnstartedRun = (threadId: ThreadId, runId: RunId) =>
+  Effect.gen(function* () {
+    const sink = yield* EventSink.EventSinkV2;
+    const run = (yield* thread(threadId)).runs.find((candidate) => candidate.id === runId)!;
+    const now = yield* DateTime.now;
+    yield* sink.write({
+      events: [
+        {
+          id: EventId.make(`event:${run.id}:cancelled`),
+          type: "run.updated",
+          threadId,
+          runId: run.id,
+          occurredAt: now,
+          payload: { ...run, status: "cancelled", startedAt: null, completedAt: now },
+        },
+      ],
+    });
   });
 
 const withTeam = <A, E>(
@@ -384,6 +409,76 @@ const withTeam = <A, E>(
 
 const rejection = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isFailure(exit) ? JSON.stringify(exit.cause) : "accepted";
+
+const writer: TeamAgent = { ...agent("writer", fast), agent: "writer" };
+
+const workflowRun: TeamPlanRun = {
+  workflowId: WorkflowId.make("workflow:digest"),
+  workflowName: "weekly-digest",
+  title: "Weekly digest",
+  run: 1,
+  trigger: "manual",
+  scheduledFor: null,
+  inputs: [{ name: "Topic", value: "AI tooling" }],
+  approvals: "ask",
+  limits: { spendUsd: null, minutes: null },
+  startedAt: "2026-11-18T10:00:00.000Z",
+  costUsd: null,
+  headline: null,
+  note: null,
+};
+
+/**
+ * The lead's own first turn stays in preparation, as no provider runs here, so the lead's wakes
+ * queue behind it and none starts a turn on the lead's effect lane.
+ */
+const startWorkflowRun = (tasks: ReadonlyArray<TeamTaskDraft>) =>
+  Effect.gen(function* () {
+    yield* createLead;
+    yield* dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("lead-instructions"),
+      threadId: leadThreadId,
+      messageId: MessageId.make("message:lead-instructions"),
+      text: "Lead this run of the workflow.",
+      attachments: [],
+      dispatchMode: { type: "defer_start" },
+      createdBy: "system",
+      creationSource: "server",
+    });
+    yield* dispatch({
+      type: "team.start",
+      commandId: CommandId.make("start-run"),
+      threadId: leadThreadId,
+      goal: "Publish a weekly digest",
+      agents: [writer],
+      tasks: tasks.map((draft) => ({ ...draft, agentId: writer.id })),
+      run: workflowRun,
+    });
+  });
+
+const reviewStep = (taskId: string, round: number, verdict: "accept" | "revise", notes?: string) =>
+  team.pipe(
+    Effect.flatMap((plan) =>
+      dispatch({
+        type: "team.task.review",
+        commandId: CommandId.make(`review:${taskId}:${round}`),
+        threadId: leadThreadId,
+        planId: plan.id,
+        taskId: TeamTaskId.make(taskId),
+        attempt: 1,
+        round,
+        verdict,
+        ...(notes === undefined ? {} : { notes }),
+      }),
+    ),
+  );
+
+const leadWakes = thread(leadThreadId).pipe(
+  Effect.map((projection) =>
+    projection.messages.filter((message) => message.notification?.source.kind === "system"),
+  ),
+);
 
 it.effect("a proposed team starts nothing, and only the revision the user saw can change it", () =>
   withTeam(() =>
@@ -706,7 +801,7 @@ it.effect(
         assert.deepEqual(yield* taskStates, { build: "completed#1", review: "running#1" });
         const settles = yield* sink
           .readByCommandId({
-            commandId: CommandId.make(`server:team-task-settle:${buildThreadId}`),
+            commandId: CommandId.make(`server:team-task-settle:${buildThreadId}:${ended.runId}`),
           })
           .pipe(Stream.runCollect);
         assert.lengthOf(settles, 1);
@@ -819,58 +914,205 @@ it.effect("a task that worked in its own worktree tells its dependents where", (
   ),
 );
 
-it.effect("neither a delegated child nor a fork takes over a thread's team or team task", () =>
-  withTeam((launched) =>
-    Effect.gen(function* () {
-      yield* propose([task("build")]);
-      yield* approve();
-      const [buildThreadId] = yield* runEffects(launched, 1);
-      const fork = (sourceThreadId: ThreadId, targetThreadId: ThreadId) =>
-        dispatch({
-          type: "thread.fork",
-          commandId: CommandId.make(`fork:${targetThreadId}`),
-          sourceThreadId,
-          targetThreadId,
-          sourcePoint: { type: "latest_stable" },
-          sideChat: true,
+it.effect(
+  "neither a delegated child nor a fork takes over a thread's team, team task or workflow draft",
+  () =>
+    withTeam((launched) =>
+      Effect.gen(function* () {
+        yield* propose([task("build")]);
+        yield* approve();
+        const [buildThreadId] = yield* runEffects(launched, 1);
+        const setDraft = (threadId: ThreadId) =>
+          dispatch({
+            type: "workflow.draft.set",
+            commandId: CommandId.make(`draft:${threadId}`),
+            threadId,
+            draft: {
+              title: "Weekly digest",
+              description: "",
+              goal: "Publish a weekly digest",
+              schedule: null,
+              inputs: [],
+              steps: [
+                {
+                  id: WorkflowStepId.make("draft"),
+                  title: "Draft",
+                  agent: "writer",
+                  instructions: "Draft it.",
+                  doneWhen: "",
+                  dependsOn: [],
+                },
+              ],
+              proposedAt: "2026-11-18T10:00:00.000Z",
+            },
+          });
+        yield* setDraft(leadThreadId);
+        assert.equal((yield* thread(leadThreadId)).thread.workflowDraft?.title, "Weekly digest");
+        assert.include(
+          rejection(yield* Effect.exit(setDraft(buildThreadId!))),
+          "workflow_task_thread",
+        );
+        const fork = (sourceThreadId: ThreadId, targetThreadId: ThreadId) =>
+          dispatch({
+            type: "thread.fork",
+            commandId: CommandId.make(`fork:${targetThreadId}`),
+            sourceThreadId,
+            targetThreadId,
+            sourcePoint: { type: "latest_stable" },
+            sideChat: true,
+            createdBy: "user",
+            creationSource: "web",
+          }).pipe(Effect.andThen(thread(targetThreadId)));
+        const leadFork = yield* fork(leadThreadId, ThreadId.make("thread:lead-fork"));
+        assert.notExists(leadFork.thread.team);
+        assert.notExists(leadFork.thread.workflowDraft);
+        const taskFork = yield* fork(buildThreadId!, ThreadId.make("thread:task-fork"));
+        assert.notExists(taskFork.thread.teamTask);
+
+        yield* dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("start-lead"),
+          threadId: leadThreadId,
+          messageId: MessageId.make("message:start-lead"),
+          text: "Delegate a check",
+          attachments: [],
+          dispatchMode: { type: "start_immediately" },
           createdBy: "user",
           creationSource: "web",
-        }).pipe(Effect.andThen(thread(targetThreadId)));
-      const leadFork = yield* fork(leadThreadId, ThreadId.make("thread:lead-fork"));
-      assert.notExists(leadFork.thread.team);
-      const taskFork = yield* fork(buildThreadId!, ThreadId.make("thread:task-fork"));
-      assert.notExists(taskFork.thread.teamTask);
+        });
+        const leadRun = (yield* thread(leadThreadId)).runs.at(-1)!;
+        yield* dispatch({
+          type: "delegated_task.request",
+          commandId: CommandId.make("delegate"),
+          parentThreadId: leadThreadId,
+          parentRunId: leadRun.id,
+          parentNodeId: leadRun.rootNodeId!,
+          task: "Check the build",
+          modelSelection: fast,
+          runtimeMode: "auto-accept-edits",
+          interactionMode: "default",
+          completionWake: "always",
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        const lead = yield* thread(leadThreadId);
+        assert.exists(lead.thread.team);
+        const child = yield* thread(lead.subagents[0]!.childThreadId!);
+        assert.notExists(child.thread.team);
+      }),
+    ),
+);
 
-      yield* dispatch({
-        type: "message.dispatch",
-        commandId: CommandId.make("start-lead"),
-        threadId: leadThreadId,
-        messageId: MessageId.make("message:start-lead"),
-        text: "Delegate a check",
-        attachments: [],
-        dispatchMode: { type: "start_immediately" },
-        createdBy: "user",
-        creationSource: "web",
-      });
-      const leadRun = (yield* thread(leadThreadId)).runs.at(-1)!;
-      yield* dispatch({
-        type: "delegated_task.request",
-        commandId: CommandId.make("delegate"),
-        parentThreadId: leadThreadId,
-        parentRunId: leadRun.id,
-        parentNodeId: leadRun.rootNodeId!,
-        task: "Check the build",
-        modelSelection: fast,
-        runtimeMode: "auto-accept-edits",
-        interactionMode: "default",
-        completionWake: "always",
-        createdBy: "agent",
-        creationSource: "mcp",
-      });
-      const lead = yield* thread(leadThreadId);
-      assert.exists(lead.thread.team);
-      const child = yield* thread(lead.subagents[0]!.childThreadId!);
-      assert.notExists(child.thread.team);
-    }),
-  ),
+it.effect(
+  "a workflow run's lead reviews each step, a send-back continues the step's own thread, and the last review asks for a run note",
+  () =>
+    withTeam((launched) =>
+      Effect.gen(function* () {
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        yield* startWorkflowRun([
+          { ...task("draft"), doneWhen: "It cites three sources." },
+          task("publish", ["draft"]),
+        ]);
+        const [draftThreadId] = yield* runEffects(launched, 1);
+        const brief = (yield* thread(draftThreadId!)).messages[0]!.text;
+        assert.include(brief, 'You do one step of the workflow "Weekly digest".');
+        assert.include(brief, "Inputs for this run:\n- Topic: AI tooling");
+        assert.include(brief, "Done when: It cites three sources.");
+
+        yield* endRun(draftThreadId!, "completed", "A draft without sources.");
+        yield* worker.drain();
+        assert.deepEqual(yield* taskStates, { draft: "running#1", publish: "pending#1" });
+        const [wake] = yield* leadWakes;
+        // A completed notification would turn the lead's reply into a Task result.
+        assert.deepInclude(wake!.notification, { outcome: "updated" });
+        assert.include(
+          wake!.text,
+          'Step "Task draft" (`draft`) is ready for your review, round 1.',
+        );
+        assert.include(wake!.text, "Done when: It cites three sources.");
+        assert.include(wake!.text, "Result:\nA draft without sources.");
+        assert.include(wake!.text, 'then call review_step with step "draft"');
+
+        yield* reviewStep("draft", 1, "revise", "Cite three sources.");
+        yield* worker.drain();
+        const draft = yield* thread(draftThreadId!);
+        const sentBack = draft.messages.filter((message) => message.createdBy === "agent");
+        assert.lengthOf(sentBack, 1);
+        assert.deepInclude(sentBack[0]!, {
+          text: "The lead sent your work back:\n\nCite three sources.\n\nFix this and reply with your complete, updated result.",
+          senderThreadId: leadThreadId,
+        });
+        assert.deepEqual(draft.thread.modelSelection, fast);
+        assert.lengthOf(draft.runs, 2);
+
+        // Its thread's next run settles too, as the next round's result.
+        yield* endRun(draftThreadId!, "completed", "A draft citing three sources.");
+        yield* worker.drain();
+        const wakes = yield* leadWakes;
+        assert.lengthOf(wakes, 2);
+        const secondRound = wakes.find((message) => message.text.includes("round 2."));
+        assert.include(secondRound?.text, "A draft citing three sources.");
+
+        yield* reviewStep("draft", 2, "accept");
+        const [publishThreadId] = yield* runEffects(launched, 1);
+        assert.include(
+          (yield* thread(publishThreadId!)).messages[0]!.text,
+          "Results from earlier steps:\n\n### Task draft\nA draft citing three sources.",
+        );
+        yield* endRun(publishThreadId!, "completed", "Published.");
+        yield* worker.drain();
+        yield* reviewStep("publish", 1, "accept");
+        yield* worker.drain();
+        assert.equal((yield* team).status, "completed");
+        const finished = (yield* leadWakes).filter(
+          (message) => message.notification?.outcome === "completed",
+        );
+        assert.lengthOf(finished, 1);
+        assert.include(finished[0]!.text, "Your workflow run finished: every step was accepted.");
+        assert.include(finished[0]!.text, "call save_run_note");
+      }),
+    ),
+);
+
+it.effect(
+  "after a restart, recovery wakes the lead again for a result it never read, and resends lost notes, once",
+  () =>
+    withTeam((launched) =>
+      Effect.gen(function* () {
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        const reactor = yield* TeamTaskReactor.TeamTaskReactor;
+        yield* startWorkflowRun([task("a"), task("b")]);
+        const [aThreadId, bThreadId] = yield* runEffects(launched, 2);
+        yield* endRun(aThreadId!, "completed", "A's result.");
+        yield* endRun(bThreadId!, "completed", "B's result.");
+        yield* reviewStep("b", 1, "revise", "Fix b.");
+        yield* worker.drain();
+
+        // The restart cancelled the lead's turn for a's wake and b's turn for its notes before
+        // either started.
+        const wakesFor = (id: string) =>
+          leadWakes.pipe(
+            Effect.map((wakes) => wakes.filter((wake) => wake.text.includes(`(\`${id}\`)`))),
+          );
+        const [lostWake] = yield* wakesFor("a");
+        const leadRuns = (yield* thread(leadThreadId)).runs;
+        yield* cancelUnstartedRun(
+          leadThreadId,
+          leadRuns.find((run) => run.userMessageId === lostWake!.id)!.id,
+        );
+        yield* cancelUnstartedRun(bThreadId!, (yield* thread(bThreadId!)).runs.at(-1)!.id);
+
+        yield* reactor.recover();
+        yield* reactor.recover();
+        const wakes = yield* wakesFor("a");
+        assert.lengthOf(wakes, 2);
+        assert.include(wakes[1]!.text, "A's result.");
+        const notes = (yield* thread(bThreadId!)).messages.filter(
+          (message) => message.senderThreadId === leadThreadId,
+        );
+        assert.lengthOf(notes, 2);
+        assert.equal(notes[1]!.text, notes[0]!.text);
+        assert.deepEqual(yield* taskStates, { a: "running#1", b: "running#1" });
+      }),
+    ),
 );
