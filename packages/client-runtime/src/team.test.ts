@@ -33,6 +33,7 @@ import {
   teamStatusText,
   teamStepFlows,
   teamTaskOfThread,
+  teamTaskReviewCommand,
   teamTaskWaitsFor,
   threadTeam,
 } from "./team.ts";
@@ -338,6 +339,29 @@ it("retries on another agent only when one is named", () => {
     type: "team.task.retry",
     taskId: "a",
     agentId: "reviewer",
+  });
+});
+
+it("reviews the round the step is on, with trimmed notes only when there are some", () => {
+  const review = (notes?: string) =>
+    teamTaskReviewCommand({
+      threadId,
+      planId: TeamPlanId.make("plan-1"),
+      task: {
+        ...task("a", "builder"),
+        attempt: 2,
+        review: { round: 3, awaiting: true, awaitingSince: null },
+      },
+      verdict: notes === undefined ? "accept" : "revise",
+      notes,
+      commandId: CommandId.make("review"),
+    });
+  expect(review()).toMatchObject({ taskId: "a", attempt: 2, round: 3, verdict: "accept" });
+  expect(review()).not.toHaveProperty("notes");
+  expect(review("   ")).not.toHaveProperty("notes");
+  expect(review("  Under 800 words. ")).toMatchObject({
+    verdict: "revise",
+    notes: "Under 800 words.",
   });
 });
 

@@ -21,6 +21,8 @@ import {
   type TeamTaskStatus,
   type TeamWorkspace,
   type ThreadId,
+  TEAM_REVIEW_NOTES_MAX_CHARS,
+  type WorkflowLimits,
 } from "@codenine/contracts";
 import { teamMembersWithoutAgent, validateTeamDraft } from "@codenine/shared/team";
 
@@ -366,6 +368,56 @@ export function teamRetryCommand(input: {
       ? {}
       : { agentId: input.agentId }),
   };
+}
+
+/**
+ * Accepts a workflow step's result or sends it back into the same thread with notes. The command
+ * names the round it judges, so an answer that arrives after the lead's changes nothing.
+ */
+export function teamTaskReviewCommand(input: {
+  readonly threadId: ThreadId;
+  readonly planId: TeamPlanId;
+  readonly task: Pick<TeamTask, "id" | "attempt" | "review">;
+  readonly verdict: "accept" | "revise";
+  readonly notes?: string | undefined;
+  readonly commandId: CommandId;
+}): TeamCommand<"team.task.review"> {
+  const notes = input.notes?.trim() ?? "";
+  return {
+    type: "team.task.review",
+    commandId: input.commandId,
+    threadId: input.threadId,
+    planId: input.planId,
+    taskId: input.task.id,
+    attempt: input.task.attempt,
+    round: input.task.review?.round ?? 1,
+    verdict: input.verdict,
+    ...(notes === "" ? {} : { notes: notes.slice(0, TEAM_REVIEW_NOTES_MAX_CHARS) }),
+  };
+}
+
+/** Ends a workflow run's wait; `limits` replaces the run's limits when the user raised one. */
+export function teamResumeCommand(input: {
+  readonly threadId: ThreadId;
+  readonly planId: TeamPlanId;
+  readonly limits?: WorkflowLimits | undefined;
+  readonly commandId: CommandId;
+}): TeamCommand<"team.resume"> {
+  return {
+    type: "team.resume",
+    commandId: input.commandId,
+    threadId: input.threadId,
+    planId: input.planId,
+    ...(input.limits === undefined ? {} : { limits: input.limits }),
+  };
+}
+
+/** Mirrors the server: a step whose result waits for review, while its run still runs. */
+export function canReviewTeamTask(
+  plan: Pick<TeamPlan, "status">,
+  task: Pick<TeamTask, "review">,
+): boolean {
+  return plan.status === "running" && task.review?.awaiting === true;
 }
 
 export function canCancelTeam(plan: Pick<TeamPlan, "status">): boolean {
