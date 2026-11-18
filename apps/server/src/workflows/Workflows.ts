@@ -533,7 +533,6 @@ const make = Effect.gen(function* () {
       workflow,
       agents: context.agents,
       providers: context.providers,
-      inputs: start.inputs,
     });
     const { model, projectId } = workflow.lead;
     if (problems.length > 0 || team === null || model === null || projectId === null) {

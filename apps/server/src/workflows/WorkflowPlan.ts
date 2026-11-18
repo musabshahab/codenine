@@ -118,14 +118,9 @@ export function workflowProblems(input: {
 
 const BRIEF_CUT = "\n\n[Cut short to fit.]";
 
-function stepBrief(step: WorkflowStep, inputs: ReadonlyArray<WorkflowInput>): string {
-  const listed =
-    inputs.length === 0
-      ? ""
-      : ["This run's inputs:", ...inputs.map((input) => `- ${input.name}: ${input.value}`)].join(
-          "\n",
-        );
-  const brief = [step.instructions.trim(), listed].filter((part) => part !== "").join("\n\n");
+// The step's agent gets this run's inputs from the run itself, when its brief is composed.
+function stepBrief(step: WorkflowStep): string {
+  const brief = step.instructions.trim();
   if (brief === "") return step.title;
   return brief.length <= TEAM_BRIEF_MAX_CHARS
     ? brief
@@ -140,7 +135,6 @@ export function workflowTeam(input: {
   readonly workflow: WorkflowDefinition;
   readonly agents: ReadonlyMap<string, WorkflowAgent>;
   readonly providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "models">>;
-  readonly inputs: ReadonlyArray<WorkflowInput>;
 }): {
   readonly agents: ReadonlyArray<TeamAgent>;
   readonly tasks: ReadonlyArray<TeamTaskDraft>;
@@ -173,7 +167,7 @@ export function workflowTeam(input: {
     tasks.push({
       id: TeamTaskId.make(step.id),
       title: step.title,
-      brief: stepBrief(step, input.inputs),
+      brief: stepBrief(step),
       agentId: memberId,
       dependsOn: step.dependsOn.map((dependency) => TeamTaskId.make(dependency)),
       ...(step.doneWhen.trim() === "" ? {} : { doneWhen: step.doneWhen.trim() }),

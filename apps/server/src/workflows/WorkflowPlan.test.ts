@@ -175,13 +175,8 @@ describe("workflowProblems", () => {
 });
 
 describe("workflowTeam", () => {
-  it("makes one member per agent and model, and a task per step with its inputs", () => {
-    const team = workflowTeam({
-      workflow: digest,
-      agents,
-      providers,
-      inputs: [{ name: "Topic", value: "Agents" }],
-    });
+  it("makes one member per agent and model, and a task per step", () => {
+    const team = workflowTeam({ workflow: digest, agents, providers });
     expect(
       team?.agents.map(({ id, label, agent, modelSelection }) => [
         id,
@@ -201,21 +196,21 @@ describe("workflowTeam", () => {
       {
         id: "research",
         title: "Research",
-        brief: "Do the research.\n\nThis run's inputs:\n- Topic: Agents",
+        brief: "Do the research.",
         agentId: "researcher",
         dependsOn: [],
       },
       {
         id: "draft",
         title: "Draft",
-        brief: "Do the draft.\n\nThis run's inputs:\n- Topic: Agents",
+        brief: "Do the draft.",
         agentId: "writer",
         dependsOn: ["research"],
       },
       {
         id: "check",
         title: "Check",
-        brief: "Do the check.\n\nThis run's inputs:\n- Topic: Agents",
+        brief: "Do the check.",
         agentId: "writer:2",
         dependsOn: ["draft"],
         doneWhen: "Every claim has a source.",
@@ -225,11 +220,9 @@ describe("workflowTeam", () => {
 
   it("briefs a step with no instructions or inputs by its title, and has no team for a step without an agent", () => {
     const bare = { ...digest, steps: [step("research", "researcher", { instructions: " " })] };
-    expect(workflowTeam({ workflow: bare, agents, providers, inputs: [] })?.tasks[0]?.brief).toBe(
-      "Research",
-    );
+    expect(workflowTeam({ workflow: bare, agents, providers })?.tasks[0]?.brief).toBe("Research");
     const unassigned = { ...digest, steps: [step("research", null)] };
-    expect(workflowTeam({ workflow: unassigned, agents, providers, inputs: [] })).toBeNull();
+    expect(workflowTeam({ workflow: unassigned, agents, providers })).toBeNull();
   });
 });
 

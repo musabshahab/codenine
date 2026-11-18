@@ -518,7 +518,6 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         expect((yield* workflows.run({ name: "weekly-digest", inputs: override })).run).toBe(2);
         expect(world.launched[1]?.input.runtimeMode).toBe("full-access");
         expect(teamStarts(world)[1]?.run.inputs).toEqual(override);
-        expect(teamStarts(world)[1]?.tasks[0]?.brief).toContain("- Topic: Robots");
 
         // A state file that went missing must not hand out a number whose lead exists.
         yield* fileSystem.remove(path.join(saved.path, "state.json"));
