@@ -192,7 +192,11 @@ import type { ChatChoicesTarget } from "./useChatChoices";
 import { useComposerAgents } from "./useComposerAgents";
 import { useComposerSkills } from "./useComposerSkills";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
-import { ComposerFooterPrimaryActions, ComposerTeamToggle } from "./ComposerFooterControls";
+import {
+  ComposerFooterPrimaryActions,
+  ComposerTeamToggle,
+  ComposerWorkflowToggle,
+} from "./ComposerFooterControls";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -360,6 +364,8 @@ export interface ChatComposerProps {
   sideChatDisabledReason?: string | null;
   /** Shows the Team toggle: a draft or top-level thread without a team. */
   teamOffered: boolean;
+  /** Shows the Workflow toggle, which a chat in Chats offers too. */
+  workflowOffered: boolean;
   /** On a start screen: the chip that picks the project, beside Team. */
   projectPicker?: React.ReactNode;
   /** On a start screen: what to type, which depends on Chats, a project, or a team. */
@@ -750,6 +756,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const setComposerDraftTeamRequested = useComposerDraftStore((store) => store.setTeamRequested);
   const setTeamRequestedStable = useStableCallback((requested: boolean) =>
     setComposerDraftTeamRequested(composerDraftTarget, requested),
+  );
+  const setComposerDraftWorkflowRequested = useComposerDraftStore(
+    (store) => store.setWorkflowRequested,
+  );
+  const setWorkflowRequestedStable = useStableCallback((requested: boolean) =>
+    setComposerDraftWorkflowRequested(composerDraftTarget, requested),
   );
 
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- starts or releases server attachment uploads as upload capability, limits and draft attachments change
@@ -3004,6 +3016,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onPressedChange={setTeamRequestedStable}
     />
   ) : null;
+  const composerWorkflowToggle = props.workflowOffered ? (
+    <ComposerWorkflowToggle
+      pressed={composerDraft.workflowRequested === true}
+      onPressedChange={setWorkflowRequestedStable}
+    />
+  ) : null;
   return (
     <form
       ref={composerFormRef}
@@ -3355,6 +3373,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   {composerAddMenu}
                   {props.projectPicker}
                   {composerTeamToggle}
+                  {composerWorkflowToggle}
                 </div>
                 <div
                   data-chat-composer-actions="right"

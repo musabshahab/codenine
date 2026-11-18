@@ -410,7 +410,7 @@ export function workflowOpeningHeadline(opening: WorkflowOpening): {
   readonly description: string | null;
   readonly agents: string | null;
 } {
-  const title = opening.name ?? opening.description ?? "Workflow";
+  const title = opening.name ?? opening.description ?? "Claude workflow";
   const members =
     opening.group === null
       ? []

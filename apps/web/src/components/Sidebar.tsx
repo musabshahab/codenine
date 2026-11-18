@@ -35,7 +35,11 @@ import {
   isThreadWorking,
 } from "@codenine/client-runtime/state/thread-inbox";
 import { sortSettledThreads } from "@codenine/client-runtime/state/thread-sort";
-import { groupTeamThreads, withTeamTaskRows } from "@codenine/client-runtime/state/team-threads";
+import {
+  groupTeamThreads,
+  withoutWorkflowRuns,
+  withTeamTaskRows,
+} from "@codenine/client-runtime/state/team-threads";
 import {
   nextShownOrder,
   threadSearchMatchKey,
@@ -278,6 +282,7 @@ import {
   type SidebarPage,
 } from "./sidebar/SidebarNav";
 import { useCompletedThreads, useNeedsYouEntries, useTeamTasks } from "../hooks/useWorkLists";
+import { useStartWorkflowChat } from "./chat/useStartWorkflowChat";
 import {
   SidebarProjectFolderHeader,
   sidebarFolderRowId,
@@ -1445,7 +1450,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     serverConfigs,
     connectedEnvironmentIds,
     optimisticDrop,
-    threads,
+    // Workflow runs live on the Workflows pages.
+    threads: withoutWorkflowRuns(threads),
     routeRowThreadKey,
     folders: groupByProject
       ? {
@@ -3114,6 +3120,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (opened) useComposerDraftStore.getState().setTeamRequested(opened.draftId, true);
   };
 
+  const startWorkflowChat = useStartWorkflowChat();
+  const startNewWorkflow = useStableCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void startWorkflowChat();
+  });
+
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
     // With no workspace yet, a chat starts in Personal.
     if (projectGroups.length === 0 && chatEnvironmentId !== null) {
@@ -3352,6 +3364,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               newChatDisabled={projects.length === 0 && chatEnvironmentId === null}
               onNewChat={handleNewThreadClick}
               onNewTeamTask={teamWorkspaceGroups.length > 0 ? () => void startTeamTask() : null}
+              onNewWorkflow={
+                projects.length === 0 && chatEnvironmentId === null ? null : startNewWorkflow
+              }
               onNewWorkspace={() => openNewProjectDialog()}
             />
           </>

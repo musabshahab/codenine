@@ -73,9 +73,10 @@ must keep that shape:
 - An agent's **Assignment from the lead** is the first user message of a `teamTask` thread when
   its `createdBy` is `"system"`. The composed brief must stay that thread's first user message.
 
-## The composer's Team toggle
+## The composer's Team and Workflow toggles
 
-A message sent with Team on carries a `team-request` context record that no text links.
+A message sent with Team or Workflow on carries a `team-request` or `workflow-request` context
+record that no text links.
 `projectComposerContextForProvider` in
 [`composerContextReferences.ts`](../../packages/shared/src/composerContextReferences.ts) appends one
 instruction for it, so Codex and Claude get the same text on turn start and on steer, and no adapter

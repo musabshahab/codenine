@@ -26,7 +26,7 @@ import type {
 import { formatDuration } from "@codenine/shared/orchestrationTiming";
 import { teamPlanSummary } from "@codenine/shared/team";
 import { formatTokens } from "@codenine/shared/usageFormat";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import {
   ArrowUpRightIcon,
   ChevronDownIcon,
@@ -39,6 +39,7 @@ import {
   InfoIcon,
   type LucideIcon,
   RotateCcwIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -47,6 +48,7 @@ import { tickTextContent } from "../../lib/tickTextContent";
 import { cn } from "../../lib/utils";
 import { useQuietThreadShell, useThreadStatus } from "../../state/entities";
 import { environmentThreadDetails } from "../../state/threads";
+import { newWorkflowHref } from "../../workflowLinks";
 import { RelativeTime } from "../RelativeTime";
 import { Badge } from "../ui/badge";
 import { Button, InlineButton } from "../ui/button";
@@ -201,14 +203,38 @@ interface AgentTask {
   readonly threadRef: ScopedThreadRef;
 }
 
-function TaskPanelLayout(props: { footer: ReactNode; children: ReactNode }) {
+/** A right panel tab's page: its content scrolls above a footer that stays put. */
+export function TaskPanelLayout(props: {
+  /** The tab's name, for assistive technology. */
+  label?: string;
+  footer: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <section aria-label="Task" className="flex min-h-0 flex-1 flex-col text-sm">
+    <section aria-label={props.label ?? "Task"} className="flex min-h-0 flex-1 flex-col text-sm">
       <ScrollArea scrollFade className="min-h-0 flex-1">
         <div className="flex flex-col gap-5.5 p-4 pb-7">{props.children}</div>
       </ScrollArea>
       {props.footer}
     </section>
+  );
+}
+
+export function TaskPanelFooter(props: { children: ReactNode }) {
+  return (
+    <footer className="flex flex-col gap-2.5 border-t px-4 pt-3 pb-3.5 text-xs">
+      {props.children}
+    </footer>
+  );
+}
+
+/** The quiet line in a footer that says what happens next. */
+export function TaskPanelNote(props: { children: ReactNode }) {
+  return (
+    <p className="flex items-start gap-1.5 text-muted-foreground">
+      <InfoIcon aria-hidden className="mt-px size-3.5 shrink-0" />
+      {props.children}
+    </p>
   );
 }
 
@@ -239,6 +265,22 @@ function TeamPlanView(props: {
     ...actions
   } = useTeamPlanActions(leadRef, plan);
   const retry = (task: TeamTask, agentId?: TeamAgentId) => void actions.retry(task, agentId);
+  const router = useRouter();
+  const saveAsWorkflow =
+    plan.status === "completed" && plan.run === undefined ? (
+      <Button
+        size="xs"
+        variant="outline"
+        onClick={() =>
+          void router.navigate({
+            href: newWorkflowHref(leadRef.environmentId, { fromTeam: leadRef.threadId }),
+          })
+        }
+      >
+        <WorkflowIcon aria-hidden />
+        Save as workflow
+      </Button>
+    ) : null;
   const changes = resolved.dirty ? teamDraftChangeCount(teamDraftOf(plan), resolved.draft) : 0;
   const cancelButton = canCancelTeam(plan) ? (
     <Button
@@ -281,9 +323,10 @@ function TeamPlanView(props: {
         </Button>
       </span>
     </>
-  ) : cancelButton !== null || props.onViewChanges !== undefined ? (
+  ) : cancelButton !== null || saveAsWorkflow !== null || props.onViewChanges !== undefined ? (
     <>
       {cancelButton}
+      {saveAsWorkflow}
       {props.onViewChanges === undefined ? null : (
         <span className="ms-auto">
           <Button size="xs" variant="outline" onClick={props.onViewChanges}>
@@ -294,7 +337,7 @@ function TeamPlanView(props: {
     </>
   ) : null;
   const footer = (
-    <footer className="flex flex-col gap-2.5 border-t px-4 pt-3 pb-3.5 text-xs">
+    <TaskPanelFooter>
       {shownNotice !== null ? (
         <div role="status" className="flex items-start gap-2 text-warning-foreground">
           <p className="min-w-0 flex-1">{shownNotice}</p>
@@ -326,13 +369,10 @@ function TeamPlanView(props: {
           {issue}
         </p>
       ) : note === null ? null : (
-        <p className="flex items-start gap-1.5 text-muted-foreground">
-          <InfoIcon aria-hidden className="mt-px size-3.5 shrink-0" />
-          {note}
-        </p>
+        <TaskPanelNote>{note}</TaskPanelNote>
       )}
       {buttons === null ? null : <div className="flex flex-wrap items-center gap-2">{buttons}</div>}
-    </footer>
+    </TaskPanelFooter>
   );
 
   return (

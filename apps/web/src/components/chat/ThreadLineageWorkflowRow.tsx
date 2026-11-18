@@ -160,7 +160,7 @@ export function ThreadLineageWorkflowRow({
                     variant="ghost"
                     part="icon"
                     tone="destructive"
-                    aria-label={`Stop workflow ${label}`}
+                    aria-label={`Stop Claude workflow ${label}`}
                     disabled={stopDisabled}
                     onClick={onStop}
                   />
@@ -172,7 +172,7 @@ export function ThreadLineageWorkflowRow({
                   <SquareIcon aria-hidden className="size-3 fill-current" />
                 )}
               </TooltipTrigger>
-              <TooltipPopup side="left">Stop entire workflow</TooltipPopup>
+              <TooltipPopup side="left">Stop the whole Claude workflow</TooltipPopup>
             </Tooltip>
           </div>
         ) : null}

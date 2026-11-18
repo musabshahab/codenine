@@ -142,6 +142,34 @@ export function groupTeamThreads<T extends { readonly createdAt: string }>(input
   };
 }
 
+interface WorkflowRunMember {
+  readonly environmentId: string;
+  readonly id: string;
+  readonly source: {
+    readonly teamTask?: { readonly rootThreadId: string } | undefined;
+    readonly teamSummary?: { readonly run?: unknown } | undefined;
+  };
+}
+
+/**
+ * The threads without workflow runs, which live on the Workflows pages: a run's lead, and every
+ * task thread that works for one. Returns `threads` itself when it holds no run.
+ */
+export function withoutWorkflowRuns<T extends WorkflowRunMember>(
+  threads: ReadonlyArray<T>,
+): ReadonlyArray<T> {
+  const leads = new Set(
+    threads.flatMap((thread) =>
+      thread.source.teamSummary?.run === undefined ? [] : [`${thread.environmentId}:${thread.id}`],
+    ),
+  );
+  if (leads.size === 0) return threads;
+  return threads.filter((thread) => {
+    const lead = thread.source.teamTask?.rootThreadId ?? thread.id;
+    return !leads.has(`${thread.environmentId}:${lead}`);
+  });
+}
+
 /** The rows in the order the sidebar draws them: each lead followed by its shown task rows. */
 export function withTeamTaskRows<T>(
   rows: ReadonlyArray<T>,

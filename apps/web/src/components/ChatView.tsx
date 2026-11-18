@@ -56,8 +56,9 @@ import {
   teamHandoffNowItem,
   useTeamAgentThread,
 } from "./chat/TeamAgentThread";
-import { teamToggleAvailable } from "./chat/composerTeam.logic";
-import { ComposerTeamNote, DraftHeroExamples } from "./chat/DraftHeroExamples";
+import { teamToggleAvailable, workflowToggleAvailable } from "./chat/composerTeam.logic";
+import { ComposerRequestNote, DraftHeroExamples } from "./chat/DraftHeroExamples";
+import { useWorkflowDraft, workflowDraftBannerItem } from "./chat/WorkflowDraftPanel";
 import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
@@ -217,6 +218,7 @@ import {
   type DraftThreadEnvMode,
   useComposerDraftStore,
   useComposerTeamRequested,
+  useComposerWorkflowRequested,
   DraftId,
 } from "../composerDraftStore";
 import { type TerminalContextDraft } from "../lib/terminalContext";
@@ -306,7 +308,7 @@ import {
 import { QueuedRunsControl, type QueuedRunsControlHandle } from "./chat/QueuedRunsControl";
 import { useThreadLinkedPullRequest } from "./pullRequest/useThreadLinkedPullRequest";
 import { useProactivePanels } from "../hooks/useProactivePanels";
-import { useProactiveTaskPanel } from "../hooks/useProactiveTaskPanel";
+import { useProactiveLeadPanels } from "../hooks/useProactiveLeadPanels";
 import { useIncrementalTimelineEntries } from "../hooks/useIncrementalTimelineEntries";
 import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
@@ -1899,11 +1901,13 @@ export default function ChatView(props: ChatViewProps) {
     onDiffPanelOpen,
   });
   const threadTeamInfo = useThreadTeam(embedded ? null : serverThreadShell);
-  useProactiveTaskPanel({
+  const workflowDraft = useWorkflowDraft(isServerThread && !embedded ? activeThreadRef : null);
+  useProactiveLeadPanels({
     threadRef: isServerThread && !embedded && !shouldUsePlanSidebarSheet ? activeThreadRef : null,
     planId: threadTeamInfo?.planId ?? null,
     awaitingApproval:
       threadTeamInfo?.role === "lead" && threadTeamInfo.summary?.status === "proposed",
+    workflowDraftAt: workflowDraft?.proposedAt ?? null,
     runningTurnId: activeRunningTurnId,
   });
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- consumes a pending maximize request from the right panel store once the panel can maximize
@@ -2240,6 +2244,7 @@ export default function ChatView(props: ChatViewProps) {
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
     openTaskSurfaceStable,
+    openWorkflowSurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
@@ -2429,13 +2434,17 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
-  // The strip is the way back to the Task tab, and the way in where the panel is a sheet.
-  const taskTabInView =
-    rightPanelOpen && !shouldUsePlanSidebarSheet && activeRightPanelSurface?.kind === "task";
+  // The strips are the way back to the Task and Workflow tabs, and the way in where the panel is
+  // a sheet.
+  const tabInView = (kind: "task" | "workflow") =>
+    rightPanelOpen && !shouldUsePlanSidebarSheet && activeRightPanelSurface?.kind === kind;
   const teamBannerItems = [
-    ...(threadTeamInfo === null || taskTabInView
+    ...(threadTeamInfo === null || tabInView("task")
       ? []
       : [taskStripBannerItem(threadTeamInfo, openTaskSurfaceStable)]),
+    ...(workflowDraft === null || tabInView("workflow")
+      ? []
+      : [workflowDraftBannerItem(workflowDraft, openWorkflowSurfaceStable)]),
     ...(teamAgentThread === null
       ? []
       : [teamAgentHintBannerItem(teamAgentThread.header?.label ?? null)]),
@@ -2665,12 +2674,20 @@ export default function ChatView(props: ChatViewProps) {
       inTeam: threadTeamInfo !== null,
       inProject: !activeProjectIsScratch,
     });
+  const workflowOffered =
+    canOperateThread &&
+    activeThread !== undefined &&
+    workflowToggleAvailable({ lineage: activeThread.lineage, inTeam: threadTeamInfo !== null });
   const draftTeamRequested = useComposerTeamRequested(composerDraftTarget);
-  const draftHeroKind = activeProjectIsScratch
-    ? "chat"
-    : teamOffered && draftTeamRequested
-      ? "team"
-      : "project";
+  const draftWorkflowRequested = useComposerWorkflowRequested(composerDraftTarget);
+  const draftHeroKind =
+    workflowOffered && draftWorkflowRequested
+      ? "workflow"
+      : activeProjectIsScratch
+        ? "chat"
+        : teamOffered && draftTeamRequested
+          ? "team"
+          : "project";
   // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
   const sideChatsOffered =
     !embedded &&
@@ -2826,6 +2843,7 @@ export default function ChatView(props: ChatViewProps) {
     sendQueuesBehindSetup,
     isDraftHeroState,
     teamToggleAvailable: teamOffered,
+    workflowToggleAvailable: workflowOffered,
     panelAnimationsActive,
     panelAnimationDurationMs,
     keepFullHistory,
@@ -3230,7 +3248,13 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadId={activeThread.id}
               isServerThread={isServerThread}
               activeThreadTitle={
-                !isServerThread && draftHeroKind === "team" ? "New task" : activeThread.title
+                isServerThread
+                  ? activeThread.title
+                  : draftHeroKind === "team"
+                    ? "New task"
+                    : draftHeroKind === "workflow"
+                      ? "New workflow"
+                      : activeThread.title
               }
               activeProject={activeProject ?? null}
               parentThreadLink={headerParentThreadLink}
@@ -3540,6 +3564,7 @@ export default function ChatView(props: ChatViewProps) {
                                 sideChatAvailable={sideChat.available}
                                 sideChatDisabledReason={sideChatDisabledReason}
                                 teamOffered={teamOffered}
+                                workflowOffered={workflowOffered}
                                 projectPicker={
                                   isDraftHeroState &&
                                   isLocalDraftThread &&
@@ -3558,7 +3583,9 @@ export default function ChatView(props: ChatViewProps) {
                                       ? "Ask anything. Each Personal chat gets a folder of its own."
                                       : draftHeroKind === "team"
                                         ? "Describe the task. A lead agent will propose a team for you to approve."
-                                        : "Ask anything about this workspace."
+                                        : draftHeroKind === "workflow"
+                                          ? "Describe what should happen each time, and when. A lead agent will draft a workflow for you to review."
+                                          : "Ask anything about this workspace."
                                 }
                                 onFreshSession={
                                   freshSessionCommandAvailable ? armFreshSessionStable : undefined
@@ -3738,9 +3765,10 @@ export default function ChatView(props: ChatViewProps) {
                           )}
                         </div>
                       ) : (
-                        <ComposerTeamNote
+                        <ComposerRequestNote
                           target={composerDraftTarget}
-                          offered={teamOffered}
+                          teamOffered={teamOffered}
+                          workflowOffered={workflowOffered}
                           className="pt-1.5"
                         />
                       )}
@@ -3900,6 +3928,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           onAddTask={threadTeamInfo === null ? undefined : openTaskSurfaceStable}
+          onAddWorkflow={workflowDraft === null ? undefined : openWorkflowSurfaceStable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}

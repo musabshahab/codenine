@@ -377,6 +377,26 @@ describe("composerDraftStore team request", () => {
     store.clearComposerContent(threadRef);
     expect(draftFor(threadRef.threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
   });
+
+  it("turns Team off when Workflow goes on, and back, and a send turns both off", () => {
+    const store = useComposerDraftStore.getState();
+    const requests = () => {
+      const draft = draftFor(threadRef.threadId, TEST_ENVIRONMENT_ID);
+      return { team: draft?.teamRequested, workflow: draft?.workflowRequested };
+    };
+    store.setTeamRequested(threadRef, true);
+    store.setWorkflowRequested(threadRef, true);
+    expect(requests()).toEqual({ team: undefined, workflow: true });
+    store.setTeamRequested(threadRef, true);
+    expect(requests()).toEqual({ team: true, workflow: undefined });
+    store.setWorkflowRequested(threadRef, false);
+    expect(requests()).toEqual({ team: true, workflow: undefined });
+
+    store.setWorkflowRequested(threadRef, true);
+    store.setPrompt(threadRef, "Every Monday, write the weekly update");
+    store.clearComposerContent(threadRef);
+    expect(draftFor(threadRef.threadId, TEST_ENVIRONMENT_ID)).toBeUndefined();
+  });
 });
 
 describe("composerDraftStore file attachments", () => {

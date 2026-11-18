@@ -5,6 +5,7 @@ import {
   type TeamThreadAttention,
   type TeamThreadSection,
   teamTaskStatusLabel,
+  withoutWorkflowRuns,
   withTeamTaskRows,
 } from "./teamThreads.ts";
 
@@ -165,3 +166,26 @@ it.each([
     expect(teamTaskStatusLabel({ status, total: 3, completed, failed })).toBe(label);
   },
 );
+
+it("leaves out workflow runs, their leads and every thread working for one", () => {
+  const shell = (
+    environmentId: string,
+    id: string,
+    source: Parameters<typeof withoutWorkflowRuns>[0][number]["source"] = {},
+  ) => ({ environmentId, id, source });
+  const run = { teamSummary: { run: { run: 1 } } };
+  const threads = [
+    shell("env", "run-lead", run),
+    shell("env", "run-step", { teamTask: { rootThreadId: "run-lead" } }),
+    shell("env", "team-lead", { teamSummary: {} }),
+    shell("env", "team-step", { teamTask: { rootThreadId: "team-lead" } }),
+    shell("env", "chat"),
+    // The same id on another machine is another thread.
+    shell("other", "run-step", { teamTask: { rootThreadId: "run-lead" } }),
+  ];
+  expect(
+    withoutWorkflowRuns(threads).map((thread) => `${thread.environmentId}:${thread.id}`),
+  ).toEqual(["env:team-lead", "env:team-step", "env:chat", "other:run-step"]);
+  const noRuns = threads.slice(2);
+  expect(withoutWorkflowRuns(noRuns)).toBe(noRuns);
+});

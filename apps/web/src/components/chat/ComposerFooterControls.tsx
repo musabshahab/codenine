@@ -3,7 +3,7 @@ import { createModelSelection } from "@codenine/shared/model";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { UsersIcon } from "lucide-react";
+import { type LucideIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
@@ -97,6 +97,43 @@ export const ComposerFooterModeControls = memo(function ComposerFooterModeContro
   return accessDisplay === "hidden" ? null : permissionsChip;
 });
 
+/** A pill that asks the lead for something other than the work for the next message. */
+function ComposerRequestToggle(props: {
+  label: string;
+  icon: LucideIcon;
+  /** The keybinding command that presses it, when it has one. */
+  shortcut: { command: string; label: string | null } | null;
+  pressed: boolean;
+  tooltip: string;
+  onPressedChange: (pressed: boolean) => void;
+}) {
+  const shortcutLabel = props.shortcut?.label ?? null;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <ComposerControl
+            data-composer-shortcut={props.shortcut?.command}
+            aria-pressed={props.pressed}
+            aria-label={props.label}
+            className="rounded-full border-border/80 aria-pressed:border-primary/40 aria-pressed:bg-primary/10 aria-pressed:text-foreground aria-pressed:hover:bg-primary/15"
+            onClick={() => props.onPressedChange(!props.pressed)}
+          />
+        }
+      >
+        <ComposerControlIcon icon={props.icon} />
+        <span data-composer-control-label className="@max-[480px]/composer-surface:sr-only">
+          {props.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        {props.tooltip}
+        {shortcutLabel ? ` (${shortcutLabel})` : ""}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 /** Asks the lead agent to plan a team for the next message instead of starting the work. */
 export function ComposerTeamToggle(props: {
   pressed: boolean;
@@ -104,30 +141,39 @@ export function ComposerTeamToggle(props: {
   onPressedChange: (pressed: boolean) => void;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <ComposerControl
-            data-composer-shortcut="composer.toggleTeam"
-            aria-pressed={props.pressed}
-            aria-label="Team"
-            className="rounded-full border-border/80 aria-pressed:border-primary/40 aria-pressed:bg-primary/10 aria-pressed:text-foreground aria-pressed:hover:bg-primary/15"
-            onClick={() => props.onPressedChange(!props.pressed)}
-          />
-        }
-      >
-        <ComposerControlIcon icon={UsersIcon} />
-        <span data-composer-control-label className="@max-[480px]/composer-surface:sr-only">
-          Team
-        </span>
-      </TooltipTrigger>
-      <TooltipPopup side="top">
-        {props.pressed
+    <ComposerRequestToggle
+      label="Team"
+      icon={UsersIcon}
+      shortcut={{ command: "composer.toggleTeam", label: props.shortcutLabel }}
+      pressed={props.pressed}
+      tooltip={
+        props.pressed
           ? "The lead agent plans a team first"
-          : "Have the lead agent plan a team of agents"}
-        {props.shortcutLabel ? ` (${props.shortcutLabel})` : ""}
-      </TooltipPopup>
-    </Tooltip>
+          : "Have the lead agent plan a team of agents"
+      }
+      onPressedChange={props.onPressedChange}
+    />
+  );
+}
+
+/** Asks the lead agent to draft a workflow from the next message instead of doing the work. */
+export function ComposerWorkflowToggle(props: {
+  pressed: boolean;
+  onPressedChange: (pressed: boolean) => void;
+}) {
+  return (
+    <ComposerRequestToggle
+      label="Workflow"
+      icon={WorkflowIcon}
+      shortcut={null}
+      pressed={props.pressed}
+      tooltip={
+        props.pressed
+          ? "The lead agent drafts a workflow instead of doing the work now"
+          : "Have the lead agent draft a workflow you can run again"
+      }
+      onPressedChange={props.onPressedChange}
+    />
   );
 }
 

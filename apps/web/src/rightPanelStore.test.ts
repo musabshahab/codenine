@@ -283,6 +283,32 @@ describe("rightPanelStore", () => {
     expect(active(refB)).toBe("files");
   });
 
+  it("offers the Workflow tab once per draft, and again for each new draft", async () => {
+    const store = useRightPanelStore.getState();
+    const offer = (
+      ref: typeof refA,
+      proposedAt: string,
+      revision = store.getUserActionRevision(ref),
+    ) => store.openProactiveWorkflowDraft(ref, { proposedAt }, revision);
+    const active = (ref: typeof refA) =>
+      selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, ref);
+
+    expect(offer(refA, "2026-11-18T09:00:00.000Z")).toBe(true);
+    expect(active(refA)).toBe("workflow");
+    store.closeSurface(refA, "workflow");
+    await reloadRightPanelStore();
+    expect(offer(refA, "2026-11-18T09:00:00.000Z")).toBe(false);
+    expect(active(refA)).toBeNull();
+    // The lead changed the draft.
+    expect(offer(refA, "2026-11-18T09:05:00.000Z")).toBe(true);
+    expect(active(refA)).toBe("workflow");
+
+    const revision = store.getUserActionRevision(refB);
+    store.open(refB, "files");
+    expect(offer(refB, "2026-11-18T09:00:00.000Z", revision)).toBe(false);
+    expect(active(refB)).toBe("files");
+  });
+
   it("keeps other surfaces and the Task tab through the version 17 migration", () => {
     const saved = {
       byThreadKey: {

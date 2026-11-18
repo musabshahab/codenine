@@ -12,10 +12,13 @@ type WorkingThreadInput = Pick<
   | "interactionMode"
   | "latestRun"
   | "runtime"
->;
+> & {
+  readonly source?: Pick<EnvironmentThreadShell["source"], "pendingConnectorApproval">;
+};
 
 export function isThreadWorking(thread: WorkingThreadInput): boolean {
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
+  if (thread.source?.pendingConnectorApproval === true) return false;
   if (thread.pendingSubagentRequest != null) return false;
   if (!threadRuntimeIsActive(thread.runtime) && thread.runtime?.status !== "idle") return false;
   const run = thread.latestRun;
@@ -47,10 +50,16 @@ type SidebarThreadStatusInput = Pick<
   | "pendingSubagentRequest"
   | "runtime"
   | "blockedOnThreadWait"
->;
+> & {
+  readonly source?: Pick<EnvironmentThreadShell["source"], "pendingConnectorApproval">;
+};
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
-  if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
+  if (
+    thread.hasPendingApprovals ||
+    thread.pendingSubagentRequest === "approval" ||
+    thread.source?.pendingConnectorApproval === true
+  ) {
     return "approval";
   }
   if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
@@ -77,10 +86,19 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
-/** Why a thread waits on the user: a request it holds, or the team plan it leads. */
-export type NeedsYouReason = "approval" | "question" | "review" | "failed";
+/**
+ * Why a thread waits on the user: a request it holds, or the team plan it leads. `waiting` is a
+ * workflow run held until the user decides how it goes on.
+ */
+export type NeedsYouReason = "approval" | "question" | "review" | "waiting" | "failed";
 
-const NEEDS_YOU_ORDER: ReadonlyArray<NeedsYouReason> = ["approval", "question", "review", "failed"];
+const NEEDS_YOU_ORDER: ReadonlyArray<NeedsYouReason> = [
+  "approval",
+  "question",
+  "review",
+  "waiting",
+  "failed",
+];
 
 export type NeedsYouInput = SidebarThreadStatusInput & {
   readonly source?: Pick<EnvironmentThreadShell["source"], "teamSummary">;
@@ -90,9 +108,10 @@ export function needsYouReason(thread: NeedsYouInput): NeedsYouReason | null {
   const status = resolveSidebarThreadStatus(thread);
   if (status === "approval") return "approval";
   if (status === "input") return "question";
-  const team = thread.source?.teamSummary?.status;
-  if (team === "proposed") return "review";
-  if (team === "failed") return "failed";
+  const team = thread.source?.teamSummary;
+  if (team?.status === "proposed") return "review";
+  if (team?.hold !== undefined) return "waiting";
+  if (team?.status === "failed") return "failed";
   return null;
 }
 
@@ -186,7 +205,12 @@ type TrackedInboxThread = WorkingThreadInput &
       | "snoozedUntil"
       | "activeOrderKey"
     >
-  >;
+  > & {
+    readonly source?: Pick<
+      EnvironmentThreadShell["source"],
+      "pendingConnectorApproval" | "pendingRuntimeRequest"
+    >;
+  };
 
 type ThreadKeyInput = Pick<EnvironmentThreadShell, "environmentId" | "id">;
 
@@ -284,6 +308,7 @@ export function createInboxReturnTracker() {
             : null;
         const actionable =
           thread.hasPendingApprovals ||
+          thread.source?.pendingConnectorApproval === true ||
           thread.hasPendingUserInput ||
           thread.pendingSubagentRequest != null ||
           (thread.interactionMode === "plan" && thread.hasActionableProposedPlan) ||

@@ -5,7 +5,8 @@ need a separate branch and working directory.
 
 ## Start a thread
 
-The **New** button at the top of the sidebar starts a chat, a task with a team, or a workspace.
+The **New** button at the top of the sidebar starts a chat, a task with a team, a workflow, or a
+workspace.
 **New chat** opens the workspace picker when you have more than one open workspace. Archived
 workspaces don't count. **Shift-click** to start in the current workspace, or use a workspace's own
 **New chat** button. A new chat shows its workspace beside **Team** in the composer; pick another
@@ -57,10 +58,12 @@ The sidebar lists your workspaces, each with its tasks and chats, under **Inbox*
 the **Build** pages. Personal comes first. Search, the magnifier at the top, finds threads in every
 workspace.
 
-**Inbox** lists everything waiting on you, across workspaces: approvals, questions, teams
-waiting for your approval, and teams that failed. An entry leaves once you act on it, mark the
-thread done, or snooze it. **Tasks** lists every task a team works on, grouped by whether it needs
-you, is running, or is done.
+**Inbox** lists everything waiting on you, across workspaces: approvals, a connector's included,
+questions, teams waiting for your approval, and teams that failed. A workflow run that waits for
+you or failed is there too, and opens on the run's page. An entry leaves once you act on it, mark
+the thread done, or snooze it. **Tasks** lists every task a team works on, grouped by whether it
+needs you, is running, or is done. Workflow runs and their steps' chats are on the **Workflows**
+page, not in Tasks or the workspaces.
 
 Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
 sidebar, where **Restore** brings one back. An agent's thread is not listed there; open it from its
@@ -299,8 +302,8 @@ finishes; the call's own result shows its status.
 The top of a workspace's thread holds its tools: the workspace's main command, such as **Dev**, with
 its other commands in the menu beside it; **Details**; **Terminal**; **Changes**, with the lines
 added and removed; **Files**; and **More**, the thread's menu. At its end, one button offers the
-next step: **Approve team**, **Retry** an agent that failed, the team's progress while it runs,
-**View PR**, or **Create PR** once the work is ready. On your default branch, Create PR first offers
+next step: **Open run** in a workflow run's chats, **Approve team**, **Retry** an agent that
+failed, the team's progress while it runs, **View PR**, or **Create PR** once the work is ready. On your default branch, Create PR first offers
 to move the changes to a new branch. On a narrow window some tools step aside; they stay in the
 right panel and the thread's menu.
 
@@ -351,7 +354,9 @@ retry it on its own agent or on another one; the steps that need it wait until i
 **+** menu also has **Task**.
 
 When the team finishes or gets stuck on a failed task, the lead reads the results and goes on.
-After a finished team, its reply shows as the **Task result**.
+After a finished team, its reply shows as the **Task result**, and **Save as workflow** in the Task
+tab opens the workflow editor with that team, so the same agents can do the job again on a schedule
+or when you start it.
 
 An agent's thread opens with **Assignment from the lead**: its brief and the results it received
 from earlier agents. Its header links back to the lead and shows the agent's place in the team, its

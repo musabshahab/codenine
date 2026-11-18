@@ -269,6 +269,18 @@ the keyboard, bind **Composer: Toggle Team** in **Settings → Keybindings**.
 A new chat in a workspace suggests a few example prompts under the composer. Choosing one fills in
 the composer without sending; the team example also turns on Team.
 
+## Draft a workflow
+
+Turn on **Workflow**, next to **Team**, to have the agent draft a workflow from your message
+instead of doing the work: say what should happen each time, and when. The draft opens in the
+right panel's **Workflow** tab, a step for each of your agents' parts; a step none of your agents
+fits shows the agent the lead suggests. Ask in the chat to change it. Nothing is saved until you
+choose **Review and save**, which opens the draft in the workflow editor. The sent message shows
+**Workflow requested**. Like Team, Workflow turns off once the message is sent, and it does not
+apply to a `/` command; turning one on turns the other off. It is offered in Personal chats too,
+since you pick the workspace when you save. **New workflow** in the sidebar's **New** menu starts a
+chat with Workflow on.
+
 ## Context in your message
 
 Context you attach lands where your cursor is, as a chip inside your text: a terminal excerpt,
