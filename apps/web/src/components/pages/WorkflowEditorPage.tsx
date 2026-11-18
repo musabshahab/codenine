@@ -3,11 +3,7 @@ import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import type { AgentModel, EnvironmentId, TeamAgent, ThreadId } from "@codenine/contracts";
 import type { ReactNode } from "react";
 
-import {
-  useQuietThreadProjection,
-  useQuietThreadShell,
-  useThreadStatus,
-} from "../../state/entities";
+import { useQuietThreadShell, useThreadStatus } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { savedWorkflowsEnvironment } from "../../state/savedWorkflows";
 import { environmentThreadDetails } from "../../state/threads";
@@ -152,12 +148,11 @@ function DraftWorkflowEditor(props: {
 }) {
   const { environmentId, editKey } = props;
   const ref = scopeThreadRef(environmentId, props.threadId);
-  const thread = useQuietThreadProjection(ref);
+  const draft = useAtomValue(environmentThreadDetails.workflowDraftAtom(ref));
   const status = useThreadStatus(ref);
   const shell = useQuietThreadShell(ref);
   const catalog = useAgentModelCatalog(environmentId);
   const edit = useWorkflowEdit(environmentId, editKey);
-  const draft = thread?.thread.workflowDraft ?? null;
   if (draft === null && edit === null && status !== "live" && status !== "deleted") {
     return (
       <EditorMessage machine={environmentId} title="New workflow">

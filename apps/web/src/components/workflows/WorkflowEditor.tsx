@@ -22,6 +22,7 @@ import {
   useAgentModelCatalog,
   useAgents,
 } from "../agents/useAgents";
+import { workflowScheduleText } from "../chat/workflowDraft.logic";
 import { WorkspacePage } from "../pages/WorkspacePage";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -49,10 +50,9 @@ import {
   definitionOf,
   disconnectSteps,
   draftProblems,
+  formatRecent,
   formatWhen,
   resolveWorkflowEdit,
-  scheduleDaysLine,
-  scheduleTime,
   updateStep,
   upcomingRuns,
   WORKFLOW_NOTES_MAX,
@@ -396,11 +396,15 @@ export function WorkflowEditor(props: {
             mode="edit"
             trigger={{
               kicker: "When",
-              title: schedule === null ? "When you start it" : scheduleDaysLine(schedule),
+              title: workflowScheduleText(schedule),
               detail:
                 schedule === null
                   ? "Run now starts it"
-                  : `${scheduleTime(schedule, clock.hour12)} · ${schedule.timeZone}`,
+                  : !definition.enabled
+                    ? "Off"
+                    : nextRun === null
+                      ? "Can't run yet"
+                      : `Next ${formatRecent(nextRun, { ...clock, timeZone: schedule.timeZone })}`,
               position: definition.trigger.position,
             }}
             lead={{

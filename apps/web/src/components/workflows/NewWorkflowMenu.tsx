@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { ChevronDownIcon } from "lucide-react";
 import { useState } from "react";
 
+import { useStartWorkflowChat } from "../chat/useStartWorkflowChat";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -25,8 +26,7 @@ export function NewWorkflowMenu(props: {
   const { environmentId } = props;
   const navigate = useNavigate();
   const [explaining, setExplaining] = useState(false);
-  // The integrator wires this to `useStartWorkflowChat` (components/chat/useStartWorkflowChat.ts).
-  const onDescribeInChat = () => {};
+  const startWorkflowChat = useStartWorkflowChat();
   const drawIt = () => {
     // A workflow drawn from the menu starts blank, not from an earlier unsaved one.
     setWorkflowEdit(environmentId, BLANK_KEY, null);
@@ -47,7 +47,7 @@ export function NewWorkflowMenu(props: {
               detail="Start from a trigger and a lead, then add your agents as steps."
             />
           </MenuItem>
-          <MenuItem onClick={onDescribeInChat}>
+          <MenuItem onClick={() => void startWorkflowChat(environmentId)}>
             <MenuChoice
               title="Describe it in a chat"
               detail="The lead draws it from what you write. You review it and save."

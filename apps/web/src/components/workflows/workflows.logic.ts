@@ -712,31 +712,6 @@ function formatClock(hours: number, minutes: number, hour12: boolean): string {
   return `${hours % 12 === 0 ? 12 : hours % 12}:${mm} ${hours < 12 ? "AM" : "PM"}`;
 }
 
-/** "9:00" from a schedule's "09:00". */
-export function scheduleTime(schedule: Pick<WorkflowSchedule, "time">, hour12: boolean): string {
-  const [hours = 0, minutes = 0] = schedule.time.split(":").map(Number);
-  return formatClock(hours, minutes, hour12);
-}
-
-/** "Every Monday", "Every weekday", "Every day". */
-export function scheduleDaysLine(schedule: Pick<WorkflowSchedule, "days">): string {
-  const days = WEEKDAYS.filter((day) => schedule.days.includes(day));
-  if (days.length === 0) return "No days yet";
-  if (days.length === 7) return "Every day";
-  if (days.length === 5 && days.every((day) => day !== "sat" && day !== "sun")) {
-    return "Every weekday";
-  }
-  return `Every ${joinWords(days.map((day) => WEEKDAY_NAMES[day]))}`;
-}
-
-/** "Every Monday at 9:00", "Every weekday at 9:00", "Every day at 9:00". */
-export function scheduleLine(
-  schedule: Pick<WorkflowSchedule, "days" | "time">,
-  hour12: boolean,
-): string {
-  return `${scheduleDaysLine(schedule)} at ${scheduleTime(schedule, hour12)}`;
-}
-
 interface ZonedParts {
   readonly year: number;
   readonly month: number;
@@ -779,7 +754,10 @@ function offsetAt(instantMs: number, timeZone: string): number {
   return asUtc - Math.floor(instantMs / MINUTE_MS) * MINUTE_MS;
 }
 
-/** The instant a wall-clock time falls on in a time zone; a time a clock change skips moves on. */
+/**
+ * When a wall-clock time happens in a time zone, as the server's scheduler decides: a time a clock
+ * change repeats at its first occurrence, a time it skips at the first minute after the gap.
+ */
 function zonedInstant(
   date: { readonly year: number; readonly month: number; readonly day: number },
   hours: number,
@@ -787,9 +765,18 @@ function zonedInstant(
   timeZone: string,
 ): number {
   const wall = Date.UTC(date.year, date.month - 1, date.day, hours, minutes);
-  const first = wall - offsetAt(wall, timeZone);
-  const second = wall - offsetAt(first, timeZone);
-  return second;
+  const wallOf = (instantMs: number) => instantMs + offsetAt(instantMs, timeZone);
+  // A clock change shifts the offset at most once a day, so the offsets half a day either side
+  // give every reading the wall time can have.
+  const readings = [
+    wall - offsetAt(wall - DAY_MS / 2, timeZone),
+    wall - offsetAt(wall + DAY_MS / 2, timeZone),
+  ].toSorted((a, b) => a - b);
+  const exact = readings.find((reading) => wallOf(reading) === wall);
+  if (exact !== undefined) return exact;
+  let instant = readings[0] ?? wall;
+  for (let step = 0; step < 24 * 60 && wallOf(instant) < wall; step++) instant += MINUTE_MS;
+  return instant;
 }
 
 const WEEKDAY_BY_UTC_DAY: ReadonlyArray<WorkflowWeekday> = [
@@ -890,7 +877,10 @@ export function formatRecent(instantMs: number, options: FormatOptions): string 
     : day;
 }
 
-/** "Next: Mon 23 Nov, Mon 30 Nov, Mon 7 Dec, all at 9:00." in the schedule's own time zone. */
+/**
+ * "Next: Mon 23 Nov, Mon 30 Nov, Mon 7 Dec, all at 9:00." in the schedule's own time zone, its
+ * time written as the schedule's wording writes it.
+ */
 export function upcomingRunsLine(
   schedule: WorkflowSchedule,
   nowMs: number,
@@ -899,8 +889,8 @@ export function upcomingRunsLine(
   const runs = upcomingRuns(schedule, nowMs, 3);
   if (runs.length === 0) return null;
   const options = { nowMs, hour12, timeZone: schedule.timeZone };
-  const clock = scheduleTime(schedule, hour12);
   if (runs.length === 1) return `Next: ${formatWhen(runs[0] ?? nowMs, options)}.`;
+  const clock = schedule.time.replace(/^0(?=\d)/u, "");
   return `Next: ${runs.map((run) => relativeDay(run, options)).join(", ")}, all at ${clock}.`;
 }
 

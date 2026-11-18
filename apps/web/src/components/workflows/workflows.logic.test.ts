@@ -30,7 +30,6 @@ import {
   resolveWorkflowEdit,
   runStartLine,
   runStepPositions,
-  scheduleLine,
   STEP_WIDTH,
   stepRunState,
   upcomingRuns,
@@ -284,11 +283,12 @@ describe("names", () => {
 
   it("keeps a saved name while the title fits it, and renames when the title changes", () => {
     const saved = { ...workflow([step("a")]), name: "weekly-blog-post-2" };
-    const kept = checkWorkflow(saved, ["weekly-blog-post", "weekly-blog-post-2"]);
-    expect(kept.issues).toBeUndefined();
-    expect(kept.workflow?.name).toBe("weekly-blog-post-2");
-    const renamed = checkWorkflow({ ...saved, title: " Monday post " }, ["monday-post"]);
-    expect(renamed.workflow).toMatchObject({ name: "monday-post-2", title: "Monday post" });
+    expect(checkWorkflow(saved, ["weekly-blog-post", "weekly-blog-post-2"])).toMatchObject({
+      workflow: { name: "weekly-blog-post-2" },
+    });
+    expect(checkWorkflow({ ...saved, title: " Monday post " }, ["monday-post"])).toMatchObject({
+      workflow: { name: "monday-post-2", title: "Monday post" },
+    });
   });
 
   it("says what keeps a workflow from saving", () => {
@@ -362,19 +362,6 @@ describe("resolveWorkflowEdit", () => {
 describe("schedules", () => {
   const monday = { days: ["mon"], time: "09:00", timeZone: "Europe/London" } as const;
 
-  it("words a schedule", () => {
-    expect(scheduleLine(monday, false)).toBe("Every Monday at 9:00");
-    expect(scheduleLine({ ...monday, days: ["fri", "mon", "wed"] }, true)).toBe(
-      "Every Monday, Wednesday and Friday at 9:00 AM",
-    );
-    expect(scheduleLine({ ...monday, days: ["mon", "tue", "wed", "thu", "fri"] }, false)).toBe(
-      "Every weekday at 9:00",
-    );
-    expect(
-      scheduleLine({ ...monday, days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }, false),
-    ).toBe("Every day at 9:00");
-  });
-
   it("lists the next runs in the schedule's own time zone", () => {
     const wednesday = Date.parse("2026-11-18T12:00:00Z");
     expect(upcomingRuns(monday, wednesday, 3)).toEqual([
@@ -391,15 +378,20 @@ describe("schedules", () => {
     ]);
   });
 
-  it("follows clock changes, and moves a time they skip to after the change", () => {
+  it("follows clock changes as the scheduler does", () => {
     const sunday = { days: ["sun"], time: "09:00", timeZone: "Europe/London" } as const;
     expect(upcomingRuns(sunday, Date.parse("2027-03-25T00:00:00Z"), 2)).toEqual([
       Date.parse("2027-03-28T08:00:00Z"),
       Date.parse("2027-04-04T08:00:00Z"),
     ]);
+    // 1:30 does not happen when the clocks go forward: the run is at the first minute after.
     expect(
       upcomingRuns({ ...sunday, time: "01:30" }, Date.parse("2027-03-27T12:00:00Z"), 1),
-    ).toEqual([Date.parse("2027-03-28T01:30:00Z")]);
+    ).toEqual([Date.parse("2027-03-28T01:00:00Z")]);
+    // 1:30 happens twice when they go back: the run is at the first.
+    expect(
+      upcomingRuns({ ...sunday, time: "01:30" }, Date.parse("2026-10-24T12:00:00Z"), 1),
+    ).toEqual([Date.parse("2026-10-25T00:30:00Z")]);
   });
 });
 

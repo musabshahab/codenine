@@ -40,7 +40,6 @@ import type { WorkflowSelection } from "./workflowEditStore";
 import {
   assignStepAgent,
   removeStep,
-  scheduleLine,
   updateStep,
   upcomingRunsLine,
   WEEKDAY_NAMES,
@@ -323,9 +322,7 @@ export function TriggerPanel(props: {
           <Hint>
             {schedule.days.length === 0
               ? "Choose at least one day."
-              : `${scheduleLine(schedule, props.hour12)}. ${
-                  upcomingRunsLine(schedule, props.nowMs, props.hour12) ?? ""
-                }`}
+              : (upcomingRunsLine(schedule, props.nowMs, props.hour12) ?? "")}
           </Hint>
         </div>
       )}

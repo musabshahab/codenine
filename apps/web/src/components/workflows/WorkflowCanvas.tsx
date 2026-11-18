@@ -97,7 +97,8 @@ const TRIGGER_NODE = "@trigger";
 const LEAD_NODE = "@lead";
 const STEP_NODE_PREFIX = "step:";
 const FIT_VIEW = { padding: 0.15, maxZoom: 1 } as const;
-const MEASURED_NONE: ReadonlyMap<string, { width: number; height: number }> = new Map();
+const MEASURED_NONE: ReadonlyMap<string, { readonly width: number; readonly height: number }> =
+  new Map();
 const POSITIONS_NONE: ReadonlyMap<string, WorkflowPosition> = new Map();
 const IDS_NONE: ReadonlySet<string> = new Set();
 
@@ -206,14 +207,14 @@ function TriggerNode({ data }: NodeProps<TriggerFlowNode>) {
   return (
     <div
       className={cn(
-        "flex h-24 w-40 flex-col justify-center gap-1 rounded-l-4xl rounded-r-xl border bg-card py-3 pr-3.5 pl-5 shadow-xs/5",
+        "flex min-h-24 w-40 flex-col justify-center gap-1 rounded-l-4xl rounded-r-xl border bg-card py-3 pr-3.5 pl-5 shadow-xs/5",
         data.selected ? "border-primary ring-2 ring-primary/25" : "border-border",
       )}
     >
       <span className="font-semibold text-3xs text-muted-foreground uppercase tracking-wider">
         {data.kicker}
       </span>
-      <span className="truncate font-semibold text-foreground text-sm">{data.title}</span>
+      <span className="line-clamp-2 font-semibold text-foreground text-sm">{data.title}</span>
       <span className="truncate text-muted-foreground text-xs">{data.detail}</span>
       <Handle
         type="source"
@@ -428,62 +429,19 @@ export function WorkflowCanvas(props: {
   ];
 
   const onNodesChange = (changes: ReadonlyArray<NodeChange<FlowNode>>) => {
-    let nextMeasured: Map<string, { width: number; height: number }> | null = null;
-    let nextDragged: Map<string, WorkflowPosition> | null = null;
-    let picked: WorkflowSelection | null | undefined;
-    const moved: Array<readonly [string, WorkflowPosition]> = [];
-    for (const change of changes) {
-      switch (change.type) {
-        case "dimensions": {
-          const size = change.dimensions;
-          const current = (nextMeasured ?? measured).get(change.id);
-          if (
-            size !== undefined &&
-            (current?.width !== size.width || current.height !== size.height)
-          ) {
-            nextMeasured ??= new Map(measured);
-            nextMeasured.set(change.id, { width: size.width, height: size.height });
-          }
-          break;
-        }
-        case "position": {
-          nextDragged ??= new Map(dragged);
-          if (change.dragging === true && change.position !== undefined) {
-            nextDragged.set(change.id, change.position);
-          } else {
-            const position = change.position ?? nextDragged.get(change.id);
-            nextDragged.delete(change.id);
-            if (position !== undefined) moved.push([change.id, position]);
-          }
-          break;
-        }
-        case "select": {
-          if (change.selected) picked = selectionOfNode(change.id);
-          else if (picked === undefined && isSelected(selection, change.id)) picked = null;
-          break;
-        }
-        default:
-          break;
-      }
-    }
-    if (nextMeasured !== null) setMeasured(nextMeasured);
-    if (nextDragged !== null) setDragged(nextDragged);
-    for (const [id, position] of moved) {
+    const effects = nodeChangeEffects(changes, { measured, dragged, selection });
+    if (effects.measured !== null) setMeasured(effects.measured);
+    if (effects.dragged !== null) setDragged(effects.dragged);
+    for (const [id, position] of effects.moved) {
       if (id === TRIGGER_NODE) props.onMoveTrigger?.(position);
       const stepId = stepIdOf(id);
       if (stepId !== null) props.onMoveStep?.(stepId, position);
     }
-    if (picked !== undefined) props.onSelect(picked);
+    if (effects.picked !== undefined) props.onSelect(effects.picked);
   };
 
   const onEdgesChange = (changes: ReadonlyArray<EdgeChange>) => {
-    let next: Set<string> | null = null;
-    for (const change of changes) {
-      if (change.type !== "select") continue;
-      next ??= new Set(selectedEdges);
-      if (change.selected) next.add(change.id);
-      else next.delete(change.id);
-    }
+    const next = selectedEdgesAfter(changes, selectedEdges);
     if (next !== null) setSelectedEdges(next);
   };
 
@@ -564,6 +522,65 @@ function isSelected(selection: WorkflowSelection | null, nodeId: string): boolea
   const of = selectionOfNode(nodeId);
   if (selection === null || of === null || selection.kind !== of.kind) return false;
   return selection.kind !== "step" || (of.kind === "step" && of.id === selection.id);
+}
+
+type Size = { readonly width: number; readonly height: number };
+
+/**
+ * What React Flow's node changes mean here: new sizes, drags in progress, moves that ended, and the
+ * box the user picked (null to clear, undefined when they picked none). Each map is null while
+ * unchanged, so an unchanged canvas sets no state.
+ */
+function nodeChangeEffects(
+  changes: ReadonlyArray<NodeChange<FlowNode>>,
+  current: {
+    readonly measured: ReadonlyMap<string, Size>;
+    readonly dragged: ReadonlyMap<string, WorkflowPosition>;
+    readonly selection: WorkflowSelection | null;
+  },
+) {
+  let measured: Map<string, Size> | null = null;
+  let dragged: Map<string, WorkflowPosition> | null = null;
+  let picked: WorkflowSelection | null | undefined;
+  const moved: Array<readonly [string, WorkflowPosition]> = [];
+  for (const change of changes) {
+    if (change.type === "dimensions") {
+      const size = change.dimensions;
+      const known = (measured ?? current.measured).get(change.id);
+      if (size !== undefined && (known?.width !== size.width || known.height !== size.height)) {
+        measured ??= new Map(current.measured);
+        measured.set(change.id, { width: size.width, height: size.height });
+      }
+    } else if (change.type === "position") {
+      dragged ??= new Map(current.dragged);
+      if (change.dragging === true && change.position !== undefined) {
+        dragged.set(change.id, change.position);
+      } else {
+        const position = change.position ?? dragged.get(change.id);
+        dragged.delete(change.id);
+        if (position !== undefined) moved.push([change.id, position]);
+      }
+    } else if (change.type === "select") {
+      if (change.selected) picked = selectionOfNode(change.id);
+      else if (picked === undefined && isSelected(current.selection, change.id)) picked = null;
+    }
+  }
+  return { measured, dragged, moved, picked };
+}
+
+/** The selected edges after React Flow's changes; null while unchanged. */
+function selectedEdgesAfter(
+  changes: ReadonlyArray<EdgeChange>,
+  selected: ReadonlySet<string>,
+): ReadonlySet<string> | null {
+  let next: Set<string> | null = null;
+  for (const change of changes) {
+    if (change.type !== "select") continue;
+    next ??= new Set(selected);
+    if (change.selected) next.add(change.id);
+    else next.delete(change.id);
+  }
+  return next;
 }
 
 function AddStepButton(props: {

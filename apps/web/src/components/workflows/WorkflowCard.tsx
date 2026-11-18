@@ -9,6 +9,7 @@ import { ensureLocalApi } from "../../localApi";
 import { savedWorkflowsEnvironment } from "../../state/savedWorkflows";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { type AgentModelCatalog, agentTitle, describeAgentModel } from "../agents/useAgents";
+import { workflowScheduleText } from "../chat/workflowDraft.logic";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -22,7 +23,6 @@ import {
   formatCost,
   formatRecent,
   RUN_STATUS_LABELS,
-  scheduleLine,
   type WorkflowCardStatus,
   workflowCardStatus,
   type WorkflowRun,
@@ -69,7 +69,6 @@ export function WorkflowCard(props: {
   const active = latest !== null && (latest.status === "running" || latest.status === "waiting");
   const status = workflowCardStatus(workflow, latest?.status ?? null);
   const schedule = workflow.trigger.schedule;
-  const localZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
   const titleId = `workflow-${workflow.name}`;
   const search = { machine: environmentId };
 
@@ -149,15 +148,9 @@ export function WorkflowCard(props: {
           <>
             <dt className="text-muted-foreground">When</dt>
             <dd className="text-foreground">
-              {[
-                scheduleLine(schedule, clock.hour12),
-                schedule.timeZone === localZone ? null : schedule.timeZone,
-                workflow.nextRunAt === null
-                  ? null
-                  : `next ${formatRecent(Date.parse(workflow.nextRunAt), clock)}`,
-              ]
-                .filter((part) => part !== null)
-                .join(" · ")}
+              {workflow.nextRunAt === null
+                ? workflowScheduleText(schedule)
+                : `${workflowScheduleText(schedule)} · next ${formatRecent(Date.parse(workflow.nextRunAt), clock)}`}
             </dd>
           </>
         )}

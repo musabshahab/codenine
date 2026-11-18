@@ -347,7 +347,10 @@ function WorkflowRunView(props: {
               onSelect={(selection) => {
                 if (selection?.kind === "lead") openThread(leadRef.threadId);
                 if (selection?.kind !== "step") return;
-                const task = plan.tasks.find((candidate) => candidate.id === selection.id);
+                // A run's task carries its step's id.
+                const task = plan.tasks.find(
+                  (candidate) => (candidate.id as string) === selection.id,
+                );
                 if (task?.threadId != null) openThread(task.threadId);
               }}
             />
