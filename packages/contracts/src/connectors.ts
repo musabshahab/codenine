@@ -265,7 +265,10 @@ export const ConnectorActivityResult = Schema.Struct({
   entries: Schema.Array(ConnectorActivityEntry),
 });
 
-/** `always`: allow it, and stop asking for this action on this connector. */
+/**
+ * `always`: allow it, and stop asking for this action on this connector, or, when the chat's agent
+ * asked, for its group of actions in that agent's chats.
+ */
 export const ConnectorApprovalAnswer = Schema.Literals(["allow", "always", "decline"]);
 export type ConnectorApprovalAnswer = typeof ConnectorApprovalAnswer.Type;
 

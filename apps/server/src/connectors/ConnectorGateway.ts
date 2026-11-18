@@ -1,5 +1,6 @@
 import {
   type AgentConnector,
+  type AgentName,
   CommandId,
   ConnectionId,
   type ConnectorActivityOutcome,
@@ -193,6 +194,40 @@ const make = Effect.gen(function* () {
           agentApprovals: chat.approvals.get(connection.id),
         };
   });
+
+  /** Sets the agent's choice for the group to allow on this connector, keeping the rest of it. */
+  const allowForAgent = Effect.fn("ConnectorGateway.allowForAgent")(
+    function* (name: AgentName, connectionId: ConnectionId, risk: ConnectorRisk) {
+      const found = yield* agents.find(name);
+      // The user may have taken the connector off the agent while the card waited.
+      if (
+        Option.isNone(found) ||
+        !found.value.connectors.some((connector) => connector.id === connectionId)
+      ) {
+        return;
+      }
+      yield* agents.save({
+        previousName: name,
+        agent: {
+          ...found.value,
+          connectors: found.value.connectors.map((connector) =>
+            connector.id === connectionId
+              ? { ...connector, approvals: { ...connector.approvals, [risk]: "auto" } }
+              : connector,
+          ),
+        },
+      });
+    },
+    (effect, name) =>
+      effect.pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("could not save an agent's connector choice", {
+            agent: name,
+            error: error.message,
+          }),
+        ),
+      ),
+  );
 
   const tokenFor = (connectionId: ConnectionId, renew: boolean) =>
     signIn.accessToken(connectionId, { renew }).pipe(
@@ -424,16 +459,16 @@ const make = Effect.gen(function* () {
         threadId,
         turnItemId,
         record,
-        ...(approval.byAgent
-          ? {}
-          : {
-              remember: store
+        // The agent's choice outranks the connection's in its chats, so "always" changes the agent.
+        remember:
+          agent === undefined
+            ? store
                 .update(connection.id, (current) => ({
                   ...current,
                   toolApprovals: { ...current.toolApprovals, [tool]: "auto" },
                 }))
-                .pipe(Effect.ignore),
-            }),
+                .pipe(Effect.ignore)
+            : allowForAgent(agent, connection.id, risk),
         ended: runEnded(threadId, runId),
       });
       if (outcome === "declined") {

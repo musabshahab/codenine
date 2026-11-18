@@ -1564,9 +1564,12 @@ const OrchestrationV2ConnectorApprovalFields = {
   /** A longer excerpt, such as the email's text. */
   preview: Schema.optional(Schema.String),
   approvalStatus: OrchestrationV2ConnectorApprovalStatus,
-  /** Allowed with "always": this action no longer asks on this connector. */
+  /**
+   * Allowed with "always": this action no longer asks on this connector, or with `agent`, no action
+   * of its group asks in that agent's chats.
+   */
   remembered: Schema.optional(Schema.Boolean),
-  /** The chat's agent asked, by its own settings, which alone change that; no "always" then. */
+  /** The chat's agent asked, by its own settings, so "always" changes the agent's choice. */
   agent: Schema.optional(AgentName),
 } as const;
 
