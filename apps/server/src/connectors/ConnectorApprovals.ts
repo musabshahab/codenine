@@ -79,8 +79,8 @@ export class ConnectorApprovals extends Context.Service<
         status: OrchestrationV2ConnectorApprovalStatus,
         remembered: boolean,
       ) => Effect.Effect<void>;
-      /** Stops asking for this action on this connection; without it "always" allows once. */
-      readonly remember?: Effect.Effect<void>;
+      /** What "always" changes so this action stops asking. */
+      readonly remember: Effect.Effect<void>;
       readonly ended: Effect.Effect<void>;
     }) => Effect.Effect<ApprovalOutcome>;
     /** `not-waiting` when no call is waiting on this card. */
@@ -112,12 +112,10 @@ const make = Effect.gen(function* () {
       const key = keyOf(input.threadId, input.turnItemId);
       const entry: Waiting = {
         answered: yield* Deferred.make<ConnectorApprovalAnswer>(),
-        settle: (answer) => {
-          const remember = answer === "always" ? input.remember : undefined;
-          return input
-            .record(outcomeOf(answer), remember !== undefined)
-            .pipe(Effect.andThen(remember ?? Effect.void));
-        },
+        settle: (answer) =>
+          input
+            .record(outcomeOf(answer), answer === "always")
+            .pipe(Effect.andThen(answer === "always" ? input.remember : Effect.void)),
       };
       const closeUnanswered = lock.withPermits(1)(
         take(key, entry).pipe(

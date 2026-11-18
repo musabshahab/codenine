@@ -15,7 +15,7 @@ Parsing gives an agent less, never more: an ability that is missing or not `true
 unreadable connector, skill or model is dropped. A file with no frontmatter map is left out of the
 list, and a chat that names an agent the server cannot read refuses its next turn with a message
 instead of running as a plain chat with the chat's own, possibly wider, reach. Forks keep the
-chat's agent; subagents and team task threads start without one.
+chat's agent, subagents start without one, and a team task's thread starts with its member's agent.
 
 ## How a chat's agent reaches the provider
 
@@ -31,8 +31,9 @@ carries the same agent. An agent it cannot read gets no abilities.
   on by default, and still only connected ones. Both the session manager and the gateway ask
   [`Agents.chatConnectors`](../../apps/server/src/agents/Agents.ts). Where the agent chose for a
   group, that choice decides, over the connection's choice for the single action too, so an agent
-  set to ask always asks. Its card then offers no "Always allow": that writes to the connection,
-  which the agent's choice outranks. A group the agent leaves alone follows the connection.
+  set to ask always asks. Its card's "Always allow" therefore sets the agent's own choice for that
+  group to allow on that connector, since a choice on the connection would not count in its chats.
+  A group the agent leaves alone follows the connection.
 - **Skills**: the agent's skills are the chat's kept-on skills; `$name` still attaches any skill.
 - **Abilities** narrow the chat's runtime mode and never widen it. A chat the agent started or
   steered would run with its own settings, so in an agent's chat Codenine's MCP tools refuse except

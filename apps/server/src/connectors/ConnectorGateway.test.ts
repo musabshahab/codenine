@@ -295,7 +295,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
         yield* agents.save({ agent: triager });
         assert.strictEqual(refusedCode(yield* listTools), -32001);
 
-        // Asking for the agent, "always" allows once: only the agent's settings change its answer.
+        // Asking for the agent, "always" changes the agent's own choice, which decides in its chats.
         yield* agents.save({
           agent: {
             ...triager,
@@ -317,9 +317,12 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
           ),
           [
             ["pending", false],
-            ["allowed", false],
+            ["allowed", true],
           ],
         );
+        assert.deepStrictEqual((yield* agents.read({ name: "triager" })).connectors, [
+          { id: github.id, approvals: { irreversible: "auto" } },
+        ]);
         assert.deepStrictEqual((yield* store.get(github.id))?.toolApprovals, {});
 
         // Its choice wins over one the user made for the action outside its chats.
@@ -327,13 +330,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
           ...current,
           toolApprovals: { merge_pull_request: "ask" },
         }));
-        yield* agents.save({
-          agent: {
-            ...triager,
-            connectors: [{ id: github.id, approvals: { irreversible: "auto" } }],
-          },
-          previousName: "triager",
-        });
         yield* merge;
         assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), [
           "merge_pull_request",

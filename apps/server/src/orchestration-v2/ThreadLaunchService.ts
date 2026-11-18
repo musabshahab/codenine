@@ -3,6 +3,7 @@ import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import { resolveProjectSettings } from "@codenine/shared/projectSettings";
 import {
+  type AgentName,
   CommandId,
   type ChatAttachment,
   type MessageId,
@@ -96,6 +97,8 @@ export interface ThreadLaunchInput {
   };
   /** The team task the new thread runs. Ignored when the launch reuses a thread. */
   readonly teamTask?: TeamTaskRef;
+  /** The agent the new thread talks to. Ignored when the launch reuses a thread. */
+  readonly agent?: AgentName;
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }
@@ -940,6 +943,7 @@ const make = Effect.gen(function* () {
                   ? {}
                   : { importedNativeThread: input.importedNativeThread }),
                 ...(input.teamTask === undefined ? {} : { teamTask: input.teamTask }),
+                ...(input.agent === undefined ? {} : { agent: input.agent }),
                 createdBy: input.createdBy,
                 creationSource: input.creationSource,
               });

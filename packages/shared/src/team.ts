@@ -129,6 +129,16 @@ export function validateTeamDraft(draft: TeamDraft): TeamDraftIssue | null {
   return null;
 }
 
+/** For a lead whose proposed member is not exactly one of the user's agents or a suggestion. */
+export function teamMemberChoiceMessage(memberId: string): string {
+  return `Member "${memberId}" needs exactly one of \`agent\` (one of the user's agents, from \`orchestrator_capabilities\` \`agents\`) or \`suggestion\` (an agent for the user to create when none of theirs fits).`;
+}
+
+/** For a lead whose proposed member names an agent the user does not have. */
+export function unknownTeamAgentMessage(memberId: string, name: string): string {
+  return `The user has no agent named "${name}". Use a \`name\` from \`orchestrator_capabilities\` \`agents\`, or give member "${memberId}" a \`suggestion\` for the user to create.`;
+}
+
 /** Members the lead suggested whose agent the user has not created or chosen; the team waits for them. */
 export function teamMembersWithoutAgent(
   draft: Pick<TeamDraft, "agents">,

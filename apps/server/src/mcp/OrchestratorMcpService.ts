@@ -1,4 +1,5 @@
 import {
+  type AgentDefinition,
   CommandId,
   type RunId,
   isProviderAvailable,
@@ -52,6 +53,7 @@ import {
   type RuntimeMode,
   type ServerProvider,
   type ServerProviderModel,
+  type TeamAgent,
   type TeamDraft,
   ThreadId,
   isOrchestrationV2WorkActive,
@@ -59,9 +61,14 @@ import {
   resolveProjectProviderInstanceEnabled,
   SECRET_REQUEST_UNSAVED_NOTE,
 } from "@codenine/contracts";
+import { agentModelSelection } from "@codenine/shared/agentModel";
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@codenine/shared/model";
 import { runRanAfter } from "@codenine/shared/orchestrationV2ThreadError";
-import { validateTeamDraft } from "@codenine/shared/team";
+import {
+  teamMemberChoiceMessage,
+  unknownTeamAgentMessage,
+  validateTeamDraft,
+} from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
 import {
   normalizeThreadPullRequestKey,
@@ -80,6 +87,8 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import * as Agents from "../agents/Agents.ts";
+import * as ConnectorStore from "../connectors/ConnectorStore.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
@@ -987,6 +996,8 @@ const make = Effect.gen(function* () {
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const agents = yield* Agents.Agents;
+  const connectorStore = yield* ConnectorStore.ConnectorStore;
 
   const requireProject = (projectId: ProjectId) =>
     projects.getById(projectId).pipe(
@@ -1415,6 +1426,146 @@ const make = Effect.gen(function* () {
       modelSelection: { instanceId, model, ...(options === undefined ? {} : { options }) },
       supportedRuntimeModes: provider.supportedRuntimeModes,
     };
+  });
+
+  /**
+   * The agent's own model at its effort, as a chat with it starts. When it has none, or that model
+   * cannot run here now, the lead's; the user can change it before approving.
+   */
+  const teamAgentModel = Effect.fn("OrchestratorMcpService.teamAgentModel")(function* (input: {
+    readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
+    readonly agent: AgentDefinition;
+    readonly providers: ReadonlyArray<ServerProvider>;
+    readonly skipProjectEnablementFilter: boolean;
+  }) {
+    const { parent, providers, skipProjectEnablementFilter } = input;
+    const lead = () =>
+      resolveTargetRechecking({
+        parent,
+        target: undefined,
+        providers,
+        skipProjectEnablementFilter,
+      });
+    const model = input.agent.model;
+    if (model === null) return (yield* lead()).modelSelection;
+    const selection = agentModelSelection(
+      model,
+      providers
+        .find((provider) => provider.instanceId === model.instanceId)
+        ?.models.find((candidate) => candidate.slug === model.model)?.capabilities,
+    );
+    const runs = yield* resolveTargetRechecking({
+      parent,
+      target: {
+        providerInstanceId: selection.instanceId,
+        model: selection.model,
+        options: selection.options ?? [],
+      },
+      providers,
+      skipProjectEnablementFilter,
+    }).pipe(
+      Effect.andThen(() =>
+        skipProjectEnablementFilter
+          ? Effect.succeed(true)
+          : threadManagement.isProviderInstanceEnabledForProject({
+              projectId: parent.thread.projectId,
+              instanceId: selection.instanceId,
+            }),
+      ),
+      Effect.orElseSucceed(() => false),
+    );
+    return runs ? selection : (yield* lead()).modelSelection;
+  });
+
+  /** What a team is built from. A list that cannot be read is left out, so delegation still works. */
+  const teamCapabilities = Effect.fn("OrchestratorMcpService.teamCapabilities")(function* () {
+    const connections = yield* connectorStore.list.pipe(
+      Effect.flatMap((stored) =>
+        Effect.forEach(stored, (connection) =>
+          connectorStore.isReady(connection).pipe(Effect.map((ready) => ({ connection, ready }))),
+        ),
+      ),
+      Effect.tapError((error) => Effect.logWarning("Could not list connections", error)),
+      Effect.option,
+    );
+    const names = new Map(
+      Option.getOrElse(connections, () => []).map(({ connection }) => [
+        connection.id,
+        connection.name,
+      ]),
+    );
+    const listed = yield* agents.list.pipe(
+      Effect.tapError((error) => Effect.logWarning("Could not list agents", error)),
+      Effect.option,
+    );
+    return {
+      ...Option.match(listed, {
+        onNone: () => ({}),
+        onSome: (result) => ({
+          agents: result.agents.map((agent) => ({
+            name: agent.name,
+            title: agent.title,
+            description: agent.description,
+            model: agent.model === null ? null : `${agent.model.instanceId}/${agent.model.model}`,
+            ready: agent.modelStatus === "ready",
+            connectors: agent.connectors.flatMap((connector) => names.get(connector.id) ?? []),
+            skills: agent.skills,
+          })),
+        }),
+      }),
+      ...Option.match(connections, {
+        onNone: () => ({}),
+        onSome: (all) => ({
+          connections: all.flatMap(({ connection, ready }) =>
+            ready ? [{ id: connection.id, name: connection.name }] : [],
+          ),
+        }),
+      }),
+    };
+  });
+
+  const teamMember = Effect.fn("OrchestratorMcpService.teamMember")(function* (input: {
+    readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
+    readonly member: OrchestratorMcpProposeTeamInput["agents"][number];
+    readonly providers: ReadonlyArray<ServerProvider>;
+    readonly skipProjectEnablementFilter: boolean;
+  }): Effect.fn.Return<TeamAgent, OrchestratorMcpFailure> {
+    const { parent, providers, skipProjectEnablementFilter } = input;
+    const { agent: name, suggestion, ...member } = input.member;
+    const base = { id: member.id, role: member.role, workspace: member.workspace ?? "shared" };
+    if (name !== undefined && suggestion === undefined) {
+      const agent = yield* agents.find(name);
+      if (Option.isNone(agent)) {
+        return yield* failure("invalid_request", unknownTeamAgentMessage(member.id, name));
+      }
+      return {
+        ...base,
+        label: member.label ?? agent.value.title,
+        modelSelection: yield* teamAgentModel({
+          parent,
+          agent: agent.value,
+          providers,
+          skipProjectEnablementFilter,
+        }),
+        agent: name,
+      };
+    }
+    if (suggestion !== undefined && name === undefined) {
+      const { target, connectors, ...suggested } = suggestion;
+      const { modelSelection } = yield* resolveTargetRechecking({
+        parent,
+        target,
+        providers,
+        skipProjectEnablementFilter,
+      });
+      return {
+        ...base,
+        label: member.label ?? suggested.title,
+        modelSelection,
+        suggestion: { ...suggested, connectors: connectors ?? [] },
+      };
+    }
+    return yield* failure("invalid_request", teamMemberChoiceMessage(member.id));
   });
 
   const requestKey = (clientRequestId: string | undefined): Effect.Effect<string> =>
@@ -1849,6 +2000,7 @@ const make = Effect.gen(function* () {
       );
       const inherited = parent?.thread.modelSelection;
       const searchTerms = input.search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+      const team = yield* teamCapabilities();
       return {
         parentThreadId: parent?.thread.id ?? null,
         inheritedProviderInstanceId: inherited?.instanceId ?? null,
@@ -1912,6 +2064,7 @@ const make = Effect.gen(function* () {
             constraints: [...constraints],
           };
         }),
+        ...team,
         features: {
           appOwnedSubagents: true,
           asyncPolling: true,
@@ -2320,21 +2473,13 @@ const make = Effect.gen(function* () {
       });
       const isRetryOfAcceptedProposal = yield* threadManagement.hasReceipt(commandId);
       const draft: TeamDraft = {
-        agents: yield* Effect.forEach(input.agents, (agent) =>
-          resolveTargetRechecking({
+        agents: yield* Effect.forEach(input.agents, (member) =>
+          teamMember({
             parent,
-            target: agent.target,
+            member,
             providers,
             skipProjectEnablementFilter: isRetryOfAcceptedProposal,
-          }).pipe(
-            Effect.map(({ modelSelection }) => ({
-              id: agent.id,
-              label: agent.label,
-              role: agent.role,
-              modelSelection,
-              workspace: agent.workspace ?? "shared",
-            })),
-          ),
+          }),
         ),
         tasks: input.tasks.map((task) => ({
           id: task.id,
@@ -2919,4 +3064,6 @@ export const layer: Layer.Layer<
   | ProjectService.ProjectService
   | SecretRequests.SecretRequests
   | ServerSettings.ServerSettingsService
+  | Agents.Agents
+  | ConnectorStore.ConnectorStore
 > = Layer.effect(OrchestratorMcpService, make);
