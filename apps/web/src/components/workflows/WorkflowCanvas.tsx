@@ -283,7 +283,8 @@ export function WorkflowCanvas(props: {
   readonly canConnect?: (from: WorkflowStepId, to: WorkflowStepId) => boolean;
   readonly onConnect?: (from: WorkflowStepId, to: WorkflowStepId) => void;
   readonly onDisconnect?: (from: WorkflowStepId, to: WorkflowStepId) => void;
-  readonly onAddStep?: (position: WorkflowPosition) => void;
+  /** Without a position, the step goes right of the rightmost one. */
+  readonly onAddStep?: (position?: WorkflowPosition) => void;
 }) {
   const editable = props.mode === "edit";
   const [scope] = useState(() => ({}));
@@ -586,9 +587,9 @@ function selectedEdgesAfter(
 function AddStepButton(props: {
   readonly positions: ReadonlyArray<WorkflowPosition>;
   readonly disabled: boolean;
-  readonly onAdd: (position: WorkflowPosition) => void;
+  readonly onAdd: (position?: WorkflowPosition) => void;
 }) {
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const domNode = useStore((state) => state.domNode);
   return (
     <Panel position="top-left">
@@ -598,7 +599,13 @@ function AddStepButton(props: {
         disabled={props.disabled}
         title={props.disabled ? `A workflow has at most ${WORKFLOW_STEP_LIMIT} steps.` : undefined}
         onClick={() => {
-          // New steps land in the middle of what the user is looking at.
+          if (props.positions.length > 0) {
+            // Steps read left to right, so the next one goes after the last; then show it.
+            props.onAdd();
+            window.setTimeout(() => void fitView({ padding: 0.2, duration: 200 }), 0);
+            return;
+          }
+          // The first step lands in the middle of what the user is looking at.
           const rect = domNode?.getBoundingClientRect();
           const center =
             rect === undefined
