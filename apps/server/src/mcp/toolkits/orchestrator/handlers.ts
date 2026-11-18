@@ -44,6 +44,27 @@ const handlers = {
       return yield* service.proposeTeam(scope, input);
     }),
   ),
+  propose_workflow: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.proposeWorkflow(scope, input);
+    }),
+  ),
+  review_step: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.reviewStep(scope, input);
+    }),
+  ),
+  save_run_note: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.saveRunNote(scope, input);
+    }),
+  ),
   codenine_workflow_stop: McpToolAccess.writesThreads(
     (input) => [input.threadId],
     (input) =>

@@ -367,7 +367,7 @@ export const OrchestratorMcpProposeWorkflowInput = Schema.Struct({
 });
 export type OrchestratorMcpProposeWorkflowInput = typeof OrchestratorMcpProposeWorkflowInput.Type;
 
-const ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT =
+export const ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT =
   "Nothing is saved until the user reviews it in the editor and saves it. Tell them what you drafted and end your turn.";
 
 export const OrchestratorMcpProposeWorkflowResult = Schema.Struct({

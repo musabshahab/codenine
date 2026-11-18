@@ -37,6 +37,35 @@ never creates one. The decider refuses `team.approve` until every member has an 
 its task's turn instead. A task thread is an agent chat, so Codenine's MCP tools that reach other
 chats refuse there. Members of plans from before agents have neither field and run plain threads.
 
+## Workflow runs
+
+A workflow run is a lead thread whose plan has `run`. `team.start` makes the plan approved and
+running in one command, so a run never reads as proposed, which the Inbox shows as needing the user.
+
+- **Review gate.** A step's completed settle stores its result and sets `review.awaiting`, but the
+  task stays `running`, so the steps that need it `completed` wait. The lead answers with
+  `team.task.review`: accept completes the task; revise bumps `review.round` and queues
+  `team-task.continue`, which sends the notes into the step's own thread as its next turn, on the
+  same model and session. The notes ride in the outbox row, not in the plan.
+- **Settle per run.** A step's thread settles once per run, so `team.task.settle` carries `runId`
+  and the reactor's command id is `server:team-task-settle:<thread>:<run>`. A per-thread id would
+  make the settle after a send-back a silent no-op, because even an unchanged settle stores its
+  receipt. The plan records `resultRunId` and ignores that run's settle afterwards.
+- **Wakes.** The lead is woken once per step and round with a system notification whose outcome is
+  `updated`, because a `completed` one turns its reply into a Task result. The run's completion wake
+  stays `completed` and asks the lead to call `save_run_note`.
+- **Holds.** `hold` (spend, time or review) stops launches and step wakes; running turns finish and
+  a send-back already decided still goes out. Under a spend or time hold a review waits for
+  `team.resume`, which wakes the lead again for every step awaiting review. Under a review hold the
+  user decides, and the hold lifts once no step awaits review. Holds and review are optional fields,
+  never new status literals: an older client decodes `teamSummary` strictly.
+- **Restart.** Restart recovery cancels a run that never started, which loses a wake or a
+  send-back. After activation the reactor wakes the lead again for each awaiting step whose wake it
+  never read, and resends each send-back whose turn never started, at most once per round.
+
+`propose_workflow` leaves a draft on its chat in `thread.workflowDraft`; nothing runs until the user
+saves it, and forks do not copy it.
+
 ## The plan lives in the thread payload
 
 Plan changes are `thread.metadata-updated` events, so the thread stream delivers them with no new
@@ -84,8 +113,8 @@ adds its own. A server older than the record cannot decode it (an unknown record
 
 ## Effects run on the lead's lane
 
-`team-task.launch`, `team-task.stop`, `team.lead-wake`, and `team.task-threads.settle` are queued
-under the lead thread's id, whichever task they act on. The outbox runs one thread's effects in
+`team-task.launch`, `team-task.stop`, `team-task.continue`, `team.lead-wake`, and
+`team.task-threads.settle` are queued under the lead thread's id, whichever task they act on. The outbox runs one thread's effects in
 order, which is what keeps a cancel's stop behind the launch of the same task, and its settle
 behind the stops. Each effect rereads the plan and does nothing when the task or plan has moved
 on, so replaying one after a restart is safe.
@@ -94,9 +123,10 @@ on, so replaying one after a restart is safe.
 its thread's work has ended, by the same rule that decides a delegated task has a result
 (`delegatedTaskProgress`). Like the other reactors it listens only after server activation, while
 restart recovery and the effect worker end runs before that. So once it listens, it sweeps the
-plans still `running` and settles each task whose work has ended. Reactor and sweep settle a task
+plans still `running` and settles each task whose work has ended. Reactor and sweep settle a run
 with the same command id, so whichever comes second is a no-op. A task waiting on a restart
 continuation is settled once that continuation is decided, since a declined one writes no event.
 
 `runtimeLayer.layer` leaves `TeamTaskService` unprovided, because it does not include thread launch.
-`layerProduction` provides it; a test built on `layer` supplies its own.
+`layerProduction` provides it, also to the reactor for restart recovery; a test built on `layer`
+supplies its own.
