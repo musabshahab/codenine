@@ -364,7 +364,7 @@ const make = Effect.gen(function* () {
     const review = yield* reviewer.decide({ threadId: thread.id, action });
     switch (review.type) {
       case "allow":
-        return { type: "run" } as const;
+        return { type: "run", reviewed: true } as const;
       case "block":
         return { type: "block", reason: review.reason } as const;
       case "ask":
@@ -462,7 +462,7 @@ const make = Effect.gen(function* () {
           })
         : ({ type: "run" } as const);
     if (gated.type === "block") {
-      yield* logActivity("declined", false);
+      yield* logActivity("blocked", false);
       return toolError(
         `Auto blocked this action: ${gated.reason}. Find another way that fits what the user asked, or ask them.`,
       );
@@ -552,7 +552,13 @@ const make = Effect.gen(function* () {
       return toolError(failure.message);
     }
     yield* logActivity(
-      result.success.isError === true ? "failed" : gated.type === "ask" ? "allowed" : "auto",
+      result.success.isError === true
+        ? "failed"
+        : gated.type === "ask"
+          ? "allowed"
+          : "reviewed" in gated
+            ? "reviewed"
+            : "auto",
       result.success.isError !== true,
     );
     return result.success;

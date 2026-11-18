@@ -293,7 +293,9 @@ export const APPROVAL_MODE_LABELS = { auto: "Automatic", ask: "Ask every time" }
 export const ACTIVITY_OUTCOME_LABELS: Record<ConnectorActivityOutcome, string> = {
   auto: "Automatic",
   allowed: "Allowed by you",
+  reviewed: "Allowed by Auto",
   declined: "Declined by you",
+  blocked: "Blocked by Auto",
   failed: "Failed",
   cancelled: "Cancelled",
 };

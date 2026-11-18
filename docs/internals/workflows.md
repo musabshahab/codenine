@@ -62,6 +62,7 @@ The run waits for the user (`team.hold`) when it reaches its spending or time li
 step's result has waited over a minute while its lead has no turn coming. A hold's command id
 names the plan, the reason and the limit, so each limit holds once, and raising it can hold again.
 
-The lead saves its note in its final turn, after the plan has ended. Once an ended plan has a
-note, the server appends it to `notes.md` and then records the run in `state.json`. An ended run is
-read again only when its lead thread has changed, at most once a minute.
+The lead saves its note in its final turn, after the plan has ended, so an ended run is settled
+only once its lead has no turn left: the server prices it one last time, appends its note to
+`notes.md`, and then records the run in `state.json`. An ended run is read again only when its
+lead thread has changed, at most once a minute.

@@ -48,12 +48,15 @@ done or failed. Select a step to open its chat. The lead's notes say what it dec
 
 A run waits for you when:
 
-- **It reaches a limit.** Choose **Go on** to raise the limit by its original amount, or **Stop
-  run**.
+- **It reaches a limit.** A step already working finishes first. Choose **Go on** to allow the
+  original amount again on top of what the run has used, or **Stop run**.
 - **A step's agent asks before going on.** **Open to answer** opens that step's chat. These also
   wait in your Inbox.
 - **The lead leaves a step for you.** Choose **Accept**, or **Send back** with what should change.
   You can also accept or send back any step while the lead is checking it.
+
+If Codenine stops during a run, the run carries on from the step it was on when Codenine starts
+again.
 
 **Runs**, beside **Canvas**, lists every run with how it started, its result, time and cost, and the
 scheduled runs that were skipped.

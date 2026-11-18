@@ -239,10 +239,13 @@ export type ConnectorTool = typeof ConnectorTool.Type;
 
 export const ConnectorToolsResult = Schema.Struct({ tools: Schema.Array(ConnectorTool) });
 
+/** `reviewed` and `blocked` are Auto's reviewer allowing or refusing an action that would ask. */
 export const ConnectorActivityOutcome = Schema.Literals([
   "auto",
   "allowed",
+  "reviewed",
   "declined",
+  "blocked",
   "failed",
   "cancelled",
 ]);

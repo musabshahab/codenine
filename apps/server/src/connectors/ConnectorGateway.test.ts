@@ -417,7 +417,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
           assert.deepStrictEqual((yield* store.get(github.id))?.toolApprovals, {});
           assert.deepStrictEqual(
             (yield* store.readActivity(github.id, 10)).map((entry) => entry.outcome),
-            ["allowed", "declined", "auto"],
+            ["allowed", "blocked", "reviewed"],
           );
         }).pipe(Effect.provide(harness.layer));
       }),
