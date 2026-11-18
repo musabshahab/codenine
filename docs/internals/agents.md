@@ -41,6 +41,11 @@ carries the same agent. An agent it cannot read gets no abilities.
   ([`McpHttpServer`](../../apps/server/src/mcp/McpHttpServer.ts)). The check reads the calling chat
   on every call, because a provider keeps its MCP session when the chat's agent changes.
 
+Agents never call other agents. An agent tricked by what it reads, such as an email or a page,
+could otherwise have an agent with wider abilities act for it. Agents work together only in a team,
+which a chat without an agent proposes and the user approves, or in a workflow. So no tool, such as
+`delegate_task`, may start an agent from an agent's chat.
+
 | Ability        | Claude Code                                             | Codex                                                |
 | -------------- | ------------------------------------------------------- | ---------------------------------------------------- |
 | Read files     | `Read`, `Glob`, `Grep`, `LSP` off                       | Not on its own: Codex reads files through its shell  |
