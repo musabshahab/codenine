@@ -12,6 +12,7 @@ import {
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
+  ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT,
   type OrchestratorMcpCapabilitiesResult,
   OrchestratorMcpTarget,
   type OrchestrationV2ThreadShell,
@@ -26,6 +27,7 @@ import {
   TeamPlanId,
   TeamTaskId,
   ThreadId,
+  WorkflowStepId,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadProjection,
@@ -2088,6 +2090,228 @@ describe("OrchestratorMcpService provider resolution", () => {
         }).pipe(
           Effect.provide(
             layerOrchestratorServiceWith(layerUserAgents).pipe(Layer.provide(layerDependencies)),
+          ),
+        );
+      }),
+  );
+
+  /** The service, on a caller chat that `callerThread` returns, recording what it dispatches. */
+  const layerLeadTools = (
+    callerThread: () => OrchestrationV2ThreadProjection["thread"],
+    dispatched: Array<OrchestrationV2ServerCommand>,
+  ) =>
+    layerOrchestratorServiceWith(
+      Layer.mergeAll(
+        Layer.mock(Agents.Agents)({
+          find: (name) =>
+            Effect.succeed(
+              name === "writer"
+                ? Option.some({
+                    name,
+                    title: "Writer",
+                    description: "Writes posts.",
+                    instructions: "",
+                    model: null,
+                    skills: [],
+                    connectors: [],
+                    abilities: {
+                      readFiles: true,
+                      editFiles: true,
+                      runCommands: false,
+                      searchWeb: true,
+                    },
+                  } satisfies AgentDefinition)
+                : Option.none(),
+            ),
+        }),
+        Layer.mock(ConnectorStore.ConnectorStore)({}),
+      ),
+    ).pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          NodeCrypto.layer,
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            getThreadRecords: () =>
+              Effect.sync(() => ({ thread: callerThread() }) as OrchestrationV2ThreadProjection),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatched.push(command);
+                return { sequence: 1, storedEvents: [] };
+              }),
+          }),
+          ServerSettings.layerTest(),
+          providerRegistryLayer([]),
+          adapterRegistryLayer([]),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+        ),
+      ),
+    );
+
+  it.effect(
+    "propose_workflow drafts on a plain chat from the user's agents, and never in an agent's chat, a team task or a run",
+    () =>
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationV2ServerCommand> = [];
+        const plainChat = parentProjection([]).thread;
+        let caller = plainChat;
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          type Step = Parameters<typeof service.proposeWorkflow>[1]["steps"][number];
+          const draftStep: Step = {
+            id: WorkflowStepId.make("draft"),
+            title: "Draft",
+            agent: "writer",
+            instructions: "Draft the post.",
+            doneWhen: "It cites three sources.",
+          };
+          const editor = { title: "Editor", description: "Edits posts.", instructions: "Edit." };
+          const reviewStep: Step = {
+            id: WorkflowStepId.make("review"),
+            title: "Review",
+            suggestion: editor,
+            instructions: "Review the draft.",
+            dependsOn: [WorkflowStepId.make("draft")],
+          };
+          const propose = (steps: ReadonlyArray<Step>) =>
+            service.proposeWorkflow(scope, {
+              title: "Weekly digest",
+              goal: "Publish a weekly digest",
+              steps,
+            });
+
+          for (const [steps, refusal] of [
+            [[{ ...draftStep, agent: "designer" }], 'no agent named "designer"'],
+            [[{ ...draftStep, agent: undefined }], 'Step "draft" needs exactly one of `agent`'],
+            [[reviewStep], 'depends on "draft", which is not a step of this workflow'],
+          ] as const) {
+            const refused = yield* propose(steps).pipe(Effect.flip);
+            assert.equal(refused.code, "invalid_request");
+            assert.include(refused.message, refusal);
+          }
+          assert.isEmpty(dispatched);
+
+          assert.deepEqual(yield* propose([draftStep, reviewStep]), {
+            status: "drafted",
+            next: ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT,
+          });
+          const command = dispatched[0] as Extract<
+            OrchestrationV2ServerCommand,
+            { readonly type: "workflow.draft.set" }
+          >;
+          assert.equal(command.threadId, parentThreadId);
+          assert.deepInclude(command.draft, {
+            title: "Weekly digest",
+            description: "",
+            goal: "Publish a weekly digest",
+            schedule: null,
+            inputs: [],
+          });
+          assert.deepEqual(command.draft.steps, [
+            {
+              id: draftStep.id,
+              title: "Draft",
+              agent: "writer",
+              instructions: "Draft the post.",
+              doneWhen: "It cites three sources.",
+              dependsOn: [],
+            },
+            {
+              id: reviewStep.id,
+              title: "Review",
+              agent: null,
+              suggestion: { ...editor, connectors: [] },
+              instructions: "Review the draft.",
+              doneWhen: "",
+              dependsOn: reviewStep.dependsOn!,
+            },
+          ]);
+
+          for (const [thread, refusal] of [
+            [{ ...plainChat, agent: "writer" }, "talks to an agent"],
+            [{ ...plainChat, teamTask: { taskId: "draft" } }, "run one task of a team"],
+            [{ ...plainChat, team: { run: {} } }, "lead a workflow run"],
+          ] as const) {
+            caller = thread as unknown as typeof plainChat;
+            const refused = yield* propose([draftStep]).pipe(Effect.flip);
+            assert.include(refused.message, refusal);
+          }
+          assert.lengthOf(dispatched, 1);
+        }).pipe(Effect.provide(layerLeadTools(() => caller, dispatched)));
+      }),
+  );
+
+  it.effect(
+    "only a run's lead reviews its steps, on each step's current round, and saves the run's note",
+    () =>
+      Effect.gen(function* () {
+        const dispatched: Array<OrchestrationV2ServerCommand> = [];
+        const plainChat = parentProjection([]).thread;
+        const planId = TeamPlanId.make("plan-1");
+        const draftId = TeamTaskId.make("draft");
+        const team = {
+          id: planId,
+          tasks: [{ id: draftId, attempt: 2, review: { round: 3, awaiting: true } }],
+        };
+        let caller: unknown = plainChat;
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const review = (verdict: "accept" | "revise", notes?: string) =>
+            service.reviewStep(scope, {
+              step: draftId,
+              verdict,
+              ...(notes === undefined ? {} : { notes }),
+            });
+          const note = service.saveRunNote(scope, {
+            headline: "Published the digest",
+            note: "Cover agents next week.",
+          });
+
+          // A plain chat, and a team's lead, lead no workflow run.
+          for (const thread of [plainChat, { ...plainChat, team }]) {
+            caller = thread;
+            for (const refused of [
+              yield* review("accept").pipe(Effect.flip),
+              yield* note.pipe(Effect.flip),
+            ]) {
+              assert.include(refused.message, "does not lead a workflow run");
+            }
+          }
+
+          caller = { ...plainChat, team: { ...team, run: {} } };
+          const unknownStep = yield* service
+            .reviewStep(scope, { step: TeamTaskId.make("publish"), verdict: "accept" })
+            .pipe(Effect.flip);
+          assert.include(unknownStep.message, 'no step "publish"');
+          assert.include((yield* review("revise").pipe(Effect.flip)).message, "`notes`");
+          assert.isEmpty(dispatched);
+
+          assert.deepEqual(yield* review("revise", "Cite sources."), {
+            status: "sent-back",
+            next: "Sent back. The step's agent fixes it in its own chat, and Codenine wakes you with the updated result. End your turn.",
+          });
+          assert.deepInclude(dispatched[0], {
+            type: "team.task.review",
+            threadId: parentThreadId,
+            planId,
+            taskId: draftId,
+            attempt: 2,
+            round: 3,
+            verdict: "revise",
+            notes: "Cite sources.",
+          });
+          assert.deepEqual(yield* note, { saved: true });
+          assert.deepInclude(dispatched[1], {
+            type: "team.run.update",
+            threadId: parentThreadId,
+            planId,
+            headline: "Published the digest",
+            note: "Cover agents next week.",
+          });
+        }).pipe(
+          Effect.provide(
+            layerLeadTools(() => caller as OrchestrationV2ThreadProjection["thread"], dispatched),
           ),
         );
       }),

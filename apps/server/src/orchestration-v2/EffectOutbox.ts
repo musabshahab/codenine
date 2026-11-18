@@ -127,13 +127,26 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     type: Schema.Literal("team-task.stop"),
     taskThreadId: ThreadId,
   }),
+  /** With a step, wakes a workflow run's lead to review that step's result in `round`. */
   Schema.Struct({
     type: Schema.Literal("team.lead-wake"),
     planId: TeamPlanId,
+    taskId: Schema.optional(TeamTaskId),
+    attempt: Schema.optional(PositiveInt),
+    round: Schema.optional(PositiveInt),
   }),
   Schema.Struct({
     type: Schema.Literal("team.task-threads.settle"),
     planId: TeamPlanId,
+  }),
+  /** A workflow step the lead sent back continues in its thread as `round`. */
+  Schema.Struct({
+    type: Schema.Literal("team-task.continue"),
+    planId: TeamPlanId,
+    taskId: TeamTaskId,
+    attempt: PositiveInt,
+    round: PositiveInt,
+    notes: Schema.String,
   }),
 ]);
 export type OrchestrationEffectRequestV2 = typeof OrchestrationEffectRequestV2.Type;
@@ -151,6 +164,7 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
   "team-task.stop",
   "team.lead-wake",
   "team.task-threads.settle",
+  "team-task.continue",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
 
 export const PROCESS_BOUND_EFFECT_TYPES = [

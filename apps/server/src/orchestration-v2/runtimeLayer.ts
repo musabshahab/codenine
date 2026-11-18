@@ -339,6 +339,8 @@ export const layerProduction = Layer.mergeAll(
     Layer.provide(Layer.merge(layerThreadManagementProvided, ProjectionStore.layer)),
   ),
   layer.pipe(Layer.provide(layerProjectService), Layer.provide(layerTeamTaskProvided)),
+  // The team task reactor recovers workflow runs through it after activation.
+  layerTeamTaskProvided,
   layerProjectService,
   layerManagedProjectFoldersProvided,
   layerThreadLaunchProvided,

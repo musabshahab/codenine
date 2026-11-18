@@ -566,6 +566,12 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "team.cancel":
     case "team.task.retry":
     case "team.task.settle":
+    case "team.task.review":
+    case "team.resume":
+    case "team.start":
+    case "team.hold":
+    case "team.run.update":
+    case "workflow.draft.set":
       return command.threadId;
     case "delegated_task.request":
     case "delegated_task.wake-policy":
@@ -3065,8 +3071,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ),
       );
     if (thread.deletedAt !== null) {
-      // The agent's result has nowhere to go; its own thread keeps it.
-      if (command.type === "team.task.settle") return;
+      // The agent's result has nowhere to go; its own thread keeps it. A deleted run has no limits.
+      if (
+        command.type === "team.task.settle" ||
+        command.type === "team.hold" ||
+        command.type === "team.run.update"
+      ) {
+        return;
+      }
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
@@ -3108,7 +3120,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             | "team-task.launch"
             | "team-task.stop"
             | "team.lead-wake"
-            | "team.task-threads.settle";
+            | "team.task-threads.settle"
+            | "team-task.continue";
         }
       >,
     ): PendingOrchestrationEffectV2 => ({
@@ -3117,6 +3130,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       threadId: command.threadId,
       request,
     });
+    const { sendBack } = decision;
     yield* Ref.update(effects, (existing) => [
       ...existing,
       ...decision.launch.map((task) =>
@@ -3130,6 +3144,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...decision.stop.map((taskThreadId) =>
         effect(taskThreadId, { type: "team-task.stop", taskThreadId }),
       ),
+      ...(sendBack === null
+        ? []
+        : [
+            effect(sendBack.task.id, {
+              type: "team-task.continue",
+              planId: plan.id,
+              taskId: sendBack.task.id,
+              attempt: sendBack.task.attempt,
+              round: sendBack.task.review?.round ?? 1,
+              notes: sendBack.notes,
+            }),
+          ]),
+      ...decision.reviewSteps.map((task) =>
+        effect(`step:${task.id}`, {
+          type: "team.lead-wake",
+          planId: plan.id,
+          taskId: task.id,
+          attempt: task.attempt,
+          round: task.review?.round ?? 1,
+        }),
+      ),
       ...(decision.wakeLead ? [effect(plan.id, { type: "team.lead-wake", planId: plan.id })] : []),
       // After the stops, so a cancelled team's threads have had their Stop sent.
       ...(decision.settleTaskThreads
@@ -3137,6 +3172,45 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         : []),
     ]);
   });
+
+  const dispatchWorkflowDraftSet = Effect.fn("orchestrationV2.dispatch.workflowDraftSet")(
+    function* (
+      command: Extract<OrchestrationV2InternalCommand, { readonly type: "workflow.draft.set" }>,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    ) {
+      const thread = yield* projectionStore
+        .getThread(command.threadId)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      const refusal =
+        thread.deletedAt !== null
+          ? `Thread ${command.threadId} is deleted.`
+          : thread.teamTask !== undefined
+            ? "workflow_task_thread: A team agent's thread cannot draft a workflow."
+            : undefined;
+      if (refusal !== undefined) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: refusal,
+        });
+      }
+      const now = yield* DateTime.now;
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...thread, workflowDraft: command.draft, updatedAt: now },
+      });
+    },
+  );
 
   const dispatchThreadVisit = Effect.fn("orchestrationV2.dispatch.threadVisit")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.visit" }>,
@@ -13230,7 +13304,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "team.cancel":
       case "team.task.retry":
       case "team.task.settle":
+      case "team.task.review":
+      case "team.resume":
+      case "team.start":
+      case "team.hold":
+      case "team.run.update":
         yield* dispatchTeamCommand(command, events, effects);
+        break;
+      case "workflow.draft.set":
+        yield* dispatchWorkflowDraftSet(command, events);
         break;
       default:
         return yield* dispatchUnsupported(command);
@@ -13340,6 +13422,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "thread.stop" ||
           command.type === "subagent.stop" ||
           command.type === "team.task.settle" ||
+          command.type === "team.hold" ||
+          command.type === "team.run.update" ||
           (command.type === "thread.delete" && command.onlyIfUnused === true),
         (_planned) =>
           new OrchestratorDispatchError({

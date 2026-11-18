@@ -187,6 +187,8 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "team.approve":
     case "team.cancel":
     case "team.task.retry":
+    case "team.task.review":
+    case "team.resume":
       return [command.threadId];
     case "delegated_task.request":
     case "delegated_task.wake-policy":

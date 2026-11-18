@@ -728,6 +728,7 @@ const make = Effect.gen(function* () {
         );
       case "team.propose":
       case "team.edit":
+      case "team.start":
         return orchestrator.getThreadRecords(command.threadId, []).pipe(
           Effect.flatMap((lead) =>
             Effect.forEach(
