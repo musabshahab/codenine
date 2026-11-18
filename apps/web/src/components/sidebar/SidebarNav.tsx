@@ -44,6 +44,8 @@ export function SidebarNewMenu(props: {
   /** Shift-click starts the chat in the current workspace. */
   onNewChat: (event: ReactMouseEvent) => void;
   onNewTeamTask: (() => void) | null;
+  /** Starts a chat with Workflow on, for the lead to draft a workflow from what the user writes. */
+  onNewWorkflow: (() => void) | null;
   onNewWorkspace: () => void;
 }) {
   return (
@@ -62,6 +64,10 @@ export function SidebarNewMenu(props: {
         <MenuItem disabled={props.onNewTeamTask === null} onClick={() => props.onNewTeamTask?.()}>
           <UsersIcon />
           New task with a team
+        </MenuItem>
+        <MenuItem disabled={props.onNewWorkflow === null} onClick={() => props.onNewWorkflow?.()}>
+          <WorkflowIcon />
+          New workflow
         </MenuItem>
         <MenuSeparator />
         <MenuItem onClick={props.onNewWorkspace}>

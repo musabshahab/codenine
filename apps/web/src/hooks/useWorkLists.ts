@@ -26,11 +26,14 @@ export function useNeedsYouEntries() {
   return selectNeedsYou(openWorkThreads(threads, `${nowMinute}Z`));
 }
 
-/** Task threads, which lead a team: every thread with a team plan, newest first. */
+/**
+ * Task threads, which lead a team: every thread with a team plan, newest first. Workflow runs are
+ * left out; they live on the Workflows pages.
+ */
 export function useTeamTasks(): ReadonlyArray<EnvironmentThreadShell> {
   const threads = useQuietThreadShells();
   return filterSidebarV2VisibleThreads(threads, null)
-    .filter((thread) => thread.source.teamSummary != null)
+    .filter((thread) => thread.source.teamSummary != null && thread.source.teamSummary.run == null)
     .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 }
 

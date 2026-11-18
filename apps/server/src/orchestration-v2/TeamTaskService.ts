@@ -2,6 +2,7 @@ import {
   CommandId,
   MessageId,
   type OrchestrationV2AppThread,
+  type OrchestrationV2Notification,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   ProjectId,
   type TeamAgent,
@@ -11,6 +12,7 @@ import {
   type TeamTaskId,
   ThreadId,
 } from "@codenine/contracts";
+import { isAwaitingReview } from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -26,7 +28,14 @@ import * as ThreadManagementService from "./ThreadManagementService.ts";
 import { userFacingDispatchErrorMessage } from "./UserFacingErrors.ts";
 
 export class TeamTaskError extends Schema.TaggedError<TeamTaskError>()("TeamTaskError", {
-  operation: Schema.Literals(["launch", "stop", "wake-lead", "settle-threads"]),
+  operation: Schema.Literals([
+    "launch",
+    "stop",
+    "wake-lead",
+    "settle-threads",
+    "continue",
+    "recover",
+  ]),
   threadId: ThreadId,
   cause: Schema.Defect(),
 }) {
@@ -69,19 +78,52 @@ export class TeamTaskService extends Context.Service<
       readonly taskThreadId: ThreadId;
       readonly commandId: CommandId;
     }) => Effect.Effect<void, TeamTaskError>;
-    /** Tells the lead agent its plan finished or got stuck, once per `commandId`. */
+    /**
+     * Tells the lead agent its plan finished or got stuck, or with `step`, that a workflow step's
+     * result waits for its review in that round. Once per `commandId`.
+     */
     readonly wakeLead: (input: {
       readonly leadThreadId: ThreadId;
       readonly planId: TeamPlanId;
       readonly commandId: CommandId;
+      readonly step?: TeamStepRound;
     }) => Effect.Effect<void, TeamTaskError>;
+    /** Sends a workflow step back into its own thread with the lead's notes, once per round. */
+    readonly continueTask: (
+      input: TeamStepRound & {
+        readonly leadThreadId: ThreadId;
+        readonly planId: TeamPlanId;
+        readonly notes: string;
+      },
+    ) => Effect.Effect<void, TeamTaskError>;
     /** Settles the threads of every attempt of a completed or cancelled plan, never the lead. */
     readonly settleTaskThreads: (input: {
       readonly leadThreadId: ThreadId;
       readonly planId: TeamPlanId;
     }) => Effect.Effect<void, TeamTaskError>;
+    /**
+     * After a restart, wakes the lead again for each step whose review wake was lost, and resends
+     * each send-back whose turn never started; restart recovery cancels both.
+     */
+    readonly recoverRun: (input: {
+      readonly leadThreadId: ThreadId;
+      readonly planId: TeamPlanId;
+    }) => Effect.Effect<void, TeamTaskError>;
   }
 >()("codenine/orchestration-v2/TeamTaskService") {}
+
+interface TeamStepRound {
+  readonly taskId: TeamTaskId;
+  readonly attempt: number;
+  readonly round: number;
+}
+
+interface LeadWake {
+  readonly commandId: CommandId;
+  readonly messageId: MessageId;
+  readonly text: string;
+  readonly notification: OrchestrationV2Notification;
+}
 
 interface EarlierResult {
   readonly task: TeamTask;
@@ -95,18 +137,36 @@ function taskBrief(input: {
   readonly task: TeamTask;
   readonly earlier: ReadonlyArray<EarlierResult>;
 }): string {
-  const { agent, task } = input;
-  const sections = [
-    agent.role === "custom"
-      ? `Act as "${agent.label}" on this team.`
-      : `Act as the ${agent.role} agent "${agent.label}" on this team.`,
-    `Team goal:\n${input.plan.goal}`,
-    `Your task: ${task.title}\n${task.brief}`,
-  ];
+  const { agent, task, plan } = input;
+  const { run } = plan;
+  const sections =
+    run === undefined
+      ? [
+          agent.role === "custom"
+            ? `Act as "${agent.label}" on this team.`
+            : `Act as the ${agent.role} agent "${agent.label}" on this team.`,
+          `Team goal:\n${plan.goal}`,
+          `Your task: ${task.title}\n${task.brief}`,
+        ]
+      : [
+          `You do one step of the workflow "${run.title}".`,
+          `Workflow goal:\n${plan.goal}`,
+          ...(run.inputs.length === 0
+            ? []
+            : [
+                [
+                  "Inputs for this run:",
+                  ...run.inputs.map((value) => `- ${value.name}: ${value.value}`),
+                ].join("\n"),
+              ]),
+          `Your step: ${task.title}\n${task.brief}`,
+        ];
+  const doneWhen = task.doneWhen?.trim();
+  if (doneWhen) sections.push(`Done when: ${doneWhen}`);
   if (input.earlier.length > 0) {
     sections.push(
       [
-        "Results from earlier tasks:",
+        run === undefined ? "Results from earlier tasks:" : "Results from earlier steps:",
         ...input.earlier.map(({ task: earlier, checkout }) => {
           const where =
             checkout === undefined
@@ -118,7 +178,9 @@ function taskBrief(input: {
     );
   }
   sections.push(
-    "Your final message is the hand-off to the next agent. State what you did and where: files, branch, and anything left open.",
+    run === undefined
+      ? "Your final message is the hand-off to the next agent. State what you did and where: files, branch, and anything left open."
+      : "Your final message is your result. The lead checks it against the goal and Done when, and may send it back to you with notes. State what you did and where: files, links, and anything left open.",
   );
   return sections.join("\n\n");
 }
@@ -133,17 +195,43 @@ const startFailureReason = (failure: unknown): string =>
 
 const WAKE_RESULT_BUDGET_CHARS = 16_000;
 
+const memberOf = (plan: TeamPlan, task: TeamTask) => {
+  const agent = plan.agents.find((candidate) => candidate.id === task.agentId);
+  return agent === undefined ? task.agentId : `${agent.label} (${agent.modelSelection.model})`;
+};
+
+const threadOf = (task: TeamTask) =>
+  task.threadId === null
+    ? "not started"
+    : formatThreadLink({ environmentId: null, threadId: task.threadId }, task.title);
+
+const TEAM_WAKE_WORDS = {
+  completed: "Your team finished: every task completed.",
+  failed:
+    "Your team is stuck: a task did not complete, so the tasks that depend on it cannot start.",
+  list: "Tasks:",
+  completedNext:
+    "Write the user one final summary: what changed and in which main files, how it was verified (the tests or checks the agents ran, and their results), what is still open or untested, and how to run or try it. End with each task thread's link for detail.",
+  failedNext:
+    "Tell the user which task failed and which tasks it blocks. They decide whether to retry it; do not redo the work yourself unless they ask.",
+} as const;
+
+const RUN_WAKE_WORDS = {
+  completed: "Your workflow run finished: every step was accepted.",
+  failed:
+    "Your workflow run is stuck: a step did not complete, so the steps that depend on it cannot start.",
+  list: "Steps:",
+  completedNext:
+    "Write the user one final summary of this run: what was done, links to anything published or changed, and anything left open. Then call save_run_note with a one-line headline for the run history and a short note on what the next run should know.",
+  failedNext:
+    "Tell the user which step failed and which steps it blocks. They decide whether to retry it; do not redo the work yourself unless they ask.",
+} as const;
+
 function wakeText(plan: TeamPlan): string {
+  const words = plan.run === undefined ? TEAM_WAKE_WORDS : RUN_WAKE_WORDS;
   let budget = WAKE_RESULT_BUDGET_CHARS;
   const tasks = plan.tasks.map((task) => {
-    const agent = plan.agents.find((candidate) => candidate.id === task.agentId);
-    const who =
-      agent === undefined ? task.agentId : `${agent.label} (${agent.modelSelection.model})`;
-    const thread =
-      task.threadId === null
-        ? "not started"
-        : formatThreadLink({ environmentId: null, threadId: task.threadId }, task.title);
-    const heading = `- ${task.title}: ${task.status}. Agent: ${who}. Thread: ${thread}`;
+    const heading = `- ${task.title}: ${task.status}. Agent: ${memberOf(plan, task)}. Thread: ${threadOf(task)}`;
     if (task.result === null) return heading;
     if (task.result.length > budget) {
       return `${heading}\n  Result left out to keep this message short. Read the thread.`;
@@ -152,16 +240,40 @@ function wakeText(plan: TeamPlan): string {
     return `${heading}\n${task.result}`;
   });
   return [
-    plan.status === "completed"
-      ? "Your team finished: every task completed."
-      : "Your team is stuck: a task did not complete, so the tasks that depend on it cannot start.",
+    plan.status === "completed" ? words.completed : words.failed,
     `Goal: ${plan.goal}`,
-    ["Tasks:", ...tasks].join("\n"),
-    plan.status === "completed"
-      ? "Write the user one final summary: what changed and in which main files, how it was verified (the tests or checks the agents ran, and their results), what is still open or untested, and how to run or try it. End with each task thread's link for detail."
-      : "Tell the user which task failed and which tasks it blocks. They decide whether to retry it; do not redo the work yourself unless they ask.",
+    [words.list, ...tasks].join("\n"),
+    plan.status === "completed" ? words.completedNext : words.failedNext,
   ].join("\n\n");
 }
+
+/** Asks a workflow run's lead to review one step's result. */
+function stepWakeText(plan: TeamPlan, task: TeamTask, round: number): string {
+  const doneWhen = task.doneWhen?.trim();
+  return [
+    `Step "${task.title}" (\`${task.id}\`) is ready for your review, round ${round}.`,
+    [
+      `Agent: ${memberOf(plan, task)}. Thread: ${threadOf(task)}`,
+      `Goal: ${plan.goal}`,
+      ...(doneWhen ? [`Done when: ${doneWhen}`] : []),
+    ].join("\n"),
+    `Result:\n${task.result ?? "No result was recorded."}`,
+    `Check it against the goal and Done when, then call review_step with step "${task.id}": accept, or revise with exactly what to fix. Then end your turn.`,
+  ].join("\n\n");
+}
+
+const sendBackText = (notes: string) =>
+  `The lead sent your work back:\n\n${notes}\n\nFix this and reply with your complete, updated result.`;
+
+/** Each round of a step has one review wake on its way at a time; restart recovery finds them. */
+const stepWakeMessagePrefix = (taskThreadId: ThreadId, round: number) =>
+  `message:team-step-wake:${taskThreadId}:${round}:`;
+
+/** The send-back that starts a step's round, so a replayed effect sends it once. */
+const sendBackKey = (taskThreadId: ThreadId, round: number, delivery: SendBackDelivery) =>
+  `team-task-continue:${taskThreadId}:${round}${delivery === "after-restart" ? ":after-restart" : ""}`;
+
+type SendBackDelivery = "first" | "after-restart";
 
 const STOP_SETTLE_WAIT_MS = 10 * 60 * 1_000;
 
@@ -340,31 +452,88 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  const wakeLead: TeamTaskService["Service"]["wakeLead"] = Effect.fn("TeamTaskService.wakeLead")(
-    function* (input) {
+  // A completed notification turns the lead's reply into a Task result, so only the plan's own is.
+  const planWake = (plan: TeamPlan, commandId: CommandId): LeadWake | undefined => {
+    // A retry since this effect was written set the plan running again.
+    if (plan.status !== "completed" && plan.status !== "failed") return undefined;
+    const subject = plan.run === undefined ? "team" : "run";
+    return {
+      commandId: CommandId.make(`${commandId}:team-lead-wake`),
+      messageId: MessageId.make(`message:team-lead-wake:${commandId}`),
+      text: wakeText(plan),
+      notification: {
+        source: { kind: "system" },
+        outcome: plan.status,
+        summary:
+          plan.status === "completed" ? `The ${subject} finished` : `The ${subject} is stuck`,
+      },
+    };
+  };
+
+  const stepWake = Effect.fn("TeamTaskService.stepWake")(function* (
+    leadThreadId: ThreadId,
+    plan: TeamPlan,
+    step: TeamStepRound,
+    commandId: CommandId,
+    afterRestart: boolean,
+  ) {
+    const task = plan.tasks.find((candidate) => candidate.id === step.taskId);
+    // The lead reviewed this round already, or a hold, retry or cancel came first.
+    if (
+      plan.status !== "running" ||
+      plan.hold !== undefined ||
+      task === undefined ||
+      task.threadId === null ||
+      !isAwaitingReview(task) ||
+      task.attempt !== step.attempt ||
+      task.review?.round !== step.round
+    ) {
+      return undefined;
+    }
+    const prefix = stepWakeMessagePrefix(task.threadId, step.round);
+    const { runs } = yield* threads.getThreadRecords(leadThreadId, ["runs"]);
+    const earlier = runs.filter((run) => run.userMessageId.startsWith(prefix));
+    // One wake per round waits in the lead's queue; one the lead read before a restart stays read.
+    if (
+      earlier.some(
+        (run) =>
+          !ThreadManagementService.isTerminalRunStatus(run.status) ||
+          (afterRestart && run.status === "completed"),
+      )
+    ) {
+      return undefined;
+    }
+    return {
+      commandId: CommandId.make(`${commandId}:team-step-wake:${task.id}`),
+      messageId: MessageId.make(`${prefix}${commandId}`),
+      text: stepWakeText(plan, task, step.round),
+      notification: {
+        source: { kind: "system" },
+        outcome: "updated",
+        summary: `"${task.title}" is ready for review`,
+      },
+    } satisfies LeadWake;
+  });
+
+  const wakeLeadWith = Effect.fn("TeamTaskService.wakeLead")(
+    function* (
+      input: Parameters<TeamTaskService["Service"]["wakeLead"]>[0] & {
+        readonly afterRestart: boolean;
+      },
+    ) {
       const { thread: lead } = yield* threads.getThreadRecords(input.leadThreadId, []);
       const plan = lead.team;
-      // A retry since this effect was written set the plan running again.
-      if (
-        plan?.id !== input.planId ||
-        (plan.status !== "completed" && plan.status !== "failed") ||
-        lead.archivedAt !== null ||
-        lead.deletedAt !== null
-      ) {
-        return;
-      }
+      if (plan?.id !== input.planId || lead.archivedAt !== null || lead.deletedAt !== null) return;
+      const wake =
+        input.step === undefined
+          ? planWake(plan, input.commandId)
+          : yield* stepWake(lead.id, plan, input.step, input.commandId, input.afterRestart);
+      if (wake === undefined) return;
       yield* threads
         .dispatch({
           type: "message.dispatch",
-          commandId: CommandId.make(`${input.commandId}:team-lead-wake`),
+          ...wake,
           threadId: lead.id,
-          messageId: MessageId.make(`message:team-lead-wake:${input.commandId}`),
-          text: wakeText(plan),
-          notification: {
-            source: { kind: "system" },
-            outcome: plan.status,
-            summary: plan.status === "completed" ? "The team finished" : "The team is stuck",
-          },
           attachments: [],
           dispatchMode: { type: "queue_after_active" },
           createdBy: "agent",
@@ -386,6 +555,165 @@ const make = Effect.gen(function* () {
         Effect.mapError(
           (cause) =>
             new TeamTaskError({ operation: "wake-lead", threadId: input.leadThreadId, cause }),
+        ),
+      ),
+  );
+
+  const wakeLead: TeamTaskService["Service"]["wakeLead"] = (input) =>
+    wakeLeadWith({ ...input, afterRestart: false });
+
+  const sendBack = Effect.fn("TeamTaskService.sendBack")(function* (input: {
+    readonly leadThreadId: ThreadId;
+    readonly planId: TeamPlanId;
+    readonly task: TeamTask;
+    readonly taskThreadId: ThreadId;
+    readonly round: number;
+    readonly text: string;
+    readonly delivery: SendBackDelivery;
+  }) {
+    const key = sendBackKey(input.taskThreadId, input.round, input.delivery);
+    // The same chat, on the same model and provider session as the result it fixes.
+    const sent = yield* threads
+      .dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make(`server:${key}`),
+        threadId: input.taskThreadId,
+        messageId: MessageId.make(`message:${key}`),
+        text: input.text,
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+        senderThreadId: input.leadThreadId,
+        createdBy: "agent",
+        creationSource: "server",
+      })
+      .pipe(Effect.result);
+    if (sent._tag === "Success") return;
+    // A step that cannot take the notes fails, so the user can retry it in a new thread.
+    yield* threads.dispatch({
+      type: "team.task.settle",
+      commandId: CommandId.make(`server:${key}:failed`),
+      threadId: input.leadThreadId,
+      planId: input.planId,
+      taskId: input.task.id,
+      attempt: input.task.attempt,
+      status: "failed",
+      result: `The lead's notes could not reach this step: ${userFacingDispatchErrorMessage(sent.failure) ?? "its thread did not take them."}`,
+    });
+  });
+
+  const continueTask: TeamTaskService["Service"]["continueTask"] = Effect.fn(
+    "TeamTaskService.continueTask",
+  )(
+    function* (input) {
+      const { thread: lead } = yield* threads.getThreadRecords(input.leadThreadId, []);
+      const plan = lead.team;
+      const task =
+        plan?.id === input.planId
+          ? plan.tasks.find((candidate) => candidate.id === input.taskId)
+          : undefined;
+      // A cancel, a retry or a later review since this effect was written owns the step now.
+      if (
+        plan == null ||
+        plan.status !== "running" ||
+        task === undefined ||
+        task.status !== "running" ||
+        task.threadId === null ||
+        task.attempt !== input.attempt ||
+        task.review === undefined ||
+        task.review.awaiting ||
+        task.review.round !== input.round
+      ) {
+        return;
+      }
+      yield* sendBack({
+        leadThreadId: lead.id,
+        planId: plan.id,
+        task,
+        taskThreadId: task.threadId,
+        round: input.round,
+        text: sendBackText(input.notes),
+        delivery: "first",
+      });
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new TeamTaskError({ operation: "continue", threadId: input.leadThreadId, cause }),
+        ),
+      ),
+  );
+
+  const resendSendBack = Effect.fn("TeamTaskService.resendSendBack")(function* (input: {
+    readonly leadThreadId: ThreadId;
+    readonly planId: TeamPlanId;
+    readonly task: TeamTask;
+    readonly taskThreadId: ThreadId;
+    readonly round: number;
+  }) {
+    const messageId = (delivery: SendBackDelivery) =>
+      MessageId.make(`message:${sendBackKey(input.taskThreadId, input.round, delivery)}`);
+    const { runs, messages } = yield* threads.getThreadRecords(
+      input.taskThreadId,
+      ["runs", "messages"],
+      { messageIds: [messageId("first"), messageId("after-restart")] },
+    );
+    const sent = messages.find((message) => message.id === messageId("first"));
+    const run = runs.find((candidate) => candidate.userMessageId === messageId("first"));
+    // Restart recovery cancels a turn that never started, so the agent never read these notes.
+    if (
+      sent === undefined ||
+      messages.some((message) => message.id === messageId("after-restart")) ||
+      run?.status !== "cancelled" ||
+      run.startedAt !== null
+    ) {
+      return;
+    }
+    yield* sendBack({ ...input, text: sent.text, delivery: "after-restart" });
+  });
+
+  const recoverRun: TeamTaskService["Service"]["recoverRun"] = Effect.fn(
+    "TeamTaskService.recoverRun",
+  )(
+    function* (input) {
+      const { thread: lead } = yield* threads.getThreadRecords(input.leadThreadId, []);
+      const plan = lead.team;
+      // A held run wakes nobody; resuming it wakes the lead for every step that waits.
+      if (
+        plan?.id !== input.planId ||
+        plan.run === undefined ||
+        plan.status !== "running" ||
+        plan.hold !== undefined
+      ) {
+        return;
+      }
+      for (const task of plan.tasks) {
+        const { threadId, review } = task;
+        if (task.status !== "running" || threadId === null || review === undefined) continue;
+        if (review.awaiting) {
+          yield* wakeLeadWith({
+            leadThreadId: lead.id,
+            planId: plan.id,
+            commandId: CommandId.make(`server:team-step-rewake:${threadId}:${review.round}`),
+            step: { taskId: task.id, attempt: task.attempt, round: review.round },
+            afterRestart: true,
+          });
+        } else if (review.round > 1) {
+          yield* resendSendBack({
+            leadThreadId: lead.id,
+            planId: plan.id,
+            task,
+            taskThreadId: threadId,
+            round: review.round,
+          });
+        }
+      }
+    },
+    (effect, input) =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new TeamTaskError({ operation: "recover", threadId: input.leadThreadId, cause }),
         ),
       ),
   );
@@ -453,7 +781,14 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  return TeamTaskService.of({ launchTask, stopTask, wakeLead, settleTaskThreads });
+  return TeamTaskService.of({
+    launchTask,
+    stopTask,
+    wakeLead,
+    continueTask,
+    settleTaskThreads,
+    recoverRun,
+  });
 });
 
 export const layer = Layer.effect(TeamTaskService, make);

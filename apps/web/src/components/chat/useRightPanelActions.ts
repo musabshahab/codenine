@@ -36,8 +36,8 @@ interface RightPanelActionsInput {
 }
 
 /**
- * Opening, closing, and arranging the right panel's surfaces: diff, files, task, and terminal
- * tabs.
+ * Opening, closing, and arranging the right panel's surfaces: diff, files, task, workflow, and
+ * terminal tabs.
  */
 export function useRightPanelActions(input: RightPanelActionsInput) {
   const {
@@ -95,6 +95,10 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "task");
   };
   const openTaskSurfaceStable = useStableCallback(openTaskSurface);
+  const openWorkflowSurface = () => {
+    if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "workflow");
+  };
+  const openWorkflowSurfaceStable = useStableCallback(openWorkflowSurface);
   const openFileSurface = (relativePath: string) => {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
@@ -242,6 +246,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
     openTaskSurfaceStable,
+    openWorkflowSurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,

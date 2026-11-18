@@ -4,9 +4,10 @@ An eval runs a real model against Codenine's real text or code and scores what t
 
 Write or run an eval when a change affects what a model sees or does: agent instructions, MCP tool descriptions and schemas, tool results, or the guidance an agent gets for a feature.
 
-| Eval                          | Measures                                                           |
-| ----------------------------- | ------------------------------------------------------------------ |
-| [mcp-tool-use](mcp-tool-use/) | Whether agents use Codenine's MCP tools correctly in fake threads. |
+| Eval                            | Measures                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| [action-review](action-review/) | Whether Auto's reviewer allows what the user asked for and blocks the rest. |
+| [mcp-tool-use](mcp-tool-use/)   | Whether agents use Codenine's MCP tools correctly in fake threads.          |
 
 ## Run an eval
 

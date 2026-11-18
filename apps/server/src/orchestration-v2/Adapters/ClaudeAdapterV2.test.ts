@@ -913,8 +913,12 @@ describe("ClaudeAdapterV2 session permissions", () => {
   });
 });
 
-describe("ClaudeAdapterV2 Auto-accept edits", () => {
-  it.effect("asks before a command instead of allowing it", () =>
+describe("ClaudeAdapterV2 approval callback", () => {
+  // In auto, Claude hands the callback what its classifier could not decide.
+  it.effect.each([
+    { runtimeMode: "auto-accept-edits", permissionMode: "acceptEdits" },
+    { runtimeMode: "auto", permissionMode: "auto" },
+  ] as const)("asks before a command in $runtimeMode instead of allowing it", (mode) =>
     Effect.scoped(
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -955,7 +959,7 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
           },
         });
         const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-          runtimeMode: "auto-accept-edits",
+          runtimeMode: mode.runtimeMode,
           interactionMode: "default",
           cwd: "/workspace",
         });
@@ -983,7 +987,7 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
             runtimePolicy,
           }),
         );
-        assert.equal(openedOptions?.permissionMode, "acceptEdits");
+        assert.equal(openedOptions?.permissionMode, mode.permissionMode);
         const canUseTool = openedOptions?.canUseTool;
         assert.isFunction(canUseTool);
 

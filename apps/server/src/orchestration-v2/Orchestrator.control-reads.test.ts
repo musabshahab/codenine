@@ -1715,6 +1715,7 @@ it.effect("records a connector approval card and keeps the first answer", () =>
         preview: "The release is on Friday.",
         approvalStatus: status,
         ...(status === "allowed" ? { remembered: true } : {}),
+        autoReason: "Auto's review took too long, so it asks you.",
       });
     const card = Effect.gen(function* () {
       const item = (yield* projections.getThreadProjection(threadId)).turnItems.find(
@@ -1730,6 +1731,7 @@ it.effect("records a connector approval card and keeps the first answer", () =>
       title: "Gmail wants to send a draft",
       approvalStatus: "pending",
       completedAt: null,
+      autoReason: "Auto's review took too long, so it asks you.",
     });
     yield* record("allowed");
     yield* record("cancelled");

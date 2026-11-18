@@ -840,6 +840,7 @@ export function resolveSidebarFolderDot(
     reasons.has("approval") ||
     reasons.has("question") ||
     reasons.has("review") ||
+    reasons.has("waiting") ||
     statuses.has("limited")
   ) {
     return "attention";

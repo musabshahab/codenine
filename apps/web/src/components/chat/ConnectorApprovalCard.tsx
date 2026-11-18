@@ -101,6 +101,9 @@ function PendingConnectorApproval(props: {
         <h3 id={titleId} className="text-sm font-semibold text-foreground">
           {item.connectorName} wants to {item.action}
         </h3>
+        {item.autoReason === undefined ? null : (
+          <p className="text-xs text-muted-foreground">{item.autoReason}</p>
+        )}
         {item.details.length > 0 ? (
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
             {item.details.map((detail) => (

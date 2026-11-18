@@ -66,11 +66,12 @@ links, so a context link is never mistaken for a mention.
    records produce a marker but no entry. Unknown kinds emit their payload as JSON.
 3. Captured text is data: any `<` that would open or close `codenine_context` or `context` is escaped,
    so a terminal line or PR comment cannot forge a record.
-4. A `team-request` record is about the whole message, so no reference links it. It appends one
-   instruction after the text; see [Team tasks](./team-tasks.md#the-composers-team-toggle).
+4. A `team-request` or `workflow-request` record is about the whole message, so no reference
+   links it. It appends one instruction after the text; see
+   [Team tasks](./team-tasks.md#the-composers-team-and-workflow-toggles).
 
 Attachment bytes travel on the existing attachment channel; the envelope only carries metadata.
-Text without references or a team request is returned unchanged.
+Text without references or a Team or Workflow request is returned unchanged.
 
 ## Legacy messages
 

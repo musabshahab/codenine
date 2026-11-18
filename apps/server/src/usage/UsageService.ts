@@ -9,6 +9,7 @@ import {
   type UsagePricing,
   type UsageSummary,
   type UsageSummaryInput,
+  type UsageTokenTotals,
   UsageReadError,
 } from "@codenine/contracts";
 import * as HostProcess from "@codenine/shared/HostProcess";
@@ -48,6 +49,7 @@ import {
   parseOpenRouterRateTable,
   parseRateTable,
   preferRates,
+  priceUsage,
   type RateTable,
 } from "./usagePricing.ts";
 import {
@@ -154,6 +156,15 @@ export class UsageService extends Context.Service<
   {
     readonly readSummary: (input: UsageSummaryInput) => Effect.Effect<UsageSummary, UsageReadError>;
     readonly refreshRates: Effect.Effect<UsagePricing>;
+    /**
+     * Prices token usage as the Usage page does, in US dollars. With `download` it fetches the
+     * public price lists when they are missing or old; without, it uses only prices already
+     * loaded or saved. Null when a model's price is unknown.
+     */
+    readonly priceTokenUsage: (input: {
+      readonly usage: ReadonlyArray<{ readonly model: string; readonly totals: UsageTokenTotals }>;
+      readonly download: boolean;
+    }) => Effect.Effect<number | null>;
   }
 >()("codenine/usage/UsageService") {}
 
@@ -241,26 +252,27 @@ export const make = Effect.gen(function* () {
         Effect.catchCause(() => Effect.succeed(null)),
       );
 
+    let diskRead = false;
+    const readDiskCache = Effect.gen(function* () {
+      if (fetchedAtMs !== null || diskRead) return;
+      diskRead = true;
+      const fromDisk = yield* fileSystem.readFileString(list.cachePath).pipe(
+        Effect.flatMap((raw) => decodeRatesCache(raw)),
+        Effect.catchCause(() => Effect.succeed(null)),
+      );
+      if (fromDisk === null) return;
+      const parsed = list.parse(fromDisk.document);
+      if (parsed.size === 0) return;
+      table = parsed;
+      fetchedAtMs = fromDisk.fetchedAtMs;
+      status = "cached";
+    });
+
     const loadRates = Effect.fn("UsageService.loadRates")(function* (force: boolean) {
       const now = yield* Clock.currentTimeMillis;
       const maxAgeMs = force ? RATES_REFRESH_FLOOR_MS : RATES_TTL_MS;
+      yield* readDiskCache;
       if (fetchedAtMs !== null && now - fetchedAtMs < maxAgeMs) return;
-
-      if (fetchedAtMs === null) {
-        const fromDisk = yield* fileSystem.readFileString(list.cachePath).pipe(
-          Effect.flatMap((raw) => decodeRatesCache(raw)),
-          Effect.catchCause(() => Effect.succeed(null)),
-        );
-        if (fromDisk !== null) {
-          const parsed = list.parse(fromDisk.document);
-          if (parsed.size > 0) {
-            table = parsed;
-            fetchedAtMs = fromDisk.fetchedAtMs;
-            status = "cached";
-            if (now - fromDisk.fetchedAtMs < maxAgeMs) return;
-          }
-        }
-      }
 
       if (lastFailedAtMs !== null && now - lastFailedAtMs < RATES_REFRESH_FLOOR_MS) return;
 
@@ -288,6 +300,8 @@ export const make = Effect.gen(function* () {
 
     return {
       ensure: (force: boolean) => lock.withPermit(loadRates(force)),
+      /** Loads only what an earlier download left on disk. */
+      ensureCached: lock.withPermit(readDiskCache),
       current: () => ({ table, fetchedAtMs, status }),
     };
   });
@@ -359,6 +373,40 @@ export const make = Effect.gen(function* () {
     yield* ensureRates(true, openRouter);
     return pricing(ratesFor(openRouter));
   }).pipe(Effect.withSpan("UsageService.refreshRates"));
+
+  const priceTokenUsage = Effect.fn("UsageService.priceTokenUsage")(function* (input: {
+    readonly usage: ReadonlyArray<{ readonly model: string; readonly totals: UsageTokenTotals }>;
+    readonly download: boolean;
+  }) {
+    const settings = yield* settingsService.getSettings.pipe(Effect.option);
+    const openRouter = Option.isSome(settings) ? yield* usesOpenRouter(settings.value) : false;
+    if (input.download) yield* ensureRates(false, openRouter);
+    else {
+      yield* Effect.forEach(
+        openRouter ? [liteLlmRates, openRouterRates] : [liteLlmRates],
+        (rates) => rates.ensureCached,
+        { discard: true },
+      );
+    }
+    const rates = ratesFor(openRouter);
+    const overrides = Option.isSome(settings)
+      ? createOverrideRateTable(settings.value.usagePriceOverrides)
+      : undefined;
+    const aliases = Option.isSome(settings)
+      ? resolveModelAliases(settings.value.usageModelAliases)
+      : new Map<string, string>();
+    let costUsd = 0;
+    for (const { model, totals } of input.usage) {
+      const priced = priceUsage(
+        rates,
+        { model: aliases.get(model) ?? model, totals, speed: "standard", reportedCostUsd: null },
+        overrides,
+      );
+      if (priced.costSource === "unpriced") return null;
+      costUsd += priced.costUsd;
+    }
+    return costUsd;
+  });
 
   const readSettings = settingsService.getSettings.pipe(
     Effect.catchCause(
@@ -1015,7 +1063,7 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(deferred);
   });
 
-  return { readSummary, refreshRates, awaitPersisted } as const;
+  return { readSummary, refreshRates, priceTokenUsage, awaitPersisted } as const;
 });
 
 export const layer = Layer.effect(UsageService, make);

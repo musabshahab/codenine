@@ -17,13 +17,17 @@ import * as Stream from "effect/Stream";
 import { forkParked } from "../serverActivation.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as TeamTaskService from "./TeamTaskService.ts";
 
 export class TeamTaskReactor extends Context.Service<
   TeamTaskReactor,
   {
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
-    /** Settles running tasks whose work ended while nothing listened, such as across a restart. */
+    /**
+     * Settles running tasks whose work ended while nothing listened, such as across a restart, and
+     * redelivers a workflow run's review wakes and send-backs that the restart cancelled.
+     */
     readonly recover: () => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("codenine/orchestration-v2/TeamTaskReactor") {}
@@ -38,6 +42,7 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
 const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const teamTasks = yield* TeamTaskService.TeamTaskService;
 
   /**
    * Settles the task `threadId` runs when its work has ended. Returns the run whose restart
@@ -99,10 +104,11 @@ const make = Effect.gen(function* () {
         outputTokens: (total?.outputTokens ?? 0) + turnUsage.outputTokens,
       };
     }, undefined);
-    // One id per task thread: the reactor and recovery settling the same task commit once.
+    // One id per run: the reactor and recovery settling the same run commit once, and a workflow
+    // step sent back to its thread settles again when its next run ends.
     yield* engine.dispatch({
       type: "team.task.settle",
-      commandId: CommandId.make(`server:team-task-settle:${thread.id}`),
+      commandId: CommandId.make(`server:team-task-settle:${thread.id}:${run.id}`),
       threadId: ref.rootThreadId,
       planId: ref.planId,
       taskId: ref.taskId,
@@ -111,6 +117,7 @@ const make = Effect.gen(function* () {
         run.status === "completed" ? "completed" : run.status === "failed" ? "failed" : "cancelled",
       result: subagentResultForRun(output, run).text,
       ...(usage === undefined ? {} : { usage }),
+      runId: run.id,
     });
     return undefined;
   });
@@ -153,6 +160,9 @@ const make = Effect.gen(function* () {
                     Effect.forkScoped,
                   );
               }
+            }
+            if (plan.run !== undefined) {
+              yield* teamTasks.recoverRun({ leadThreadId, planId: plan.id });
             }
           }).pipe(
             Effect.catchCause((cause) =>

@@ -8,6 +8,7 @@ import { scopedThreadKey } from "@codenine/client-runtime/environment";
 import { lazy, Suspense } from "react";
 import SideChatPane from "./SideChatPane";
 import { TaskPanel } from "./TaskPanel";
+import { WorkflowDraftPanel } from "./WorkflowDraftPanel";
 import type { DraftId } from "../../composerDraftStore";
 import type { SideChatParentPanel } from "../../lib/sideChatPane";
 import { type RightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
@@ -79,6 +80,8 @@ export function RightPanelSurfaceContent(props: {
           onViewChanges={props.onViewChanges}
         />
       );
+    case "workflow":
+      return <WorkflowDraftPanel key={scopedThreadKey(threadRef)} threadRef={threadRef} />;
     case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (

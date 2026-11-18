@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import { AGENTS_FOLDER } from "./agents/AgentFile.ts";
+import { WORKFLOWS_FOLDER } from "./workflows/WorkflowFile.ts";
 import { isWithinRoot } from "./workspace/KnownWorkspaces.ts";
 
 const SKILLS_FOLDER = "skills";
@@ -29,6 +30,9 @@ This folder holds what Codenine keeps on this computer. Back it up to keep your 
 - \`agents/\` holds the agents you set up. Each folder in it with an \`AGENT.md\` is one agent: what it
   does, its model, skills and connectors, and what it may do on this computer. Edit them on
   Codenine's Agents page.
+- \`workflows/\` holds your workflows. Each folder in it is one: \`workflow.json\` says what runs and
+  when, \`notes.md\` holds what its lead noted for future runs, and \`state.json\` is Codenine's record
+  of its runs. Edit them on Codenine's Workflows page.
 - \`worktrees/\` holds the separate checkouts Codenine makes so an agent can work on its own branch.
 - \`userdata/\` holds Codenine's database, settings, logs, and the keys you saved, stored as plain
   files. Treat this folder like a password.
@@ -56,7 +60,7 @@ Add and edit skills on Codenine's Skills page, or edit the files here. Delete a 
 remove it.
 `;
 
-/** Writes the folder's map, its skills folder and its agents folder; Codenine owns both READMEs. */
+/** Writes the folder's guides and its skills, agents and workflows folders. */
 export const writeCodenineHomeGuide = Effect.fn("CodenineHome.writeGuide")(function* (
   baseDir: string,
 ) {
@@ -76,6 +80,7 @@ export const writeCodenineHomeGuide = Effect.fn("CodenineHome.writeGuide")(funct
   yield* fileSystem.makeDirectory(skillsRoot, { recursive: true });
   yield* writeIfChanged(path.join(skillsRoot, "README.md"), CODENINE_SKILLS_README);
   yield* fileSystem.makeDirectory(path.join(baseDir, AGENTS_FOLDER), { recursive: true });
+  yield* fileSystem.makeDirectory(path.join(baseDir, WORKFLOWS_FOLDER), { recursive: true });
 });
 
 /**

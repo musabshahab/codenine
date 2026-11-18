@@ -186,6 +186,7 @@ import { findExistingAgentHomes } from "./provider/agentHomes.ts";
 import * as BackupService from "./backup/BackupService.ts";
 import * as Skills from "./skills/Skills.ts";
 import * as Agents from "./agents/Agents.ts";
+import * as Workflows from "./workflows/Workflows.ts";
 import * as ConnectorGateway from "./connectors/ConnectorGateway.ts";
 import * as Connectors from "./connectors/Connectors.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
@@ -1357,6 +1358,7 @@ export const layerWsRpc = (
       const backups = yield* BackupService.BackupService;
       const skills = yield* Skills.Skills;
       const agents = yield* Agents.Agents;
+      const workflows = yield* Workflows.Workflows;
       const connectors = yield* Connectors.Connectors;
       const connectorGateway = yield* ConnectorGateway.ConnectorGateway;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -2242,6 +2244,11 @@ export const layerWsRpc = (
         [WS_METHODS.agentsRead]: (input) => agents.read(input),
         [WS_METHODS.agentsSave]: (input) => agents.save(input),
         [WS_METHODS.agentsDelete]: (input) => agents.remove(input).pipe(Effect.as({})),
+        [WS_METHODS.workflowsList]: () => workflows.list,
+        [WS_METHODS.workflowsRead]: (input) => workflows.read(input),
+        [WS_METHODS.workflowsSave]: (input) => workflows.save(input),
+        [WS_METHODS.workflowsDelete]: (input) => workflows.remove(input).pipe(Effect.as({})),
+        [WS_METHODS.workflowsRun]: (input) => workflows.run(input),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.

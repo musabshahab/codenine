@@ -40,7 +40,8 @@ type TextGenerationOp =
   | "generateCommitMessage"
   | "generatePrContent"
   | "generateBranchName"
-  | "generateThreadTitle";
+  | "generateThreadTitle"
+  | "reviewAction";
 
 const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
@@ -164,6 +165,11 @@ export const make = Effect.gen(function* () {
               modelSelection,
             });
           }),
+      );
+    }),
+    reviewAction: Effect.fn("TextGeneration.reviewAction")(function (input) {
+      return generate("reviewAction", input.modelSelection, (service, modelSelection) =>
+        service.reviewAction({ ...input, modelSelection }),
       );
     }),
   });

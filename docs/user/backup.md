@@ -41,7 +41,7 @@ notice and **Backup** is marked in Settings. **Try again** backs up right away.
 - Chats, with their history and attachments
 - Workspaces in your Codenine folder, without the files Git ignores, like `node_modules`
 - Accounts you added in Codenine, and your saved keys
-- Settings, skills and agents
+- Settings, skills, agents and workflows
 
 Workspaces kept elsewhere on the computer are not included; they stay where they are. Neither
 are Codenine's caches and downloads. Unfinished task copies (worktrees) are left out unless you

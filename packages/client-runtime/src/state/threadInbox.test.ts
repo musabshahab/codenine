@@ -108,6 +108,7 @@ describe("createInboxReturnTracker", () => {
 
   it.each([
     { hasPendingApprovals: true },
+    { source: { pendingConnectorApproval: true, pendingRuntimeRequest: null } },
     { hasPendingUserInput: true },
     { pendingSubagentRequest: "approval" as const },
     { pendingSubagentRequest: "user_input" as const },
@@ -263,6 +264,12 @@ describe("needs you", () => {
       cancelled: 0,
     },
   });
+  const heldRun = {
+    teamSummary: {
+      ...team("running").teamSummary,
+      hold: { reason: "spend" as const, at: "2026-06-01T00:00:00.000Z" },
+    },
+  };
   const failedRun = {
     status: "failed" as const,
     activeRunId: null,
@@ -283,6 +290,12 @@ describe("needs you", () => {
     ["a running team", { source: team("running") }, null],
     ["a finished team", { source: team("completed") }, null],
     ["a cancelled team", { source: team("cancelled") }, null],
+    [
+      "a connector waiting for approval",
+      { source: { pendingConnectorApproval: true } },
+      "approval",
+    ],
+    ["a held workflow run", { source: heldRun }, "waiting"],
     ["a chat whose run failed", { runtime: failedRun }, null],
     [
       "a question before the team",
@@ -297,6 +310,7 @@ describe("needs you", () => {
   it("lists the most pressing reason first and keeps the given order within each", () => {
     const entries = selectNeedsYou([
       { ...thread("failed-team", false), source: team("failed") },
+      { ...thread("held", false), source: heldRun },
       { ...thread("quiet", false) },
       { ...thread("review", false), source: team("proposed") },
       { ...thread("asks", false), hasPendingUserInput: true },
@@ -308,6 +322,7 @@ describe("needs you", () => {
       ["approve-b", "approval"],
       ["asks", "question"],
       ["review", "review"],
+      ["held", "waiting"],
       ["failed-team", "failed"],
     ]);
   });

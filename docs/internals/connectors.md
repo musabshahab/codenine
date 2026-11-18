@@ -23,10 +23,29 @@ unannotated tool may be destructive). Annotations are hints the service writes, 
 pins tools whose effect they understate, such as Calendar's `respond_to_event`, which emails the
 organiser.
 
-The gateway does the asking: an approval card in the chat, a wait of up to ten minutes, and the
-activity log. Providers are told never to prompt for these servers (Claude pre-approves
-`mcp__<id>__*`; Codex sets `default_tools_approval_mode = "approve"`). A provider prompt would ask
-twice and skip the user's per-connection choices. Plan mode refuses anything that is not read.
+Whether an action asks is the chat's agent's choice for its group, else the user's choice for that
+action, else the connection's for the group. The gateway does the asking: an approval card in the
+chat, a wait of up to ten minutes, and the activity log. Providers are told never to prompt for
+these servers (Claude pre-approves `mcp__<id>__*`; Codex sets `default_tools_approval_mode =
+"approve"`). A provider prompt would ask twice and skip the user's per-connection choices. Plan
+mode refuses anything that is not read.
+
+## Auto's reviewer answers first
+
+In a chat in Auto, an action that would ask goes to a reviewer model first
+([`ActionReviewer`](../../apps/server/src/approvals/ActionReviewer.ts)), as in Claude Code's auto
+mode. It sees only what the user wrote or approved: their own messages, the agent's instructions,
+a team task's assignment from the plan, a workflow's goal and Done when, and the exact action. It
+never sees tool results, the agent's messages or files, so text planted in a page or an email
+cannot argue for itself. For the same reason it runs through text generation in an empty temporary
+folder rather than the project, where a tricked agent could have written a CLAUDE.md or AGENTS.md.
+
+An allow runs that one call and never stops the action asking; a block returns the reason to the
+agent as a tool error. Three blocks in a row or twenty in all, and a review that fails or takes
+over a minute, show the usual card with Auto's reason. Blocks are counted in memory per chat, and a
+team or workflow task's count toward its lead's, so a whole team stops together. A step of a
+workflow run set to never ask runs these actions with neither a card nor a review. Provider
+approvals in Auto stay with each provider's own reviewer.
 
 ## Which connections a chat reaches
 

@@ -331,14 +331,16 @@ export function DraftProjectPicker({
 }
 
 /** The start screen's question: a chat in Chats, a task for a team, or work in a project. */
-export function DraftHeroHeadline(props: { kind: "chat" | "team" | "project" }) {
+export function DraftHeroHeadline(props: { kind: "chat" | "team" | "workflow" | "project" }) {
   return (
     <h1 className="w-full px-1 text-start font-semibold text-2xl text-foreground tracking-tight">
       {props.kind === "chat"
         ? "Start a chat"
         : props.kind === "team"
           ? "What should the team build?"
-          : "What would you like to do?"}
+          : props.kind === "workflow"
+            ? "What should the workflow do?"
+            : "What would you like to do?"}
     </h1>
   );
 }

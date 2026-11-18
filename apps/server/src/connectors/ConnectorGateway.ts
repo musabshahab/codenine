@@ -7,10 +7,12 @@ import {
   type ConnectorApprovalAnswerInput,
   ConnectorError,
   type ConnectorRisk,
+  type OrchestrationV2AppThread,
   type OrchestrationV2ConnectorApprovalStatus,
   type ThreadId,
   TurnItemId,
 } from "@codenine/contracts";
+import type { ReviewedAction } from "@codenine/provider-core/server/textGenerationPrompts";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -23,6 +25,7 @@ import * as Stream from "effect/Stream";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as Agents from "../agents/Agents.ts";
+import * as ActionReviewer from "../approvals/ActionReviewer.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { type CatalogConnector } from "./catalog.ts";
 import { codenineTools, describeDraft, GMAIL_SEND_DRAFT, sendDraft } from "./codenineTools.ts";
@@ -166,6 +169,7 @@ const make = Effect.gen(function* () {
   const approvals = yield* ConnectorApprovals.ConnectorApprovals;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const agents = yield* Agents.Agents;
+  const reviewer = yield* ActionReviewer.ActionReviewer;
   const random = yield* SecureRandom.SecureRandom;
 
   const readThread = (threadId: ThreadId) =>
@@ -336,6 +340,38 @@ const make = Effect.gen(function* () {
     Effect.catch(() => Effect.never),
   );
 
+  /** A workflow run's choice for its steps' actions that would ask; none outside a run's step. */
+  const stepApprovals = Effect.fn("ConnectorGateway.stepApprovals")(function* (
+    task: OrchestrationV2AppThread["teamTask"],
+  ) {
+    if (task === undefined) return undefined;
+    const lead = yield* threads.getThreadRecords(task.rootThreadId, []).pipe(Effect.option);
+    if (Option.isNone(lead)) return undefined;
+    const plan = lead.value.thread.team;
+    return plan?.id === task.planId ? plan.run?.approvals : undefined;
+  });
+
+  /**
+   * Who answers an action that would ask: a step of a workflow run set to never ask goes ahead,
+   * and in Auto the reviewer answers first. Never "always": a reviewer's allow covers one call.
+   */
+  const gate = Effect.fn("ConnectorGateway.gate")(function* (
+    thread: OrchestrationV2AppThread,
+    action: ReviewedAction,
+  ) {
+    if ((yield* stepApprovals(thread.teamTask)) === "never") return { type: "run" } as const;
+    if (thread.runtimeMode !== "auto") return { type: "ask", autoReason: undefined } as const;
+    const review = yield* reviewer.decide({ threadId: thread.id, action });
+    switch (review.type) {
+      case "allow":
+        return { type: "run" } as const;
+      case "block":
+        return { type: "block", reason: review.reason } as const;
+      case "ask":
+        return { type: "ask", autoReason: review.reason } as const;
+    }
+  });
+
   const callTool = Effect.fn("ConnectorGateway.callTool")(function* (input: {
     readonly threadId: ThreadId;
     readonly connection: ConnectorStore.StoredConnection;
@@ -413,7 +449,27 @@ const make = Effect.gen(function* () {
       ),
     );
 
-    if (approval.mode === "ask") {
+    const gated =
+      approval.mode === "ask"
+        ? yield* gate(thread, {
+            service: connection.name,
+            tool,
+            group: risk,
+            summary: action,
+            details: call.details,
+            preview: call.preview,
+            arguments: input.args,
+          })
+        : ({ type: "run" } as const);
+    if (gated.type === "block") {
+      yield* logActivity("declined", false);
+      return toolError(
+        `Auto blocked this action: ${gated.reason}. Find another way that fits what the user asked, or ask them.`,
+      );
+    }
+
+    if (gated.type === "ask") {
+      const { autoReason } = gated;
       const run = ThreadManagement.latestActiveRun(input.records);
       if (run === undefined || run.rootNodeId === null) {
         yield* logActivity("cancelled", false);
@@ -444,6 +500,7 @@ const make = Effect.gen(function* () {
             approvalStatus: status,
             ...(remembered ? { remembered: true } : {}),
             ...(agent === undefined ? {} : { agent }),
+            ...(autoReason === undefined ? {} : { autoReason }),
           })
           .pipe(
             Effect.asVoid,
@@ -495,7 +552,7 @@ const make = Effect.gen(function* () {
       return toolError(failure.message);
     }
     yield* logActivity(
-      result.success.isError === true ? "failed" : approval.mode === "ask" ? "allowed" : "auto",
+      result.success.isError === true ? "failed" : gated.type === "ask" ? "allowed" : "auto",
       result.success.isError !== true,
     );
     return result.success;
@@ -625,6 +682,7 @@ const make = Effect.gen(function* () {
           ...(item.preview === undefined ? {} : { preview: item.preview }),
           approvalStatus: "cancelled",
           ...(item.agent === undefined ? {} : { agent: item.agent }),
+          ...(item.autoReason === undefined ? {} : { autoReason: item.autoReason }),
         })
         .pipe(Effect.ignore);
     }

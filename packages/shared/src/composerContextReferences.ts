@@ -9,6 +9,7 @@ import {
   type ScopedThreadRef,
   type TeamRequestContextRecord,
   type ThreadContextRecord,
+  type WorkflowRequestContextRecord,
 } from "@codenine/contracts";
 
 import { replaceThreadLinks, threadLinkCandidates } from "./threadLinks.ts";
@@ -111,6 +112,23 @@ export function teamRequestContextRecord(): TeamRequestContextRecord {
 
 export function hasTeamRequest(records: ReadonlyArray<ComposerContextRecord>): boolean {
   return records.some((record) => record.kind === "team-request");
+}
+
+/** Codenine appends this to a message the user sent with Workflow on. */
+export const WORKFLOW_REQUEST_INSTRUCTION =
+  "The user turned on Workflow for this message: they want a workflow they can run again, so do not do the work now. Check orchestrator_capabilities for their agents and connections, then draft the workflow with propose_workflow: one step for each agent's part, each with what it does each run and a Done when line, and an agent suggestion for any step none of their agents fits. Then tell them to review the draft and save it.";
+
+export function workflowRequestContextRecord(): WorkflowRequestContextRecord {
+  return {
+    version: 1,
+    kind: "workflow-request",
+    contextId: toKindScopedComposerContextId("workflow-request", "message"),
+    label: "Workflow",
+  };
+}
+
+export function hasWorkflowRequest(records: ReadonlyArray<ComposerContextRecord>): boolean {
+  return records.some((record) => record.kind === "workflow-request");
 }
 
 /**
@@ -376,7 +394,7 @@ function formatEnvelopeEntry(
   const body =
     "payload" in record
       ? JSON.stringify(record.payload)
-      : record.kind === "team-request"
+      : record.kind === "team-request" || record.kind === "workflow-request"
         ? ""
         : formatComposerContextProviderPayload(record);
   return `${open}>\n${escapeComposerContextPayloadText(body)}\n</${CONTEXT_ENTRY_TAG}>`;
@@ -387,7 +405,12 @@ export function projectComposerContextForProvider(input: {
   records: ReadonlyArray<ComposerContextRecord>;
 }): string {
   const projected = projectInlineComposerContext(input);
-  return hasTeamRequest(input.records) ? `${projected}\n\n${TEAM_REQUEST_INSTRUCTION}` : projected;
+  const instruction = hasTeamRequest(input.records)
+    ? TEAM_REQUEST_INSTRUCTION
+    : hasWorkflowRequest(input.records)
+      ? WORKFLOW_REQUEST_INSTRUCTION
+      : null;
+  return instruction === null ? projected : `${projected}\n\n${instruction}`;
 }
 
 function projectInlineComposerContext(input: {

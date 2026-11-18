@@ -58,6 +58,12 @@ it. An agent's own choices come first in its chats, and on its cards **Always al
 changes the agent's choice instead: see [Agents](agents.md#ask-first-or-run-on-their-own).
 **Recent activity** on the connector's page lists what agents did and who allowed it.
 
+In a chat in **Auto**, a reviewer model answers first. It allows an action that fits what you
+asked and blocks one that does not, telling the agent why. After three blocks in a row, or when it
+cannot review, you get the card with its reason. It sees your messages, the agent's instructions
+and the action, never what the agent read, so instructions hidden in an email or a page cannot
+talk it round.
+
 **Test connection** checks that the service still answers. **Sign in again** appears when a
 service has signed Codenine out. **Disconnect** removes the connector with its sign-in and activity.
 
@@ -68,6 +74,24 @@ page. In a chat, the **+** menu next to the message box turns connectors on or o
 only, and the ones it uses show above the message box. Once a chat picks its own, changing the
 defaults no longer changes it. A chat with an [agent](./agents.md) uses the agent's connectors
 instead.
+
+## Publishing and media
+
+These let an agent post for you, so their posting actions ask first unless you change that.
+
+- **WordPress.com** signs in to your WordPress.com account. Turn on MCP access at
+  wordpress.com/me/mcp and allow writing for each site. Paid plans get the most access. A
+  self-hosted WordPress site connects as a custom connector through the MCP Adapter plugin.
+- **YouTube** runs on this computer and needs Node.js. Create a Google Cloud project with the
+  YouTube Data API and a **Desktop** OAuth client, publish its consent screen (while it is in
+  **Testing**, Google signs you out every 7 days), then run `npx @eat-pray-ai/yutu auth` once to get
+  the sign-in token. Uploads must come from the video folder you choose, and Google limits uploads per day.
+- **Postiz** posts to Instagram, TikTok, LinkedIn, X and more from one account. Instagram needs a
+  Business or Creator account. Through a self-hosted Postiz, TikTok keeps posts private until your
+  own TikTok app passes TikTok's review. A self-hosted Postiz connects as a custom connector at its
+  address followed by `/mcp`.
+- **fal** makes images, video and audio, billed to your fal account. Video costs much more than
+  images, so check fal's prices first.
 
 ## Not here yet
 

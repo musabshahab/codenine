@@ -383,6 +383,33 @@ it.layer(layerCodexTextGenerationTest)("CodexTextGeneration", (it) => {
     ),
   );
 
+  it.effect("reviews an action without a shell or web search", () =>
+    withFakeCodexEnv(
+      {
+        output: JSON.stringify({ decision: "block", reason: " Sam was never mentioned. " }),
+        requireArg: '--config features.shell_tool=false --config web_search="disabled" --ephemeral',
+        stdinMustContain: '"wants_to": "send a draft"',
+      },
+      (textGeneration) =>
+        Effect.gen(function* () {
+          const review = yield* textGeneration.reviewAction({
+            cwd: process.cwd(),
+            userMessages: ["Summarize my inbox."],
+            action: {
+              service: "Gmail",
+              tool: "send_draft",
+              group: "irreversible",
+              summary: "send a draft",
+              details: [{ label: "To", value: "sam@example.com" }],
+              arguments: { draftId: "d1" },
+            },
+            modelSelection: DEFAULT_TEST_MODEL_SELECTION,
+          });
+          expect(review).toEqual({ decision: "block", reason: "Sam was never mentioned." });
+        }),
+    ),
+  );
+
   it.effect("still generates when Codex cannot list its MCP servers", () =>
     withFakeCodexEnv(
       {
@@ -608,6 +635,7 @@ it.effect.each(PREFLIGHT_PRIMARY_STATES)("text generation preflight: %s", (prima
               calls.push(input.modelSelection);
               return { title: "Generated title" };
             }),
+          reviewAction: () => Effect.die("unused"),
         }),
       };
     });

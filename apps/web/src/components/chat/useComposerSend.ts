@@ -78,7 +78,7 @@ import {
 } from "../../lib/terminalContext";
 import { buildMessageContext } from "../../lib/composerContextRecords";
 import { draftThreadChoices } from "../../draftChatChoicesStore";
-import { sendsTeamRequest } from "./composerTeam.logic";
+import { sendsComposerRequest } from "./composerTeam.logic";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
@@ -192,6 +192,8 @@ interface ComposerSendInput {
   readonly isDraftHeroState: boolean;
   /** The composer offers Team here; a Team left on elsewhere is not sent. */
   readonly teamToggleAvailable: boolean;
+  /** Likewise for Workflow. */
+  readonly workflowToggleAvailable: boolean;
   readonly panelAnimationsActive: boolean;
   readonly panelAnimationDurationMs: number;
   readonly keepFullHistory: boolean;
@@ -287,6 +289,7 @@ export function useComposerSend(input: ComposerSendInput) {
     sendQueuesBehindSetup,
     isDraftHeroState,
     teamToggleAvailable,
+    workflowToggleAvailable,
     panelAnimationsActive,
     panelAnimationDurationMs,
     keepFullHistory,
@@ -671,6 +674,9 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const threadIdForSend = activeThread.id;
+    const composerDraftAtSend = useComposerDraftStore
+      .getState()
+      .getComposerDraft(composerDraftTarget);
     const sendSnapshot = snapshotComposerSend({
       prompt: promptForSend,
       images: composerImages,
@@ -680,10 +686,8 @@ export function useComposerSend(input: ComposerSendInput) {
       reviewComments: composerReviewComments,
       threadContexts: composerThreadContexts,
       environmentContexts: composerEnvironmentContexts,
-      teamRequested:
-        teamToggleAvailable &&
-        useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.teamRequested ===
-          true,
+      teamRequested: teamToggleAvailable && composerDraftAtSend?.teamRequested === true,
+      workflowRequested: workflowToggleAvailable && composerDraftAtSend?.workflowRequested === true,
     });
     const {
       files: composerFilesSnapshot,
@@ -731,8 +735,12 @@ export function useComposerSend(input: ComposerSendInput) {
           attachment,
           attachmentId: attachmentIds[index] ?? attachment.id,
         })),
-        teamRequested: sendsTeamRequest({
-          teamRequested: sendSnapshot.teamRequested,
+        teamRequested: sendsComposerRequest({
+          requested: sendSnapshot.teamRequested,
+          prompt: messageTextForSend,
+        }),
+        workflowRequested: sendsComposerRequest({
+          requested: sendSnapshot.workflowRequested,
           prompt: messageTextForSend,
         }),
       });
