@@ -45,6 +45,7 @@ export * from "./threadPullRequest.ts";
 export * from "./threadSearch.ts";
 export * from "./threadTags.ts";
 export * from "./team.ts";
+export * from "./workflows.ts";
 export * from "./threadTitle.ts";
 export * from "./codenineProjectFile.ts";
 export * from "./codenineRepository.ts";
