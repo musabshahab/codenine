@@ -30,10 +30,12 @@ carries the same agent. An agent it cannot read gets no abilities.
 - **Connectors**: an agent chat reaches the agent's connections, not its own list and not the ones
   on by default, and still only connected ones. Both the session manager and the gateway ask
   [`Agents.chatConnectors`](../../apps/server/src/agents/Agents.ts). Where the agent chose for a
-  group, that choice decides, over the connection's choice for the single action too, so an agent
-  set to ask always asks. Its card's "Always allow" therefore sets the agent's own choice for that
-  group to allow on that connector, since a choice on the connection would not count in its chats.
-  A group the agent leaves alone follows the connection.
+  group, that choice decides whether an action asks, over the connection's choice for the single
+  action too, so an agent set to ask always asks, or in Auto goes to the
+  [reviewer](./connectors.md#autos-reviewer-answers-first) first. Its card's "Always allow"
+  therefore sets the agent's own choice for that group to allow on that connector, since a choice on
+  the connection would not count in its chats. A group the agent leaves alone follows the
+  connection.
 - **Skills**: the agent's skills are the chat's kept-on skills; `$name` still attaches any skill.
 - **Abilities** narrow the chat's runtime mode and never widen it. A chat the agent started or
   steered would run with its own settings, so in an agent's chat Codenine's MCP tools refuse except

@@ -9,8 +9,12 @@ import {
   type OrchestrationV2ServerCommand,
   NodeId,
   RunId,
+  type TeamPlan,
+  TeamPlanId,
+  TeamTaskId,
   ThreadId,
 } from "@codenine/contracts";
+import type { ReviewedAction } from "@codenine/provider-core/server/textGenerationPrompts";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -20,6 +24,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import * as Agents from "../agents/Agents.ts";
+import * as ActionReviewer from "../approvals/ActionReviewer.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -81,19 +86,24 @@ const call = (connectionId: string, method: string, params?: unknown) => ({
   message: { jsonrpc: "2.0", id: 1, method, ...(params === undefined ? {} : { params }) },
 });
 
-const makeHarness = (thread: Partial<OrchestrationV2AppThread>) =>
+const makeHarness = (
+  thread: Partial<OrchestrationV2AppThread>,
+  lead?: Partial<OrchestrationV2AppThread>,
+) =>
   Effect.gen(function* () {
     const dispatched = yield* Ref.make<ReadonlyArray<OrchestrationV2ServerCommand>>([]);
     const cardShown = yield* Deferred.make<OrchestrationV2ServerCommand>();
     const upstreamCalls = yield* Ref.make<ReadonlyArray<string>>([]);
+    const decision = yield* Ref.make<ActionReviewer.ReviewDecision>({ type: "allow" });
+    const reviewed = yield* Ref.make<ReadonlyArray<ReviewedAction>>([]);
     const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
-      getThreadRecords: () =>
+      getThreadRecords: (id) =>
         Effect.succeed({
           thread: {
-            id: threadId,
+            id,
             title: "Release",
             interactionMode: "default",
-            ...thread,
+            ...(id === threadId ? thread : lead),
           } as OrchestrationV2AppThread,
           runs: [run],
         } as never),
@@ -116,11 +126,17 @@ const makeHarness = (thread: Partial<OrchestrationV2AppThread>) =>
         ),
       close: () => Effect.void,
     });
+    const reviewer = Layer.mock(ActionReviewer.ActionReviewer)({
+      decide: (input) =>
+        Ref.update(reviewed, (current) => [...current, input.action]).pipe(
+          Effect.andThen(Ref.get(decision)),
+        ),
+    });
     const layer = ConnectorGateway.layer.pipe(
       Layer.provideMerge(Connectors.layer),
       Layer.provideMerge(ConnectorApprovals.layer),
       Layer.provideMerge(
-        Layer.mergeAll(threads, clients, Layer.mock(ConnectorSignIn.ConnectorSignIn)({})),
+        Layer.mergeAll(threads, clients, reviewer, Layer.mock(ConnectorSignIn.ConnectorSignIn)({})),
       ),
       Layer.provideMerge(ConnectorStore.layer),
       Layer.provideMerge(
@@ -135,7 +151,7 @@ const makeHarness = (thread: Partial<OrchestrationV2AppThread>) =>
         ServerConfig.layerTest(process.cwd(), { prefix: "codenine-connector-gateway-test-" }),
       ),
     );
-    return { dispatched, cardShown, upstreamCalls, layer };
+    return { dispatched, cardShown, upstreamCalls, decision, reviewed, layer };
   });
 
 const connectGitHub = Effect.gen(function* () {
@@ -233,6 +249,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
             ["search_code", "auto"],
           ],
         );
+        // Outside Auto, nothing reviews the action first.
+        assert.deepStrictEqual(yield* Ref.get(harness.reviewed), []);
       }).pipe(Effect.provide(harness.layer));
     }),
   );
@@ -336,6 +354,96 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
           "merge_pull_request",
         ]);
         assert.strictEqual((yield* Ref.get(harness.dispatched)).length, 2);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect(
+    "in Auto the reviewer answers first: allow runs, block refuses, ask shows the card",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ runtimeMode: "auto" });
+        yield* Effect.gen(function* () {
+          const gateway = yield* ConnectorGateway.ConnectorGateway;
+          const store = yield* ConnectorStore.ConnectorStore;
+          const github = yield* connectGitHub;
+          const merge = gateway.handle({
+            threadId,
+            ...call(github.id, "tools/call", {
+              name: "merge_pull_request",
+              arguments: { pull: 7 },
+            }),
+          });
+          const resultOf = (response: ConnectorGateway.JsonRpcResponse | undefined) =>
+            response !== undefined && "result" in response ? response.result : response;
+
+          assert.deepStrictEqual(resultOf(yield* merge), {
+            content: [{ type: "text", text: "merge_pull_request done" }],
+          });
+          yield* Ref.set(harness.decision, {
+            type: "block",
+            reason: "The user never asked to merge",
+          });
+          assert.deepStrictEqual(resultOf(yield* merge), {
+            content: [
+              {
+                type: "text",
+                text: "Auto blocked this action: The user never asked to merge. Find another way that fits what the user asked, or ask them.",
+              },
+            ],
+            isError: true,
+          });
+          const autoReason = "Auto's review took too long, so it asks you.";
+          yield* Ref.set(harness.decision, { type: "ask", reason: autoReason });
+          const merging = yield* merge.pipe(Effect.forkChild);
+          const card = yield* Deferred.await(harness.cardShown);
+          assert.deepInclude(card, { approvalStatus: "pending", autoReason });
+          assert.ok(card.type === "connector_approval.record");
+          yield* gateway.answerApproval({ threadId, turnItemId: card.turnItemId, answer: "allow" });
+          yield* Fiber.join(merging);
+
+          assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), [
+            "merge_pull_request",
+            "merge_pull_request",
+          ]);
+          assert.deepInclude((yield* Ref.get(harness.reviewed))[0], {
+            service: "GitHub",
+            tool: "merge_pull_request",
+            group: "irreversible",
+            summary: "merge a pull request",
+            arguments: { pull: 7 },
+          });
+          // A reviewer's allow covers one call; it never stops the action asking.
+          assert.deepStrictEqual((yield* store.get(github.id))?.toolApprovals, {});
+          assert.deepStrictEqual(
+            (yield* store.readActivity(github.id, 10)).map((entry) => entry.outcome),
+            ["allowed", "declined", "auto"],
+          );
+        }).pipe(Effect.provide(harness.layer));
+      }),
+  );
+
+  it.effect("a step of a workflow run that never asks goes ahead without a card or review", () =>
+    Effect.gen(function* () {
+      const planId = TeamPlanId.make("plan:weekly");
+      const leadId = ThreadId.make("thread:weekly-lead");
+      const harness = yield* makeHarness(
+        {
+          runtimeMode: "auto",
+          teamTask: { rootThreadId: leadId, planId, taskId: TeamTaskId.make("post"), attempt: 1 },
+        },
+        { team: { id: planId, run: { approvals: "never" } } as unknown as TeamPlan },
+      );
+      yield* Effect.gen(function* () {
+        const gateway = yield* ConnectorGateway.ConnectorGateway;
+        const github = yield* connectGitHub;
+        yield* gateway.handle({
+          threadId,
+          ...call(github.id, "tools/call", { name: "merge_pull_request", arguments: {} }),
+        });
+        assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), ["merge_pull_request"]);
+        assert.deepStrictEqual(yield* Ref.get(harness.dispatched), []);
+        assert.deepStrictEqual(yield* Ref.get(harness.reviewed), []);
       }).pipe(Effect.provide(harness.layer));
     }),
   );

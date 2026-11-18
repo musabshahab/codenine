@@ -8767,6 +8767,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           approvalStatus: command.approvalStatus,
           ...(command.remembered === undefined ? {} : { remembered: command.remembered }),
           ...(command.agent === undefined ? {} : { agent: command.agent }),
+          ...(command.autoReason === undefined ? {} : { autoReason: command.autoReason }),
         };
     yield* emit(
       events,

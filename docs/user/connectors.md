@@ -58,6 +58,12 @@ it. An agent's own choices come first in its chats, and on its cards **Always al
 changes the agent's choice instead: see [Agents](agents.md#ask-first-or-run-on-their-own).
 **Recent activity** on the connector's page lists what agents did and who allowed it.
 
+In a chat in **Auto**, a reviewer model answers first. It allows an action that fits what you
+asked and blocks one that does not, telling the agent why. After three blocks in a row, or when it
+cannot review, you get the card with its reason. It sees your messages, the agent's instructions
+and the action, never what the agent read, so instructions hidden in an email or a page cannot
+talk it round.
+
 **Test connection** checks that the service still answers. **Sign in again** appears when a
 service has signed Codenine out. **Disconnect** removes the connector with its sign-in and activity.
 

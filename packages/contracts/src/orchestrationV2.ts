@@ -3590,6 +3590,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     approvalStatus: OrchestrationV2ConnectorApprovalStatus,
     remembered: Schema.optional(Schema.Boolean),
     agent: Schema.optional(AgentName),
+    autoReason: Schema.optional(Schema.String),
   }),
   /** A team task's thread finished. Internal so no client can report a result for an agent. */
   Schema.Struct({

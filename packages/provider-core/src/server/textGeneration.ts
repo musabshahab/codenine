@@ -7,7 +7,7 @@ import type {
 import type * as Effect from "effect/Effect";
 
 import type { TextGenerationPolicy } from "./textGenerationPolicy.ts";
-import type { ThreadTitleForkSource } from "./textGenerationPrompts.ts";
+import type { ActionReviewPromptInput, ThreadTitleForkSource } from "./textGenerationPrompts.ts";
 
 export interface CommitMessageGenerationInput {
   cwd: string;
@@ -71,6 +71,17 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface ActionReviewInput extends ActionReviewPromptInput {
+  /** An empty folder of its own: a project could hold instructions a tricked agent planted. */
+  cwd: string;
+  modelSelection: ModelSelection;
+}
+
+export interface ActionReviewResult {
+  decision: "allow" | "block";
+  reason: string;
+}
+
 export interface ProviderTextGeneration {
   readonly generateCommitMessage: (
     input: CommitMessageGenerationInput,
@@ -87,4 +98,9 @@ export interface ProviderTextGeneration {
   readonly generateThreadTitle: (
     input: ThreadTitleGenerationInput,
   ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+  /** Auto's reviewer: whether an action fits what the user asked for. */
+  readonly reviewAction: (
+    input: ActionReviewInput,
+  ) => Effect.Effect<ActionReviewResult, TextGenerationError>;
 }

@@ -7,6 +7,7 @@ import { extractJsonObject } from "@codenine/shared/schemaJson";
 
 import type { ProviderTextGeneration } from "./textGeneration.ts";
 import {
+  buildActionReviewPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -137,10 +138,23 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     };
   });
 
+  const reviewAction: ProviderTextGeneration["reviewAction"] = Effect.fn(`${name}.reviewAction`)(
+    function* (input) {
+      const reviewed = yield* run({
+        operation: "reviewAction",
+        cwd: input.cwd,
+        modelSelection: input.modelSelection,
+        ...buildActionReviewPrompt(input),
+      });
+      return { decision: reviewed.decision, reason: reviewed.reason.trim() };
+    },
+  );
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
+    reviewAction,
   } satisfies ProviderTextGeneration;
 }
