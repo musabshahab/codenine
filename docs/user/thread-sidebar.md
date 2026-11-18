@@ -73,8 +73,8 @@ task.
 
 **Agents** holds the specialists you set up once, **Skills** the know-how agents follow, and
 **Connectors** the services they can use; see [Agents](./agents.md), [Skills](./skills.md) and
-[Connectors](./connectors.md). **Workflows** is where you will set up multi-step processes; it is
-empty for now.
+[Connectors](./connectors.md). **Workflows** holds teams of your agents that run again, on a
+schedule or when you start them; see [Workflows](./workflows.md).
 
 ## Group chats by workspace
 
