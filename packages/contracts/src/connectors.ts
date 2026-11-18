@@ -31,6 +31,8 @@ export const ConnectorCategory = Schema.Literals([
   "data",
   "automation",
   "web-browser",
+  "publishing",
+  "media",
   "other",
 ]);
 export type ConnectorCategory = typeof ConnectorCategory.Type;

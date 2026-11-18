@@ -273,6 +273,17 @@ import {
   AgentsListResult,
 } from "./agents.ts";
 import {
+  WorkflowDetail,
+  WorkflowError,
+  WorkflowNameInput,
+  WorkflowRunInput,
+  WorkflowRunStarted,
+  WorkflowSaveInput,
+  WorkflowsEmptyInput,
+  WorkflowsEmptyResult,
+  WorkflowsListResult,
+} from "./workflows.ts";
+import {
   SkillAddFromLibraryInput,
   SkillDetail,
   SkillError,
@@ -446,6 +457,11 @@ export const WS_METHODS = {
   agentsRead: "agents.read",
   agentsSave: "agents.save",
   agentsDelete: "agents.delete",
+  workflowsList: "workflows.list",
+  workflowsRead: "workflows.read",
+  workflowsSave: "workflows.save",
+  workflowsDelete: "workflows.delete",
+  workflowsRun: "workflows.run",
 
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeVcsBranch: "subscribeVcsBranch",
@@ -1059,6 +1075,38 @@ const WsAgentsDeleteRpc = Rpc.make(WS_METHODS.agentsDelete, {
   error: AgentRpcError,
 });
 
+const WorkflowRpcError = Schema.Union([WorkflowError, EnvironmentAuthorizationError]);
+
+const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
+  payload: WorkflowsEmptyInput,
+  success: WorkflowsListResult,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsReadRpc = Rpc.make(WS_METHODS.workflowsRead, {
+  payload: WorkflowNameInput,
+  success: WorkflowDetail,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsSaveRpc = Rpc.make(WS_METHODS.workflowsSave, {
+  payload: WorkflowSaveInput,
+  success: WorkflowDetail,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
+  payload: WorkflowNameInput,
+  success: WorkflowsEmptyResult,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsRunRpc = Rpc.make(WS_METHODS.workflowsRun, {
+  payload: WorkflowRunInput,
+  success: WorkflowRunStarted,
+  error: WorkflowRpcError,
+});
+
 const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPublishRepository, {
   payload: SourceControlPublishRepositoryInput,
   success: SourceControlPublishRepositoryResult,
@@ -1638,6 +1686,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsAgentsReadRpc,
   WsAgentsSaveRpc,
   WsAgentsDeleteRpc,
+  WsWorkflowsListRpc,
+  WsWorkflowsReadRpc,
+  WsWorkflowsSaveRpc,
+  WsWorkflowsDeleteRpc,
+  WsWorkflowsRunRpc,
   WsProjectsListEntriesRpc,
   WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,

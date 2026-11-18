@@ -49,6 +49,22 @@ export type AgentAbility = typeof AgentAbility.Type;
 export const AgentTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(80));
 export const AgentDescription = TrimmedNonEmptyString.check(Schema.isMaxLength(1024));
 
+/** Every event on a lead carries its plan or draft, so a suggested agent's instructions stay short. */
+export const AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS = 2_000;
+
+/**
+ * What a lead suggests for a part of the work none of the user's agents fits. The user creates
+ * the agent from it, or gives the part to an agent they have; Codenine never creates one.
+ */
+export const AgentSuggestion = Schema.Struct({
+  title: AgentTitle,
+  description: AgentDescription,
+  instructions: Schema.String.check(Schema.isMaxLength(AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS)),
+  /** Connections the agent would use. */
+  connectors: Schema.Array(ConnectionId),
+});
+export type AgentSuggestion = typeof AgentSuggestion.Type;
+
 export const AgentDefinition = Schema.Struct({
   name: AgentName,
   /** As the user typed it, such as "Code reviewer". */

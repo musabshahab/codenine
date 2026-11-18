@@ -36,20 +36,28 @@ import {
 } from "./orchestrationV2.ts";
 import { ProviderOptionSelection, ProviderOptionSelectionValue } from "./model.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
-import { AgentDescription, AgentName, AgentTitle } from "./agents.ts";
+import {
+  AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS,
+  AgentDescription,
+  AgentName,
+  AgentTitle,
+} from "./agents.ts";
 import { ConnectionId } from "./connectors.ts";
 import {
   TEAM_BRIEF_MAX_CHARS,
   TEAM_LABEL_MAX_CHARS,
   TEAM_MAX_AGENTS,
   TEAM_MAX_TASKS,
-  TEAM_SUGGESTION_INSTRUCTIONS_MAX_CHARS,
+  TEAM_REVIEW_NOTES_MAX_CHARS,
+  TEAM_RUN_HEADLINE_MAX_CHARS,
+  TEAM_RUN_NOTE_MAX_CHARS,
   TeamAgentId,
   TeamAgentRole,
   TeamPlanId,
   TeamTaskId,
   TeamWorkspace,
 } from "./team.ts";
+import { WorkflowInput, WorkflowSchedule, WorkflowStepId, WorkflowTitle } from "./workflows.ts";
 
 const OrchestratorMcpPrompt = TrimmedNonEmptyString.check(Schema.isMaxLength(120_000));
 const OrchestratorMcpTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(512));
@@ -245,7 +253,7 @@ export const OrchestratorMcpProposeTeamInput = Schema.Struct({
           title: AgentTitle,
           description: AgentDescription.annotate({ description: "What to use it for." }),
           instructions: TrimmedNonEmptyString.check(
-            Schema.isMaxLength(TEAM_SUGGESTION_INSTRUCTIONS_MAX_CHARS),
+            Schema.isMaxLength(AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS),
           ),
           target: Schema.optional(OrchestratorMcpTarget),
           connectors: Schema.optional(
@@ -295,6 +303,112 @@ export const OrchestratorMcpProposeTeamResult = Schema.Struct({
   next: Schema.Literal(ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT),
 });
 export type OrchestratorMcpProposeTeamResult = typeof OrchestratorMcpProposeTeamResult.Type;
+
+const OrchestratorMcpWorkflowText = (max: number) => Schema.String.check(Schema.isMaxLength(max));
+
+export const OrchestratorMcpProposeWorkflowInput = Schema.Struct({
+  title: WorkflowTitle,
+  description: Schema.optional(OrchestratorMcpWorkflowText(1024)),
+  goal: TrimmedNonEmptyString.check(Schema.isMaxLength(2_000)).annotate({
+    description:
+      "The outcome the user wants from every run. The lead checks each step's result against it.",
+  }),
+  schedule: Schema.optional(
+    Schema.NullOr(WorkflowSchedule).annotate({
+      description: "When it runs on its own. Null or left out: only when the user starts it.",
+    }),
+  ),
+  inputs: Schema.optional(
+    Schema.Array(WorkflowInput)
+      .check(Schema.isMaxLength(12))
+      .annotate({ description: "Values each run starts with, such as a topic area." }),
+  ),
+  steps: Schema.Array(
+    Schema.Struct({
+      id: WorkflowStepId,
+      title: WorkflowTitle,
+      agent: Schema.optional(
+        AgentName.annotate({
+          description: "One of the user's agents, from `orchestrator_capabilities` `agents`.",
+        }),
+      ),
+      suggestion: Schema.optional(
+        Schema.Struct({
+          title: AgentTitle,
+          description: AgentDescription.annotate({ description: "What to use it for." }),
+          instructions: TrimmedNonEmptyString.check(
+            Schema.isMaxLength(AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS),
+          ),
+          connectors: Schema.optional(
+            Schema.Array(ConnectionId).annotate({
+              description: "Ids from `orchestrator_capabilities` `connections`.",
+            }),
+          ),
+        }).annotate({
+          description:
+            "Only when none of the user's agents fits: the agent to create. The user creates it or picks one.",
+        }),
+      ),
+      instructions: TrimmedNonEmptyString.check(Schema.isMaxLength(4_000)).annotate({
+        description: "What the agent does each run.",
+      }),
+      doneWhen: Schema.optional(
+        OrchestratorMcpWorkflowText(1_000).annotate({
+          description: "What must be true of the result before the lead accepts it.",
+        }),
+      ),
+      dependsOn: Schema.optional(
+        Schema.Array(WorkflowStepId).annotate({
+          description: "Step ids that must be accepted first.",
+        }),
+      ),
+    }),
+  ).check(Schema.isMinLength(1), Schema.isMaxLength(12)),
+});
+export type OrchestratorMcpProposeWorkflowInput = typeof OrchestratorMcpProposeWorkflowInput.Type;
+
+const ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT =
+  "Nothing is saved until the user reviews it in the editor and saves it. Tell them what you drafted and end your turn.";
+
+export const OrchestratorMcpProposeWorkflowResult = Schema.Struct({
+  status: Schema.Literal("drafted"),
+  next: Schema.Literal(ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT),
+});
+export type OrchestratorMcpProposeWorkflowResult = typeof OrchestratorMcpProposeWorkflowResult.Type;
+
+export const OrchestratorMcpReviewStepInput = Schema.Struct({
+  step: TeamTaskId.annotate({ description: "The step whose result you were sent." }),
+  verdict: Schema.Literals(["accept", "revise"]).annotate({
+    description:
+      "'accept' when the result meets the goal and the step's Done when; 'revise' sends it back.",
+  }),
+  notes: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_REVIEW_NOTES_MAX_CHARS)).annotate({
+      description: "Required with 'revise': exactly what to fix. The step's agent reads it.",
+    }),
+  ),
+});
+export type OrchestratorMcpReviewStepInput = typeof OrchestratorMcpReviewStepInput.Type;
+
+export const OrchestratorMcpReviewStepResult = Schema.Struct({
+  status: Schema.Literals(["accepted", "sent-back"]),
+  next: Schema.String,
+});
+export type OrchestratorMcpReviewStepResult = typeof OrchestratorMcpReviewStepResult.Type;
+
+export const OrchestratorMcpSaveRunNoteInput = Schema.Struct({
+  headline: TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_RUN_HEADLINE_MAX_CHARS)).annotate({
+    description: "One line for the run history, such as what was published.",
+  }),
+  note: TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_RUN_NOTE_MAX_CHARS)).annotate({
+    description:
+      "What the next run should know, such as the topic covered or what had to be redone.",
+  }),
+});
+export type OrchestratorMcpSaveRunNoteInput = typeof OrchestratorMcpSaveRunNoteInput.Type;
+
+export const OrchestratorMcpSaveRunNoteResult = Schema.Struct({ saved: Schema.Literal(true) });
+export type OrchestratorMcpSaveRunNoteResult = typeof OrchestratorMcpSaveRunNoteResult.Type;
 
 export const OrchestratorMcpTaskStatusInput = Schema.Struct({
   taskId: NodeId,

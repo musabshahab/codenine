@@ -46,14 +46,20 @@ import { SkillName } from "./skills.ts";
 import { StoredThreadTags, ThreadFolderName, ThreadTag } from "./threadTags.ts";
 import {
   StoredTeamPlan,
+  TEAM_REVIEW_NOTES_MAX_CHARS,
+  TEAM_RUN_HEADLINE_MAX_CHARS,
+  TEAM_RUN_NOTE_MAX_CHARS,
   TeamAgentId,
   TeamDraft,
+  TeamPlanHoldReason,
   TeamPlanId,
+  TeamPlanRun,
   TeamPlanSummary,
   TeamTaskId,
   TeamTaskRef,
   TeamTaskUsage,
 } from "./team.ts";
+import { StoredWorkflowDraft, WorkflowDraft, WorkflowLimits } from "./workflows.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -498,6 +504,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   skills: Schema.optional(Schema.Array(SkillName)),
   /** The agent this chat talks to; its connectors and skills replace the chat's own. */
   agent: Schema.optional(AgentName),
+  /** The workflow a lead drafted in this chat with `propose_workflow`; never copied to a fork. */
+  workflowDraft: Schema.optional(StoredWorkflowDraft),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -1571,6 +1579,8 @@ const OrchestrationV2ConnectorApprovalFields = {
   remembered: Schema.optional(Schema.Boolean),
   /** The chat's agent asked, by its own settings, so "always" changes the agent's choice. */
   agent: Schema.optional(AgentName),
+  /** Auto's reviewer handed this action to the user, and why. */
+  autoReason: Schema.optional(Schema.String),
 } as const;
 
 export const OrchestrationV2LinkRequestStatus = Schema.Literals([
@@ -2127,6 +2137,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   lastErrorCode: Schema.optional(Schema.NullOr(Schema.String)),
   usageLimitResetAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummary),
+  /** A connector action in this thread waits for the user's answer. */
+  pendingConnectorApproval: Schema.optional(Schema.Boolean),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummary),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtc),
   /** Excludes wakes and agent messages that advance latestUserMessageAt through the user role. */
@@ -3446,6 +3458,31 @@ export const OrchestrationV2Command = Schema.Union([
     taskId: TeamTaskId,
     agentId: Schema.optional(TeamAgentId),
   }),
+  /**
+   * A workflow run's lead, or the user, accepts a step's result or sends it back with notes into
+   * the same thread. `round` names the result being judged, so a late answer changes nothing.
+   */
+  Schema.Struct({
+    type: Schema.Literal("team.task.review"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    taskId: TeamTaskId,
+    attempt: PositiveInt,
+    round: PositiveInt,
+    verdict: Schema.Literals(["accept", "revise"]),
+    notes: Schema.optional(
+      TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_REVIEW_NOTES_MAX_CHARS)),
+    ),
+  }),
+  /** Ends a workflow run's wait and goes on; `limits` replaces the run's limits, as when raised. */
+  Schema.Struct({
+    type: Schema.Literal("team.resume"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    limits: Schema.optional(WorkflowLimits),
+  }),
 ]);
 export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
 
@@ -3565,6 +3602,45 @@ const OrchestrationV2InternalCommand = Schema.Union([
     status: Schema.Literals(["completed", "failed", "cancelled"]),
     result: Schema.String,
     usage: Schema.optional(TeamTaskUsage),
+    /** The run that ended; a workflow step's thread settles once per run. */
+    runId: Schema.optional(RunId),
+  }),
+  /** Starts a workflow run: the plan is made and approved at once, so it never reads as proposed. */
+  Schema.Struct({
+    type: Schema.Literal("team.start"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    goal: TrimmedNonEmptyString,
+    ...TeamDraft.fields,
+    run: TeamPlanRun,
+    maxParallelPerProvider: Schema.optional(PositiveInt),
+  }),
+  /** A workflow run reached a limit, or its lead left a step undecided: it waits for the user. */
+  Schema.Struct({
+    type: Schema.Literal("team.hold"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    reason: TeamPlanHoldReason,
+  }),
+  /** The run's estimated cost, or the lead's one-line outcome. */
+  Schema.Struct({
+    type: Schema.Literal("team.run.update"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    costUsd: Schema.optional(Schema.NullOr(Schema.Finite)),
+    headline: Schema.optional(
+      TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_RUN_HEADLINE_MAX_CHARS)),
+    ),
+    note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_RUN_NOTE_MAX_CHARS))),
+  }),
+  /** A lead drafted a workflow in this chat; a newer draft replaces it. */
+  Schema.Struct({
+    type: Schema.Literal("workflow.draft.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    draft: WorkflowDraft,
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;

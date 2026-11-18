@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
@@ -7,8 +8,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { AgentModel, AgentName, AgentModelStatus } from "./agents.ts";
-import { TeamAgentSuggestion } from "./team.ts";
+import { AgentModel, AgentModelStatus, AgentName, AgentSuggestion } from "./agents.ts";
 
 const WORKFLOW_MAX_STEPS = 12;
 const WORKFLOW_MAX_INPUTS = 12;
@@ -24,9 +24,18 @@ const Slug = Schema.String.check(
   Schema.isMaxLength(64),
 );
 
-/** A workflow's id and folder name under `<Codenine folder>/workflows`. */
+/** A workflow's folder name under `<Codenine folder>/workflows`; renaming changes it. */
 export const WorkflowName = Slug;
 export type WorkflowName = typeof WorkflowName.Type;
+
+/** Set by the server when a workflow is created and kept across renames; run threads derive from it. */
+export const WorkflowId = TrimmedNonEmptyString.check(Schema.isMaxLength(64)).pipe(
+  Schema.brand("WorkflowId"),
+);
+export type WorkflowId = typeof WorkflowId.Type;
+
+export const WorkflowRunTrigger = Schema.Literals(["manual", "schedule", "missed"]);
+export type WorkflowRunTrigger = typeof WorkflowRunTrigger.Type;
 
 /** A step's id; it is also the id of the step's task in a run's team plan. */
 export const WorkflowStepId = Slug.pipe(Schema.brand("WorkflowStepId"));
@@ -44,7 +53,7 @@ export const WorkflowStep = Schema.Struct({
   /** Null until the user picks one; a step without an agent cannot run. */
   agent: Schema.NullOr(AgentName),
   /** What the lead suggested where none of the user's agents fit; Codenine never creates the agent. */
-  suggestion: Schema.optionalKey(TeamAgentSuggestion),
+  suggestion: Schema.optionalKey(AgentSuggestion),
   /** Null runs the step on its agent's own model. */
   model: Schema.NullOr(AgentModel),
   /** "What it does each run". */
@@ -142,6 +151,7 @@ export const WorkflowSkippedRun = Schema.Struct({ scheduledFor: IsoDateTime });
 export type WorkflowSkippedRun = typeof WorkflowSkippedRun.Type;
 
 const WorkflowFileFields = {
+  id: WorkflowId,
   /** The workflow's folder on the server's computer. */
   path: Schema.String,
   updatedAt: IsoDateTime,
@@ -210,6 +220,32 @@ export const WorkflowRunStarted = Schema.Struct({
   run: PositiveInt,
 });
 export type WorkflowRunStarted = typeof WorkflowRunStarted.Type;
+
+/** A step as a lead drafts it in a chat; the editor places it on the canvas. */
+export const WorkflowDraftStep = WorkflowStep.mapFields(
+  ({ position: _position, model: _model, ...rest }) => rest,
+);
+export type WorkflowDraftStep = typeof WorkflowDraftStep.Type;
+
+/** What `propose_workflow` leaves on a chat; nothing is saved until the user saves it. */
+export const WorkflowDraft = Schema.Struct({
+  title: WorkflowTitle,
+  description: Schema.String.check(Schema.isMaxLength(1024)),
+  goal: Schema.String.check(Schema.isMaxLength(WORKFLOW_GOAL_MAX_CHARS)),
+  schedule: Schema.NullOr(WorkflowSchedule),
+  inputs: Schema.Array(WorkflowInput).check(Schema.isMaxLength(WORKFLOW_MAX_INPUTS)),
+  steps: Schema.Array(WorkflowDraftStep).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(WORKFLOW_MAX_STEPS),
+  ),
+  proposedAt: IsoDateTime,
+});
+export type WorkflowDraft = typeof WorkflowDraft.Type;
+
+/** A draft this build cannot read becomes null instead of failing the whole thread. */
+export const StoredWorkflowDraft = Schema.NullOr(WorkflowDraft).pipe(
+  Schema.catchDecoding(() => Effect.succeedSome(null)),
+);
 
 export class WorkflowError extends Schema.TaggedError<WorkflowError>()("WorkflowError", {
   reason: Schema.Literals(["not-found", "invalid", "exists", "cannot-run", "failed"]),
