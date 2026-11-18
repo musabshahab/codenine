@@ -21,6 +21,8 @@ export const CATEGORY_LABELS: Record<ConnectorCategory, string> = {
   data: "Data",
   automation: "Automation",
   "web-browser": "Web and browser",
+  publishing: "Publishing",
+  media: "Media",
   other: "Other",
 };
 

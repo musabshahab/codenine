@@ -452,6 +452,118 @@ export const CONNECTOR_CATALOG: ReadonlyArray<CatalogConnector> = [
       envInputs: { databaseUrl: "DATABASE_URI" },
     },
   },
+  {
+    entry: entry({
+      id: "wordpress-com",
+      name: "WordPress.com",
+      description: "Write, publish and update posts and pages on your WordPress.com sites.",
+      category: "publishing",
+      auth: "sign-in",
+      docsUrl: "https://wordpress.com/support/mcp/",
+    }),
+    server: { type: "http", url: "https://public-api.wordpress.com/wpcom/v2/mcp/v1" },
+    // One tool writes every post and page, drafts and publishing alike.
+    risks: { "wpcom-mcp-content-authoring": "irreversible" },
+    actions: { "wpcom-mcp-content-authoring": "write or publish content" },
+  },
+  {
+    entry: entry({
+      id: "youtube",
+      name: "YouTube",
+      description:
+        "Upload and schedule videos, and manage thumbnails, playlists and comments. Needs Node.js on this computer.",
+      category: "publishing",
+      auth: "none",
+      runsLocally: true,
+      docsUrl: "https://github.com/eat-pray-ai/yutu#prerequisites",
+      inputs: [
+        {
+          key: "client",
+          label: "OAuth client",
+          help: "Paste the client_secret.json of a Desktop OAuth client from a Google Cloud project with the YouTube Data API on.",
+          secret: true,
+          required: true,
+        },
+        {
+          key: "token",
+          label: "Sign-in token",
+          help: "Paste the youtube.token.json that `npx @eat-pray-ai/yutu auth` writes after you sign in once.",
+          secret: true,
+          required: true,
+        },
+        {
+          key: "folder",
+          label: "Video folder",
+          placeholder: "/home/me/videos",
+          help: "Agents can upload only from inside this folder.",
+          secret: false,
+          required: true,
+        },
+      ],
+    }),
+    server: {
+      type: "stdio",
+      command: "npx",
+      // Pinned: the package holds the channel's sign-in.
+      args: ["-y", "@eat-pray-ai/yutu@0.11.1", "mcp"],
+      envInputs: { client: "YUTU_CREDENTIAL", token: "YUTU_CACHE_TOKEN", folder: "YUTU_ROOT" },
+    },
+    // The server marks an upload as not destructive, but a published video can't be taken back.
+    risks: {
+      "video-insert": "irreversible",
+      "video-update": "irreversible",
+      "video-delete": "irreversible",
+      "comment-insert": "irreversible",
+      "channel-update": "irreversible",
+    },
+    actions: {
+      "video-insert": "upload a video",
+      "video-update": "change a video",
+      "video-delete": "delete a video",
+      "comment-insert": "post a comment",
+      "channel-update": "change your channel",
+    },
+  },
+  {
+    entry: entry({
+      id: "postiz",
+      name: "Postiz",
+      description:
+        "Post and schedule to Instagram, TikTok, LinkedIn, X and more through your Postiz account.",
+      category: "publishing",
+      auth: "token",
+      tokenLabel: "API key",
+      tokenHelpUrl: "https://docs.postiz.com/mcp/introduction",
+    }),
+    server: { type: "http", url: "https://api.postiz.com/mcp" },
+    // Its analytics tools are marked destructive, though they only read.
+    risks: {
+      schedulePostTool: "irreversible",
+      deletePostTool: "irreversible",
+      integrationAnalyticsTool: "read",
+      postAnalyticsTool: "read",
+    },
+    actions: {
+      schedulePostTool: "post or schedule to social media",
+      deletePostTool: "delete a post",
+    },
+  },
+  {
+    entry: entry({
+      id: "fal",
+      name: "fal",
+      description:
+        "Make images, video and audio with hundreds of models. Each run is billed to your fal account.",
+      category: "media",
+      auth: "token",
+      tokenLabel: "API key",
+      tokenHelpUrl: "https://fal.ai/dashboard/keys",
+    }),
+    server: { type: "http", url: "https://mcp.fal.ai/mcp" },
+    // Every run spends money.
+    risks: { run_model: "irreversible", submit_job: "irreversible" },
+    actions: { run_model: "run a paid model", submit_job: "start a paid job" },
+  },
 ];
 
 const byId = new Map(CONNECTOR_CATALOG.map((connector) => [connector.entry.id, connector]));
