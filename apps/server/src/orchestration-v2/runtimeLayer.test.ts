@@ -2501,8 +2501,8 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }
       for (const [step, folder] of [
         ["into", "Research"],
-        ["between", "Writing"],
         ["out", null],
+        ["back", "Writing"],
       ] as const) {
         yield* orchestrator.dispatch({
           type: "thread.folder.set",

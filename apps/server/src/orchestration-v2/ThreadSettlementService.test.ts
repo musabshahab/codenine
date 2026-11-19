@@ -133,6 +133,12 @@ function persistedLink(
 }
 
 describe("isAutoSettlementCandidate", () => {
+  it("settles a chat filed in a folder like any other chat", () => {
+    expect(
+      ThreadSettlementService.isAutoSettlementCandidate(shell({ folder: "Research" }), NOW_MS),
+    ).toBe(true);
+  });
+
   it("settles a thread whose only background work is a command left running", () => {
     expect(
       ThreadSettlementService.isAutoSettlementCandidate(
