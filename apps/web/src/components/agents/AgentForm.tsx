@@ -142,7 +142,7 @@ export function AgentForm({
   const connections = connectors.data?.connections ?? NO_CONNECTIONS;
   const [errors, setErrors] = useState<AgentDraftErrors & { readonly form?: string }>({});
   const [busy, setBusy] = useState(false);
-  const { draft, change, release, saved } = useEditorDraft(
+  const { draft, newer, follow, change, release, saved } = useEditorDraft(
     agent,
     (from) => draftOf(from, forTeam?.start),
     busy,
@@ -551,6 +551,17 @@ export function AgentForm({
             This computer is not connected. You can save once it is back.
           </p>
         )}
+        {newer ? (
+          <p
+            role="status"
+            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+          >
+            This agent changed since you opened it. Saving replaces that change.
+            <Button variant="outline" size="xs" disabled={busy} onClick={follow}>
+              Load the newer agent
+            </Button>
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
           {agent === null ? (
             <span />

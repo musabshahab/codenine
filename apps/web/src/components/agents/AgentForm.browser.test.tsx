@@ -160,7 +160,7 @@ it("saves what it shows under the agent's own name, leaving untouched connector 
   });
 });
 
-it("follows a newer read until it is edited, then keeps the edits", async () => {
+it("follows a newer read until it is edited, then keeps the edits and offers the newer agent", async () => {
   setup();
   const form = (read: AgentDetail) => (
     <AgentForm environmentId={environmentId} workspace={null} agent={read} connected />
@@ -175,4 +175,11 @@ it("follows a newer read until it is edited, then keeps the edits", async () => 
   await screen.rerender(form({ ...agent, title: "Inbox", instructions: "Never send." }));
   await expect.element(page.getByLabelText("Name")).toHaveValue("Mail helper");
   await expect.element(page.getByLabelText("Instructions")).toHaveValue("Ask before sending.");
+
+  await page.getByRole("button", { name: "Load the newer agent" }).click();
+  await expect.element(page.getByLabelText("Name")).toHaveValue("Inbox");
+  await expect.element(page.getByLabelText("Instructions")).toHaveValue("Never send.");
+  await expect
+    .element(page.getByRole("button", { name: "Load the newer agent" }))
+    .not.toBeInTheDocument();
 });

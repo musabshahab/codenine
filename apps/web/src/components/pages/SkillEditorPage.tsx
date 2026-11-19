@@ -15,11 +15,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon, FileIcon } from "lucide-react";
 import { useId, useState } from "react";
 
-import { useEditorDraft } from "../../hooks/useEditorDraft";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
 import { commandErrorMessage } from "../../lib/commandError";
 import { ensureLocalApi } from "../../localApi";
+import { useEditorDraft, useReadSinceOpened } from "../../hooks/useEditorDraft";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import { readEnvironmentScope } from "../../state/session";
@@ -57,7 +57,7 @@ export function SkillEditorPage(props: {
   const opened = useOpenedEnvironment(environmentId, connected);
   const { workspace } = useSkillWorkspaces(environmentId, props.workspace);
   const editing = props.target.kind === "edit" ? props.target : null;
-  const detail = useEnvironmentQuery(
+  const read =
     editing !== null && environmentId !== null && opened
       ? skillsEnvironment.read({
           environmentId,
@@ -69,8 +69,9 @@ export function SkillEditorPage(props: {
               : {}),
           },
         })
-      : null,
-  );
+      : null;
+  const detail = useEnvironmentQuery(read);
+  const answered = useReadSinceOpened(read, detail);
   const title = props.target.kind === "edit" ? skillTitle(props.target.name) : "New skill";
   const breadcrumb = (
     <span className="flex min-w-0 items-center gap-1">
@@ -106,7 +107,7 @@ export function SkillEditorPage(props: {
             skill={null}
             connected={connected}
           />
-        ) : detail.data === null ? (
+        ) : detail.data === null || !answered ? (
           detail.error === null ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : (
@@ -163,7 +164,7 @@ function SkillForm({
   const remove = useAtomCommand(skillsEnvironment.delete, { reportFailure: false });
   const [errors, setErrors] = useState<SkillDraftErrors & { readonly form?: string }>({});
   const [busy, setBusy] = useState(false);
-  const { draft, change, release, saved } = useEditorDraft(skill, draftOf, busy);
+  const { draft, newer, follow, change, release, saved } = useEditorDraft(skill, draftOf, busy);
   const { title, description, instructions, scope } = draft;
   const cannotSave = busy || !canSave || !connected;
   const savedName = skillNameFromTitle(title);
@@ -343,6 +344,17 @@ function SkillForm({
             This computer is not connected. You can save once it is back.
           </p>
         )}
+        {newer ? (
+          <p
+            role="status"
+            className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+          >
+            This skill changed since you opened it. Saving replaces that change.
+            <Button variant="outline" size="xs" disabled={busy} onClick={follow}>
+              Load the newer skill
+            </Button>
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <span className="min-w-60 flex-1 text-xs text-muted-foreground">
             Saved as a standard skill file, so other tools that read skills can use it too.

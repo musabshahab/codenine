@@ -24,6 +24,7 @@ import { useRightPanelStore } from "../../rightPanelStore";
 import { agentsEnvironment } from "../../state/agents";
 import { connectorsEnvironment } from "../../state/connectors";
 import { useThreadStatus } from "../../state/entities";
+import { useReadSinceOpened } from "../../hooks/useEditorDraft";
 import { useEnvironmentQuery } from "../../state/query";
 import { environmentThreadDetails } from "../../state/threads";
 import { AgentForm, type AgentFormStart } from "../agents/AgentForm";
@@ -71,11 +72,12 @@ export function AgentEditorPage(props: {
   const editing = props.target.kind === "edit" ? props.target : null;
   const suggested = props.target.kind === "suggested" ? props.target : null;
   const forStep = props.target.kind === "workflow-step" ? props.target : null;
-  const detail = useEnvironmentQuery(
+  const read =
     editing !== null && environmentId !== null && opened
       ? agentsEnvironment.read({ environmentId, input: { name: editing.name } })
-      : null,
-  );
+      : null;
+  const detail = useEnvironmentQuery(read);
+  const answered = useReadSinceOpened(read, detail);
   const title = detail.data?.title ?? (editing === null ? "New agent" : skillTitle(editing.name));
   const breadcrumb = (
     <span className="flex min-w-0 items-center gap-1">
@@ -127,7 +129,7 @@ export function AgentEditorPage(props: {
             agent={null}
             connected={connected}
           />
-        ) : detail.data === null ? (
+        ) : detail.data === null || !answered ? (
           detail.error === null ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : (

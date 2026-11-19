@@ -9,7 +9,12 @@ import "~/index.css";
 import { render } from "../../../test/render";
 import { NO_ABILITIES } from "../agents/agents.logic";
 
-const state = vi.hoisted(() => ({ phase: "connected" }));
+const state = vi.hoisted(() => ({
+  phase: "connected",
+  instructions: "Keep replies short.",
+  readAt: 1,
+  refresh: (): void => {},
+}));
 const environmentId = EnvironmentId.make("local");
 const agent: AgentDetail = {
   name: "gmail",
@@ -48,8 +53,17 @@ vi.mock("../../state/agents", async () => {
 vi.mock("../../state/connectors", () => ({ connectorsEnvironment: { state: () => "state" } }));
 vi.mock("../../state/query", () => ({
   useEnvironmentQuery: (query: unknown) => ({
-    data: query === "read" ? agent : query === "state" ? { connections: [] } : null,
+    data:
+      query === "read"
+        ? { ...agent, instructions: state.instructions }
+        : query === "state"
+          ? { connections: [] }
+          : null,
     error: null,
+    dataUpdatedAt: state.readAt,
+    isPending: false,
+    isSuccess: true,
+    refresh: state.refresh,
   }),
 }));
 vi.mock("../chat/useTeamPlanActions", () => ({
@@ -70,8 +84,16 @@ vi.mock(import("../agents/useAgents"), async (original) => ({
 
 import { AgentEditorPage } from "./AgentEditorPage";
 
-it("keeps what was typed while the computer reconnects, and saves only once it is back", async () => {
+function setup() {
   state.phase = "connected";
+  state.instructions = agent.instructions;
+  state.readAt = 0;
+  state.refresh = vi.fn();
+}
+
+it("waits for a read made after the page opened instead of editing the cached agent", async () => {
+  setup();
+  state.readAt = 1;
   const editor = () => (
     <AgentEditorPage
       target={{ kind: "edit", name: agent.name }}
@@ -80,6 +102,28 @@ it("keeps what was typed while the computer reconnects, and saves only once it i
     />
   );
   await using screen = await render(editor());
+  await expect.element(page.getByText("Loading…")).toBeVisible();
+  await expect.element(page.getByLabelText("Instructions")).not.toBeInTheDocument();
+  expect(state.refresh).toHaveBeenCalledTimes(1);
+
+  state.instructions = "Ask before sending.";
+  state.readAt = 2;
+  await screen.rerender(editor());
+  await expect.element(page.getByLabelText("Instructions")).toHaveValue("Ask before sending.");
+});
+
+it("keeps what was typed while the computer reconnects, and saves only once it is back", async () => {
+  setup();
+  const editor = () => (
+    <AgentEditorPage
+      target={{ kind: "edit", name: agent.name }}
+      machine={environmentId}
+      workspace={null}
+    />
+  );
+  await using screen = await render(editor());
+  state.readAt = 1;
+  await screen.rerender(editor());
   await userEvent.fill(page.getByLabelText("Instructions"), "A long unsaved draft.");
   const save = page.getByRole("button", { name: "Save", exact: true });
   await expect.element(save).toBeEnabled();
