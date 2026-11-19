@@ -305,9 +305,11 @@ export const prepareRestore = Effect.fn("BackupRestore.prepare")(function* (inpu
           ),
       }),
     ),
-    // Nothing was restored, so there is nothing to undo.
-    Effect.tapError(() =>
-      safety === null ? Effect.void : fs.remove(safety.path, { force: true }).pipe(Effect.ignore),
+    // Nothing was restored, so there is nothing to undo; an interrupt counts too.
+    Effect.onExit((exit) =>
+      Exit.isSuccess(exit) || safety === null
+        ? Effect.void
+        : fs.remove(safety.path, { force: true }).pipe(Effect.ignore),
     ),
   );
   return { summary, safetyBackup: safety };

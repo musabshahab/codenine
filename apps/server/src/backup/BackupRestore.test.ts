@@ -3,7 +3,9 @@ import * as HostProcess from "@codenine/shared/HostProcess";
 import * as NodeSqliteClient from "@codenine/shared/nodeSqliteClient";
 import { assert, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -419,6 +421,33 @@ it.effect("a restore that fails part way puts the previous data back", () =>
       assert.isFalse(yield* fs.exists(path.join(beta.paths.baseDir, leftover)), leftover);
     }
     assert.match((yield* readBackupState(beta.paths.stateDir)).lastError ?? "", /interrupted/);
+  }).pipe(Effect.scoped, Effect.provide(layer)),
+);
+
+it.effect("an interrupted restore stops unpacking and leaves nothing behind", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const { alpha, beta, backups } = yield* setup;
+    const { file } = yield* backUp(alpha, backups, "env-alpha");
+    const unpacking = Deferred.makeUnsafe<void>();
+
+    const fiber = yield* prepareRestore({
+      paths: beta.paths,
+      filePath: file.path,
+      password: PASSWORD,
+      computerName: "Beta",
+      codenineVersion: "0.1.7",
+      onProgress: (_fraction, detail) => {
+        if (detail === "Unpacking the backup") Deferred.doneUnsafe(unpacking, Effect.void);
+      },
+    }).pipe(withHome(beta), Effect.forkChild);
+    yield* Deferred.await(unpacking);
+    yield* Fiber.interrupt(fiber);
+
+    assert.isFalse(yield* fs.exists(path.join(beta.paths.baseDir, "restore-staging")));
+    assert.isFalse(yield* fs.exists(path.join(beta.paths.baseDir, "restore-pending.json")));
+    assert.deepEqual(yield* fs.readDirectory(path.join(beta.paths.baseDir, "restore-undo")), []);
   }).pipe(Effect.scoped, Effect.provide(layer)),
 );
 

@@ -586,39 +586,45 @@ const make = Effect.gen(function* () {
     readonly password: string;
     readonly undo: boolean;
   }) {
-    yield* acquire;
-    yield* Effect.gen(function* () {
-      yield* startJob(
-        "before-restore",
-        input.undo ? "Undoing the restore" : "Saving a safety backup of your current data",
-      );
-      const { computerName } = yield* identity;
-      yield* runJob(
-        "before-restore",
-        withServices(
-          prepareRestore({
-            paths: config,
-            filePath: input.filePath,
-            password: input.password,
-            computerName,
-            codenineVersion: packageJson.version,
-            undo: input.undo,
-            onProgress: (fraction, detail) => {
-              progress.fraction = fraction;
-              progress.detail = detail;
-            },
-          }),
-        ).pipe(
-          Effect.map((prepared) => ({ file: prepared.safetyBackup })),
-          Effect.mapError(asBackupError("The backup could not be restored.")),
-        ),
-      );
-    }).pipe(Effect.ensuring(release));
-    if (restart === null) return { restarting: false };
-    // Reply first: the restart closes this connection.
-    yield* restart.pipe(Effect.delay("500 millis"), Effect.forkDetach);
-    yield* Effect.logInfo("Restarting to apply a restore.");
-    return { restarting: true };
+    // The job outlives this request: a dropped connection must not stop a restore half way.
+    const job = yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        yield* acquire;
+        yield* startJob(
+          "before-restore",
+          input.undo ? "Undoing the restore" : "Saving a safety backup of your current data",
+        ).pipe(Effect.onError(() => release));
+        return yield* Effect.gen(function* () {
+          const { computerName } = yield* identity;
+          yield* runJob(
+            "before-restore",
+            withServices(
+              prepareRestore({
+                paths: config,
+                filePath: input.filePath,
+                password: input.password,
+                computerName,
+                codenineVersion: packageJson.version,
+                undo: input.undo,
+                onProgress: (fraction, detail) => {
+                  progress.fraction = fraction;
+                  progress.detail = detail;
+                },
+              }),
+            ).pipe(
+              Effect.map((prepared) => ({ file: prepared.safetyBackup })),
+              Effect.mapError(asBackupError("The backup could not be restored.")),
+            ),
+          );
+          if (restart === null) return { restarting: false };
+          // Reply first: the restart closes this connection.
+          yield* restart.pipe(Effect.delay("500 millis"), Effect.forkDetach);
+          yield* Effect.logInfo("Restarting to apply a restore.");
+          return { restarting: true };
+        }).pipe(Effect.ensuring(release), Effect.interruptible, Effect.forkIn(scope));
+      }),
+    );
+    return yield* Fiber.join(job);
   });
 
   const restore = Effect.fn("BackupService.restore")(function* (input: {

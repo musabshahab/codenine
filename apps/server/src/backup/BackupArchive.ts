@@ -866,10 +866,16 @@ export const extractBackup = Effect.fn("BackupArchive.extract")(function* (input
   readonly onProgress?: ((fraction: number) => void) | undefined;
 }) {
   const platform = yield* HostProcess.Platform;
-  return yield* Effect.tryPromise({
-    try: async () => {
+  return yield* Effect.callback<
+    { readonly opened: OpenedBackupFile; readonly manifest: BackupManifest },
+    BackupError
+  >((resume) => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    const extract = async () => {
       const opened = await readBackupHeader(input.filePath);
       const key = await unlockBackup(opened, input.password);
+      signal.throwIfAborted();
       const payloadBytes = Math.max(1, opened.sizeBytes - opened.payloadOffset);
       let readBytes = 0;
       const payload = readBackupPayload(opened, key, {
@@ -904,6 +910,7 @@ export const extractBackup = Effect.fn("BackupArchive.extract")(function* (input
       };
       try {
         for await (const chunk of payload) {
+          signal.throwIfAborted();
           for (const event of parser.push(chunk as Uint8Array)) {
             if (event._tag === "entry") {
               const { entry } = event;
@@ -962,6 +969,7 @@ export const extractBackup = Effect.fn("BackupArchive.extract")(function* (input
         payload.destroy();
       }
       if (manifest === null) throw unreadable(DAMAGED);
+      signal.throwIfAborted();
       for (const link of symlinks) {
         const resolved = NodePath.posix.normalize(
           NodePath.posix.join(NodePath.posix.dirname(link.archivePath), link.target),
@@ -979,7 +987,15 @@ export const extractBackup = Effect.fn("BackupArchive.extract")(function* (input
         await NodeFSP.symlink(link.target, link.diskPath).catch(() => undefined);
       }
       return { opened, manifest };
-    },
-    catch: toReadError,
+    };
+    const settled = extract().then(
+      (value) => resume(Effect.succeed(value)),
+      (cause) => resume(Effect.fail(toReadError(cause))),
+    );
+    // An interrupt waits here, so nothing is written after the caller starts cleaning up.
+    return Effect.promise(() => {
+      controller.abort();
+      return settled;
+    });
   });
 });
