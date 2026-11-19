@@ -152,6 +152,8 @@ export const describeArguments = (
 interface PreparedCall {
   readonly details: ReadonlyArray<{ readonly label: string; readonly value: string }>;
   readonly preview: string | undefined;
+  /** What Auto's reviewer reads beside the arguments: uncut, since the card's cuts would read as hidden text. */
+  readonly reviewed: Pick<ReviewedAction, "details" | "preview">;
   /** The activity line: what happened when it ran, and what was asked otherwise. */
   readonly summary: (ran: boolean) => string;
   readonly run: Effect.Effect<
@@ -283,15 +285,19 @@ const make = Effect.gen(function* () {
         }),
       );
       const subject = draft.subject.length === 0 ? "(no subject)" : draft.subject;
+      const fields = [
+        { label: "To", value: draft.to },
+        ...(draft.cc === undefined ? [] : [{ label: "Cc", value: draft.cc }]),
+        { label: "Subject", value: subject },
+      ];
       return {
-        details: [
-          { label: "To", value: cutMiddle(draft.to, DETAIL_LIMIT) },
-          ...(draft.cc === undefined
-            ? []
-            : [{ label: "Cc", value: cutMiddle(draft.cc, DETAIL_LIMIT) }]),
-          { label: "Subject", value: cutMiddle(subject, DETAIL_LIMIT) },
-        ],
+        details: fields.map((field) => ({
+          label: field.label,
+          value: cutMiddle(field.value, DETAIL_LIMIT),
+        })),
         preview: draft.text.length === 0 ? undefined : cutMiddle(draft.text, PREVIEW_LIMIT),
+        // The arguments are only the draft's id, so the reviewer needs the draft itself.
+        reviewed: { details: fields, preview: draft.text },
         summary: (ran: boolean) =>
           ran
             ? `Sent the draft "${subject}" to ${draft.to}`
@@ -326,6 +332,8 @@ const make = Effect.gen(function* () {
     const line = `${action[0]?.toUpperCase() ?? ""}${action.slice(1)}${first === undefined ? "" : ` (${first.label}: ${first.value})`}`;
     return {
       ...described,
+      // The arguments already carry every value.
+      reviewed: { details: [], preview: undefined },
       summary: () => truncate(line, 200),
       run: clients.callTool({ connection, name: tool, arguments: args }),
     } satisfies PreparedCall;
@@ -476,8 +484,7 @@ const make = Effect.gen(function* () {
             tool,
             group: risk,
             summary: action,
-            details: call.details,
-            preview: call.preview,
+            ...call.reviewed,
             arguments: input.args,
           })
         : ({ type: "run" } as const);

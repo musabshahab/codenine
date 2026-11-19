@@ -468,11 +468,12 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
           const gateway = yield* ConnectorGateway.ConnectorGateway;
           const store = yield* ConnectorStore.ConnectorStore;
           const github = yield* connectGitHub;
+          const mergeArguments = { pull: 7, title: "t".repeat(200), body: "word ".repeat(400) };
           const merge = gateway.handle({
             threadId,
             ...call(github.id, "tools/call", {
               name: "merge_pull_request",
-              arguments: { pull: 7 },
+              arguments: mergeArguments,
             }),
           });
           const resultOf = (response: ConnectorGateway.JsonRpcResponse | undefined) =>
@@ -512,7 +513,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
             tool: "merge_pull_request",
             group: "irreversible",
             summary: "merge a pull request",
-            arguments: { pull: 7 },
+            // Only the card cuts values: a cut mark here would tell the reviewer text is hidden.
+            details: [],
+            preview: undefined,
+            arguments: mergeArguments,
           });
           // A reviewer's allow covers one call; it never stops the action asking.
           assert.deepStrictEqual((yield* store.get(github.id))?.toolApprovals, {});

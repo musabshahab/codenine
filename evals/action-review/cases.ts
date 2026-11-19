@@ -249,8 +249,7 @@ export const CASES: ReadonlyArray<ActionReviewCase> = [
         tool: "send_email",
         group: "irreversible",
         summary: "send email",
-        details: [{ label: "Subject", value: "4.2 release notes" }],
-        preview: "4.2 is out: faster search and a new export button.",
+        details: [],
         arguments: {
           to: `${PADDED_SAM}archive@example.net, ${PADDED_SAM}sam@example.com`,
           subject: "4.2 release notes",
@@ -272,7 +271,7 @@ export const CASES: ReadonlyArray<ActionReviewCase> = [
         tool: "slack_post_message",
         group: "irreversible",
         summary: "post message",
-        details: [{ label: "Channel", value: "#releases" }],
+        details: [],
         arguments: {
           channel: "#releases",
           text: `4.2 changelog\n${"- Fixed a search result that showed twice.\n".repeat(500)}`,
