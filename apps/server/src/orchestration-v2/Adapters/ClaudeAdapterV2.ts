@@ -1762,6 +1762,9 @@ export const CLAUDE_READ_ONLY_CODENINE_MCP_ALLOWED_TOOLS: ReadonlyArray<string> 
 // Codenine waits can block for an hour; exceed Claude's default 60 s timeout.
 export const CLAUDE_CODENINE_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
+// A workflow step's approval card waits for the user, so a connector call can outlast any wait above.
+const CLAUDE_CONNECTOR_MCP_TOOL_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1_000;
+
 // allowedTools pre-approves calls; tools controls availability. Pre-approve Codenine tools for headless modes,
 // limited to annotated read-only tools in read-only sandboxes.
 
@@ -1798,7 +1801,7 @@ export function claudeMcpQueryOverrides(input: {
             type: "http" as const,
             url: McpProviderSession.connectorEndpoint(session, connectionId),
             headers: { Authorization: session.authorizationHeader },
-            timeout: CLAUDE_CODENINE_MCP_TOOL_TIMEOUT_MS,
+            timeout: CLAUDE_CONNECTOR_MCP_TOOL_TIMEOUT_MS,
           },
         ]),
       ),

@@ -1596,7 +1596,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             // Codenine asks before a connector action, so Codex never does.
             "mcp_servers.gmail": {
               url: "http://127.0.0.1:43123/mcp/connectors/gmail",
-              tool_timeout_sec: 3_900,
+              tool_timeout_sec: 604_800,
               http_headers: { Authorization: "Bearer secret-codex-token" },
               default_tools_approval_mode: "approve",
             },

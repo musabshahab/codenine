@@ -516,4 +516,39 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
       }).pipe(Effect.provide(harness.layer));
     }),
   );
+
+  it.effect("a call the provider gives up on closes its card, so it cannot be allowed late", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({});
+      yield* Effect.gen(function* () {
+        const gateway = yield* ConnectorGateway.ConnectorGateway;
+        const github = yield* connectGitHub;
+        const merging = yield* gateway
+          .handle({
+            threadId,
+            ...call(github.id, "tools/call", { name: "merge_pull_request", arguments: {} }),
+          })
+          .pipe(Effect.forkChild);
+        const card = yield* Deferred.await(harness.cardShown);
+        assert.ok(card.type === "connector_approval.record");
+        yield* gateway.handle({
+          threadId,
+          connectionId: github.id,
+          message: { jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 1 } },
+        });
+        yield* Fiber.join(merging);
+        const answered = yield* gateway
+          .answerApproval({ threadId, turnItemId: card.turnItemId, answer: "allow" })
+          .pipe(Effect.exit);
+        assert.ok(answered._tag === "Failure");
+        assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), []);
+        assert.deepStrictEqual(
+          (yield* Ref.get(harness.dispatched)).map((command) =>
+            command.type === "connector_approval.record" ? command.approvalStatus : command.type,
+          ),
+          ["pending", "cancelled"],
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
 });

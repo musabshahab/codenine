@@ -1406,6 +1406,8 @@ export const CODEX_THREAD_CONFIG = {
 
 // Codenine waits can block for an hour; keep Codex's MCP timeout above that.
 const CODEX_CODENINE_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
+// A workflow step's approval card waits for the user, so a connector call can outlast any wait above.
+const CODEX_CONNECTOR_MCP_TOOL_TIMEOUT_SEC = 7 * 24 * 60 * 60;
 // Holds Codenine tools Codex must call directly, never from Code Mode. Calls arrive as
 // `codenine-direct.<tool>`; codenineMcpToolPresentation.ts must keep resolving that form.
 const CODEX_CODENINE_DIRECT_MCP_SERVER = "codenine-direct";
@@ -1439,6 +1441,7 @@ export function codexThreadRuntimeParams(input: {
             {
               ...codenineServer,
               url: McpProviderSession.connectorEndpoint(mcpSession, connectionId),
+              tool_timeout_sec: CODEX_CONNECTOR_MCP_TOOL_TIMEOUT_SEC,
               // Codenine asks before a connector action itself, so Codex must not ask again.
               default_tools_approval_mode: "approve",
             },

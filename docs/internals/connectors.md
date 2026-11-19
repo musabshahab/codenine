@@ -26,8 +26,10 @@ organiser.
 Whether an action asks is the chat's agent's choice for its group, else the user's choice for that
 action, else the connection's for the group. The gateway does the asking: an approval card in the
 chat, a wait of up to ten minutes, and the activity log. A workflow run's step has no ten-minute
-wait: its card stays until it is answered, its run ends, or the provider gives up on the tool call
-(the MCP tool timeout the adapters set). Providers are told never to prompt for
+wait: its card stays until it is answered, its run ends, or the provider gives up on the tool call.
+The adapters give connector servers a week-long MCP tool timeout for that reason, and the gateway
+closes the card on the provider's `notifications/cancelled`, so an abandoned call cannot be allowed
+late. Providers are told never to prompt for
 these servers (Claude pre-approves `mcp__<id>__*`; Codex sets `default_tools_approval_mode =
 "approve"`). A provider prompt would ask twice and skip the user's per-connection choices. Plan
 mode refuses anything that is not read.

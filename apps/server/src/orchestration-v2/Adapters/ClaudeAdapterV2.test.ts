@@ -650,7 +650,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       type: "http",
       url: "http://127.0.0.1:43123/mcp/connectors/gmail",
       headers: { Authorization: "Bearer secret-claude-token" },
-      timeout: ClaudeAdapterV2.CLAUDE_CODENINE_MCP_TOOL_TIMEOUT_MS,
+      timeout: 604_800_000,
     });
     assert.notEqual(
       ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(queryPolicy, withGmail),

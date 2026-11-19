@@ -17,6 +17,7 @@ import type { CallToolResult } from "@modelcontextprotocol/client";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -58,6 +59,10 @@ const ToolCallParams = Schema.Struct({
 const decodeToolCallParams = Schema.decodeUnknownOption(ToolCallParams);
 const InitializeParams = Schema.Struct({ protocolVersion: Schema.String });
 const decodeInitializeParams = Schema.decodeUnknownOption(InitializeParams);
+const CancelledParams = Schema.Struct({
+  requestId: Schema.Union([Schema.String, Schema.Number]),
+});
+const decodeCancelledParams = Schema.decodeUnknownOption(CancelledParams);
 const decodeConnectionId = Schema.decodeUnknownOption(ConnectionId);
 
 export type JsonRpcResponse =
@@ -571,6 +576,9 @@ const make = Effect.gen(function* () {
     return result.success;
   });
 
+  // A provider that gives up on a call says so here; its card must not be answerable afterwards.
+  const calls = new Map<string, Deferred.Deferred<void>>();
+
   const handle: ConnectorGateway["Service"]["handle"] = Effect.fn("ConnectorGateway.handle")(
     function* (input) {
       const decoded = decodeJsonRpcMessage(input.message);
@@ -582,7 +590,19 @@ const make = Effect.gen(function* () {
         } satisfies JsonRpcResponse;
       }
       const message = decoded.value;
-      if (message.id === undefined) return undefined;
+      const callKey = (requestId: string | number | null) =>
+        `${input.threadId}\u0000${input.connectionId}\u0000${JSON.stringify(requestId)}`;
+      if (message.id === undefined) {
+        const cancelled =
+          message.method === "notifications/cancelled"
+            ? decodeCancelledParams(message.params)
+            : Option.none();
+        const call = Option.isSome(cancelled)
+          ? calls.get(callKey(cancelled.value.requestId))
+          : undefined;
+        if (call !== undefined) yield* Deferred.succeed(call, undefined);
+        return undefined;
+      }
       const id = message.id;
       const reply = (result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id, result });
       const fail = (code: number, text: string): JsonRpcResponse => ({
@@ -637,6 +657,9 @@ const make = Effect.gen(function* () {
         case "tools/call": {
           const params = decodeToolCallParams(message.params);
           if (params._tag === "None") return fail(-32602, "tools/call needs a tool name.");
+          const key = callKey(id);
+          const cancelled = yield* Deferred.make<void>();
+          calls.set(key, cancelled);
           return reply(
             yield* callTool({
               threadId: input.threadId,
@@ -645,7 +668,16 @@ const make = Effect.gen(function* () {
               agentApprovals: found.agentApprovals,
               tool: params.value.name,
               args: params.value.arguments ?? {},
-            }),
+            }).pipe(
+              Effect.raceFirst(
+                Deferred.await(cancelled).pipe(Effect.as(toolError("The call was cancelled."))),
+              ),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (calls.get(key) === cancelled) calls.delete(key);
+                }),
+              ),
+            ),
           );
         }
         default:
