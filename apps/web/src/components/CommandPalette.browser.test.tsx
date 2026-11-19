@@ -55,7 +55,7 @@ describe("CommandPalette open intents", () => {
 
     openCommandPalette({});
     await expect
-      .element(page.getByPlaceholder("Search commands, workspaces, and threads..."))
+      .element(page.getByPlaceholder("Search actions, workspaces, and chats..."))
       .toHaveFocus();
     await userEvent.keyboard("{ArrowDown}");
     await expect
@@ -74,7 +74,7 @@ describe("CommandPalette open intents", () => {
 
     openCommandPalette({ query: "acme" });
 
-    const input = page.getByPlaceholder("Search commands, workspaces, and threads...");
+    const input = page.getByPlaceholder("Search actions, workspaces, and chats...");
     await expect.element(input).toHaveFocus();
     await expect.element(input).toHaveValue("acme");
   });

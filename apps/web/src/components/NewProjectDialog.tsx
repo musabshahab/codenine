@@ -224,7 +224,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
                     void navigate({ to: "/settings/connections" });
                   }}
                 >
-                  Open connections
+                  Open Environments
                 </Button>
               </p>
             ) : null}
@@ -463,10 +463,15 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
                 </Select>
               </div>
             ) : null}
-            <Button variant="outline" disabled={submitting} onClick={closeNewProjectDialog}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={submitting}
+              onClick={closeNewProjectDialog}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={machine === null || submitting}>
+            <Button size="sm" type="submit" disabled={machine === null || submitting}>
               {submitting ? "Creating…" : "Create workspace"}
             </Button>
           </DialogFooter>
@@ -605,17 +610,17 @@ function DefaultAgentField(props: {
   const described = selection === null ? null : teamModelText(catalog, selection);
   return (
     <div className="flex flex-col gap-1.5">
-      <Label render={<div />}>Default agent</Label>
+      <Label render={<div />}>Default model</Label>
       {selection === null || described === null ? (
         <p className="text-muted-foreground text-sm">
-          No agent is set up on {props.machine.label} yet.
+          No account is set up on {props.machine.label} yet.
         </p>
       ) : (
         <div className="flex">
           <TeamModelPicker
             catalog={catalog}
             selection={selection}
-            label={`Default agent: ${[described.entry?.displayName, described.name].filter(Boolean).join(", ")}`}
+            label={`Default model: ${[described.entry?.displayName, described.name].filter(Boolean).join(", ")}`}
             disabled={false}
             onChange={props.onChange}
           />

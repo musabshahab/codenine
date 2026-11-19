@@ -137,7 +137,7 @@ export function useNewProject() {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: "Default agent not saved",
+          title: "Default model not saved",
           description: "This connection cannot change settings, so new chats keep the default.",
         }),
       );
@@ -153,7 +153,7 @@ export function useNewProject() {
         },
       },
     });
-    reportProjectFailure("Default agent not saved", result);
+    reportProjectFailure("Default model not saved", result);
   };
 
   // The project exists either way, so these only report their own failures.

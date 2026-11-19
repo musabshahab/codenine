@@ -53,6 +53,7 @@ function SidebarFolderHeaderRow(props: {
         })),
       )
     : null;
+  const startChat = !onOpen && props.empty ? props.onNewChat : null;
   const handleContextMenu = (event: ReactMouseEvent) => {
     if (props.onContextMenu === null) return;
     event.preventDefault();
@@ -82,14 +83,14 @@ function SidebarFolderHeaderRow(props: {
           type="button"
           data-sidebar-row={rowId}
           aria-expanded={props.empty ? undefined : !collapsed}
-          aria-label={onOpen ? `Show or hide ${props.label}` : undefined}
-          onClick={props.onToggle}
+          aria-label={startChat ? newChatLabel : onOpen ? `Show or hide ${props.label}` : undefined}
+          onClick={startChat ?? props.onToggle}
           onContextMenu={handleContextMenu}
           className={cn(
             "flex h-8 cursor-pointer items-center rounded-(--control-radius) outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             onOpen
               ? "w-6 shrink-0 justify-center ps-1"
-              : "min-w-0 flex-1 gap-2 ps-1.5 pe-(--sidebar-row-content-inset) text-left",
+              : "min-w-0 flex-1 gap-2 ps-2 pe-(--sidebar-row-content-inset) text-left",
           )}
         >
           <ChevronDownIcon
@@ -98,6 +99,7 @@ function SidebarFolderHeaderRow(props: {
               "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
               (collapsed || props.empty) && "-rotate-90",
               props.empty && "invisible",
+              !onOpen && "-me-1",
             )}
           />
           {onOpen ? null : name}

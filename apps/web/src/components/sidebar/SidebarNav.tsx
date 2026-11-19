@@ -63,7 +63,7 @@ export function SidebarNewMenu(props: {
         </MenuItem>
         <MenuItem disabled={props.onNewTeamTask === null} onClick={() => props.onNewTeamTask?.()}>
           <UsersIcon />
-          New task with a team
+          New task
         </MenuItem>
         <MenuItem disabled={props.onNewWorkflow === null} onClick={() => props.onNewWorkflow?.()}>
           <WorkflowIcon />

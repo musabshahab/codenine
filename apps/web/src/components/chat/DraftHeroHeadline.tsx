@@ -256,8 +256,8 @@ export function DraftProjectPicker({
           {activeProjectGroup ? (
             <ProjectFavicon project={activeProjectGroup} className="size-4 shrink-0" />
           ) : null}
-          <span data-composer-control-label className="min-w-0">
-            <DraftProjectName value={activeProjectTitle ?? "Choose a workspace"} singleLine />
+          <span data-composer-control-label className="min-w-0 truncate">
+            {activeProjectTitle ?? "Choose a workspace"}
           </span>
           <ChevronDownIcon
             aria-hidden

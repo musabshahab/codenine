@@ -3886,11 +3886,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   </button>
                 </>
               ) : scopedProjectGroups.length > 1 ? (
-                "No threads in these workspaces yet"
+                "No chats in these workspaces yet"
               ) : scopedProjectGroups[0] ? (
-                `No threads in ${scopedProjectGroups[0].displayName} yet`
+                `No chats in ${scopedProjectGroups[0].displayName} yet`
               ) : (
-                "No threads yet"
+                "No chats yet"
               )}
             </div>
           ) : null}

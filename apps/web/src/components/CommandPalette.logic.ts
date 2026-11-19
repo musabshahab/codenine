@@ -572,7 +572,7 @@ export function filterCommandPaletteGroups(input: {
     if (input.threadSearchItems.length > 0) {
       searchableGroups.push({
         value: "threads-search",
-        label: "Threads",
+        label: "Chats",
         items: input.threadSearchItems,
       });
     }
@@ -723,7 +723,7 @@ export function buildRootGroups(input: {
   if (input.recentThreadItems.length > 0) {
     groups.push({
       value: "recent-threads",
-      label: "Recent Threads",
+      label: "Recent chats",
       items: input.recentThreadItems,
     });
   }
@@ -733,9 +733,9 @@ export function buildRootGroups(input: {
 export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): string {
   switch (mode) {
     case "root":
-      return "Search commands, workspaces, and threads...";
+      return "Search actions, workspaces, and chats...";
     case "root-browse":
-      return "Enter project path (e.g. ~/projects/my-app)";
+      return "Enter workspace folder (e.g. ~/projects/my-app)";
     case "submenu":
       return "Search...";
     case "submenu-browse":
