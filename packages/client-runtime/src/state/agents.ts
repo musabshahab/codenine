@@ -18,6 +18,8 @@ export function createAgentsEnvironmentAtoms<R, E>(
   ) => Effect.sync(() => registry.update(revision(environmentId), (count) => count + 1));
 
   return {
+    /** For a change made outside these commands, such as a chat's approval saved on its agent. */
+    changed,
     list: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:agents:list",
       tag: WS_METHODS.agentsList,

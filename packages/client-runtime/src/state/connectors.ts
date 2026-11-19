@@ -14,6 +14,13 @@ const connectionKey = (environmentId: EnvironmentId, connectionId: ConnectionId)
 
 export function createConnectorsEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry.EnvironmentRegistry | R, E>,
+  options: {
+    /** Runs when an approval is answered "always", which in an agent's chat rewrites the agent. */
+    readonly agentsChanged: (
+      target: { readonly environmentId: EnvironmentId },
+      registry: AtomRegistry.AtomRegistry,
+    ) => Effect.Effect<void>;
+  },
 ) {
   // The catalogue, the connections and the saved apps; emits again on every change.
   const state = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
@@ -107,6 +114,8 @@ export function createConnectorsEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
+      onSuccess: (target, registry) =>
+        target.input.answer === "always" ? options.agentsChanged(target, registry) : Effect.void,
     }),
   };
 }
