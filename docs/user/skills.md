@@ -24,9 +24,9 @@ them. **Open folder** on the skill's page opens it.
 ## Skills from Claude Code and Codex
 
 **Found in Claude Code and Codex** lists skills those providers keep in their own folders. They
-work only with the provider they came from. **Add to Codenine** copies one into your Codenine folder
-so every model can use it; the original stays where it is. **Import** copies a skill from any folder
-on the computer Codenine runs on.
+work only with the provider they came from. **Add** copies one into your Codenine folder so every
+model can use it; the original stays where it is. **Import** copies a skill from any folder on the
+computer Codenine runs on.
 
 ## The library
 

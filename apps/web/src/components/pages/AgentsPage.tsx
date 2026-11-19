@@ -155,12 +155,11 @@ function AgentsOnMachine({
           </EmptyMedia>
           <EmptyTitle>No agents yet</EmptyTitle>
           <EmptyDescription>
-            An agent is a specialist for one kind of task, such as your email or code review: its
-            instructions, the model it runs on, and the skills and connectors it may use. Make one,
-            then pick it in any chat.
+            Make one for a kind of task, such as your email or code review, then pick it in any
+            chat.
           </EmptyDescription>
         </EmptyHeader>
-        <Button size="sm" disabled={!canSave} onClick={onNewAgent}>
+        <Button size="sm" variant="outline" disabled={!canSave} onClick={onNewAgent}>
           New agent
         </Button>
       </Empty>

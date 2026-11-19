@@ -53,6 +53,11 @@ export function AgentModelDialog(props: {
       <DialogPopup className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Choose a model for {subject}</DialogTitle>
+          {props.needsTools ? (
+            <DialogDescription>
+              {`${props.agentTitle === "" ? "This agent" : props.agentTitle} uses a connector, so it needs a model that can use tools.`}
+            </DialogDescription>
+          ) : null}
           <InputGroup>
             <InputGroupAddon>
               <SearchIcon aria-hidden />
@@ -65,11 +70,6 @@ export function AgentModelDialog(props: {
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
           </InputGroup>
-          {props.needsTools ? (
-            <DialogDescription>
-              {`${props.agentTitle === "" ? "This agent" : props.agentTitle} uses a connector, so it needs a model that can use tools.`}
-            </DialogDescription>
-          ) : null}
         </DialogHeader>
         <DialogPanel>
           {groups.length === 0 ? (
@@ -138,7 +138,7 @@ export function AgentModelDialog(props: {
                 props.onPick({ instanceId: usable.instanceId, model: usable.slug });
               }}
             >
-              {usable === null ? "Use this model" : `Use ${usable.name}`}
+              {usable === null ? "Choose a model" : `Use ${usable.name}`}
             </Button>
           </span>
         </DialogFooter>

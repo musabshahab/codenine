@@ -24,7 +24,7 @@ needs; an email agent needs none of them. An agent works within these limits on 
 start, read or message other chats, and it never calls another agent. To have agents work together,
 ask for a team from a chat without an agent.
 
-**Save and start a chat** saves the agent and opens a chat with it. **Duplicate**, in an agent's
+**Save and start chat** saves the agent and opens a chat with it. **Duplicate**, in an agent's
 menu on the Agents page, makes a copy to change.
 
 When an agent's account is turned off, or the account no longer offers its model, its card says so.

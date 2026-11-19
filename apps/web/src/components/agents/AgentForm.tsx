@@ -422,7 +422,7 @@ export function AgentForm({
             ))}
             <li>
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 disabled={disabled}
                 onClick={() => setPickingSkill(true)}
@@ -589,7 +589,7 @@ export function AgentForm({
             </Button>
             {forTeam === undefined ? (
               <Button size="sm" disabled={cannotSave} onClick={() => void submit("chat")}>
-                Save and start a chat
+                Save and start chat
               </Button>
             ) : null}
           </div>

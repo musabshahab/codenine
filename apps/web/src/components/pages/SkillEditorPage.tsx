@@ -73,6 +73,7 @@ export function SkillEditorPage(props: {
   const detail = useEnvironmentQuery(read);
   const answered = useReadSinceOpened(read, detail);
   const title = props.target.kind === "edit" ? skillTitle(props.target.name) : "New skill";
+  const navigate = useNavigate();
   const breadcrumb = (
     <span className="flex min-w-0 items-center gap-1">
       <Link
@@ -88,13 +89,25 @@ export function SkillEditorPage(props: {
   );
   return (
     <WorkspacePage area="skill" title={breadcrumb}>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 sm:px-6">
         {props.target.kind === "invalid" ? (
           <Empty>
             <EmptyHeader>
               <EmptyTitle>This skill is not here</EmptyTitle>
               <EmptyDescription>The address does not name a skill.</EmptyDescription>
             </EmptyHeader>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void navigate({
+                  to: "/skills",
+                  search: { machine: environmentId ?? undefined, workspace: workspace?.id },
+                })
+              }
+            >
+              Back to skills
+            </Button>
           </Empty>
         ) : environmentId === null || !opened ? (
           <p className="text-sm text-muted-foreground">
@@ -116,6 +129,9 @@ export function SkillEditorPage(props: {
                 <EmptyTitle>This skill could not open</EmptyTitle>
                 <EmptyDescription>{detail.error}</EmptyDescription>
               </EmptyHeader>
+              <Button size="sm" variant="outline" onClick={detail.refresh}>
+                Try again
+              </Button>
             </Empty>
           )
         ) : (
@@ -304,7 +320,7 @@ function SkillForm({
         </div>
         <SkillFiles environmentId={environmentId} skill={skill} />
         <div className="flex flex-col gap-2">
-          <h3 id={keepId} className="text-sm font-medium text-foreground">
+          <h3 id={keepId} className="text-base font-semibold text-foreground">
             Keep it
           </h3>
           <RadioGroup
@@ -355,21 +371,23 @@ function SkillForm({
             </Button>
           </p>
         ) : null}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <span className="min-w-60 flex-1 text-xs text-muted-foreground">
-            Saved as a standard skill file, so other tools that read skills can use it too.
-          </span>
+        <p className="text-xs text-muted-foreground">
+          Saved as a standard skill file, so other tools that read skills can use it too.
+        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+          {skill === null ? (
+            <span />
+          ) : (
+            <Button
+              variant="destructive-outline"
+              size="sm"
+              disabled={cannotSave}
+              onClick={() => void deleteSkill()}
+            >
+              Delete skill
+            </Button>
+          )}
           <div className="flex flex-wrap gap-2">
-            {skill === null ? null : (
-              <Button
-                variant="destructive-outline"
-                size="sm"
-                disabled={cannotSave}
-                onClick={() => void deleteSkill()}
-              >
-                Delete
-              </Button>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -382,7 +400,7 @@ function SkillForm({
               Cancel
             </Button>
             <Button type="submit" size="sm" disabled={cannotSave}>
-              {busy ? "Saving…" : "Save skill"}
+              {busy ? "Saving…" : "Save"}
             </Button>
           </div>
         </div>
@@ -400,7 +418,7 @@ function SkillFiles({
 }) {
   const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, { reportFailure: false });
-  const canOpen = config?.availableEditors.includes("file-manager") === true && skill !== null;
+  const canOpen = config?.availableEditors.includes("file-manager") === true;
   const openFolder = async () => {
     if (skill === null || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
       return;
@@ -417,13 +435,27 @@ function SkillFiles({
       });
     }
   };
+  const heading = (
+    <h3 className="text-base font-semibold text-foreground">
+      Files <span className="font-normal text-muted-foreground">optional</span>
+    </h3>
+  );
+  if (skill === null) {
+    return (
+      <section aria-label="Files" className="flex flex-col gap-2">
+        {heading}
+        <p className="text-xs text-muted-foreground">
+          Examples, templates or scripts the skill can use. Save the skill, then add them to its
+          folder.
+        </p>
+      </section>
+    );
+  }
   return (
     <section aria-label="Files" className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium text-foreground">
-        Files <span className="font-normal text-muted-foreground">optional</span>
-      </h3>
-      <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border px-3.5 py-3">
-        {skill !== null && skill.files.length > 0 ? (
+      {heading}
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-3.5 py-3">
+        {skill.files.length > 0 ? (
           <ul className="flex flex-col gap-1">
             {skill.files.map((file) => (
               <li key={file} className="flex items-center gap-2 text-sm text-foreground">
@@ -435,9 +467,8 @@ function SkillFiles({
         ) : null}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="min-w-60 flex-1 text-xs text-muted-foreground">
-            {skill === null
-              ? "Examples, templates or scripts the skill can use. Save the skill, then add them to its folder."
-              : "Examples, templates or scripts the skill can use. Agents open them only when they need them."}
+            Examples, templates or scripts the skill can use. Agents open them only when they need
+            them.
           </span>
           {canOpen ? (
             <Button variant="outline" size="sm" onClick={() => void openFolder()}>

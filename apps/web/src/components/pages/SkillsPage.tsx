@@ -266,25 +266,29 @@ function YourSkills({
                   <span className="text-xs text-muted-foreground">{skill.description}</span>
                 )}
               </span>
-              <Badge variant="secondary">
-                {skill.scope === "workspace" ? (workspace?.title ?? "This workspace") : "Codenine"}
-              </Badge>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  void navigate({
-                    to: "/skills/$scope/$name",
-                    params: { scope: skill.scope, name: skill.name },
-                    search: {
-                      machine: environmentId,
-                      workspace: skill.projectId ?? workspace?.id,
-                    },
-                  })
-                }
-              >
-                Edit
-              </Button>
+              <span className="flex shrink-0 items-center gap-3">
+                <Badge variant="secondary">
+                  {skill.scope === "workspace"
+                    ? (workspace?.title ?? "This workspace")
+                    : "All workspaces"}
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    void navigate({
+                      to: "/skills/$scope/$name",
+                      params: { scope: skill.scope, name: skill.name },
+                      search: {
+                        machine: environmentId,
+                        workspace: skill.projectId ?? workspace?.id,
+                      },
+                    })
+                  }
+                >
+                  Edit
+                </Button>
+              </span>
             </li>
           ))}
         </ul>
@@ -314,7 +318,7 @@ function FoundSkills({
     } else if (!isAtomCommandInterrupted(result)) {
       toastManager.add({
         type: "error",
-        title: `Could not add ${skill.name}`,
+        title: `Could not add ${skillTitle(skill.name)}`,
         description: commandErrorMessage(result, "Try again."),
       });
     }
@@ -338,24 +342,26 @@ function FoundSkills({
             className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3"
           >
             <span className="flex min-w-60 flex-1 flex-col gap-0.5">
-              <span className="text-sm font-medium text-foreground">{skill.name}</span>
+              <span className="text-sm font-medium text-foreground">{skillTitle(skill.name)}</span>
               {skill.description.trim() === "" ? null : (
                 <span className="text-xs text-muted-foreground">{skill.description}</span>
               )}
             </span>
-            <span className="text-xs text-muted-foreground">{skill.providerName}</span>
-            {skill.inCodenine ? (
-              <Badge variant="success">In Codenine</Badge>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!canSave || busyPath !== null}
-                onClick={() => void add(skill)}
-              >
-                {busyPath === skill.path ? "Adding…" : "Add to Codenine"}
-              </Button>
-            )}
+            <span className="flex shrink-0 items-center gap-3">
+              <span className="text-xs text-muted-foreground">{skill.providerName}</span>
+              {skill.inCodenine ? (
+                <Badge variant="success">Added</Badge>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!canSave || busyPath !== null}
+                  onClick={() => void add(skill)}
+                >
+                  {busyPath === skill.path ? "Adding…" : "Add"}
+                </Button>
+              )}
+            </span>
           </li>
         ))}
       </ul>
@@ -381,7 +387,9 @@ function LibrarySkills({
     setBusyName(skill.name);
     const result = await addFromLibrary({ environmentId, input: { name: skill.name } });
     setBusyName(null);
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+    if (result._tag === "Success") {
+      toastManager.add({ type: "success", title: `Added ${skillTitle(skill.name)}` });
+    } else if (!isAtomCommandInterrupted(result)) {
       toastManager.add({
         type: "error",
         title: `Could not add ${skillTitle(skill.name)}`,
@@ -393,7 +401,7 @@ function LibrarySkills({
     <section aria-labelledby="skills-library" className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
         <h2 id="skills-library" className="text-sm font-semibold text-foreground">
-          Library
+          Library <span className="font-normal text-muted-foreground">{library.length}</span>
         </h2>
         <p className="text-sm text-muted-foreground">
           Skills that come with Codenine. Adding one copies it to your skills, where you can change
@@ -415,7 +423,7 @@ function LibrarySkills({
             ) : (
               <Button
                 size="sm"
-                variant="secondary"
+                variant="outline"
                 className="self-start"
                 disabled={!canSave || busyName !== null}
                 onClick={() => void add(skill)}

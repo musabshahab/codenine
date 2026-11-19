@@ -79,6 +79,7 @@ export function AgentEditorPage(props: {
   const detail = useEnvironmentQuery(read);
   const answered = useReadSinceOpened(read, detail);
   const title = detail.data?.title ?? (editing === null ? "New agent" : skillTitle(editing.name));
+  const navigate = useNavigate();
   const breadcrumb = (
     <span className="flex min-w-0 items-center gap-1">
       <Link
@@ -101,6 +102,21 @@ export function AgentEditorPage(props: {
               <EmptyTitle>This agent is not here</EmptyTitle>
               <EmptyDescription>The address does not name an agent.</EmptyDescription>
             </EmptyHeader>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void navigate({
+                  to: "/agents",
+                  search: {
+                    machine: environmentId ?? undefined,
+                    workspace: props.workspace ?? undefined,
+                  },
+                })
+              }
+            >
+              Back to agents
+            </Button>
           </Empty>
         ) : environmentId === null || !opened ? (
           <p className="text-sm text-muted-foreground">
@@ -138,6 +154,9 @@ export function AgentEditorPage(props: {
                 <EmptyTitle>This agent could not open</EmptyTitle>
                 <EmptyDescription>{detail.error}</EmptyDescription>
               </EmptyHeader>
+              <Button size="sm" variant="outline" onClick={detail.refresh}>
+                Try again
+              </Button>
             </Empty>
           )
         ) : (
