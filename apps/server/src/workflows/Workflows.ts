@@ -180,6 +180,8 @@ const make = Effect.gen(function* () {
   // The scheduler reads every workflow's files every few seconds; unchanged ones come from here.
   const workflowCache = new Map<string, { readonly stamp: string; readonly read: WorkflowRead }>();
   const stateCache = new Map<string, { readonly stamp: string; readonly state: WorkflowState }>();
+  // A workflow.json that stops parsing at all still has runs under the id it last named.
+  const lastIds = new Map<WorkflowName, WorkflowId>();
 
   // Untraced: both scheduler sources call it for every workflow on every tick.
   const readWorkflow = Effect.fnUntraced(function* (
@@ -190,6 +192,7 @@ const make = Effect.gen(function* () {
     const info = yield* fileSystem.stat(file).pipe(Effect.option);
     if (Option.isNone(info) || info.value.type !== "File") {
       workflowCache.delete(file);
+      lastIds.delete(name);
       return { _tag: "missing" };
     }
     const stamp = stampOf(info.value);
@@ -219,8 +222,9 @@ const make = Effect.gen(function* () {
         folder,
         issue: parsed?.issue ?? "The file is too large or unreadable.",
       });
-      read = { _tag: "broken", folder, id: parsed?.id };
+      read = { _tag: "broken", folder, id: parsed?.id ?? lastIds.get(name) };
     }
+    if (read.id !== undefined) lastIds.set(name, read.id);
     workflowCache.set(file, { stamp, read });
     return read;
   });
@@ -262,7 +266,7 @@ const make = Effect.gen(function* () {
     return trimNotes(yield* fileSystem.readFileString(file).pipe(Effect.orElseSucceed(() => "")));
   });
 
-  const listFound = Effect.gen(function* () {
+  const listRead = Effect.gen(function* () {
     const entries = yield* fileSystem
       .readDirectoryEntries(root)
       .pipe(Effect.orElseSucceed((): ReadonlyArray<FileSystem.DirectoryEntry> => []));
@@ -270,9 +274,16 @@ const make = Effect.gen(function* () {
       .filter((entry) => entry.type !== "File")
       .map((entry) => entry.name)
       .filter(isWorkflowName);
-    const reads = yield* Effect.forEach(names, readWorkflow, { concurrency: 8 });
-    return reads.filter((read): read is FoundWorkflow => read._tag === "found");
+    return yield* Effect.forEach(
+      names,
+      (name) => readWorkflow(name).pipe(Effect.map((read) => ({ name, read }))),
+      { concurrency: 8 },
+    );
   });
+
+  const listFound = listRead.pipe(
+    Effect.map((entries) => entries.flatMap(({ read }) => (read._tag === "found" ? [read] : []))),
+  );
 
   const locks = new Map<WorkflowId, Semaphore.Semaphore>();
   const withLock = <A, E, R>(id: WorkflowId, effect: Effect.Effect<A, E, R>) =>
@@ -487,6 +498,31 @@ const make = Effect.gen(function* () {
     return yield* read({ name: workflow.name });
   });
 
+  // Runs are found through the workflow's folder, so one left running would go on unwatched.
+  const cancelLiveRuns = Effect.fn("Workflows.cancelLiveRuns")(function* (
+    id: WorkflowId,
+    folder: string,
+  ) {
+    const couldNotStop = failed("Could not stop the workflow's runs, so it was not deleted.");
+    const { runs } = yield* readState(folder);
+    for (let run = runs; run > Math.max(0, runs - WATCHED_RUNS); run -= 1) {
+      const threadId = workflowRunThreadId(id, run);
+      const shell = yield* projections.getThreadShell(threadId).pipe(Effect.catch(couldNotStop));
+      if (shell?.deletedAt !== null || shell.teamSummary?.status !== "running") continue;
+      yield* threads
+        .dispatch({
+          type: "team.cancel",
+          commandId: CommandId.make(`server:workflow-removed:${id}:${run}`),
+          threadId,
+        })
+        .pipe(
+          // Refused before means the run had already ended.
+          Effect.catchTags({ OrchestratorCommandPreviouslyRejectedError: () => Effect.void }),
+          Effect.catch(couldNotStop),
+        );
+    }
+  });
+
   const remove: Workflows["Service"]["remove"] = Effect.fn("Workflows.remove")(function* (input) {
     const target = path.join(root, input.name);
     const couldNotDelete = failed("Could not delete the workflow.");
@@ -518,7 +554,9 @@ const make = Effect.gen(function* () {
     const current = yield* readWorkflow(input.name);
     const id = current._tag === "missing" ? undefined : current.id;
     // A state write in progress finishes first, so it cannot bring the folder back.
-    yield* id === undefined ? removeFolder : withLock(id, removeFolder);
+    yield* id === undefined
+      ? removeFolder
+      : withLock(id, cancelLiveRuns(id, target).pipe(Effect.andThen(removeFolder)));
   });
 
   /** Starts a run of `found`, whose lock the caller holds. */
@@ -841,11 +879,11 @@ const make = Effect.gen(function* () {
   const endedRuns = new Map<ThreadId, { readonly checkedAt: number; readonly updatedAt: string }>();
 
   const superviseRun = Effect.fnUntraced(function* (
-    found: FoundWorkflow,
+    workflow: { readonly name: WorkflowName; readonly id: WorkflowId },
     run: number,
     nowMs: number,
   ) {
-    const threadId = workflowRunThreadId(found.id, run);
+    const threadId = workflowRunThreadId(workflow.id, run);
     const ended = endedRuns.get(threadId);
     if (ended !== undefined && nowMs - ended.checkedAt < ENDED_RUN_CHECK_MS) return;
     const shell = yield* projections.getThreadShell(threadId);
@@ -882,10 +920,12 @@ const make = Effect.gen(function* () {
       }
       if (planRun?.note != null) {
         const note = planRun.note;
-        yield* whileLocked(found.workflow.name, found.id, (current) =>
+        const kept = yield* whileLocked(workflow.name, workflow.id, (current) =>
           keepNote(current, { ...planRun, note }),
         );
-        endedRuns.delete(threadId);
+        if (Option.isSome(kept)) endedRuns.delete(threadId);
+        // Its workflow.json cannot be read now, so the note is tried again at the next check.
+        else endedRuns.set(threadId, { checkedAt: nowMs, updatedAt: "" });
         return;
       }
     }
@@ -895,14 +935,16 @@ const make = Effect.gen(function* () {
   // Runs every few seconds, so it is not traced; each run's own failure is only logged.
   const superviseRuns: Workflows["Service"]["superviseRuns"] = Effect.gen(function* () {
     const nowMs = yield* Clock.currentTimeMillis;
-    for (const found of yield* listFound) {
-      const state = yield* readState(found.folder);
+    for (const { name, read } of yield* listRead) {
+      // A workflow.json that cannot be read starts no runs, but those it started keep their limits.
+      if (read._tag === "missing" || read.id === undefined) continue;
+      const state = yield* readState(read.folder);
       for (let run = Math.max(1, state.runs - WATCHED_RUNS + 1); run <= state.runs; run += 1) {
         if (state.noted.includes(run)) continue;
-        yield* superviseRun(found, run, nowMs).pipe(
+        yield* superviseRun({ name, id: read.id }, run, nowMs).pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("Could not check a workflow run.", {
-              folder: found.folder,
+              folder: read.folder,
               run,
               cause,
             }),

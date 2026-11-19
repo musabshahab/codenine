@@ -105,7 +105,7 @@ export function WorkflowCard(props: {
   const deleteWorkflow = async () => {
     const confirmed = await settlePromise(() =>
       ensureLocalApi().dialogs.confirm(
-        `Delete ${workflow.title}?\nIts folder is removed from your Codenine folder. Chats from its runs stay.`,
+        `Delete ${workflow.title}?\nIts folder is removed from your Codenine folder, and a run in progress is stopped. Chats from its runs stay.`,
         { variant: "destructive" },
       ),
     );

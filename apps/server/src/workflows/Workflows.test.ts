@@ -182,13 +182,18 @@ function apply(world: World, command: OrchestrationV2ServerCommand) {
   if (
     command.type !== "team.start" &&
     command.type !== "team.run.update" &&
-    command.type !== "team.hold"
+    command.type !== "team.hold" &&
+    command.type !== "team.cancel"
   ) {
     return;
   }
   const lead = world.threads.get(command.threadId);
   if (lead === undefined) return;
   const plan = lead.team;
+  if (command.type === "team.cancel") {
+    if (plan !== null) lead.team = { ...plan, status: "cancelled" };
+    return;
+  }
   if (command.type === "team.start") {
     lead.team = {
       id: TeamPlanId.make(`team-plan:${command.commandId}`),
@@ -436,6 +441,35 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         expect(yield* failure(workflows.run({ name: "broken" }))).toBe("invalid");
         yield* workflows.remove({ name: "broken" });
         expect(yield* fileSystem.exists(folder)).toBe(false);
+      }),
+    ),
+  );
+
+  it.effect("still holds a run whose workflow.json broke, and stops it when deleted", () =>
+    withWorkflows((world) =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(at("2026-11-18T10:00:00Z"));
+        const workflows = yield* Workflows.Workflows;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const saved = yield* workflows.save({
+          workflow: {
+            ...digest,
+            lead: { ...digest.lead, limits: { spendUsd: null, minutes: 60 } },
+          },
+        });
+        const { threadId } = yield* workflows.run({ name: "weekly-digest" });
+        const plan = () => world.threads.get(threadId)!.team!;
+        yield* fileSystem.writeFileString(path.join(saved.path, "workflow.json"), "{ not json");
+
+        yield* TestClock.setTime(at("2026-11-18T11:00:00Z"));
+        yield* workflows.superviseRuns;
+        expect(plan().hold?.reason).toBe("time");
+
+        yield* workflows.remove({ name: "weekly-digest" });
+        expect(world.dispatched.at(-1)).toMatchObject({ type: "team.cancel", threadId });
+        expect(plan().status).toBe("cancelled");
+        expect(yield* fileSystem.exists(saved.path)).toBe(false);
       }),
     ),
   );

@@ -196,7 +196,7 @@ export function WorkflowEditor(props: {
     if (saved === null || busy) return;
     const confirmed = await settlePromise(() =>
       ensureLocalApi().dialogs.confirm(
-        `Delete ${saved.title}?\nIts folder is removed from your Codenine folder. Chats from its runs stay.`,
+        `Delete ${saved.title}?\nIts folder is removed from your Codenine folder, and a run in progress is stopped. Chats from its runs stay.`,
         { variant: "destructive" },
       ),
     );
