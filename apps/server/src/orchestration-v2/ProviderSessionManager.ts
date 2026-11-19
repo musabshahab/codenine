@@ -325,12 +325,14 @@ function providerThreadLoadKey(input: {
   readonly modelSelection?: ModelSelection;
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly connectors: string;
+  /** The setup the provider still holds, when it could not be made to load the wanted one. */
+  readonly loadSetup?: string | undefined;
 }): string {
   return JSON.stringify({
     providerThread: providerThreadRuntimeKey(input.providerThread),
     modelSelection: input.modelSelection ?? null,
     runtimePolicy: input.runtimePolicy ?? null,
-    loadSetup: providerThreadLoadSetup(input.connectors, input.runtimePolicy),
+    loadSetup: input.loadSetup ?? providerThreadLoadSetup(input.connectors, input.runtimePolicy),
   });
 }
 
@@ -1368,10 +1370,9 @@ export const layerWithOptions = (
         });
 
       /**
-       * A provider that hosts many threads applies MCP servers and tool switches when it loads a
-       * thread, and a resume of a thread it still holds keeps the old ones. Unload it first when
-       * the thread's connections or its agent's abilities changed, unless that would cut off work
-       * still running.
+       * A provider applies MCP servers and tool switches when it loads a thread and keeps them on
+       * resume, so a thread whose connections or abilities changed is unloaded first, unless work
+       * is still running. Returns the setup held afterwards: the old one means try again next time.
        */
       const unloadForNewLoadSetup = Effect.fn("ProviderSessionManager.unloadForNewLoadSetup")(
         function* (input: {
@@ -1387,30 +1388,29 @@ export const layerWithOptions = (
             entry === undefined ||
             unloadThread === undefined ||
             loadedKey === undefined ||
-            input.providerThread.nativeThreadRef === null ||
-            Option.match(decodeLoadedSetup(loadedKey), {
-              onNone: () => true,
-              onSome: (loaded) => loaded.loadSetup === input.loadSetup,
-            }) ||
-            hasBusyTurn(entry, input.providerThread.id)
+            input.providerThread.nativeThreadRef === null
           ) {
-            return;
+            return input.loadSetup;
           }
+          const held = Option.getOrUndefined(decodeLoadedSetup(loadedKey))?.loadSetup;
+          if (held === undefined || held === input.loadSetup) return input.loadSetup;
+          if (hasBusyTurn(entry, input.providerThread.id)) return held;
           const pendingWork =
             entry.runtime.hasPendingBackgroundWorkForThread === undefined
               ? false
               : yield* entry.runtime
                   .hasPendingBackgroundWorkForThread(input.providerThread)
                   .pipe(Effect.orElseSucceed(() => true));
-          if (pendingWork) return;
-          yield* unloadThread({ providerThread: input.providerThread }).pipe(
+          if (pendingWork) return held;
+          return yield* unloadThread({ providerThread: input.providerThread }).pipe(
             Effect.timeout(UNLOAD_THREAD_TIMEOUT_MS),
+            Effect.as(input.loadSetup),
             Effect.catchCause((cause) =>
               Effect.logWarning("orchestration-v2.driver-session.load-setup-unload-failed", {
                 providerSessionId: input.providerSessionId,
                 threadId: input.threadId,
                 cause,
-              }),
+              }).pipe(Effect.as(held)),
             ),
           );
         },
@@ -1838,7 +1838,11 @@ export const layerWithOptions = (
             if (threadId === null || threadId === undefined) {
               return runtime.resumeThread(input);
             }
-            const loadKey = (providerThread: OrchestrationV2ProviderThread, connectors: string) =>
+            const loadKey = (
+              providerThread: OrchestrationV2ProviderThread,
+              connectors: string,
+              loadSetup?: string,
+            ) =>
               providerThreadLoadKey({
                 providerThread,
                 ...(input.modelSelection === undefined
@@ -1848,6 +1852,7 @@ export const layerWithOptions = (
                   ? {}
                   : { runtimePolicy: input.runtimePolicy }),
                 connectors,
+                loadSetup,
               });
             return observeActivity(
               providerSessionId,
@@ -1873,19 +1878,25 @@ export const layerWithOptions = (
                 }).pipe(
                   Effect.flatMap((loaded) =>
                     loaded
-                      ? Effect.succeed({ loaded: input.providerThread })
+                      ? Effect.succeed({ loaded: input.providerThread, loadSetup: undefined })
                       : unloadForNewLoadSetup({
                           providerSessionId,
                           threadId,
                           providerThread: input.providerThread,
                           loadSetup: providerThreadLoadSetup(connectors, input.runtimePolicy),
-                        }).pipe(Effect.andThen(loadNatively(runtime.resumeThread(input)))),
+                        }).pipe(
+                          Effect.flatMap((loadSetup) =>
+                            runtime
+                              .resumeThread(input)
+                              .pipe(Effect.map((resumed) => ({ loaded: resumed, loadSetup }))),
+                          ),
+                        ),
                   ),
-                  Effect.tap(({ loaded: providerThread }) =>
+                  Effect.tap(({ loaded: providerThread, loadSetup }) =>
                     markProviderThreadLoaded({
                       providerSessionId,
                       threadId,
-                      providerThreadKey: loadKey(providerThread, connectors),
+                      providerThreadKey: loadKey(providerThread, connectors, loadSetup),
                     }),
                   ),
                 ),

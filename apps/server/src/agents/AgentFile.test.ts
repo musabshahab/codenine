@@ -58,7 +58,7 @@ describe("AGENT.md", () => {
       instructions: "Sort new issues.",
       model: null,
       skills: ["triage"],
-      connectors: [{ id: "github", approvals: { read: "auto" } }],
+      connectors: [{ id: "github", approvals: { read: "auto", change: "ask" } }],
       abilities: { ...NO_ABILITIES, editFiles: true },
     });
   });

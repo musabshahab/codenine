@@ -2009,6 +2009,7 @@ it.effect.each([
     Effect.gen(function* () {
       const state = yield* Ref.make(emptyState);
       const connections = yield* Ref.make<ReadonlyArray<ConnectionId>>([]);
+      const pendingWork = yield* Ref.make<boolean>(backgroundWork);
       yield* Effect.gen(function* () {
         const eventSink = yield* EventSink.EventSinkV2;
         const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -2063,18 +2064,26 @@ it.effect.each([
           ...unloaded,
         ]);
         // New instructions reach the next turn without a fresh load.
-        yield* resumeWith({ ...runtimePolicy, agent: { ...reviewer, instructions: "Be brief." } });
+        const brief = { ...runtimePolicy, agent: { ...reviewer, instructions: "Be brief." } };
+        yield* resumeWith(brief);
         assert.equal((yield* Ref.get(state)).resumeCount, 4);
         assert.deepEqual((yield* Ref.get(state)).unloadedNativeThreadIds, [
           ...unloaded,
           ...unloaded,
         ]);
+        // A load kept for background work is still owed: the first resume after it ends unloads.
+        yield* Ref.set(pendingWork, false);
+        yield* resumeWith(brief);
+        assert.deepEqual(
+          (yield* Ref.get(state)).unloadedNativeThreadIds,
+          backgroundWork ? ["native-connectors"] : [...unloaded, ...unloaded],
+        );
       }).pipe(
         Effect.provide(
           layerTest({
             state,
             idleTimeoutMs: 60_000,
-            hasPendingBackgroundWorkForThread: Effect.succeed(backgroundWork),
+            hasPendingBackgroundWorkForThread: Ref.get(pendingWork),
             connectorStoreLayer: Layer.mock(ConnectorStore.ConnectorStore)({
               effectiveConnectionIds: () => Ref.get(connections),
             }),

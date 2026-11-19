@@ -51,9 +51,12 @@ const connectorsOf = (value: unknown): ReadonlyArray<AgentConnector> => {
     const approvals: {
       -readonly [Group in keyof AgentConnector["approvals"]]: ConnectorApprovalMode;
     } = {};
+    const unreadable = entry.approvals !== undefined && !isRecord(entry.approvals);
     for (const group of APPROVAL_GROUPS) {
       const mode = written[group];
       if (isApprovalMode(mode)) approvals[group] = mode;
+      // A choice that is written but unreadable asks: left out, the connection's could allow it.
+      else if (mode !== undefined || unreadable) approvals[group] = "ask";
     }
     connectors.set(entry.id, { id: entry.id, approvals });
   }
