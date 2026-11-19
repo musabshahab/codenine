@@ -9,6 +9,7 @@ import { savedWorkflowsEnvironment } from "../../state/savedWorkflows";
 import { environmentThreadDetails } from "../../state/threads";
 import { agentModelOfSelection, useAgentModelCatalog, useAgents } from "../agents/useAgents";
 import { useAccessEnvironment } from "../settings/useAccessEnvironment";
+import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import {
   useWorkflowEdit,
@@ -93,6 +94,7 @@ export function WorkflowEditorPage(props: {
 function EditorMessage(props: {
   readonly machine: EnvironmentId | null;
   readonly title: string;
+  readonly action?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
@@ -104,6 +106,7 @@ function EditorMessage(props: {
     >
       <Empty className="h-full">
         <EmptyHeader>{props.children}</EmptyHeader>
+        {props.action}
       </Empty>
     </WorkspacePage>
   );
@@ -123,7 +126,15 @@ function SavedWorkflowEditor(props: {
         <EmptyDescription>Loading…</EmptyDescription>
       </EditorMessage>
     ) : (
-      <EditorMessage machine={environmentId} title="Workflow">
+      <EditorMessage
+        machine={environmentId}
+        title="Workflow"
+        action={
+          <Button size="sm" variant="outline" onClick={detail.refresh}>
+            Try again
+          </Button>
+        }
+      >
         <EmptyTitle>This workflow could not open</EmptyTitle>
         <EmptyDescription>{detail.error}</EmptyDescription>
       </EditorMessage>

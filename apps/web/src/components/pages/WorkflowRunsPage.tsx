@@ -60,6 +60,7 @@ export function WorkflowRunsPage(props: {
 
 function RunsMessage(props: {
   readonly machine: EnvironmentId | null;
+  readonly action?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
@@ -71,6 +72,7 @@ function RunsMessage(props: {
     >
       <Empty className="h-full">
         <EmptyHeader>{props.children}</EmptyHeader>
+        {props.action}
       </Empty>
     </WorkspacePage>
   );
@@ -83,7 +85,16 @@ function RunsOnMachine(props: { readonly environmentId: EnvironmentId; readonly 
   );
   if (detail.data === null) {
     return (
-      <RunsMessage machine={environmentId}>
+      <RunsMessage
+        machine={environmentId}
+        action={
+          detail.error === null ? null : (
+            <Button size="sm" variant="outline" onClick={detail.refresh}>
+              Try again
+            </Button>
+          )
+        }
+      >
         {detail.error === null ? (
           <EmptyDescription>Loading…</EmptyDescription>
         ) : (
@@ -130,7 +141,7 @@ function RunsTable(props: {
     >
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-8 sm:px-6">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="font-semibold text-foreground text-xl">Runs</h2>
+          <h2 className="text-base font-semibold text-foreground">Runs</h2>
           {summary === null ? null : (
             <span className="text-muted-foreground text-sm">{summary}</span>
           )}
@@ -244,8 +255,8 @@ function RunsTable(props: {
           </div>
         )}
         <p className="text-muted-foreground text-xs">
-          Runs show here while their chats are on this computer. A run's chats keep everything its
-          agents and lead did.
+          Runs show here while their chats are kept. A run's chats keep everything its agents and
+          lead did.
         </p>
       </div>
     </WorkspacePage>

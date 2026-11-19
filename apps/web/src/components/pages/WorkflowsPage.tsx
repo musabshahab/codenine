@@ -55,17 +55,19 @@ export function WorkflowsPage(props: { readonly machine: EnvironmentId | null })
             Reconnect {label ?? environment.label} to see its workflows.
           </p>
         ) : (
-          <WorkflowsOnMachine
-            key={environment.environmentId}
-            environmentId={environment.environmentId}
-            canSave={canSave}
-          />
+          <>
+            <WorkflowsOnMachine
+              key={environment.environmentId}
+              environmentId={environment.environmentId}
+              canSave={canSave}
+            />
+            {canSave ? null : (
+              <p className="text-muted-foreground text-xs">
+                This connection can see workflows but cannot add or change them.
+              </p>
+            )}
+          </>
         )}
-        <p className="text-muted-foreground text-xs">
-          Workflows live in your Codenine folder, so backups include them. A scheduled run needs
-          Codenine running on this computer at its time; each workflow says what happens to runs it
-          misses.
-        </p>
       </div>
     </WorkspacePage>
   );
@@ -108,9 +110,7 @@ function WorkflowsOnMachine(props: {
           </EmptyMedia>
           <EmptyTitle>No workflows yet</EmptyTitle>
           <EmptyDescription>
-            A workflow is a team of your agents that runs again: each step done by one of them, and
-            a lead that checks every result against the outcome you want. Run it on a schedule or
-            whenever you start it.
+            Draw one yourself, describe it in a chat, or save a team that did the job well.
           </EmptyDescription>
         </EmptyHeader>
         <NewWorkflowMenu environmentId={environmentId} disabled={!props.canSave} />
@@ -121,19 +121,26 @@ function WorkflowsOnMachine(props: {
     left.title.localeCompare(right.title),
   );
   return (
-    <div className="grid gap-3.5 lg:grid-cols-2">
-      {workflows.map((workflow) => (
-        <WorkflowCard
-          key={workflow.name}
-          environmentId={environmentId}
-          workflow={workflow}
-          runs={runs.filter((run) => run.workflowId === workflow.id)}
-          agents={agents}
-          catalog={catalog}
-          clock={clock}
-          canSave={props.canSave}
-        />
-      ))}
+    <div className="flex flex-col gap-8">
+      <div className="grid gap-3.5 lg:grid-cols-2">
+        {workflows.map((workflow) => (
+          <WorkflowCard
+            key={workflow.name}
+            environmentId={environmentId}
+            workflow={workflow}
+            runs={runs.filter((run) => run.workflowId === workflow.id)}
+            agents={agents}
+            catalog={catalog}
+            clock={clock}
+            canSave={props.canSave}
+          />
+        ))}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Workflows live in your Codenine folder, so backups include them. A scheduled run needs
+        Codenine running on its computer at that time; each workflow says what happens to runs it
+        misses.
+      </p>
     </div>
   );
 }

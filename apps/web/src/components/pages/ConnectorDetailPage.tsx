@@ -76,14 +76,26 @@ export function ConnectorDetailPage(props: {
             Connect the computer this connector is on to manage it.
           </p>
         ) : connection === null ? (
-          state.data === null && state.error === null ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+          state.data === null ? (
+            state.error === null ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyTitle>Connectors could not load</EmptyTitle>
+                  <EmptyDescription>{state.error}</EmptyDescription>
+                </EmptyHeader>
+                <Button size="sm" variant="outline" onClick={state.refresh}>
+                  Try again
+                </Button>
+              </Empty>
+            )
           ) : (
             <Empty>
               <EmptyHeader>
                 <EmptyTitle>This connector is not here</EmptyTitle>
                 <EmptyDescription>
-                  {state.error ?? "It may have been disconnected, or it is on another computer."}
+                  It may have been disconnected, or it is on another computer.
                 </EmptyDescription>
               </EmptyHeader>
               <Button
@@ -295,6 +307,11 @@ function ConnectionDetail({
           </Button>
         </div>
       </header>
+      {canManage ? null : (
+        <p className="text-xs text-muted-foreground">
+          This connection can see this connector but cannot change it.
+        </p>
+      )}
       {connection.status === "needs-sign-in" ? (
         <SignInAddressWarning returnOrigin={returnOrigin} service={connection.name} />
       ) : null}

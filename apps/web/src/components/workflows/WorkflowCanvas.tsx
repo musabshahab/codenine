@@ -244,11 +244,9 @@ function LeadNode({ data }: NodeProps<LeadFlowNode>) {
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="truncate text-sm">
           <span className="font-semibold text-foreground">Lead</span>
-          <span className="text-muted-foreground">
-            {" "}
-            · {data.model} · {data.activity}
-          </span>
+          <span className="text-muted-foreground"> · {data.model}</span>
         </span>
+        <span className="truncate text-muted-foreground text-xs">{data.activity}</span>
         <span className="truncate text-muted-foreground text-xs">
           {data.goal.trim() === ""
             ? data.editable

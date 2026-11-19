@@ -102,6 +102,11 @@ function PanelHeader(props: { readonly title: string; readonly onClose?: () => v
   );
 }
 
+// Whole-workflow problems carry no target; all but the step count are fixed on the lead.
+function isLeadProblem(message: string): boolean {
+  return !message.startsWith("Add a step") && !message.startsWith("A run can use");
+}
+
 function Hint(props: { readonly id?: string; readonly children: ReactNode }) {
   return (
     <p id={props.id} className="text-muted-foreground text-xs">
@@ -175,15 +180,18 @@ export function WorkflowPanel(props: {
             <ul className="flex flex-col gap-1">
               {props.problems.map((problem) => (
                 <li key={`${problem.step ?? ""}:${problem.message}`}>
-                  {problem.step === null ? (
+                  {problem.step === null && !isLeadProblem(problem.message) ? (
                     problem.message
                   ) : (
                     <InlineButton
                       tone="muted"
-                      onClick={() => {
-                        if (problem.step !== null)
-                          props.onSelect({ kind: "step", id: problem.step });
-                      }}
+                      onClick={() =>
+                        props.onSelect(
+                          problem.step === null
+                            ? { kind: "lead" }
+                            : { kind: "step", id: problem.step },
+                        )
+                      }
                     >
                       {problem.message}
                     </InlineButton>

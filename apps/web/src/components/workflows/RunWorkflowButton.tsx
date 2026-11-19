@@ -85,7 +85,9 @@ export function RunWorkflowButton(props: {
     else await start();
   };
 
-  const reason = permitted ? props.disabledReason : "You can't start runs on this computer.";
+  const reason = permitted
+    ? props.disabledReason
+    : "This connection can see workflows but cannot start runs.";
   const button = (
     <Button
       size="sm"

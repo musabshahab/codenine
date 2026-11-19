@@ -255,20 +255,22 @@ export function ConnectDialog({
                     {OWN_APP_GUIDE[ownApp].create(entry.name)}
                   </p>
                   <RedirectAddress returnOrigin={returnOrigin} />
-                  <Button
-                    variant="link"
-                    size="xs"
-                    render={
-                      <a
-                        href={OWN_APP_GUIDE[ownApp].consoleUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      />
-                    }
-                  >
-                    Open {OWN_APP_GUIDE[ownApp].consoleName}
-                    <ExternalLinkIcon aria-hidden />
-                  </Button>
+                  <div className="flex">
+                    <Button
+                      variant="link"
+                      size="xs"
+                      render={
+                        <a
+                          href={OWN_APP_GUIDE[ownApp].consoleUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        />
+                      }
+                    >
+                      Open {OWN_APP_GUIDE[ownApp].consoleName}
+                      <ExternalLinkIcon aria-hidden />
+                    </Button>
+                  </div>
                 </GuideStep>
                 <GuideStep number={2} title="Paste the app's details">
                   <TextField

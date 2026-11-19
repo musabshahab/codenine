@@ -67,7 +67,7 @@ export function connectsWithLabel(
     case "none":
       return "No account needed";
     case "sign-in":
-      return "Sign in";
+      return "Browser sign-in";
     case "own-app":
       return `Uses your ${OWN_APP_COMPANY[entry.ownApp ?? "google"]} app`;
     case "token":

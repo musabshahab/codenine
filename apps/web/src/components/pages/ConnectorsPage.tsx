@@ -30,7 +30,7 @@ import { CustomConnectorDialog } from "../connectors/CustomConnectorDialog";
 import { EnvironmentPagePicker } from "../settings/EnvironmentPagePicker";
 import { useAccessEnvironment } from "../settings/useAccessEnvironment";
 import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
 import { toastManager } from "../ui/toast";
@@ -233,7 +233,7 @@ function ConnectedSection({
       </h2>
       {connections.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nothing yet. Connect a service from the library below.
+          None yet. Connect a service from the library below.
         </p>
       ) : (
         <ul className="divide-y divide-border rounded-xl border border-border bg-card">
@@ -252,20 +252,22 @@ function ConnectedSection({
                     <span className="text-xs text-muted-foreground">{summary}</span>
                   )}
                 </span>
-                <Badge variant={status.variant}>{status.label}</Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void navigate({
-                      to: "/connectors/$connectionId",
-                      params: { connectionId: connection.id },
-                      search: { machine: environmentId },
-                    })
-                  }
-                >
-                  Manage
-                </Button>
+                <span className="flex shrink-0 items-center gap-3">
+                  <Badge variant={status.variant}>{status.label}</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      void navigate({
+                        to: "/connectors/$connectionId",
+                        params: { connectionId: connection.id },
+                        search: { machine: environmentId },
+                      })
+                    }
+                  >
+                    Manage
+                  </Button>
+                </span>
               </li>
             );
           })}
@@ -295,6 +297,8 @@ function LibrarySection({
   const [category, setCategory] = useState<ConnectorCategory | null>(null);
   const categories = libraryCategories(state.catalog);
   const entries = filterLibrary(state.catalog, { query, category });
+  const showCustomTile = query === "" && category === null;
+  const searched = query.trim();
   return (
     <section aria-labelledby="connectors-library" className="flex flex-col gap-3.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -339,77 +343,89 @@ function LibrarySection({
           ))}
         </ToggleGroup>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {entries.map((entry) => {
-          const connection = state.connections.find(
-            (candidate) => candidate.catalogId === entry.id,
-          );
-          return (
-            <div
-              key={entry.id}
-              className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4"
-            >
-              <div className="flex items-center gap-3">
-                <ConnectorMark name={entry.name} />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm font-medium text-foreground">{entry.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {CATEGORY_LABELS[entry.category]}
+      {entries.length === 0 && !showCustomTile ? null : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {entries.map((entry) => {
+            const connection = state.connections.find(
+              (candidate) => candidate.catalogId === entry.id,
+            );
+            return (
+              <div
+                key={entry.id}
+                className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4"
+              >
+                <div className="flex items-center gap-3">
+                  <ConnectorMark name={entry.name} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm font-medium text-foreground">
+                      {entry.name}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {CATEGORY_LABELS[entry.category]}
+                    </span>
                   </span>
-                </span>
+                </div>
+                <p className="flex-1 text-sm text-muted-foreground">{entry.description}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">{connectsWithLabel(entry)}</span>
+                  {connection === undefined ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={!canManage || busyId === entry.id}
+                      onClick={() => onConnect(entry)}
+                    >
+                      {busyId === entry.id ? "Connecting…" : "Connect"}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        void navigate({
+                          to: "/connectors/$connectionId",
+                          params: { connectionId: connection.id },
+                          search: { machine: environmentId },
+                        })
+                      }
+                    >
+                      Manage
+                    </Button>
+                  )}
+                </div>
               </div>
-              <p className="flex-1 text-sm text-muted-foreground">{entry.description}</p>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">{connectsWithLabel(entry)}</span>
-                {connection === undefined ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={!canManage || busyId === entry.id}
-                    onClick={() => onConnect(entry)}
-                  >
-                    {busyId === entry.id ? "Connecting…" : "Connect"}
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      void navigate({
-                        to: "/connectors/$connectionId",
-                        params: { connectionId: connection.id },
-                        search: { machine: environmentId },
-                      })
-                    }
-                  >
-                    Manage
-                  </Button>
-                )}
-              </div>
+            );
+          })}
+          {showCustomTile ? (
+            <div className="flex flex-col gap-2.5 rounded-xl border border-dashed border-border p-4">
+              <span className="text-sm font-medium text-foreground">Custom connector</span>
+              <p className="flex-1 text-sm text-muted-foreground">
+                Any MCP server, by its web address or a command that runs on the computer Codenine
+                runs on.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="self-start"
+                disabled={!canManage}
+                onClick={onAddCustom}
+              >
+                Add custom connector
+              </Button>
             </div>
-          );
-        })}
-        {query === "" && category === null ? (
-          <div className="flex flex-col gap-2.5 rounded-xl border border-dashed border-border p-4">
-            <span className="text-sm font-medium text-foreground">Custom connector</span>
-            <p className="flex-1 text-sm text-muted-foreground">
-              Any MCP server, by its web address or a command that runs on the computer Codenine
-              runs on.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="self-start"
-              disabled={!canManage}
-              onClick={onAddCustom}
-            >
-              Add custom connector
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      {entries.length === 0 && (query !== "" || category !== null) ? (
-        <p className="text-sm text-muted-foreground">No connector matches. Try another word.</p>
+          ) : null}
+        </div>
+      )}
+      {entries.length === 0 && !showCustomTile ? (
+        <p className="text-sm text-muted-foreground">
+          No connector matches{searched === "" ? "" : ` "${searched}"`}.
+          {canManage ? (
+            <>
+              {" "}
+              <InlineButton onClick={onAddCustom}>Add it as a custom connector</InlineButton>
+            </>
+          ) : null}
+        </p>
       ) : null}
       {canManage ? null : (
         <p className="text-xs text-muted-foreground">
