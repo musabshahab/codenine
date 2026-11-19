@@ -41,7 +41,7 @@ export interface NewProjectRequest {
   readonly name?: string;
   readonly folderPath?: string;
   readonly repository?: string;
-  /** A workspace whose folder was lost: the folder picked here becomes its folder. */
+  /** A workspace whose folder was lost: the folder picked or cloned here becomes its folder. */
   readonly relinkProjectId?: ProjectId;
 }
 

@@ -383,6 +383,7 @@ function ReportTasks({
                             source: "clone",
                             name: workspace.title,
                             repository: remoteUrl,
+                            relinkProjectId: workspace.projectId,
                           })
                         }
                       >

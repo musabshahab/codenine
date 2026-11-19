@@ -54,6 +54,8 @@ export interface ProjectCreateInput extends ProjectCreatePayload {
 export interface ProjectUpdateInput extends ProjectUpdatePayload {
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
+  /** For a folder about to be filled, as a clone's is. A move otherwise needs the folder there. */
+  readonly createWorkspaceRootIfMissing?: boolean;
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
@@ -416,6 +418,7 @@ export const make = Effect.gen(function* () {
           : yield* normalizeWorkspaceRoot({
               projectId: input.projectId,
               workspaceRoot: input.workspaceRoot,
+              createIfMissing: input.createWorkspaceRootIfMissing ?? false,
             });
       yield* commit({
         type: "project.meta.update",

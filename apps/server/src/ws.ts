@@ -2176,6 +2176,31 @@ export const layerWsRpc = (
                       }),
                   ),
                 ),
+            repointProject: (project) =>
+              projectService
+                .update({
+                  // One project can be given a clone more than once, so the time tells them apart.
+                  commandId: CommandId.make(
+                    `project-clone-repoint:${project.projectId}:${project.createdAt}`,
+                  ),
+                  projectId: project.projectId,
+                  title: project.title,
+                  workspaceRoot: project.workspaceRoot,
+                  createWorkspaceRootIfMissing: true,
+                })
+                .pipe(
+                  Effect.asVoid,
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationDispatchCommandError({
+                        message:
+                          cause._tag === "ProjectConflictError"
+                            ? cause.message
+                            : "Failed to give the workspace its cloned folder.",
+                        cause,
+                      }),
+                  ),
+                ),
             onCloned: (project) =>
               repositoryIdentityResolver.resolve(project.workspaceRoot, { refresh: true }).pipe(
                 Effect.andThen(

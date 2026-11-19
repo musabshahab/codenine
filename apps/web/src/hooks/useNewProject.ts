@@ -64,6 +64,14 @@ function failure(result: AtomCommandResult<unknown, unknown>): NewProjectResult 
   };
 }
 
+function findLostProject(environmentId: EnvironmentId, projectId: ProjectId | undefined) {
+  return projectId === undefined
+    ? undefined
+    : readProjects().find(
+        (project) => project.environmentId === environmentId && project.id === projectId,
+      );
+}
+
 /**
  * Creates a project from a plan and opens a new chat in it. A folder that already is a
  * project opens that project instead, unarchived. `onCreated` runs once the project exists and
@@ -281,13 +289,7 @@ export function useNewProject() {
       environmentId: plan.environmentId,
       path: plan.workspaceRoot,
     });
-    const lost =
-      relinkProjectId === undefined
-        ? undefined
-        : readProjects().find(
-            (project) =>
-              project.environmentId === plan.environmentId && project.id === relinkProjectId,
-          );
+    const lost = findLostProject(plan.environmentId, relinkProjectId);
     // A workspace that lost its folder takes the new one, so its chats come along.
     if (lost !== undefined && existing?.id !== lost.id) {
       if (existing !== null) {
@@ -330,6 +332,7 @@ export function useNewProject() {
   const cloneRepository = async (
     plan: Extract<NewProjectPlan, { kind: "clone" }>,
     onCreated: (() => void) | undefined,
+    relinkProjectId: ProjectId | undefined,
   ): Promise<NewProjectResult> => {
     if (
       !readEnvironmentScope(plan.environmentId, AuthSourceControlWriteScope) ||
@@ -340,7 +343,9 @@ export function useNewProject() {
         message: "This connection needs permission to write source control and add workspaces.",
       };
     }
-    const projectId = newProjectId();
+    // A workspace that lost its folder takes the clone, so its chats come along.
+    const lost = findLostProject(plan.environmentId, relinkProjectId);
+    const projectId = lost?.id ?? newProjectId();
     const result = await startProjectClone({
       environmentId: plan.environmentId,
       input: {
@@ -349,12 +354,14 @@ export function useNewProject() {
         createdAt: new Date().toISOString(),
         remoteUrl: plan.remoteUrl,
         destinationPath: plan.destinationPath,
+        ...(lost === undefined ? {} : { repointExisting: true }),
       },
     });
     if (result._tag === "Failure") return failure(result);
     const projectRef = scopeProjectRef(plan.environmentId, projectId);
-    onCreated?.();
     void suggestAppAccessForRemote(plan.environmentId, plan.remoteUrl);
+    if (lost !== undefined) return openExisting(lost, onCreated);
+    onCreated?.();
     applyChoices(projectRef, plan);
     // The project opens while it clones; its composer holds sends until the files are in place.
     await waitForProject(projectRef, 3_000).catch(() => null);
@@ -366,6 +373,7 @@ export function useNewProject() {
     plan: NewProjectPlan,
     options?: {
       readonly onCreated?: () => void;
+      /** A workspace that lost its folder: the folder picked or cloned becomes its folder. */
       readonly relinkProjectId?: ProjectId;
       /** The folder is one the user says is already there, so a missing one is a mistake. */
       readonly folderMustExist?: boolean;
@@ -382,7 +390,7 @@ export function useNewProject() {
           options?.folderMustExist === true,
         );
       case "clone":
-        return cloneRepository(plan, options?.onCreated);
+        return cloneRepository(plan, options?.onCreated, options?.relinkProjectId);
     }
   };
 }

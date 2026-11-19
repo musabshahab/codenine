@@ -59,6 +59,8 @@ export interface ProjectCloneHooks {
     readonly workspaceRoot: string;
     readonly createdAt: string;
   }) => Effect.Effect<void, OrchestrationDispatchCommandError>;
+  /** Gives a project that lost its folder the clone's folder, in place of creating one. */
+  readonly repointProject: ProjectCloneHooks["createProject"];
   readonly onCloned: (input: {
     readonly projectId: ProjectId;
     readonly workspaceRoot: string;
@@ -318,7 +320,7 @@ export const make = Effect.gen(function* () {
         Effect.gen(function* () {
           yield* clearRetention(input.projectId);
           // Register before creation so racing thread.create and project.delete see the clone.
-          yield* hooks.createProject({
+          yield* (input.repointExisting ? hooks.repointProject : hooks.createProject)({
             projectId: input.projectId,
             title: input.title,
             workspaceRoot: prepared.destinationPath,
