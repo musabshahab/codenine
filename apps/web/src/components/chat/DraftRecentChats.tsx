@@ -11,7 +11,7 @@ import { useThreadProjectGroup } from "../pages/threadPlace";
 
 const RECENT_CHAT_LIMIT = 6;
 
-/** Under a new chat in Chats: the open chats to go back to instead. */
+/** Under a new chat in Personal: the open chats to go back to instead. */
 export function DraftRecentChats() {
   const router = useRouter();
   const threads = useVisibleThreadShells();
@@ -47,9 +47,6 @@ export function DraftRecentChats() {
             >
               <MessageCircleIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-foreground">{thread.title}</span>
-              <span className="max-w-32 shrink-0 truncate text-muted-foreground text-xs">
-                {thread.folder ?? "Chats"}
-              </span>
               <span className="w-10 shrink-0 text-end text-muted-foreground text-xs tabular-nums">
                 {activeAt === "" ? null : formatElapsedDurationLabel(activeAt, nowMs)}
               </span>

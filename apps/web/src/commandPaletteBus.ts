@@ -1,7 +1,6 @@
 import type { EnvironmentId, PullRequestLinkedThreadsResult } from "@codenine/contracts";
 
 import { dispatchCommandPalette, isCommandPaletteMounted } from "./commandPaletteStore";
-import { openNewProjectDialog } from "./newProjectDialogStore";
 
 export interface CommandPaletteLinkedThreads {
   readonly environmentId: EnvironmentId;
@@ -9,13 +8,7 @@ export interface CommandPaletteLinkedThreads {
 }
 
 export interface CommandPaletteOpenDetail {
-  /** `new-project` and `add-project` open the New workspace dialog. */
-  readonly open?: "add-project" | "new-project" | "new-thread-in";
-  /** With `open: "add-project"`: start on this machine with this source chosen. */
-  readonly addProjectSource?: {
-    readonly environmentId: EnvironmentId;
-    readonly source: "new" | "folder" | "clone";
-  };
+  readonly open?: "new-thread-in";
   readonly query?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
 }
@@ -26,18 +19,6 @@ export function openCommandPalette(detail: CommandPaletteOpenDetail = {}): void 
   if (!isCommandPaletteMounted()) return;
   if (detail.open === "new-thread-in") {
     dispatchCommandPalette({ _tag: "OpenNewThreadIn" });
-  } else if (detail.open === "new-project") {
-    openNewProjectDialog();
-  } else if (detail.open === "add-project") {
-    const requested = detail.addProjectSource;
-    openNewProjectDialog(
-      requested
-        ? {
-            environmentId: requested.environmentId,
-            source: requested.source === "new" ? "empty" : requested.source,
-          }
-        : { source: "folder" },
-    );
   } else if (detail.query !== undefined) {
     dispatchCommandPalette({
       _tag: "OpenSearch",
