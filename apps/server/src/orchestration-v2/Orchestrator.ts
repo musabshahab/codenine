@@ -5226,6 +5226,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const selectionMustApplyNow =
       selectionChanged &&
       (providerInstanceChanged || selectionTransition?.type !== "apply_on_next_turn");
+    // The running turn keeps the tool limits and instructions it started with, so a message the
+    // user sends after changing the chat's agent restarts it. Automatic deliveries do not.
+    const agentMustApplyNow =
+      input.delegatedCompletion === undefined &&
+      input.notification === undefined &&
+      agentSwitchSince(input.projection).agentSwitch !== undefined;
     const attachmentsNeedRestart =
       input.attachments.length > 0 &&
       session.providerSession.capabilities.turns.activeSteeringAcceptsAttachments === false;
@@ -5235,7 +5241,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: input.command.threadId,
         providerInstanceId: targetRun.providerInstanceId,
         capabilities: session.providerSession.capabilities,
-        forceRestart: input.forceRestart || selectionMustApplyNow || attachmentsNeedRestart,
+        forceRestart:
+          input.forceRestart ||
+          selectionMustApplyNow ||
+          agentMustApplyNow ||
+          attachmentsNeedRestart,
       }),
     );
 

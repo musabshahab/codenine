@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import {
+  AgentName,
   ChatAttachmentId,
   CommandId,
   MessageId,
@@ -1068,6 +1069,52 @@ it.effect("restarts the turn for an image when native steering takes text only",
             ["look at this", 1],
           ],
         );
+      }).pipe(Effect.provide(layer));
+    }),
+  ),
+);
+
+it.effect("restarts the turn for a message sent after the chat's agent changed", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { started, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
+        "steering-agent-change",
+        true,
+      );
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const threadId = yield* startFirstTurn;
+        const agent = AgentName.make("reviewer");
+        yield* orchestrator.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("choose-agent"),
+          threadId,
+          agent,
+        });
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("steer-agent"),
+          threadId,
+          messageId: MessageId.make("message:steer-agent"),
+          text: "review it",
+          attachments: [],
+          modelSelection: runSelection,
+          dispatchMode: { type: "steer_active", targetRunId: started[0]!.runId },
+          createdBy: "user",
+          creationSource: "web",
+        });
+        const projection = yield* orchestrator.getThreadProjection(threadId);
+        assert.deepEqual(
+          projection.attempts.map((attempt) => [attempt.reason, attempt.status]),
+          [
+            ["initial", "superseded"],
+            ["steering_restart", "pending"],
+          ],
+        );
+        const message = projection.turnItems.find(
+          (item) => item.type === "user_message" && item.messageId === "message:steer-agent",
+        );
+        assert.deepInclude(message, { agent, agentSwitch: { from: null, to: agent } });
       }).pipe(Effect.provide(layer));
     }),
   ),
