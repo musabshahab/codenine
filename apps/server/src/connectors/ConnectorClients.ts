@@ -432,14 +432,15 @@ const make = Effect.gen(function* () {
   /** Runs one request on the connection's client, opening it first when needed. */
   const withClient = Effect.fn("ConnectorClients.withClient")(function* <A>(
     connection: ConnectorStore.StoredConnection,
-    request: (client: Client) => Promise<A>,
+    request: (client: Client, signal: AbortSignal) => Promise<A>,
   ) {
     const opened = yield* openLock.withLock(connection.id, open(connection));
     opened.credentials.last = undefined;
     yield* Ref.set(opened.lastUsedAt, yield* Clock.currentTimeMillis);
     yield* Ref.update(opened.inFlight, (count) => count + 1);
     return yield* Effect.tryPromise({
-      try: () => request(opened.client),
+      // An interrupt aborts the request, so the SDK tells the service to cancel it.
+      try: (signal) => request(opened.client, signal),
       catch: (cause) =>
         callError({
           cause,
@@ -464,12 +465,13 @@ const make = Effect.gen(function* () {
   const listTools: ConnectorClients["Service"]["listTools"] = Effect.fn(
     "ConnectorClients.listTools",
   )(function* (connection) {
-    const tools = yield* withClient(connection, async (client) => {
+    const tools = yield* withClient(connection, async (client, signal) => {
       const listed: Array<Tool> = [];
       let cursor: string | undefined;
       for (let page = 0; page < MAX_TOOL_PAGES; page += 1) {
         const result = await client.listTools(cursor === undefined ? {} : { cursor }, {
           timeout: LIST_TIMEOUT_MS,
+          signal,
         });
         listed.push(...result.tools);
         cursor = result.nextCursor ?? undefined;
@@ -484,10 +486,10 @@ const make = Effect.gen(function* () {
   const callTool: ConnectorClients["Service"]["callTool"] = Effect.fn("ConnectorClients.callTool")(
     function* (input) {
       const reconnecting = !(yield* Ref.get(live)).has(input.connection.id);
-      const result = yield* withClient(input.connection, (client) =>
+      const result = yield* withClient(input.connection, (client, signal) =>
         client.callTool(
           { name: input.name, arguments: { ...input.arguments } },
-          { timeout: CALL_TIMEOUT_MS, resetTimeoutOnProgress: true },
+          { timeout: CALL_TIMEOUT_MS, resetTimeoutOnProgress: true, signal },
         ),
       );
       // The saved list can be older than the service; refresh it whenever a connection reopens.

@@ -97,8 +97,9 @@ const request = Effect.fn("codenineTools.gmailRequest")(function* (
   init?: { readonly method: "POST"; readonly body: string },
 ) {
   const response = yield* Effect.tryPromise({
-    try: () =>
+    try: (signal) =>
       fetchFn(url, {
+        signal,
         method: init?.method ?? "GET",
         headers: {
           authorization: `Bearer ${token}`,

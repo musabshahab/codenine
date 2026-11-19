@@ -239,7 +239,10 @@ export type ConnectorTool = typeof ConnectorTool.Type;
 
 export const ConnectorToolsResult = Schema.Struct({ tools: Schema.Array(ConnectorTool) });
 
-/** `reviewed` and `blocked` are Auto's reviewer allowing or refusing an action that would ask. */
+/**
+ * `reviewed` and `blocked` are Auto's reviewer allowing or refusing an action that would ask.
+ * `interrupted` is a call stopped after it was sent, which the service may still have carried out.
+ */
 export const ConnectorActivityOutcome = Schema.Literals([
   "auto",
   "allowed",
@@ -248,6 +251,7 @@ export const ConnectorActivityOutcome = Schema.Literals([
   "blocked",
   "failed",
   "cancelled",
+  "interrupted",
 ]);
 export type ConnectorActivityOutcome = typeof ConnectorActivityOutcome.Type;
 

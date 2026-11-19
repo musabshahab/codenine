@@ -444,7 +444,8 @@ const make = Effect.gen(function* () {
           last !== undefined &&
           Option.isSome(last) &&
           DateTime.toEpochMillis(now) - DateTime.toEpochMillis(last.value) < LAST_USED_EVERY_MS;
-        if (ran && !recent) {
+        // A stopped call was still sent, so the service may have acted on it.
+        if ((ran || outcome === "interrupted") && !recent) {
           yield* store.update(connection.id, (current) => ({
             ...current,
             lastUsedAt: DateTime.formatIso(now),
@@ -553,7 +554,10 @@ const make = Effect.gen(function* () {
       }
     }
 
-    const result = yield* call.run.pipe(Effect.result);
+    const result = yield* call.run.pipe(
+      Effect.onInterrupt(() => logActivity("interrupted", false)),
+      Effect.result,
+    );
     if (result._tag === "Failure") {
       const failure = result.failure;
       if (failure._tag === "ConnectorCallError") {

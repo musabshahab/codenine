@@ -98,6 +98,8 @@ const makeHarness = (
     const decision = yield* Ref.make<ActionReviewer.ReviewDecision>({ type: "allow" });
     const reviewed = yield* Ref.make<ReadonlyArray<ReviewedAction>>([]);
     const callFailure = yield* Ref.make<ConnectorClients.ConnectorCallError | undefined>(undefined);
+    /** When set, a call completes it once sent and then never gets an answer. */
+    const unanswered = yield* Ref.make<Deferred.Deferred<void> | undefined>(undefined);
     const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
       getThreadRecords: (id) =>
         Effect.succeed({
@@ -124,6 +126,12 @@ const makeHarness = (
     const clients = Layer.mock(ConnectorClients.ConnectorClients)({
       callTool: (input) =>
         Ref.update(upstreamCalls, (current) => [...current, input.name]).pipe(
+          Effect.andThen(Ref.get(unanswered)),
+          Effect.flatMap((sent) =>
+            sent === undefined
+              ? Effect.void
+              : Deferred.succeed(sent, undefined).pipe(Effect.andThen(Effect.never)),
+          ),
           Effect.andThen(Ref.get(callFailure)),
           Effect.flatMap((failure) =>
             failure === undefined
@@ -160,7 +168,16 @@ const makeHarness = (
         ServerConfig.layerTest(process.cwd(), { prefix: "codenine-connector-gateway-test-" }),
       ),
     );
-    return { dispatched, cardShown, upstreamCalls, decision, reviewed, callFailure, layer };
+    return {
+      dispatched,
+      cardShown,
+      upstreamCalls,
+      decision,
+      reviewed,
+      callFailure,
+      unanswered,
+      layer,
+    };
   });
 
 const connectGitHub = Effect.gen(function* () {
@@ -293,6 +310,32 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
         yield* Ref.set(harness.callFailure, undefined);
         yield* search;
         assert.strictEqual(yield* statusOf, "connected");
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("a call stopped after it was sent is still in the activity", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({});
+      yield* Effect.gen(function* () {
+        const gateway = yield* ConnectorGateway.ConnectorGateway;
+        const store = yield* ConnectorStore.ConnectorStore;
+        const github = yield* connectGitHub;
+        const sent = yield* Deferred.make<void>();
+        yield* Ref.set(harness.unanswered, sent);
+        const searching = yield* gateway
+          .handle({
+            threadId,
+            ...call(github.id, "tools/call", { name: "search_code", arguments: { q: "x" } }),
+          })
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(sent);
+        yield* Fiber.interrupt(searching);
+        assert.deepStrictEqual(
+          (yield* store.readActivity(github.id, 10)).map((entry) => [entry.tool, entry.outcome]),
+          [["search_code", "interrupted"]],
+        );
+        assert.isNotNull((yield* store.get(github.id))?.lastUsedAt);
       }).pipe(Effect.provide(harness.layer));
     }),
   );

@@ -303,6 +303,7 @@ export const ACTIVITY_OUTCOME_LABELS: Record<ConnectorActivityOutcome, string> =
   blocked: "Blocked by Auto",
   failed: "Failed",
   cancelled: "Cancelled",
+  interrupted: "Stopped, may have run",
 };
 
 /**
