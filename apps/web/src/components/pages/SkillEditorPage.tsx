@@ -167,7 +167,6 @@ function SkillForm({
     }
     setErrors({});
     setBusy(true);
-    const moved = skill !== null && skill.scope !== scope;
     const result = await save({
       environmentId,
       input: {
@@ -176,7 +175,14 @@ function SkillForm({
         instructions,
         scope,
         ...(scope === "workspace" && projectId !== null ? { projectId } : {}),
-        ...(skill !== null && !moved ? { previousName: skill.name } : {}),
+        // The server moves the folder, files and all, when the place changed.
+        ...(skill === null
+          ? {}
+          : {
+              previousName: skill.name,
+              previousScope: skill.scope,
+              ...(skill.projectId === null ? {} : { previousProjectId: skill.projectId }),
+            }),
       },
     });
     if (result._tag === "Failure") {
@@ -185,24 +191,6 @@ function SkillForm({
         setErrors({ form: commandErrorMessage(result, "The skill was not saved.") });
       }
       return;
-    }
-    // Saving in the other place made a copy; the old one goes once the new one is safe.
-    if (moved) {
-      const removed = await remove({
-        environmentId,
-        input: {
-          name: skill.name,
-          scope: skill.scope,
-          ...(skill.projectId === null ? {} : { projectId: skill.projectId }),
-        },
-      });
-      if (removed._tag === "Failure" && !isAtomCommandInterrupted(removed)) {
-        toastManager.add({
-          type: "warning",
-          title: "Saved, but the old copy is still there",
-          description: commandErrorMessage(removed, "Delete it from the Skills page."),
-        });
-      }
     }
     setBusy(false);
     toastManager.add({ type: "success", title: `Saved ${skillTitle(checked.name)}` });

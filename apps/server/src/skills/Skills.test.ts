@@ -201,6 +201,41 @@ it.layer(NodeServices.layer)("Skills", (it) => {
             }),
           ),
         ).toBe("invalid");
+
+        // Moving a skill to the other place takes its files and other frontmatter along.
+        const moved = yield* skills.save({
+          name: "ship-it",
+          description: "Ships this app.",
+          instructions: "# Ship it",
+          scope: "workspace",
+          projectId,
+          previousName: "ship-it",
+          previousScope: "codenine",
+        });
+        expect(moved).toMatchObject({
+          scope: "workspace",
+          path: path.join(fixture.workspaceSkills, "ship-it"),
+          files: ["scripts/run.sh"],
+        });
+        expect(yield* fileSystem.readFileString(path.join(moved.path, "SKILL.md"))).toContain(
+          "license: MIT\n",
+        );
+        expect(yield* fileSystem.exists(path.join(fixture.codenineSkills, "ship-it"))).toBe(false);
+        // A move never replaces a skill already in the other place.
+        expect(
+          yield* reasonOf(
+            skills.save({
+              name: "deploy",
+              description: "Ships this app.",
+              instructions: "",
+              scope: "workspace",
+              projectId,
+              previousName: "notes",
+              previousScope: "codenine",
+            }),
+          ),
+        ).toBe("exists");
+        expect(yield* fileSystem.exists(path.join(fixture.codenineSkills, "notes"))).toBe(true);
       }).pipe(Effect.provide(skillsLayer(fixture)));
     }),
   );
@@ -354,6 +389,15 @@ it.layer(NodeServices.layer)("Skills", (it) => {
           "exists",
         );
         expect(yield* reasonOf(skills.importFound({ path: fixture.root }))).toBe("not-found");
+
+        // Any folder that holds a SKILL.md imports, named by the file or else the folder.
+        const downloaded = path.join(fixture.root, "Downloads", "PDF Tools");
+        yield* fixture.writeFile(path.join(downloaded, "SKILL.md"), "Fill in forms.\n");
+        expect(yield* skills.importFound({ path: downloaded })).toMatchObject({
+          name: "pdf-tools",
+          scope: "codenine",
+        });
+        expect(yield* reasonOf(skills.importFound({ path: imported.path }))).toBe("exists");
       }).pipe(Effect.provide(skillsLayer(fixture, providers)));
     }),
   );

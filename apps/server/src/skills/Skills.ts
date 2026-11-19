@@ -19,6 +19,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
+import { expandHomePath } from "../os-jank.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
@@ -59,13 +60,13 @@ export class Skills extends Context.Service<
   {
     readonly list: (input: SkillsListInput) => Effect.Effect<SkillsListResult, SkillError>;
     readonly read: (input: SkillRefInput) => Effect.Effect<SkillDetail, SkillError>;
-    /** Without `previousName` creates a skill and never replaces one; with it, edits or renames that skill. */
+    /** Without `previousName` creates a skill and never replaces one; with it, edits, renames or moves that skill. */
     readonly save: (input: SkillSaveInput) => Effect.Effect<SkillSummary, SkillError>;
     readonly remove: (input: SkillRefInput) => Effect.Effect<void, SkillError>;
     readonly addFromLibrary: (input: {
       readonly name: SkillName;
     }) => Effect.Effect<SkillSummary, SkillError>;
-    /** Copies a skill a provider found into the Codenine folder; the original stays put. */
+    /** Copies a skill folder, one a provider found or any other, into the Codenine folder; the original stays put. */
     readonly importFound: (input: {
       readonly path: string;
     }) => Effect.Effect<SkillSummary, SkillError>;
@@ -223,30 +224,47 @@ const make = Effect.gen(function* () {
   const save: Skills["Service"]["save"] = Effect.fn("Skills.save")(function* (input) {
     const root = yield* rootFor(input.scope, input.projectId);
     const target = path.join(root.folder, input.name);
-    const previousName = input.previousName;
     const couldNotSave = failed("Could not save the skill.");
+    const taken = new SkillError({
+      reason: "exists",
+      detail: `A skill named ${input.name} already exists here.`,
+    });
     yield* fileSystem
       .makeDirectory(root.folder, { recursive: true })
       .pipe(Effect.catchTags({ PlatformError: couldNotSave }));
-    if (previousName !== input.name && (yield* occupied(target))) {
-      return yield* new SkillError({
-        reason: "exists",
-        detail: `A skill named ${input.name} already exists here.`,
-      });
+    const previousRoot =
+      input.previousName === undefined || input.previousScope === undefined
+        ? root
+        : yield* rootFor(input.previousScope, input.previousProjectId);
+    const source =
+      input.previousName === undefined
+        ? undefined
+        : path.join(previousRoot.folder, input.previousName);
+    const moved = source !== undefined && previousRoot.folder !== root.folder;
+    if (input.previousName === undefined) {
+      // Claiming the folder first means two creates of one name cannot both write it.
+      yield* fileSystem.makeDirectory(target).pipe(
+        Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.fail(taken)),
+        Effect.catchTags({ PlatformError: couldNotSave }),
+      );
+    } else {
+      yield* readOrFail(previousRoot, input.previousName);
     }
-    if (previousName !== undefined) yield* readOrFail(root, previousName);
-    if (previousName !== undefined && previousName !== input.name) {
-      yield* fileSystem
-        .rename(path.join(root.folder, previousName), target)
-        .pipe(Effect.catchTags({ PlatformError: couldNotSave }));
+    if (source !== undefined && source !== target) {
+      if (yield* occupied(target)) return yield* taken;
+      // Another place can be another disk, so a move copies; a linked folder's files are copied.
+      yield* (
+        moved
+          ? fileSystem
+              .realPath(source)
+              .pipe(Effect.flatMap((real) => fileSystem.copy(real, target, { overwrite: true })))
+          : fileSystem.rename(source, target)
+      ).pipe(Effect.catchTags({ PlatformError: couldNotSave }));
     }
     const skillFile = path.join(target, SKILL_FILE);
-    const existing = yield* fileSystem.readFileString(skillFile).pipe(
+    yield* fileSystem.readFileString(skillFile).pipe(
       Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined),
-      Effect.catchTags({ PlatformError: couldNotSave }),
-    );
-    yield* fileSystem.makeDirectory(target, { recursive: true }).pipe(
-      Effect.andThen(
+      Effect.flatMap((existing) =>
         fileSystem.writeFileString(
           skillFile,
           renderSkillFile({
@@ -258,14 +276,37 @@ const make = Effect.gen(function* () {
         ),
       ),
       Effect.catchTags({ PlatformError: couldNotSave }),
+      // A folder this save made must not stay behind half written.
+      Effect.tapError(() =>
+        input.previousName === undefined || moved
+          ? fileSystem.remove(target, { recursive: true }).pipe(Effect.ignore)
+          : Effect.void,
+      ),
     );
+    if (moved && input.previousName !== undefined) {
+      yield* removeFolder(previousRoot, input.previousName).pipe(
+        Effect.catchTags({
+          SkillError: () =>
+            Effect.fail(
+              new SkillError({
+                reason: "failed",
+                detail: "Saved, but the old copy is still there. Delete it from the Skills page.",
+              }),
+            ),
+        }),
+      );
+    }
     return toSummary(yield* readOrFail(root, input.name));
   });
 
   const remove: Skills["Service"]["remove"] = Effect.fn("Skills.remove")(function* (input) {
     const root = yield* rootFor(input.scope, input.projectId);
-    const target = path.join(root.folder, input.name);
     yield* readOrFail(root, input.name);
+    yield* removeFolder(root, input.name);
+  });
+
+  const removeFolder = Effect.fn("Skills.removeFolder")(function* (root: SkillRoot, name: string) {
+    const target = path.join(root.folder, name);
     const couldNotDelete = failed("Could not delete the skill.");
     const info = yield* fileSystem
       .lstat(target)
@@ -372,8 +413,9 @@ const make = Effect.gen(function* () {
 
   const importFound: Skills["Service"]["importFound"] = Effect.fn("Skills.importFound")(
     function* (input) {
-      const requested = path.resolve(input.path);
-      const skill = (yield* providers.getProviders)
+      const requested = path.resolve(yield* withFileSystem(expandHomePath(input.path)));
+      // A provider names its skills, such as a plugin's `plugin:review`; any other folder names itself.
+      const found = (yield* providers.getProviders)
         .flatMap((provider) => provider.skills)
         .find(
           (candidate) =>
@@ -382,19 +424,31 @@ const make = Effect.gen(function* () {
         );
       const gone = new SkillError({
         reason: "not-found",
-        detail: "That skill is no longer there. Refresh the list and try again.",
+        detail:
+          found === undefined
+            ? "That folder has no SKILL.md. Enter the folder that holds it, on the computer Codenine runs on."
+            : "That skill is no longer there. Refresh the list and try again.",
       });
-      if (skill === undefined) return yield* gone;
       // Copy what a link points at, so the copy never edits the original.
       const source = yield* fileSystem
-        .realPath(skillFolderOf(skill.path))
+        .realPath(skillFolderOf(found?.path ?? requested))
         .pipe(Effect.catchTags({ PlatformError: () => Effect.fail(gone) }));
       const contents = yield* fileSystem
         .readFileString(path.join(source, SKILL_FILE))
         .pipe(Effect.catchTags({ PlatformError: () => Effect.fail(gone) }));
+      const ownFolder = yield* fileSystem
+        .realPath(codenine.folder)
+        .pipe(Effect.orElseSucceed(() => codenine.folder));
+      if (isWithinRoot(path, source, ownFolder)) {
+        return yield* new SkillError({
+          reason: "exists",
+          detail: "That skill is already in Codenine.",
+        });
+      }
       yield* assertCopyable(source);
-      const name = codenineNameFor(skill.name);
       const parsed = parseSkillFile(contents);
+      const skill = found ?? { name: parsed.name ?? path.basename(source), description: undefined };
+      const name = codenineNameFor(skill.name);
       const target = yield* claimFolder(name);
       yield* fileSystem.copy(source, target, { overwrite: true }).pipe(
         Effect.andThen(

@@ -103,8 +103,11 @@ export const SkillSaveInput = Schema.Struct({
   instructions: Schema.String,
   scope: SkillScope,
   projectId: Schema.optionalKey(ProjectId),
-  /** Editing: the skill's current name in the same scope. Leave out to create; taken names fail. */
+  /** Editing: the skill's current name. Leave out to create; taken names fail. */
   previousName: Schema.optionalKey(SkillName),
+  /** Editing a skill kept in the other place: where it is now. Its folder moves, files and all. */
+  previousScope: Schema.optionalKey(SkillScope),
+  previousProjectId: Schema.optionalKey(ProjectId),
 });
 export type SkillSaveInput = typeof SkillSaveInput.Type;
 
