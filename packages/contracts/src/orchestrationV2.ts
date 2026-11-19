@@ -681,6 +681,8 @@ export const OrchestrationV2Run = Schema.Struct({
   rootNodeId: Schema.NullOr(NodeId),
   activeAttemptId: Schema.NullOr(RunAttemptId),
   status: OrchestrationV2RunStatus,
+  /** The chat's agent the run started under; null is none. Unset until the run starts. */
+  agent: Schema.optional(Schema.NullOr(AgentName)),
   queuePosition: Schema.optional(Schema.NullOr(PositiveInt)),
   queueHeld: Schema.optional(Schema.Boolean),
   requestedAt: Schema.DateTimeUtc,

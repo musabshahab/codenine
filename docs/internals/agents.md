@@ -63,8 +63,10 @@ it can turn off in its snapshot's `agentAbilities`.
 
 ## When the agent changes mid-chat
 
-The next message applies it; one the user sends into a running turn restarts that turn, as a
-model change that cannot wait does. Claude's query key includes the disallowed tools and the
+The next message applies it. One the user sends into a running turn restarts that turn where the
+provider can restart a turn to steer it (Codex), and otherwise waits as the next turn (Claude). Each
+run records the agent it started under, and the change is measured from that, because a wake starts
+a run that shows no message. Claude's query key includes the disallowed tools and the
 instructions, so it reopens the query with resume. Codex applies the sandbox and instructions on
 every turn, but its shell and web search switches only when it loads a thread, so the session
 manager's load key includes the abilities and it unloads the thread before resuming it, as it does

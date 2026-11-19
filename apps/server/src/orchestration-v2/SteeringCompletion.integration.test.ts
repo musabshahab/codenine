@@ -1074,47 +1074,126 @@ it.effect("restarts the turn for an image when native steering takes text only",
   ),
 );
 
-it.effect("restarts the turn for a message sent after the chat's agent changed", () =>
+it.effect.each([true, false])(
+  "applies a changed agent to a message sent into the running turn (provider restarts: %s)",
+  (canRestart) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { started, steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
+          `steering-agent-change-${canRestart}`,
+          canRestart,
+        );
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const threadId = yield* startFirstTurn;
+          const agent = AgentName.make("reviewer");
+          const messageId = MessageId.make("message:steer-agent");
+          yield* orchestrator.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make("choose-agent"),
+            threadId,
+            agent,
+          });
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make("steer-agent"),
+            threadId,
+            messageId,
+            text: "review it",
+            attachments: [],
+            modelSelection: runSelection,
+            dispatchMode: { type: "steer_active", targetRunId: started[0]!.runId },
+            createdBy: "user",
+            creationSource: "web",
+          });
+          const projection = yield* orchestrator.getThreadProjection(threadId);
+          assert.deepEqual(steered, []);
+          assert.deepEqual(
+            projection.attempts.map((attempt) => [attempt.reason, attempt.status]),
+            canRestart
+              ? [
+                  ["initial", "superseded"],
+                  ["steering_restart", "pending"],
+                ]
+              : [
+                  ["initial", "running"],
+                  ["initial", "pending"],
+                ],
+          );
+          const run = projection.runs.find((candidate) => candidate.userMessageId === messageId);
+          assert.equal(run?.status, canRestart ? "starting" : "queued");
+          if (canRestart) {
+            const message = projection.turnItems.find(
+              (item) => item.type === "user_message" && item.messageId === messageId,
+            );
+            assert.deepInclude(message, { agent, agentSwitch: { from: null, to: agent } });
+          }
+        }).pipe(Effect.provide(layer));
+      }),
+    ),
+);
+
+it.effect("measures an agent change from the agent the running turn started with", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const { started, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
-        "steering-agent-change",
+      const { started, steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
+        "steering-agent-wake",
         true,
       );
       yield* Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
         const threadId = yield* startFirstTurn;
         const agent = AgentName.make("reviewer");
-        yield* orchestrator.dispatch({
-          type: "thread.metadata.update",
-          commandId: CommandId.make("choose-agent"),
-          threadId,
-          agent,
-        });
-        yield* orchestrator.dispatch({
-          type: "message.dispatch",
-          commandId: CommandId.make("steer-agent"),
-          threadId,
-          messageId: MessageId.make("message:steer-agent"),
-          text: "review it",
-          attachments: [],
-          modelSelection: runSelection,
-          dispatchMode: { type: "steer_active", targetRunId: started[0]!.runId },
-          createdBy: "user",
-          creationSource: "web",
-        });
-        const projection = yield* orchestrator.getThreadProjection(threadId);
-        assert.deepEqual(
-          projection.attempts.map((attempt) => [attempt.reason, attempt.status]),
-          [
-            ["initial", "superseded"],
-            ["steering_restart", "pending"],
+        // A wake shows no message, so its run starts under an agent the latest shown message
+        // does not carry. The first run stands in for one.
+        const run = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+        yield* (yield* EventSink.EventSinkV2).write({
+          events: [
+            {
+              id: EventId.make("event:woken-as-reviewer"),
+              type: "run.updated",
+              threadId,
+              runId: run.id,
+              providerInstanceId: instanceId,
+              occurredAt: yield* DateTime.now,
+              payload: { ...run, agent },
+            },
           ],
+        });
+        const chooseAgent = (name: string, chosen: typeof agent | null) =>
+          orchestrator.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make(name),
+            threadId,
+            agent: chosen,
+          });
+        const steer = (name: string) =>
+          orchestrator.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(name),
+            threadId,
+            messageId: MessageId.make(`message:${name}`),
+            text: name,
+            attachments: [],
+            modelSelection: runSelection,
+            dispatchMode: { type: "steer_active", targetRunId: started[0]!.runId },
+            createdBy: "user",
+            creationSource: "web",
+          });
+        const attempts = Effect.map(orchestrator.getThreadProjection(threadId), (projection) =>
+          projection.attempts.map((attempt) => attempt.reason),
         );
-        const message = projection.turnItems.find(
-          (item) => item.type === "user_message" && item.messageId === "message:steer-agent",
-        );
-        assert.deepInclude(message, { agent, agentSwitch: { from: null, to: agent } });
+
+        yield* chooseAgent("choose-running-agent", agent);
+        yield* steer("same-agent");
+        yield* worker.drain();
+        assert.deepEqual(steered, ["same-agent"]);
+        assert.deepEqual(yield* attempts, ["initial"]);
+
+        yield* chooseAgent("choose-shown-agent", null);
+        yield* steer("other-agent");
+        assert.deepEqual(yield* attempts, ["initial", "steering_restart"]);
       }).pipe(Effect.provide(layer));
     }),
   ),

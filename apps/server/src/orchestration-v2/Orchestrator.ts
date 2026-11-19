@@ -75,7 +75,7 @@ import {
   TrimmedNonEmptyString,
 } from "@codenine/contracts";
 import { modelSelectionsEqual } from "@codenine/shared/model";
-import { agentSwitchSince, modelSwitchSince } from "./modelSwitch.ts";
+import { agentSwitchSince, modelSwitchSince, runAgentChanged } from "./modelSwitch.ts";
 import { recordThreadOpen } from "@codenine/shared/paletteSearch";
 import {
   backgroundWorkHoldsCompletion,
@@ -101,6 +101,7 @@ import {
 } from "./CheckpointRestoreSafety.ts";
 import { CheckpointServiceV2 } from "./CheckpointService.ts";
 import {
+  canRestartToSteer,
   CommandPolicyV2,
   goalCommandStopsActiveRun,
   isActiveRun,
@@ -2194,6 +2195,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         providerThreadId: queuedProviderThread.id,
         ordinal,
         status: "starting",
+        agent: projection.thread.agent ?? null,
         queuePosition: null,
         startedAt: null,
         contextHandoffId: activeHandoff?.id ?? null,
@@ -5227,11 +5229,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       selectionChanged &&
       (providerInstanceChanged || selectionTransition?.type !== "apply_on_next_turn");
     // The running turn keeps the tool limits and instructions it started with, so a message the
-    // user sends after changing the chat's agent restarts it. Automatic deliveries do not.
+    // user sends after changing the chat's agent restarts it where the provider can. Automatic
+    // deliveries do not.
     const agentMustApplyNow =
       input.delegatedCompletion === undefined &&
       input.notification === undefined &&
-      agentSwitchSince(input.projection).agentSwitch !== undefined;
+      runAgentChanged(targetRun, input.projection.thread) &&
+      canRestartToSteer(session.providerSession.capabilities);
     const attachmentsNeedRestart =
       input.attachments.length > 0 &&
       session.providerSession.capabilities.turns.activeSteeringAcceptsAttachments === false;
@@ -5534,6 +5538,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       activeAttemptId: nextAttemptId,
       userMessageId: input.messageId,
       status: "starting",
+      agent: input.projection.thread.agent ?? null,
       contextHandoffId: restartHandoff?.id ?? targetRun.contextHandoffId,
     };
     const nextAttempt: OrchestrationV2RunAttempt = {
@@ -6102,6 +6107,30 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           !(yield* stopReachedRun(command, command.threadId, active.id))
         ) {
           dispatchMode = { type: "steer_active", targetRunId: active.id };
+        }
+      }
+    }
+    // A provider that cannot restart a turn takes a message sent after the chat's agent changed
+    // as the next turn, which starts with the new agent.
+    if (
+      dispatchMode.type === "steer_active" &&
+      delegatedCompletion === undefined &&
+      command.notification === undefined
+    ) {
+      const targetRunId = dispatchMode.targetRunId;
+      const target = projection.runs.find((run) => run.id === targetRunId);
+      const sessionId = projection.providerThreads.find(
+        (row) => row.id === target?.providerThreadId,
+      )?.providerSessionId;
+      if (target !== undefined && sessionId != null && runAgentChanged(target, projection.thread)) {
+        const session = yield* providerSessions
+          .get(sessionId)
+          .pipe(Effect.orElseSucceed(() => Option.none()));
+        if (
+          Option.isSome(session) &&
+          !canRestartToSteer(session.value.providerSession.capabilities)
+        ) {
+          dispatchMode = { type: "queue_after_active" };
         }
       }
     }
@@ -6746,6 +6775,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         rootNodeId,
         activeAttemptId: attemptId,
         status: dispatchMode.type === "defer_start" ? "preparing" : "starting",
+        agent: projection.thread.agent ?? null,
         queuePosition: null,
         requestedAt: now,
         startedAt: null,
@@ -7525,6 +7555,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       rootNodeId,
       activeAttemptId: attemptId,
       status: "starting",
+      agent: projection.thread.agent ?? null,
       queuePosition: null,
       requestedAt: now,
       startedAt: null,

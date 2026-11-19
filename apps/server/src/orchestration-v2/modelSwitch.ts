@@ -75,3 +75,14 @@ export function agentSwitchSince(
     ...(from === undefined || from === to ? {} : { agentSwitch: { from, to } }),
   };
 }
+
+/**
+ * Whether the chat's agent differs from the one the run started under. A wake starts a run with
+ * no shown message, so the latest shown message's agent is not the running turn's.
+ */
+export function runAgentChanged(
+  run: Pick<Run, "agent">,
+  thread: Pick<OrchestrationV2ThreadProjection["thread"], "agent">,
+): boolean {
+  return run.agent !== undefined && run.agent !== (thread.agent ?? null);
+}
