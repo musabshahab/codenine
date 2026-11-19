@@ -274,6 +274,7 @@ export function useNewProject() {
     plan: Extract<NewProjectPlan, { kind: "folder" }>,
     onCreated: (() => void) | undefined,
     relinkProjectId: ProjectId | undefined,
+    folderMustExist: boolean,
   ): Promise<NewProjectResult> => {
     const existing = findExistingAddProject({
       projects: readProjects(),
@@ -313,7 +314,8 @@ export function useNewProject() {
         projectId,
         title: plan.title,
         workspaceRoot: plan.workspaceRoot,
-        createWorkspaceRootIfMissing: true,
+        // "Use a folder" is for files already there; a mistyped path must not become a new folder.
+        createWorkspaceRootIfMissing: !folderMustExist,
         defaultModelSelection: null,
       },
     });
@@ -362,13 +364,23 @@ export function useNewProject() {
 
   return (
     plan: NewProjectPlan,
-    options?: { readonly onCreated?: () => void; readonly relinkProjectId?: ProjectId },
+    options?: {
+      readonly onCreated?: () => void;
+      readonly relinkProjectId?: ProjectId;
+      /** The folder is one the user says is already there, so a missing one is a mistake. */
+      readonly folderMustExist?: boolean;
+    },
   ): Promise<NewProjectResult> => {
     switch (plan.kind) {
       case "empty":
         return createEmpty(plan, options?.onCreated);
       case "folder":
-        return addFolder(plan, options?.onCreated, options?.relinkProjectId);
+        return addFolder(
+          plan,
+          options?.onCreated,
+          options?.relinkProjectId,
+          options?.folderMustExist === true,
+        );
       case "clone":
         return cloneRepository(plan, options?.onCreated);
     }

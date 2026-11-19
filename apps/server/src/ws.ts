@@ -1275,6 +1275,23 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
+/** Plain words for a workspace folder the user got wrong, which they can fix themselves. */
+const workspaceFolderProblem = (cause: {
+  readonly _tag: string;
+  readonly cause?: unknown;
+}): string | undefined => {
+  if (cause._tag === "ProjectConflictError") return "Another workspace already uses that folder.";
+  const reason = cause._tag === "ProjectOperationError" ? cause.cause : undefined;
+  if (typeof reason !== "object" || reason === null || !("_tag" in reason)) return undefined;
+  const folder =
+    "normalizedWorkspaceRoot" in reason && typeof reason.normalizedWorkspaceRoot === "string"
+      ? reason.normalizedWorkspaceRoot
+      : "that path";
+  if (reason._tag === "WorkspaceRootNotExistsError") return `There is no folder at ${folder}.`;
+  if (reason._tag === "WorkspaceRootNotDirectoryError") return `${folder} is a file, not a folder.`;
+  return undefined;
+};
+
 export const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   settingsClient: { readonly secretReferences: boolean },
@@ -2339,7 +2356,7 @@ export const layerWsRpc = (
                     cause._tag === "ProjectNotEmptyError" ||
                     cause._tag === "ProjectFolderDeleteError"
                       ? cause.message
-                      : "Failed to mutate project.",
+                      : (workspaceFolderProblem(cause) ?? "Failed to mutate project."),
                   cause,
                 }),
             ),

@@ -329,11 +329,11 @@ function LibrarySection({
             );
           }}
         >
-          <Toggle value={ALL_CATEGORIES} variant="outline" size="xs">
+          <Toggle value={ALL_CATEGORIES} variant="pill" size="xs">
             All
           </Toggle>
           {categories.map((value) => (
-            <Toggle key={value} value={value} variant="outline" size="xs">
+            <Toggle key={value} value={value} variant="pill" size="xs">
               {CATEGORY_LABELS[value]}
             </Toggle>
           ))}

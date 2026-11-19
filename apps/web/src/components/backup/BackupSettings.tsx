@@ -66,7 +66,7 @@ const BACKUP_CONTENTS = [
   "Chats, with their history and attachments",
   "Workspaces in your Codenine folder, leaving out files Git ignores, like node_modules",
   "Accounts you added in Codenine, and your saved keys",
-  "Settings and skills",
+  "Settings, skills, agents and workflows",
 ] as const;
 
 /** Settings › Backup, for one machine at a time. */

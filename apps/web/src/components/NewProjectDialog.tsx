@@ -168,6 +168,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
     setSubmitting(true);
     const result = await createProject(planned.plan, {
       onCreated: closeNewProjectDialog,
+      folderMustExist: true,
       ...(request.relinkProjectId === undefined
         ? {}
         : { relinkProjectId: request.relinkProjectId }),

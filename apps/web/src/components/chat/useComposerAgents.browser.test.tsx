@@ -157,6 +157,8 @@ it("moves the chat to an agent's model at its effort, then sets the agent", asyn
   await page.getByRole("option", { name: /Gmail/ }).click();
   expect(state.select).toHaveBeenCalledWith(claude, "claude-sonnet-5-5", {
     agentOptions: [{ id: "effort", value: "max" }],
+    // So a move to another account takes the agent along.
+    agent: "gmail",
   });
   expect(state.setAgent).toHaveBeenCalledWith("gmail");
   await expect
