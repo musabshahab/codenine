@@ -148,13 +148,17 @@ const make = Effect.gen(function* () {
   const answer: ConnectorApprovals["Service"]["answer"] = Effect.fn("ConnectorApprovals.answer")(
     function* (input) {
       return yield* lock.withPermits(1)(
-        Effect.gen(function* () {
-          const entry = yield* take(keyOf(input.threadId, input.turnItemId));
-          if (entry === undefined) return "not-waiting" as const;
-          yield* entry.settle(input.answer);
-          yield* Deferred.succeed(entry.answered, input.answer);
-          return "answered" as const;
-        }),
+        // Uninterruptible: a card taken but never completed would leave its call waiting for good.
+        Effect.uninterruptible(
+          Effect.gen(function* () {
+            const entry = yield* take(keyOf(input.threadId, input.turnItemId));
+            if (entry === undefined) return "not-waiting" as const;
+            yield* entry
+              .settle(input.answer)
+              .pipe(Effect.ensuring(Deferred.succeed(entry.answered, input.answer)));
+            return "answered" as const;
+          }),
+        ),
       );
     },
   );

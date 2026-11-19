@@ -5,6 +5,7 @@ import {
   Client,
   type JsonSchemaValidator,
   type jsonSchemaValidator,
+  ProtocolError,
   SdkError,
   SdkErrorCode,
   SdkHttpError,
@@ -36,7 +37,10 @@ import { ConnectorFetch } from "./ConnectorFetch.ts";
 import * as ConnectorSignIn from "./ConnectorSignIn.ts";
 import * as ConnectorStore from "./ConnectorStore.ts";
 
-/** `rejected` is a pasted token the service turned down; `needs-sign-in` is a lost sign-in. */
+/**
+ * `rejected` is a pasted token the service turned down; `needs-sign-in` is a lost sign-in;
+ * `refused` is a working service turning one call down, such as for a missing argument.
+ */
 export class ConnectorCallError extends Schema.TaggedError<ConnectorCallError>()(
   "ConnectorCallError",
   {
@@ -45,9 +49,10 @@ export class ConnectorCallError extends Schema.TaggedError<ConnectorCallError>()
       "rejected",
       "unreachable",
       "program-missing",
+      "refused",
       "failed",
     ]),
-    /** Plain words for the user and the agent; never copied from the cause. */
+    /** Plain words for the user and the agent; only `refused` quotes what the service said. */
     detail: Schema.String,
     cause: Schema.optional(Schema.Defect()),
   },
@@ -61,6 +66,7 @@ const IDLE_CLOSE_AFTER = Duration.minutes(10);
 const IDLE_SWEEP_EVERY = Duration.minutes(1);
 const LIST_TIMEOUT_MS = 60_000;
 const CALL_TIMEOUT_MS = 15 * 60_000;
+const REFUSAL_MAX_LENGTH = 500;
 const MAX_TOOL_PAGES = 20;
 
 /** Programs a local connector starts still need the network settings to download and connect. */
@@ -112,6 +118,8 @@ interface LiveClient {
   readonly authKind: string;
   readonly signature: string;
   readonly lastUsedAt: Ref.Ref<number>;
+  /** Requests still waiting for an answer; the idle sweep leaves such a client open. */
+  readonly inFlight: Ref.Ref<number>;
   /** Credential failures happen inside the SDK's callbacks; the last one explains a failure. */
   readonly credentials: { last: ConnectorSignIn.ConnectorCredentialError | undefined };
 }
@@ -208,6 +216,14 @@ const callError = (input: {
         server.type === "stdio"
           ? `${where} stopped before it answered.`
           : `${where} closed the connection.`,
+      cause,
+    });
+  }
+  if (cause instanceof ProtocolError) {
+    // The agent needs the service's words to correct the call, as it gets them for a tool error.
+    return new ConnectorCallError({
+      kind: "refused",
+      detail: `${where} turned the call down: ${cause.message.slice(0, REFUSAL_MAX_LENGTH)}`,
       cause,
     });
   }
@@ -342,9 +358,22 @@ const make = Effect.gen(function* () {
       { capabilities: {}, jsonSchemaValidator: passThroughValidator },
     );
     const connect = (transport: Transport) =>
-      Effect.tryPromise({
-        try: () => client.connect(transport),
-        catch: (cause) => new UpstreamError({ cause }),
+      Effect.suspend(() => {
+        const connecting = client.connect(transport);
+        return Effect.tryPromise({
+          try: () => connecting,
+          catch: (cause) => new UpstreamError({ cause }),
+        }).pipe(
+          // An interrupt does not stop the connect, which may still start a local program.
+          Effect.onInterrupt(() =>
+            Effect.promise(() =>
+              connecting.then(
+                () => client.close(),
+                () => undefined,
+              ),
+            ).pipe(Effect.ignore, Effect.forkIn(scope)),
+          ),
+        );
       });
     const transportFor = (kind: "streamable" | "sse"): Transport => {
       if (server.type === "stdio") {
@@ -393,6 +422,7 @@ const make = Effect.gen(function* () {
       authKind,
       signature,
       lastUsedAt: yield* Ref.make(yield* Clock.currentTimeMillis),
+      inFlight: yield* Ref.make(0),
       credentials,
     };
     yield* Ref.update(live, (current) => new Map(current).set(connection.id, liveClient));
@@ -407,6 +437,7 @@ const make = Effect.gen(function* () {
     const opened = yield* openLock.withLock(connection.id, open(connection));
     opened.credentials.last = undefined;
     yield* Ref.set(opened.lastUsedAt, yield* Clock.currentTimeMillis);
+    yield* Ref.update(opened.inFlight, (count) => count + 1);
     return yield* Effect.tryPromise({
       try: () => request(opened.client),
       catch: (cause) =>
@@ -419,10 +450,13 @@ const make = Effect.gen(function* () {
     }).pipe(
       Effect.tapError((error) =>
         // A dead connection is reopened by the next request.
-        error.kind === "failed" ? Effect.void : close(connection.id),
+        error.kind === "failed" || error.kind === "refused" ? Effect.void : close(connection.id),
       ),
       Effect.ensuring(
-        Clock.currentTimeMillis.pipe(Effect.flatMap((now) => Ref.set(opened.lastUsedAt, now))),
+        Clock.currentTimeMillis.pipe(
+          Effect.flatMap((now) => Ref.set(opened.lastUsedAt, now)),
+          Effect.andThen(Ref.update(opened.inFlight, (count) => count - 1)),
+        ),
       ),
     );
   });
@@ -467,6 +501,8 @@ const make = Effect.gen(function* () {
   const closeIdle = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     for (const [connectionId, client] of yield* Ref.get(live)) {
+      // A call may run longer than the idle time; closing under it would report it as stopped.
+      if ((yield* Ref.get(client.inFlight)) > 0) continue;
       if (now - (yield* Ref.get(client.lastUsedAt)) >= Duration.toMillis(IDLE_CLOSE_AFTER)) {
         yield* close(connectionId);
       }

@@ -551,6 +551,7 @@ const make = Effect.gen(function* () {
       yield* logActivity("failed", false);
       return toolError(failure.message);
     }
+    yield* connectors.noteCallSuccess(connection.id);
     yield* logActivity(
       result.success.isError === true
         ? "failed"

@@ -1878,7 +1878,10 @@ export const layerWithOptions = (
                 }).pipe(
                   Effect.flatMap((loaded) =>
                     loaded
-                      ? Effect.succeed({ loaded: input.providerThread, loadSetup: undefined })
+                      ? Effect.succeed({
+                          loaded: input.providerThread,
+                          loadSetup: undefined as string | undefined,
+                        })
                       : unloadForNewLoadSetup({
                           providerSessionId,
                           threadId,
@@ -1886,9 +1889,12 @@ export const layerWithOptions = (
                           loadSetup: providerThreadLoadSetup(connectors, input.runtimePolicy),
                         }).pipe(
                           Effect.flatMap((loadSetup) =>
-                            runtime
-                              .resumeThread(input)
-                              .pipe(Effect.map((resumed) => ({ loaded: resumed, loadSetup }))),
+                            runtime.resumeThread(input).pipe(
+                              Effect.map((resumed) => ({
+                                loaded: resumed,
+                                loadSetup: loadSetup as string | undefined,
+                              })),
+                            ),
                           ),
                         ),
                   ),

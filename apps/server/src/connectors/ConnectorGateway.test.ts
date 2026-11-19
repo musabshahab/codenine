@@ -96,6 +96,7 @@ const makeHarness = (
     const upstreamCalls = yield* Ref.make<ReadonlyArray<string>>([]);
     const decision = yield* Ref.make<ActionReviewer.ReviewDecision>({ type: "allow" });
     const reviewed = yield* Ref.make<ReadonlyArray<ReviewedAction>>([]);
+    const callFailure = yield* Ref.make<ConnectorClients.ConnectorCallError | undefined>(undefined);
     const threads = Layer.mock(ThreadManagement.ThreadManagementService)({
       getThreadRecords: (id) =>
         Effect.succeed({
@@ -122,7 +123,14 @@ const makeHarness = (
     const clients = Layer.mock(ConnectorClients.ConnectorClients)({
       callTool: (input) =>
         Ref.update(upstreamCalls, (current) => [...current, input.name]).pipe(
-          Effect.as({ content: [{ type: "text" as const, text: `${input.name} done` }] }),
+          Effect.andThen(Ref.get(callFailure)),
+          Effect.flatMap((failure) =>
+            failure === undefined
+              ? Effect.succeed({
+                  content: [{ type: "text" as const, text: `${input.name} done` }],
+                })
+              : Effect.fail(failure),
+          ),
         ),
       close: () => Effect.void,
     });
@@ -151,7 +159,7 @@ const makeHarness = (
         ServerConfig.layerTest(process.cwd(), { prefix: "codenine-connector-gateway-test-" }),
       ),
     );
-    return { dispatched, cardShown, upstreamCalls, decision, reviewed, layer };
+    return { dispatched, cardShown, upstreamCalls, decision, reviewed, callFailure, layer };
   });
 
 const connectGitHub = Effect.gen(function* () {
@@ -251,6 +259,39 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
         );
         // Outside Auto, nothing reviews the action first.
         assert.deepStrictEqual(yield* Ref.get(harness.reviewed), []);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("a call the service turns down is not trouble with the connection", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({});
+      yield* Effect.gen(function* () {
+        const gateway = yield* ConnectorGateway.ConnectorGateway;
+        const connectors = yield* Connectors.Connectors;
+        const github = yield* connectGitHub;
+        const search = gateway.handle({
+          threadId,
+          ...call(github.id, "tools/call", { name: "search_code", arguments: {} }),
+        });
+        const statusOf = connectors.state.pipe(
+          Effect.map((state) => state.connections.find((one) => one.id === github.id)?.status),
+        );
+        const failWith = (kind: "refused" | "unreachable", detail: string) =>
+          Ref.set(harness.callFailure, new ConnectorClients.ConnectorCallError({ kind, detail }));
+
+        yield* failWith("refused", "GitHub turned the call down: q is required");
+        const refused = yield* search;
+        assert.include(JSON.stringify(refused), "q is required");
+        assert.strictEqual(yield* statusOf, "connected");
+
+        yield* failWith("unreachable", "Codenine could not reach GitHub.");
+        yield* search;
+        assert.strictEqual(yield* statusOf, "error");
+        // The next call that gets an answer clears it.
+        yield* Ref.set(harness.callFailure, undefined);
+        yield* search;
+        assert.strictEqual(yield* statusOf, "connected");
       }).pipe(Effect.provide(harness.layer));
     }),
   );

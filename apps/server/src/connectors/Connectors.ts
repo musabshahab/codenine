@@ -40,7 +40,7 @@ const fromCallError = (error: ConnectorClients.ConnectorCallError) =>
     reason:
       error.kind === "needs-sign-in" || error.kind === "rejected"
         ? "sign-in-failed"
-        : error.kind === "failed"
+        : error.kind === "failed" || error.kind === "refused"
           ? "failed"
           : "unreachable",
     detail: error.detail,
@@ -127,6 +127,8 @@ export class Connectors extends Context.Service<
       connectionId: ConnectionId,
       error: ConnectorClients.ConnectorCallError,
     ) => Effect.Effect<void>;
+    /** A call that got an answer clears the trouble an earlier one left on the status. */
+    readonly noteCallSuccess: (connectionId: ConnectionId) => Effect.Effect<void>;
   }
 >()("codenine/connectors/Connectors") {}
 
@@ -217,12 +219,22 @@ const make = Effect.gen(function* () {
   }).pipe(Effect.mapError(fromStoreError), Effect.withSpan("Connectors.state"));
 
   const noteCallFailure: Connectors["Service"]["noteCallFailure"] = (connectionId, error) =>
-    store.setRuntime(
-      connectionId,
-      error.kind === "needs-sign-in" || error.kind === "rejected"
-        ? { phase: "rejected", detail: error.detail }
-        : { phase: "error", detail: error.detail },
-    );
+    // A call the service turned down says nothing about the connection.
+    error.kind === "refused"
+      ? Effect.void
+      : store.setRuntime(
+          connectionId,
+          error.kind === "needs-sign-in" || error.kind === "rejected"
+            ? { phase: "rejected", detail: error.detail }
+            : { phase: "error", detail: error.detail },
+        );
+
+  const noteCallSuccess: Connectors["Service"]["noteCallSuccess"] = Effect.fn(
+    "Connectors.noteCallSuccess",
+  )(function* (connectionId) {
+    const phase = (yield* store.runtime(connectionId))?.phase;
+    if (phase === "error" || phase === "rejected") yield* store.setRuntime(connectionId, undefined);
+  });
 
   const lookUpAccount = Effect.fn("Connectors.lookUpAccount")(function* (
     connection: ConnectorStore.StoredConnection,
@@ -253,6 +265,8 @@ const make = Effect.gen(function* () {
           : store.setRuntime(connectionId, { phase: "error", detail: error.message }),
       ),
       Effect.tap(() => store.setRuntime(connectionId, undefined)),
+      // An interrupted check, such as a closed client, must not leave "Checking" up for good.
+      Effect.onInterrupt(() => store.setRuntime(connectionId, undefined)),
       Effect.result,
     );
     if (listed._tag === "Success") {
@@ -555,6 +569,7 @@ const make = Effect.gen(function* () {
     activity,
     upstreamTools,
     noteCallFailure,
+    noteCallSuccess,
   });
 });
 
