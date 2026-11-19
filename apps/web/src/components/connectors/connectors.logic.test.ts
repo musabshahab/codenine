@@ -61,6 +61,10 @@ describe("sign-in addresses", () => {
       "http://127.0.0.1:3773",
     );
     expect(signInReturnOrigin("codenine://app", null)).toBeNull();
+    // Another computer's sign-in comes back to that computer, not to the page's server.
+    expect(signInReturnOrigin("https://desk.example", "https://laptop.example:3773/", false)).toBe(
+      "https://laptop.example:3773",
+    );
   });
 });
 

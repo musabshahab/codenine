@@ -39,6 +39,19 @@ import { WorkspacePage } from "./WorkspacePage";
 
 const ALL_CATEGORIES = "all";
 
+/** Offered only to a client that may connect services, as the library's own tile is. */
+function AddCustomConnectorButton(props: {
+  readonly environmentId: EnvironmentId;
+  readonly onClick: () => void;
+}) {
+  const canManage = useAtomValue(connectorsEnvironment.connect.permissionAtom(props.environmentId));
+  return canManage ? (
+    <Button size="sm" variant="outline" onClick={props.onClick}>
+      Add custom connector
+    </Button>
+  ) : null;
+}
+
 /** The services agents and chats can use: what is connected, and the library to add more. */
 export function ConnectorsPage(props: {
   readonly machine: EnvironmentId | null;
@@ -54,9 +67,10 @@ export function ConnectorsPage(props: {
       title="Connectors"
       actions={
         environment?.connection.phase === "connected" ? (
-          <Button size="sm" variant="outline" onClick={() => setAddingCustom(true)}>
-            Add custom connector
-          </Button>
+          <AddCustomConnectorButton
+            environmentId={environment.environmentId}
+            onClick={() => setAddingCustom(true)}
+          />
         ) : null
       }
     >

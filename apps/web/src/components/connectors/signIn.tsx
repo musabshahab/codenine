@@ -2,14 +2,19 @@ import type { EnvironmentId } from "@codenine/contracts";
 import { TriangleAlertIcon } from "lucide-react";
 
 import { openExternalLink } from "../../lib/openExternalLink";
-import { useEnvironmentHttpBaseUrl } from "../../state/environments";
+import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "../../state/environments";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { servicesAcceptOrigin, signInReturnOrigin } from "./connectors.logic";
 
 /** Where this app's sign-ins on `environmentId` come back to, or null when there is nowhere. */
 export function useSignInReturnOrigin(environmentId: EnvironmentId): string | null {
   const serverHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  return signInReturnOrigin(window.location.origin, serverHttpBaseUrl);
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  return signInReturnOrigin(
+    window.location.origin,
+    serverHttpBaseUrl,
+    primaryEnvironmentId === null || primaryEnvironmentId === environmentId,
+  );
 }
 
 /**

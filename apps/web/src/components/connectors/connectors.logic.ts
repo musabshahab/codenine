@@ -120,12 +120,17 @@ export function webPageUrl(address: string | null | undefined): string | null {
 }
 
 /**
- * Where sign-ins return: the page's own address, or, in the desktop app whose own scheme is no
- * web address, the server it runs.
+ * Where sign-ins return: the server that started the sign-in, since only it can finish one. That
+ * is the page's own address for the server the page came from, and the server's address for
+ * another computer or in the desktop app, whose own scheme is no web address.
  */
-export function signInReturnOrigin(pageOrigin: string, serverHttpBaseUrl: string | null) {
+export function signInReturnOrigin(
+  pageOrigin: string,
+  serverHttpBaseUrl: string | null,
+  servedByPage = true,
+) {
   const page = URL.parse(pageOrigin);
-  if (page !== null && (page.protocol === "http:" || page.protocol === "https:")) {
+  if (servedByPage && page !== null && (page.protocol === "http:" || page.protocol === "https:")) {
     return page.origin;
   }
   return serverHttpBaseUrl === null ? null : (URL.parse(serverHttpBaseUrl)?.origin ?? null);
