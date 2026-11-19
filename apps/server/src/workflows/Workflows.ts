@@ -781,12 +781,14 @@ const make = Effect.gen(function* () {
     const plan = lead.team;
     if (plan == null || plan.status !== "running" || plan.run === undefined) return;
     const runPlan = { ...plan, run: plan.run };
-    let costUsd = plan.run.costUsd;
+    let costUsd: number | "unpriced" | null = plan.run.costUsd;
     const lastPriced = costCheckedAt.get(threadId);
     if (lastPriced === undefined || nowMs - lastPriced >= COST_CHECK_MS) {
       costCheckedAt.set(threadId, nowMs);
       const estimate = yield* estimateCost(lead, runPlan);
-      if (estimate !== null && (costUsd === null || Math.abs(estimate - costUsd) >= 0.01)) {
+      // The saved cost predates the turn that has no price, so it is not checked against the limit.
+      if (estimate === null) costUsd = "unpriced";
+      else if (costUsd === null || Math.abs(estimate - costUsd) >= 0.01) {
         yield* dispatchQuietly({
           type: "team.run.update",
           commandId: CommandId.make(
@@ -803,7 +805,7 @@ const make = Effect.gen(function* () {
     const limit = reachedLimit(plan.run, costUsd, nowMs);
     if (limit !== null) {
       const { spendUsd, minutes } = plan.run.limits;
-      return yield* hold(runPlan, threadId, limit, String(limit === "spend" ? spendUsd : minutes));
+      return yield* hold(runPlan, threadId, limit, String(limit === "time" ? minutes : spendUsd));
     }
     const waiting = staleReview(plan, nowMs);
     if (waiting !== undefined && (yield* leadIsIdle(threadId))) {

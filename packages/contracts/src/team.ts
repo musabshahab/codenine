@@ -143,10 +143,11 @@ export const TeamPlanStatus = Schema.Literals([
 export type TeamPlanStatus = typeof TeamPlanStatus.Type;
 
 /**
- * Why a workflow run waits for the user: it reached its spending or time limit, or the lead ended
- * its turn without deciding on a step. Nothing new starts while it waits; running turns finish.
+ * Why a workflow run waits for the user: it reached its spending or time limit, it has a spending
+ * limit but a model with no known price (`unpriced`), or the lead ended its turn without deciding
+ * on a step. Nothing new starts while it waits; running turns finish.
  */
-export const TeamPlanHoldReason = Schema.Literals(["spend", "time", "review"]);
+export const TeamPlanHoldReason = Schema.Literals(["spend", "unpriced", "time", "review"]);
 export type TeamPlanHoldReason = typeof TeamPlanHoldReason.Type;
 
 export const TeamPlanHold = Schema.Struct({ reason: TeamPlanHoldReason, at: IsoDateTime });

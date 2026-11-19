@@ -366,7 +366,9 @@ export function decideTeamCommand(input: {
       if (current.hold !== undefined && current.hold.reason !== "review") {
         return rejected(
           "team_run_waiting",
-          `The run reached its ${current.hold.reason} limit and waits for the user to resume it.`,
+          current.hold.reason === "unpriced"
+            ? "The run's cost cannot be estimated against its spending limit, and it waits for the user to resume it."
+            : `The run reached its ${current.hold.reason} limit and waits for the user to resume it.`,
         );
       }
       const task = current.tasks.find((candidate) => candidate.id === command.taskId);

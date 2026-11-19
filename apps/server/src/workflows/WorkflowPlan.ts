@@ -216,14 +216,18 @@ export function workflowRunBrief(input: {
   return sections.join("\n\n");
 }
 
-/** The limit a run has reached, spending first; null while it is within both. */
+/**
+ * The limit a run has reached, spending first; null while it is within both. A run with a spending
+ * limit whose turns could not be priced is `unpriced`: its limit can no longer stop it.
+ */
 export function reachedLimit(
   run: Pick<TeamPlanRun, "limits" | "startedAt">,
-  costUsd: number | null,
+  costUsd: number | "unpriced" | null,
   nowMs: number,
-): "spend" | "time" | null {
+): "spend" | "unpriced" | "time" | null {
   const { spendUsd, minutes } = run.limits;
-  if (spendUsd !== null && costUsd !== null && costUsd >= spendUsd) return "spend";
+  if (spendUsd !== null && costUsd === "unpriced") return "unpriced";
+  if (spendUsd !== null && typeof costUsd === "number" && costUsd >= spendUsd) return "spend";
   if (minutes !== null && nowMs - Date.parse(run.startedAt) >= minutes * 60_000) return "time";
   return null;
 }

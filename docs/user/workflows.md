@@ -50,6 +50,9 @@ A run waits for you when:
 
 - **It reaches a limit.** A step already working finishes first. Choose **Go on** to allow the
   original amount again on top of what the run has used, or **Stop run**.
+- **It has a spending limit, but Codenine has no price for a model it uses.** The limit could not
+  stop the run, so it waits instead. **Go on** continues without a spending limit; its time limit
+  still applies.
 - **A step's agent asks before going on.** **Open to answer** opens that step's chat. These also
   wait in your Inbox.
 - **The lead leaves a step for you.** Choose **Accept**, or **Send back** with what should change.

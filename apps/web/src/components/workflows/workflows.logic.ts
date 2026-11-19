@@ -1067,6 +1067,8 @@ export function leadActivity(
   switch (plan.hold?.reason) {
     case "spend":
       return "stopped at the spending limit, waiting for you";
+    case "unpriced":
+      return "stopped because the run's cost can't be estimated, waiting for you";
     case "time":
       return "stopped at the time limit, waiting for you";
     case "review":
@@ -1083,14 +1085,16 @@ export function leadActivity(
 /**
  * The limits a run goes on with after stopping at one: what it has used so far plus the amount it
  * started with (the workflow's own when it has one). A step already working when the run stopped
- * can finish past the limit, so raising the limit itself could leave the run stopped again.
+ * can finish past the limit, so raising the limit itself could leave the run stopped again. A run
+ * that cannot be priced goes on without its spending limit, which could not stop it anyway.
  */
 export function raisedLimits(
   run: WorkflowLimits,
   workflow: WorkflowLimits | null,
-  reason: "spend" | "time",
+  reason: "spend" | "unpriced" | "time",
   used: { readonly costUsd: number | null; readonly minutes: number },
 ): WorkflowLimits {
+  if (reason === "unpriced") return { ...run, spendUsd: null };
   if (reason === "spend") {
     const current = run.spendUsd;
     if (current === null) return run;
@@ -1106,12 +1110,13 @@ export function raisedLimits(
   };
 }
 
-/** What raising a limit adds, for the button that goes on: "$2.00 more", "1 h more". */
+/** What going on changes, for its button: "up to $2.00", "up to 1 h", "without a spending limit". */
 export function raisedLimitLine(
   run: WorkflowLimits,
   raised: WorkflowLimits,
-  reason: "spend" | "time",
+  reason: "spend" | "unpriced" | "time",
 ): string | null {
+  if (reason === "unpriced") return "without a spending limit";
   if (reason === "spend") {
     return run.spendUsd === null || raised.spendUsd === null
       ? null

@@ -41,6 +41,8 @@ function waitingLine(run: WorkflowRun): string {
   switch (run.hold?.reason) {
     case "spend":
       return `Run ${run.run} reached its spending limit. It waits until you say whether to go on.`;
+    case "unpriced":
+      return `Run ${run.run} has a spending limit, but its cost can't be estimated. It waits until you say whether to go on.`;
     case "time":
       return `Run ${run.run} reached its time limit. It waits until you say whether to go on.`;
     case "review":

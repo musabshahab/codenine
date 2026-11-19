@@ -58,8 +58,9 @@ payload. For a running run it estimates the cost of the lead and every attempt o
 their provider turns, priced as the Usage page prices them. Only a run with a spending limit may
 download the public price lists; any other run uses prices already saved, or none.
 
-The run waits for the user (`team.hold`) when it reaches its spending or time limit, or when a
-step's result has waited over a minute while its lead has no turn coming. A hold's command id
+The run waits for the user (`team.hold`) when it reaches its spending or time limit, when it has
+a spending limit and a turn that cannot be priced (`unpriced`: the limit fails closed, and going
+on drops it), or when a step's result has waited over a minute while its lead has no turn coming. A hold's command id
 names the plan, the reason and the limit, so each limit holds once, and raising it can hold again.
 
 The lead saves its note in its final turn, after the plan has ended, so an ended run is settled

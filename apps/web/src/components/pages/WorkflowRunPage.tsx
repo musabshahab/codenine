@@ -441,6 +441,12 @@ function StopRunButton(props: {
   );
 }
 
+const LIMIT_TITLES = {
+  spend: "It reached its spending limit",
+  unpriced: "Its cost can't be estimated",
+  time: "It reached its time limit",
+} as const;
+
 /** What waits for the user: a limit or an undecided step, results to judge, and steps that ask. */
 function RunActions(props: {
   readonly environmentId: EnvironmentId;
@@ -459,7 +465,7 @@ function RunActions(props: {
   const threadId = leadRef.threadId;
   const reviewing = plan.tasks.filter((task) => canReviewTeamTask(plan, task));
   const hold = plan.hold;
-  const limitReason = hold?.reason === "spend" || hold?.reason === "time" ? hold.reason : null;
+  const limitReason = hold === undefined || hold.reason === "review" ? null : hold.reason;
   const raised =
     limitReason === null
       ? null
@@ -484,15 +490,12 @@ function RunActions(props: {
     <>
       {limitReason === null || raised === null ? null : (
         <Alert variant="warning">
-          <AlertTitle>
-            {limitReason === "spend"
-              ? "It reached its spending limit"
-              : "It reached its time limit"}
-          </AlertTitle>
+          <AlertTitle>{LIMIT_TITLES[limitReason]}</AlertTitle>
           <AlertDescription>
             <p>
-              The lead stopped to ask whether to go on. Steps already running finish; nothing new
-              starts until you decide.
+              {limitReason === "unpriced"
+                ? "Codenine has no price for a model this run uses, so its spending limit can't stop it. Steps already running finish; nothing new starts until you decide."
+                : "The lead stopped to ask whether to go on. Steps already running finish; nothing new starts until you decide."}
             </p>
             <span className="flex flex-wrap gap-2">
               <Button
@@ -510,7 +513,8 @@ function RunActions(props: {
                   )
                 }
               >
-                Go on, {raisedLimitLine(run.limits, raised, limitReason)}
+                {limitReason === "unpriced" ? "Go on" : "Go on,"}{" "}
+                {raisedLimitLine(run.limits, raised, limitReason)}
               </Button>
               <StopRunButton environmentId={props.environmentId} leadRef={leadRef} />
             </span>

@@ -498,6 +498,11 @@ describe("runs", () => {
       spendUsd: null,
       minutes: 10,
     });
+    // A run that cannot be priced drops the limit, so it is not stopped for it again.
+    expect(raisedLimits(run, { spendUsd: 2, minutes: 30 }, "unpriced", within)).toEqual({
+      spendUsd: null,
+      minutes: 60,
+    });
   });
 
   it("reads a machine's runs from shells, waiting while a step asks, newest first", () => {

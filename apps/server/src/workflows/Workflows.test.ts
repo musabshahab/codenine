@@ -650,8 +650,14 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         expect(world.priced).toHaveLength(3);
         expect(sent()).toHaveLength(3);
 
-        // The user raised the limit and went on; then the run reaches its time limit.
+        // The user raised the limit and went on, but the run can no longer be priced against it.
         resume({ spendUsd: 5, minutes: 60 });
+        yield* TestClock.adjust("30 seconds");
+        yield* workflows.superviseRuns;
+        expect(sent().at(-1)).toBe(`server:workflow-hold:${planId}:unpriced:5`);
+
+        // They went on without a spending limit; then the run reaches its time limit.
+        resume({ spendUsd: null, minutes: 60 });
         yield* TestClock.setTime(at("2026-11-18T11:00:00Z"));
         yield* workflows.superviseRuns;
         expect(sent().at(-1)).toBe(`server:workflow-hold:${planId}:time:60`);
@@ -659,7 +665,7 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         // A result has waited two minutes for the lead, which still has a turn queued for it.
         const review = { round: 2, awaiting: true, awaitingSince: "2026-11-18T11:00:00.000Z" };
         resume(
-          { spendUsd: 5, minutes: 120 },
+          { spendUsd: null, minutes: 120 },
           plan().tasks.map((task, index) =>
             index === 1 ? { ...task, status: "running", review } : task,
           ),
