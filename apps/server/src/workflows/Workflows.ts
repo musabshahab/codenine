@@ -180,8 +180,28 @@ const make = Effect.gen(function* () {
   // The scheduler reads every workflow's files every few seconds; unchanged ones come from here.
   const workflowCache = new Map<string, { readonly stamp: string; readonly read: WorkflowRead }>();
   const stateCache = new Map<string, { readonly stamp: string; readonly state: WorkflowState }>();
-  // A workflow.json that stops parsing at all still has runs under the id it last named.
-  const lastIds = new Map<WorkflowName, WorkflowId>();
+  // Untraced: the scheduler reads it for every workflow on every tick.
+  const readState = Effect.fnUntraced(function* (folder: string) {
+    const file = path.join(folder, STATE_FILE);
+    const info = yield* fileSystem.stat(file).pipe(Effect.option);
+    if (Option.isNone(info) || info.value.type !== "File") {
+      stateCache.delete(file);
+      return EMPTY_WORKFLOW_STATE;
+    }
+    const stamp = stampOf(info.value);
+    const cached = stateCache.get(file);
+    if (cached?.stamp === stamp) return cached.state;
+    const contents =
+      Number(info.value.size) > STATE_FILE_MAX_BYTES
+        ? Option.none<string>()
+        : yield* fileSystem.readFileString(file).pipe(Effect.option);
+    const state = Option.match(contents, {
+      onNone: () => EMPTY_WORKFLOW_STATE,
+      onSome: parseWorkflowState,
+    });
+    stateCache.set(file, { stamp, state });
+    return state;
+  });
 
   // Untraced: both scheduler sources call it for every workflow on every tick.
   const readWorkflow = Effect.fnUntraced(function* (
@@ -192,8 +212,9 @@ const make = Effect.gen(function* () {
     const info = yield* fileSystem.stat(file).pipe(Effect.option);
     if (Option.isNone(info) || info.value.type !== "File") {
       workflowCache.delete(file);
-      lastIds.delete(name);
-      return { _tag: "missing" };
+      // A folder that lost only its workflow.json still has the runs state.json names.
+      const id = (yield* readState(folder)).workflowId;
+      return id === undefined ? { _tag: "missing" } : { _tag: "broken", folder, id };
     }
     const stamp = stampOf(info.value);
     const cached = workflowCache.get(file);
@@ -222,34 +243,14 @@ const make = Effect.gen(function* () {
         folder,
         issue: parsed?.issue ?? "The file is too large or unreadable.",
       });
-      read = { _tag: "broken", folder, id: parsed?.id ?? lastIds.get(name) };
+      read = {
+        _tag: "broken",
+        folder,
+        id: parsed?.id ?? (yield* readState(folder)).workflowId,
+      };
     }
-    if (read.id !== undefined) lastIds.set(name, read.id);
     workflowCache.set(file, { stamp, read });
     return read;
-  });
-
-  // Untraced for the same reason as readWorkflow.
-  const readState = Effect.fnUntraced(function* (folder: string) {
-    const file = path.join(folder, STATE_FILE);
-    const info = yield* fileSystem.stat(file).pipe(Effect.option);
-    if (Option.isNone(info) || info.value.type !== "File") {
-      stateCache.delete(file);
-      return EMPTY_WORKFLOW_STATE;
-    }
-    const stamp = stampOf(info.value);
-    const cached = stateCache.get(file);
-    if (cached?.stamp === stamp) return cached.state;
-    const contents =
-      Number(info.value.size) > STATE_FILE_MAX_BYTES
-        ? Option.none<string>()
-        : yield* fileSystem.readFileString(file).pipe(Effect.option);
-    const state = Option.match(contents, {
-      onNone: () => EMPTY_WORKFLOW_STATE,
-      onSome: parseWorkflowState,
-    });
-    stateCache.set(file, { stamp, state });
-    return state;
   });
 
   const writeState = (folder: string, state: WorkflowState) => {
@@ -586,7 +587,7 @@ const make = Effect.gen(function* () {
     ) {
       run += 1;
     }
-    yield* writeState(found.folder, { ...state, runs: run }).pipe(
+    yield* writeState(found.folder, { ...state, runs: run, workflowId: id }).pipe(
       Effect.catchTags({ PlatformError: failed("Could not save the workflow's run count.") }),
     );
     const threadId = workflowRunThreadId(id, run);

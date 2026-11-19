@@ -445,7 +445,14 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
     ),
   );
 
-  it.effect("still holds a run whose workflow.json broke, and stops it when deleted", () =>
+  it.effect.each([
+    [
+      "broke",
+      (fileSystem: FileSystem.FileSystem, file: string) =>
+        fileSystem.writeFileString(file, "{ not json"),
+    ],
+    ["is gone", (fileSystem: FileSystem.FileSystem, file: string) => fileSystem.remove(file)],
+  ] as const)("still holds a run whose workflow.json %s, and stops it when deleted", ([, lose]) =>
     withWorkflows((world) =>
       Effect.gen(function* () {
         yield* TestClock.setTime(at("2026-11-18T10:00:00Z"));
@@ -460,7 +467,7 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         });
         const { threadId } = yield* workflows.run({ name: "weekly-digest" });
         const plan = () => world.threads.get(threadId)!.team!;
-        yield* fileSystem.writeFileString(path.join(saved.path, "workflow.json"), "{ not json");
+        yield* lose(fileSystem, path.join(saved.path, "workflow.json"));
 
         yield* TestClock.setTime(at("2026-11-18T11:00:00Z"));
         yield* workflows.superviseRuns;

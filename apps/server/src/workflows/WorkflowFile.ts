@@ -54,6 +54,8 @@ const WorkflowStateFile = Schema.Struct({
   skipped: Schema.Array(WorkflowSkippedRun),
   /** Runs whose note is already in notes.md. */
   noted: Schema.Array(PositiveInt),
+  /** Whose runs these are, kept here so they are still found when workflow.json cannot be read. */
+  workflowId: Schema.optional(WorkflowId),
 });
 export type WorkflowState = typeof WorkflowStateFile.Type;
 const decodeState = Schema.decodeUnknownOption(Schema.fromJsonString(WorkflowStateFile));
