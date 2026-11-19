@@ -12,11 +12,16 @@ import * as Clock from "effect/Clock";
 import type * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import type * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import type * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import type * as ProviderAdapter from "@codenine/provider-core/server/ProviderAdapter";
+import type * as ServerConfig from "../config.ts";
+import type * as ProjectService from "../project/ProjectService.ts";
+import { makeMessageSkills, mentionedSkillNames } from "../skills/SkillTurnContext.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 
@@ -86,12 +91,18 @@ export class ProviderTurnControlServiceV2 extends Context.Service<
 export const layer: Layer.Layer<
   ProviderTurnControlServiceV2,
   never,
-  ProjectionStore.ProjectionStoreV2 | ProviderSessionManager.ProviderSessionManagerV2
+  | ProjectionStore.ProjectionStoreV2
+  | ProviderSessionManager.ProviderSessionManagerV2
+  | ProjectService.ProjectService
+  | ServerConfig.ServerConfig
+  | FileSystem.FileSystem
+  | Path.Path
 > = Layer.effect(
   ProviderTurnControlServiceV2,
   Effect.gen(function* () {
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
+    const messageSkills = yield* makeMessageSkills;
 
     const load = Effect.fn("ProviderTurnControlService.load")(function* (input: {
       readonly threadId: ThreadId;
@@ -366,6 +377,17 @@ export const layer: Layer.Layer<
               cause: "The persisted steering message or target run is missing.",
             });
           }
+          // The running turn already named the kept-on skills, so a steer carries only the
+          // skills it mentions, and reads the skill folders only when it mentions one.
+          const skillFields =
+            mentionedSkillNames(message.text).length === 0
+              ? {}
+              : yield* messageSkills({
+                  projectId: (yield* projections.getThreadRecords(input.threadId, [])).thread
+                    .projectId,
+                  text: message.text,
+                  keptOn: [],
+                });
           yield* loaded.session.value
             .steerTurn({
               threadId: input.threadId,
@@ -384,6 +406,7 @@ export const layer: Layer.Layer<
                 ...(message.senderThreadId === undefined
                   ? {}
                   : { senderThreadId: message.senderThreadId }),
+                ...skillFields,
               },
             })
             .pipe(

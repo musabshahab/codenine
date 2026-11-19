@@ -3,9 +3,15 @@ import {
   keptOnSkillsContext,
 } from "@codenine/provider-core/server/skillInstructions";
 import { SKILL_MENTION_PATTERN } from "@codenine/shared/composerInlineTokens";
+import type { ProjectId } from "@codenine/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 
-import { type SkillRoot, availableSkills, listSkillFiles } from "./SkillFolders.ts";
+import * as ServerConfig from "../config.ts";
+import * as ProjectService from "../project/ProjectService.ts";
+import { type SkillRoot, availableSkills, listSkillFiles, skillRoots } from "./SkillFolders.ts";
 
 /** Names a message mentions as `$name`, by the composer's token rules, in order and once each. */
 export const mentionedSkillNames = (text: string): ReadonlyArray<string> => {
@@ -52,4 +58,41 @@ export const skillTurnContext = Effect.fn("SkillTurnContext.build")(function* (i
       attached,
     },
   };
+});
+
+/**
+ * The skill fields of the message a provider gets, for a new turn and for a message that joins a
+ * running one. Empty `text` and `keptOn` still list the skills and take none along.
+ */
+export const makeMessageSkills = Effect.gen(function* () {
+  const projects = yield* ProjectService.ProjectService;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const { baseDir } = yield* ServerConfig.ServerConfig;
+  return Effect.fn("SkillTurnContext.messageSkills")(function* (input: {
+    readonly projectId: ProjectId;
+    readonly text: string;
+    readonly keptOn: ReadonlyArray<string>;
+  }) {
+    const project = yield* projects.getById(input.projectId).pipe(
+      Effect.map(Option.getOrUndefined),
+      Effect.orElseSucceed(() => undefined),
+    );
+    const workspace =
+      project === undefined
+        ? {}
+        : { workspace: { projectId: input.projectId, workspaceRoot: project.workspaceRoot } };
+    const turn = yield* skillTurnContext({
+      roots: skillRoots({ baseDir, ...workspace }, path),
+      text: input.text,
+      keptOn: input.keptOn,
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    return {
+      skills: turn.skills,
+      ...(turn.context.length === 0 ? {} : { context: turn.context }),
+    };
+  });
 });

@@ -29,8 +29,7 @@ import * as Schema from "effect/Schema";
 
 import * as Agents from "../agents/Agents.ts";
 import * as ServerConfig from "../config.ts";
-import { skillRoots } from "../skills/SkillFolders.ts";
-import { skillTurnContext } from "../skills/SkillTurnContext.ts";
+import { makeMessageSkills } from "../skills/SkillTurnContext.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -176,7 +175,7 @@ export const layer: Layer.Layer<
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const agents = yield* Agents.Agents;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
-    const { baseDir } = yield* ServerConfig.ServerConfig;
+    const messageSkills = yield* makeMessageSkills;
 
     const resolveRecreateBase = Effect.fn("ProviderTurnStartService.resolveRecreateBase")(
       function* (cwd: string) {
@@ -1668,35 +1667,13 @@ export const layer: Layer.Layer<
         ),
       );
       // Codenine's skills reach every provider the same way. /compact sends no prompt, and a
-      // /goal prompt goes verbatim, so it still lists the skills but takes none along.
-      const skillTurn = isCompactionCommandMessage(message)
-        ? undefined
-        : yield* projects.getById(projection.thread.projectId).pipe(
-            Effect.map(Option.getOrUndefined),
-            Effect.orElseSucceed(() => undefined),
-            Effect.flatMap((project) =>
-              skillTurnContext({
-                roots: skillRoots(
-                  {
-                    baseDir,
-                    ...(project === undefined
-                      ? {}
-                      : {
-                          workspace: {
-                            projectId: projection.thread.projectId,
-                            workspaceRoot: project.workspaceRoot,
-                          },
-                        }),
-                  },
-                  path,
-                ),
-                text: goalCommand ? "" : message.text,
-                keptOn: goalCommand ? [] : (chatAgent?.skills ?? projection.thread.skills ?? []),
-              }),
-            ),
-            Effect.provideService(FileSystem.FileSystem, fileSystem),
-            Effect.provideService(Path.Path, path),
-          );
+      // /goal prompt goes verbatim, so they still list the skills but take none along.
+      const listOnly = goalCommand || isCompactionCommandMessage(message);
+      const skillFields = yield* messageSkills({
+        projectId: projection.thread.projectId,
+        text: listOnly ? "" : message.text,
+        keptOn: listOnly ? [] : (chatAgent?.skills ?? projection.thread.skills ?? []),
+      });
       const deliverySession =
         effectiveHandoffs.length === 0 &&
         retryHandoff.length === 0 &&
@@ -1748,12 +1725,7 @@ export const layer: Layer.Layer<
           ...(message.senderThreadId === undefined
             ? {}
             : { senderThreadId: message.senderThreadId }),
-          ...(skillTurn === undefined
-            ? {}
-            : {
-                skills: skillTurn.skills,
-                ...(skillTurn.context.length === 0 ? {} : { context: skillTurn.context }),
-              }),
+          ...skillFields,
         },
         modelSelection: run.modelSelection,
         runtimePolicy: resolvedRuntimePolicy,

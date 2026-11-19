@@ -1372,6 +1372,23 @@ effectIt.effect("sends the skill a message names and the chat's kept-on skills w
     expect(withAgent.startTurn.mock.calls[0]?.[0].message.context).toEqual([
       expect.stringContaining("keeps these skills on for this chat: deploy."),
     ]);
+
+    // /compact can open the provider process, so it lists the skills and takes none along.
+    const compaction = makeLocalCommandHarness({
+      text: "/compact",
+      previousMessages: ["Earlier work"],
+      sideChat: { contextRun: "current" },
+      fileSystem,
+      skills: { baseDir, keptOn: ["review-code"] },
+    });
+    compaction.tryHandlePromptCommand.mockImplementation(() => Effect.succeed(false));
+    yield* compaction.start;
+    const compactMessage = compaction.startRootRun.mock.calls[0]?.[0].message;
+    expect(compactMessage?.skills?.available.map((skill) => skill.name)).toEqual([
+      "deploy",
+      "review-code",
+    ]);
+    expect(compactMessage?.context).toBeUndefined();
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
