@@ -19,6 +19,7 @@ import { PlusIcon, SparklesIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { commandErrorMessage } from "../../lib/commandError";
+import { useEditorDraft } from "../../hooks/useEditorDraft";
 import { ensureLocalApi } from "../../localApi";
 import { agentsEnvironment } from "../../state/agents";
 import { connectorsEnvironment } from "../../state/connectors";
@@ -91,16 +92,40 @@ export interface AgentFormForTeam {
   readonly onCancel: () => void;
 }
 
-/** The agent editor's form; `agent` is null for a new agent. */
+function draftOf(agent: AgentDetail | null, start: AgentFormStart | undefined) {
+  const model = agent === null ? (start?.model ?? null) : agent.model;
+  const modelChoice: AgentModelChoiceValue | null =
+    model === null ? null : { instanceId: model.instanceId, model: model.model };
+  const effort: AgentEffort = model?.effort ?? "medium";
+  const skills: ReadonlyArray<SkillName> = agent?.skills ?? [];
+  const connectors: ReadonlyArray<AgentConnector> = agent?.connectors ?? start?.connectors ?? [];
+  return {
+    title: agent?.title ?? start?.title ?? "",
+    description: agent?.description ?? start?.description ?? "",
+    instructions: agent?.instructions ?? start?.instructions ?? "",
+    modelChoice,
+    effort,
+    skills,
+    connectors,
+    abilities: agent?.abilities ?? start?.abilities ?? NO_ABILITIES,
+  };
+}
+
+/**
+ * The agent editor's form; `agent` is null for a new agent. It stays open while the computer is
+ * away, with `connected` false, so a dropped connection keeps what was typed.
+ */
 export function AgentForm({
   environmentId,
   workspace,
   agent,
+  connected,
   forTeam,
 }: {
   readonly environmentId: EnvironmentId;
   readonly workspace: ProjectId | null;
   readonly agent: AgentDetail | null;
+  readonly connected: boolean;
   readonly forTeam?: AgentFormForTeam | undefined;
 }) {
   const instructionsId = useId();
@@ -115,29 +140,19 @@ export function AgentForm({
   const codenineSkills = useCodenineSkills(environmentId, null);
   const connectors = useEnvironmentQuery(connectorsEnvironment.state({ environmentId, input: {} }));
   const connections = connectors.data?.connections ?? NO_CONNECTIONS;
-  const start = forTeam?.start;
-  const startModel = agent === null ? (start?.model ?? null) : agent.model;
-  const [title, setTitle] = useState(agent?.title ?? start?.title ?? "");
-  const [description, setDescription] = useState(agent?.description ?? start?.description ?? "");
-  const [instructions, setInstructions] = useState(
-    agent?.instructions ?? start?.instructions ?? "",
-  );
-  const [modelChoice, setModelChoice] = useState<AgentModelChoiceValue | null>(
-    startModel === null ? null : { instanceId: startModel.instanceId, model: startModel.model },
-  );
-  const [effort, setEffort] = useState<AgentEffort>(startModel?.effort ?? "medium");
-  const [skills, setSkills] = useState<ReadonlyArray<SkillName>>(agent?.skills ?? []);
-  const [agentConnectors, setAgentConnectors] = useState<ReadonlyArray<AgentConnector>>(
-    agent?.connectors ?? start?.connectors ?? [],
-  );
-  const [abilities, setAbilities] = useState<AgentAbilities>(
-    agent?.abilities ?? start?.abilities ?? NO_ABILITIES,
-  );
   const [errors, setErrors] = useState<AgentDraftErrors & { readonly form?: string }>({});
   const [busy, setBusy] = useState(false);
+  const { draft, change, release, saved } = useEditorDraft(
+    agent,
+    (from) => draftOf(from, forTeam?.start),
+    busy,
+  );
+  const { title, description, instructions, modelChoice, effort, skills, abilities } = draft;
+  const agentConnectors = draft.connectors;
   const [pickingModel, setPickingModel] = useState(false);
   const [pickingSkill, setPickingSkill] = useState(false);
   const disabled = busy || !canSave;
+  const cannotSave = disabled || !connected;
   const model = modelChoice === null ? null : { ...modelChoice, effort };
   const described = model === null ? null : describeAgentModel(catalog, model);
   const savedName = agent?.name ?? skillNameFromTitle(title);
@@ -157,6 +172,10 @@ export function AgentForm({
       to: "/agents",
       search: { machine: environmentId, workspace: workspace ?? undefined },
     });
+  const cancel = () => {
+    release();
+    (forTeam?.onCancel ?? backToAgents)();
+  };
 
   const submit = async (then: "list" | "chat") => {
     if (busy) return;
@@ -197,27 +216,28 @@ export function AgentForm({
       }
       return;
     }
-    const saved = result.value;
-    toastManager.add({ type: "success", title: `Saved ${saved.title}` });
+    saved();
+    const savedAgent = result.value;
+    toastManager.add({ type: "success", title: `Saved ${savedAgent.title}` });
     if (forTeam !== undefined) {
-      forTeam.onSaved(saved);
+      forTeam.onSaved(savedAgent);
       return;
     }
     if (then === "list") {
       backToAgents();
       return;
     }
-    if (agentModelProblem(saved.modelStatus) !== null) {
+    if (agentModelProblem(savedAgent.modelStatus) !== null) {
       // Saved, but it can't run yet: its page says why.
       void navigate({
         to: "/agents/$name/edit",
-        params: { name: saved.name },
+        params: { name: savedAgent.name },
         search: { machine: environmentId, workspace: workspace ?? undefined },
         replace: true,
       });
       return;
     }
-    await startChat({ environmentId, agent: saved, workspace: chatWorkspace });
+    await startChat({ environmentId, agent: savedAgent, workspace: chatWorkspace });
   };
 
   const deleteAgent = async () => {
@@ -238,14 +258,15 @@ export function AgentForm({
       }
       return;
     }
+    release();
     toastManager.add({ type: "success", title: `Deleted ${agent.title}` });
     backToAgents();
   };
 
   const setConnector = (next: AgentConnector) =>
-    setAgentConnectors((current) =>
-      current.map((connector) => (connector.id === next.id ? next : connector)),
-    );
+    change({
+      connectors: agentConnectors.map((connector) => (connector.id === next.id ? next : connector)),
+    });
 
   return (
     <>
@@ -289,7 +310,7 @@ export function AgentForm({
             disabled={disabled}
             error={errors.title}
             hint={savedName === "" ? undefined : `Saved as ${savedName}`}
-            onChange={setTitle}
+            onChange={(next) => change({ title: next })}
           />
           <TextField
             label="Use it for…"
@@ -298,7 +319,7 @@ export function AgentForm({
             disabled={disabled}
             error={errors.description}
             hint="Chats and lead agents read this line to decide when this agent fits."
-            onChange={setDescription}
+            onChange={(next) => change({ description: next })}
           />
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={instructionsId}>Instructions</Label>
@@ -309,7 +330,7 @@ export function AgentForm({
               spellCheck={false}
               value={instructions}
               disabled={disabled}
-              onChange={(event) => setInstructions(event.currentTarget.value)}
+              onChange={(event) => change({ instructions: event.currentTarget.value })}
             />
           </div>
         </section>
@@ -361,7 +382,7 @@ export function AgentForm({
               disabled={disabled}
               onValueChange={(next) => {
                 const level = AGENT_EFFORTS.find((candidate) => candidate === next[0]);
-                if (level !== undefined) setEffort(level);
+                if (level !== undefined) change({ effort: level });
               }}
             >
               {AGENT_EFFORTS.map((level) => (
@@ -396,7 +417,7 @@ export function AgentForm({
                 label={skillTitle(name)}
                 removeLabel={`Remove ${skillTitle(name)}`}
                 disabled={disabled}
-                onRemove={() => setSkills((current) => current.filter((skill) => skill !== name))}
+                onRemove={() => change({ skills: skills.filter((skill) => skill !== name) })}
               />
             ))}
             <li>
@@ -433,9 +454,11 @@ export function AgentForm({
                   disabled={disabled}
                   onChange={setConnector}
                   onRemove={() =>
-                    setAgentConnectors((current) =>
-                      current.filter((candidate) => candidate.id !== connector.id),
-                    )
+                    change({
+                      connectors: agentConnectors.filter(
+                        (candidate) => candidate.id !== connector.id,
+                      ),
+                    })
                   }
                 />
               ))}
@@ -454,10 +477,9 @@ export function AgentForm({
                 <MenuItem
                   key={connection.id}
                   onClick={() =>
-                    setAgentConnectors((current) => [
-                      ...current,
-                      { id: connection.id, approvals: {} },
-                    ])
+                    change({
+                      connectors: [...agentConnectors, { id: connection.id, approvals: {} }],
+                    })
                   }
                 >
                   <ConnectorMark name={connection.name} size="sm" />
@@ -512,7 +534,7 @@ export function AgentForm({
                 checked={abilities[ability.key]}
                 disabled={disabled}
                 onCheckedChange={(checked) =>
-                  setAbilities((current) => ({ ...current, [ability.key]: checked }))
+                  change({ abilities: { ...abilities, [ability.key]: checked } })
                 }
               />
             ))}
@@ -524,6 +546,11 @@ export function AgentForm({
             {errors.form}
           </p>
         )}
+        {connected ? null : (
+          <p role="status" className="text-sm text-muted-foreground">
+            This computer is not connected. You can save once it is back.
+          </p>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
           {agent === null ? (
             <span />
@@ -531,31 +558,26 @@ export function AgentForm({
             <Button
               variant="destructive-outline"
               size="sm"
-              disabled={disabled}
+              disabled={cannotSave}
               onClick={() => void deleteAgent()}
             >
               Delete agent
             </Button>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={forTeam?.onCancel ?? backToAgents}
-            >
+            <Button variant="outline" size="sm" disabled={busy} onClick={cancel}>
               Cancel
             </Button>
             <Button
               type="submit"
               variant={forTeam === undefined ? "outline" : "default"}
               size="sm"
-              disabled={disabled}
+              disabled={cannotSave}
             >
               {busy ? "Saving…" : "Save"}
             </Button>
             {forTeam === undefined ? (
-              <Button size="sm" disabled={disabled} onClick={() => void submit("chat")}>
+              <Button size="sm" disabled={cannotSave} onClick={() => void submit("chat")}>
                 Save and start a chat
               </Button>
             ) : null}
@@ -569,7 +591,7 @@ export function AgentForm({
           needsTools={agentConnectors.length > 0}
           value={modelChoice}
           onPick={(choice) => {
-            setModelChoice(choice);
+            change({ modelChoice: choice });
             setErrors(({ model: _model, ...rest }) => rest);
             setPickingModel(false);
           }}
@@ -587,9 +609,9 @@ export function AgentForm({
             : "Every skill is already on this agent."
         }
         onOpenChange={setPickingSkill}
-        onPick={(name) =>
-          setSkills((current) => (current.includes(name) ? current : [...current, name]))
-        }
+        onPick={(name) => {
+          if (!skills.includes(name)) change({ skills: [...skills, name] });
+        }}
       />
     </>
   );

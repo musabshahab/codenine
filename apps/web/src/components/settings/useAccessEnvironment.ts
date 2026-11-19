@@ -1,4 +1,5 @@
 import type { EnvironmentId } from "@codenine/contracts";
+import { useState } from "react";
 
 import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
@@ -34,4 +35,17 @@ export function useAccessEnvironment(requested: EnvironmentId | null) {
     environment,
     label: environment ? settingsScopeEnvironmentLabel(environment, candidates) : null,
   };
+}
+
+/**
+ * True once `environmentId` has been connected while the page was open. An editor page stays open
+ * on it from then on, so a dropped connection does not unmount a form with unsaved edits.
+ */
+export function useOpenedEnvironment(
+  environmentId: EnvironmentId | null,
+  connected: boolean,
+): boolean {
+  const [opened, setOpened] = useState<EnvironmentId | null>(null);
+  if (connected && environmentId !== null && opened !== environmentId) setOpened(environmentId);
+  return environmentId !== null && (connected || opened === environmentId);
 }

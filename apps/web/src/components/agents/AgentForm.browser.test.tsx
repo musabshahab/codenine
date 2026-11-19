@@ -119,7 +119,7 @@ function setup() {
 it("saves what it shows under the agent's own name, leaving untouched connector groups to the connector", async () => {
   setup();
   await using _screen = await render(
-    <AgentForm environmentId={environmentId} workspace={null} agent={agent} />,
+    <AgentForm environmentId={environmentId} workspace={null} agent={agent} connected />,
   );
   await expect.element(page.getByText("Claude Sonnet 5.5")).toBeVisible();
   await expect
@@ -158,4 +158,21 @@ it("saves what it shows under the agent's own name, leaving untouched connector 
       },
     },
   });
+});
+
+it("follows a newer read until it is edited, then keeps the edits", async () => {
+  setup();
+  const form = (read: AgentDetail) => (
+    <AgentForm environmentId={environmentId} workspace={null} agent={read} connected />
+  );
+  await using screen = await render(form(agent));
+  await expect.element(page.getByLabelText("Instructions")).toHaveValue("Keep replies short.");
+
+  await screen.rerender(form({ ...agent, instructions: "Ask before sending." }));
+  await expect.element(page.getByLabelText("Instructions")).toHaveValue("Ask before sending.");
+
+  await userEvent.fill(page.getByLabelText("Name"), "Mail helper");
+  await screen.rerender(form({ ...agent, title: "Inbox", instructions: "Never send." }));
+  await expect.element(page.getByLabelText("Name")).toHaveValue("Mail helper");
+  await expect.element(page.getByLabelText("Instructions")).toHaveValue("Ask before sending.");
 });

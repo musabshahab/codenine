@@ -35,7 +35,7 @@ import {
   useAgentModelCatalog,
 } from "../agents/useAgents";
 import { changeTeamPlanDraft, useTeamDraftEdit } from "../chat/useTeamPlanActions";
-import { useAccessEnvironment } from "../settings/useAccessEnvironment";
+import { useAccessEnvironment, useOpenedEnvironment } from "../settings/useAccessEnvironment";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { toastManager } from "../ui/toast";
@@ -67,11 +67,12 @@ export function AgentEditorPage(props: {
   const { environment } = useAccessEnvironment(props.machine);
   const environmentId = environment?.environmentId ?? null;
   const connected = environment?.connection.phase === "connected";
+  const opened = useOpenedEnvironment(environmentId, connected);
   const editing = props.target.kind === "edit" ? props.target : null;
   const suggested = props.target.kind === "suggested" ? props.target : null;
   const forStep = props.target.kind === "workflow-step" ? props.target : null;
   const detail = useEnvironmentQuery(
-    editing !== null && environmentId !== null && connected
+    editing !== null && environmentId !== null && opened
       ? agentsEnvironment.read({ environmentId, input: { name: editing.name } })
       : null,
   );
@@ -99,13 +100,14 @@ export function AgentEditorPage(props: {
               <EmptyDescription>The address does not name an agent.</EmptyDescription>
             </EmptyHeader>
           </Empty>
-        ) : environmentId === null || !connected ? (
+        ) : environmentId === null || !opened ? (
           <p className="text-sm text-muted-foreground">
             Connect the computer the agent is on to change it.
           </p>
         ) : suggested !== null ? (
           <SuggestedAgentForm
             environmentId={environmentId}
+            connected={connected}
             workspace={props.workspace}
             leadRef={scopeThreadRef(environmentId, suggested.lead)}
             memberId={suggested.member}
@@ -113,12 +115,18 @@ export function AgentEditorPage(props: {
         ) : forStep !== null ? (
           <WorkflowStepAgentForm
             environmentId={environmentId}
+            connected={connected}
             workspace={props.workspace}
             editKey={forStep.edit}
             stepId={forStep.step}
           />
         ) : editing === null ? (
-          <AgentForm environmentId={environmentId} workspace={props.workspace} agent={null} />
+          <AgentForm
+            environmentId={environmentId}
+            workspace={props.workspace}
+            agent={null}
+            connected={connected}
+          />
         ) : detail.data === null ? (
           detail.error === null ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
@@ -131,12 +139,13 @@ export function AgentEditorPage(props: {
             </Empty>
           )
         ) : (
-          // Keyed so the form starts from the agent it opened, even if the agent changes later.
+          // Keyed by name: a newer read of the same agent reaches the form, which keeps its edits.
           <AgentForm
             key={detail.data.name}
             environmentId={environmentId}
             workspace={props.workspace}
             agent={detail.data}
+            connected={connected}
           />
         )}
       </div>
@@ -171,6 +180,7 @@ function suggestionStart(
  */
 function SuggestedAgentForm(props: {
   readonly environmentId: EnvironmentId;
+  readonly connected: boolean;
   readonly workspace: ProjectId | null;
   readonly leadRef: ScopedThreadRef;
   readonly memberId: TeamAgentId;
@@ -232,6 +242,7 @@ function SuggestedAgentForm(props: {
         environmentId={environmentId}
         workspace={props.workspace}
         agent={null}
+        connected={props.connected}
         forTeam={{ start, onSaved, onCancel: backToLead }}
       />
     );
@@ -278,6 +289,7 @@ function workflowStepStart(
  */
 function WorkflowStepAgentForm(props: {
   readonly environmentId: EnvironmentId;
+  readonly connected: boolean;
   readonly workspace: ProjectId | null;
   readonly editKey: string;
   readonly stepId: WorkflowStepId;
@@ -340,6 +352,7 @@ function WorkflowStepAgentForm(props: {
       environmentId={environmentId}
       workspace={props.workspace}
       agent={null}
+      connected={props.connected}
       forTeam={{ start, onSaved, onCancel: backToWorkflow }}
     />
   );

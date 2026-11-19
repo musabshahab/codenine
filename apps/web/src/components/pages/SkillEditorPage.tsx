@@ -15,6 +15,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon, FileIcon } from "lucide-react";
 import { useId, useState } from "react";
 
+import { useEditorDraft } from "../../hooks/useEditorDraft";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
 import { commandErrorMessage } from "../../lib/commandError";
@@ -25,7 +26,7 @@ import { readEnvironmentScope } from "../../state/session";
 import { shellEnvironment } from "../../state/shell";
 import { skillsEnvironment } from "../../state/skills";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useAccessEnvironment } from "../settings/useAccessEnvironment";
+import { useAccessEnvironment, useOpenedEnvironment } from "../settings/useAccessEnvironment";
 import { checkSkillDraft, skillNameFromTitle, type SkillDraftErrors } from "../skills/skills.logic";
 import { TextField } from "../TextField";
 import { Button, InlineButton } from "../ui/button";
@@ -53,10 +54,11 @@ export function SkillEditorPage(props: {
   const { environment } = useAccessEnvironment(props.machine);
   const environmentId = environment?.environmentId ?? null;
   const connected = environment?.connection.phase === "connected";
+  const opened = useOpenedEnvironment(environmentId, connected);
   const { workspace } = useSkillWorkspaces(environmentId, props.workspace);
   const editing = props.target.kind === "edit" ? props.target : null;
   const detail = useEnvironmentQuery(
-    editing !== null && environmentId !== null && connected
+    editing !== null && environmentId !== null && opened
       ? skillsEnvironment.read({
           environmentId,
           input: {
@@ -93,12 +95,17 @@ export function SkillEditorPage(props: {
               <EmptyDescription>The address does not name a skill.</EmptyDescription>
             </EmptyHeader>
           </Empty>
-        ) : environmentId === null || !connected ? (
+        ) : environmentId === null || !opened ? (
           <p className="text-sm text-muted-foreground">
             Connect the computer the skill is on to change it.
           </p>
         ) : editing === null ? (
-          <SkillForm environmentId={environmentId} workspace={workspace} skill={null} />
+          <SkillForm
+            environmentId={environmentId}
+            workspace={workspace}
+            skill={null}
+            connected={connected}
+          />
         ) : detail.data === null ? (
           detail.error === null ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
@@ -111,12 +118,13 @@ export function SkillEditorPage(props: {
             </Empty>
           )
         ) : (
-          // Keyed so the form starts from the skill it opened, even if the skill changes later.
+          // Keyed by place: a newer read of the same skill reaches the form, which keeps its edits.
           <SkillForm
             key={`${detail.data.scope}:${detail.data.name}`}
             environmentId={environmentId}
             workspace={workspace}
             skill={detail.data}
+            connected={connected}
           />
         )}
       </div>
@@ -124,14 +132,27 @@ export function SkillEditorPage(props: {
   );
 }
 
+function draftOf(skill: SkillDetail | null) {
+  const scope: SkillScope = skill?.scope ?? "codenine";
+  return {
+    title: skill === null ? "" : skillTitle(skill.name),
+    description: skill?.description ?? "",
+    instructions: skill?.instructions ?? "",
+    scope,
+  };
+}
+
 function SkillForm({
   environmentId,
   workspace,
   skill,
+  connected,
 }: {
   readonly environmentId: EnvironmentId;
   readonly workspace: EnvironmentProject | null;
   readonly skill: SkillDetail | null;
+  /** False while the computer is away: the form stays open, and saving waits. */
+  readonly connected: boolean;
 }) {
   const formId = useId();
   const keepId = useId();
@@ -140,12 +161,11 @@ function SkillForm({
   const canSave = useAtomValue(skillsEnvironment.save.permissionAtom(environmentId));
   const save = useAtomCommand(skillsEnvironment.save, { reportFailure: false });
   const remove = useAtomCommand(skillsEnvironment.delete, { reportFailure: false });
-  const [title, setTitle] = useState(skill === null ? "" : skillTitle(skill.name));
-  const [description, setDescription] = useState(skill?.description ?? "");
-  const [instructions, setInstructions] = useState(skill?.instructions ?? "");
-  const [scope, setScope] = useState<SkillScope>(skill?.scope ?? "codenine");
   const [errors, setErrors] = useState<SkillDraftErrors & { readonly form?: string }>({});
   const [busy, setBusy] = useState(false);
+  const { draft, change, release, saved } = useEditorDraft(skill, draftOf, busy);
+  const { title, description, instructions, scope } = draft;
+  const cannotSave = busy || !canSave || !connected;
   const savedName = skillNameFromTitle(title);
   const projectId = skill?.projectId ?? workspace?.id ?? null;
   const backToSkills = () =>
@@ -193,6 +213,7 @@ function SkillForm({
       return;
     }
     setBusy(false);
+    saved();
     toastManager.add({ type: "success", title: `Saved ${skillTitle(checked.name)}` });
     backToSkills();
   };
@@ -222,6 +243,7 @@ function SkillForm({
       }
       return;
     }
+    release();
     toastManager.add({ type: "success", title: `Deleted ${skillTitle(skill.name)}` });
     backToSkills();
   };
@@ -256,7 +278,7 @@ function SkillForm({
           disabled={busy || !canSave}
           error={errors.title}
           hint={savedName === "" ? undefined : `Saved as ${savedName}`}
-          onChange={setTitle}
+          onChange={(next) => change({ title: next })}
         />
         <TextField
           label="Use it when…"
@@ -265,7 +287,7 @@ function SkillForm({
           disabled={busy || !canSave}
           error={errors.description}
           hint="Agents read this line to decide whether the skill fits, so name the task, not the content."
-          onChange={setDescription}
+          onChange={(next) => change({ description: next })}
         />
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={instructionsId}>Instructions</Label>
@@ -276,7 +298,7 @@ function SkillForm({
             spellCheck={false}
             value={instructions}
             disabled={busy || !canSave}
-            onChange={(event) => setInstructions(event.currentTarget.value)}
+            onChange={(event) => change({ instructions: event.currentTarget.value })}
           />
         </div>
         <SkillFiles environmentId={environmentId} skill={skill} />
@@ -289,7 +311,7 @@ function SkillForm({
             value={scope}
             disabled={busy || !canSave}
             onValueChange={(value) => {
-              if (value === "codenine" || value === "workspace") setScope(value);
+              if (value === "codenine" || value === "workspace") change({ scope: value });
             }}
           >
             <RadioCard
@@ -316,6 +338,11 @@ function SkillForm({
             {errors.form}
           </p>
         )}
+        {connected ? null : (
+          <p role="status" className="text-sm text-muted-foreground">
+            This computer is not connected. You can save once it is back.
+          </p>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <span className="min-w-60 flex-1 text-xs text-muted-foreground">
             Saved as a standard skill file, so other tools that read skills can use it too.
@@ -325,16 +352,24 @@ function SkillForm({
               <Button
                 variant="destructive-outline"
                 size="sm"
-                disabled={busy || !canSave}
+                disabled={cannotSave}
                 onClick={() => void deleteSkill()}
               >
                 Delete
               </Button>
             )}
-            <Button variant="outline" size="sm" disabled={busy} onClick={backToSkills}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                release();
+                backToSkills();
+              }}
+            >
               Cancel
             </Button>
-            <Button type="submit" size="sm" disabled={busy || !canSave}>
+            <Button type="submit" size="sm" disabled={cannotSave}>
               {busy ? "Saving…" : "Save skill"}
             </Button>
           </div>
