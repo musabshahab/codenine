@@ -50,7 +50,7 @@ import {
 import { toastManager } from "../ui/toast";
 import { undoAvailability } from "./backup.logic";
 import { commandErrorMessage } from "../../lib/commandError";
-import { useAwaitRestartThenReload } from "./useAwaitRestartThenReload";
+import { refusedByServer, useAwaitRestartThenReload } from "./useAwaitRestartThenReload";
 import { useBackupClock } from "./useBackupDateFormat";
 
 // Holds a terminal, so it loads only when an account needs signing in.
@@ -95,7 +95,7 @@ function RestoreReportDialog({
   );
   const dismiss = useAtomCommand(backupEnvironment.dismissRestoreReport, { reportFailure: false });
   const undoRestore = useAtomCommand(backupEnvironment.undoRestore, { reportFailure: false });
-  const awaitRestart = useAwaitRestartThenReload(environmentId);
+  const restart = useAwaitRestartThenReload(environmentId);
   const [phase, setPhase] = useState<Phase>("report");
   const [busy, setBusy] = useState(false);
   const [confirmingUndo, setConfirmingUndo] = useState(false);
@@ -123,23 +123,28 @@ function RestoreReportDialog({
     if (!readEnvironmentScope(environmentId, AuthEnvironmentMaintainScope)) return;
     setBusy(true);
     const result = await undoRestore({ environmentId, input: {} });
-    setBusy(false);
+    const notUndone = (description: string) =>
+      toastManager.add({ type: "error", title: "Could not undo the restore", description });
     if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
-        toastManager.add({
-          type: "error",
-          title: "Could not undo the restore",
-          description: commandErrorMessage(result, "Try again."),
-        });
+      if (refusedByServer(result)) {
+        setBusy(false);
+        notUndone(commandErrorMessage(result, "Try again."));
+        return;
       }
+      const resumed = await restart.resume();
+      setBusy(false);
+      if (resumed.outcome === "notBack") setPhase("notBack");
+      else if (resumed.outcome === "failed") notUndone(resumed.detail);
+      else if (resumed.outcome === "notStarted") notUndone("Try again.");
       return;
     }
+    setBusy(false);
     if (!result.value.restarting) {
       setPhase("finishByHand");
       return;
     }
     setPhase("restarting");
-    if (!(await awaitRestart())) setPhase("notBack");
+    if (!(await restart.awaitRestart())) setPhase("notBack");
   };
 
   return (

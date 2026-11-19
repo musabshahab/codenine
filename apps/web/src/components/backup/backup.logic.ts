@@ -358,7 +358,8 @@ export function nextRestoreFlow(flow: RestoreFlow, event: RestoreFlowEvent): Res
     case "restarting":
       return flow.step === "review" ? { step: "restarting" } : flow;
     case "notBack":
-      return flow.step === "restarting" ? { step: "notBack" } : flow;
+      // From Review when the restore request lost its connection and the wait took its place.
+      return flow.step === "restarting" || flow.step === "review" ? { step: "notBack" } : flow;
     case "finishByHand":
       return flow.step === "review" ? { step: "finishByHand" } : flow;
   }

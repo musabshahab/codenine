@@ -42,7 +42,7 @@ import {
   startRestoreFlow,
 } from "./backup.logic";
 import { FieldError } from "./BackupPasswordFields";
-import { useAwaitRestartThenReload } from "./useAwaitRestartThenReload";
+import { refusedByServer, useAwaitRestartThenReload } from "./useAwaitRestartThenReload";
 import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupClock } from "./useBackupDateFormat";
 
@@ -65,7 +65,7 @@ function RestoreBackupDialog({
 }) {
   const { environmentId } = request;
   const restore = useAtomCommand(backupEnvironment.restore, { reportFailure: false });
-  const awaitRestart = useAwaitRestartThenReload(environmentId);
+  const restart = useAwaitRestartThenReload(environmentId);
   const [flow, setFlow] = useState(() => startRestoreFlow(request.path ?? null));
   const [restoring, setRestoring] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -84,19 +84,26 @@ function RestoreBackupDialog({
     setRestoring(true);
     setRestoreError(null);
     const result = await restore({ environmentId, input: { path, password } });
-    setRestoring(false);
     if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
+      if (refusedByServer(result)) {
+        setRestoring(false);
         setRestoreError(commandErrorMessage(result, "The restore did not start."));
+        return;
       }
+      const resumed = await restart.resume();
+      setRestoring(false);
+      if (resumed.outcome === "notBack") dispatch({ type: "notBack" });
+      else if (resumed.outcome === "failed") setRestoreError(resumed.detail);
+      else if (resumed.outcome === "notStarted") setRestoreError("The restore did not start.");
       return;
     }
+    setRestoring(false);
     if (!result.value.restarting) {
       dispatch({ type: "finishByHand" });
       return;
     }
     dispatch({ type: "restarting" });
-    if (!(await awaitRestart())) dispatch({ type: "notBack" });
+    if (!(await restart.awaitRestart())) dispatch({ type: "notBack" });
   };
   const steps =
     flow.step === "choose" || flow.step === "unlock" || flow.step === "review" ? (

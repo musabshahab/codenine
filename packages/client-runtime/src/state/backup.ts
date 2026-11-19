@@ -1,10 +1,12 @@
-import { type EnvironmentId, WS_METHODS } from "@codenine/contracts";
+import { type BackupStatus, type EnvironmentId, WS_METHODS } from "@codenine/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as EnvironmentRegistry from "../connection/registry.ts";
+import { request, subscribe } from "../rpc/client.ts";
 import {
   type AtomCommand,
   createEnvironmentCommand,
@@ -35,6 +37,92 @@ const awaitRestart = Effect.fn("Backup.awaitRestart")(function* (
     registry.stateChanges(environmentId),
     input?.signedOut,
   ).pipe(Effect.timeoutOption(RESTART_TIMEOUT), Effect.map(Option.isSome));
+});
+
+export type LostRestoreOutcome =
+  | { readonly outcome: "restarting" | "restarted" | "notStarted" }
+  | { readonly outcome: "failed"; readonly detail: string };
+
+/**
+ * What became of a restore whose request lost its connection, which the restore outlives.
+ * `statuses` follows the server across reconnects. With no restore job there, the server
+ * either never got the request or already restarted, and a new restore report tells them
+ * apart. `refused` settles when the restarted server no longer accepts this client.
+ */
+export const restoreAfterLostRequest = Effect.fn("Backup.restoreAfterLostRequest")(function* <
+  E1,
+  E2,
+  E3,
+>(input: {
+  readonly statuses: Stream.Stream<Pick<BackupStatus, "running">, E1>;
+  readonly refused: Effect.Effect<unknown, E2>;
+  readonly restoredAt: Effect.Effect<string | null, E3>;
+  readonly lastRestoredAt: string | null;
+}): Effect.fn.Return<LostRestoreOutcome, E1 | E2 | E3> {
+  const settled = input.statuses.pipe(
+    Stream.map(({ running }) => (running?.kind === "before-restore" ? running : null)),
+    Stream.filter((job) => job?.phase !== "running"),
+    Stream.runHead,
+    Effect.flatMap(
+      Effect.fnUntraced(function* (seen) {
+        // An ended stream is an environment that is gone; the caller's timeout answers.
+        if (Option.isNone(seen)) return yield* Effect.never;
+        const job = seen.value;
+        if (job?.phase === "done") return { outcome: "restarting" as const };
+        if (job?.phase === "failed") {
+          return { outcome: "failed" as const, detail: job.error ?? "The restore failed." };
+        }
+        return (yield* input.restoredAt) === input.lastRestoredAt
+          ? { outcome: "notStarted" as const }
+          : { outcome: "restarted" as const };
+      }),
+    ),
+  );
+  return yield* Effect.raceFirst(
+    settled,
+    input.refused.pipe(Effect.as({ outcome: "restarted" as const })),
+  );
+});
+
+const resumeRestore = Effect.fn("Backup.resumeRestore")(function* (
+  input: {
+    readonly signedOut?: Effect.Effect<boolean>;
+    readonly lastRestoredAt: string | null;
+  },
+  _registry: unknown,
+  environmentId: EnvironmentId,
+) {
+  const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+  const stateChanges = registry.stateChanges(environmentId);
+  const signedOut = input.signedOut ?? Effect.succeed(false);
+  yield* nudgeReconnectDuringUpdateRestart({
+    stateChanges,
+    retryNow: registry.retryNow(environmentId),
+  }).pipe(Effect.forkChild);
+  return yield* Effect.gen(function* () {
+    const found = yield* restoreAfterLostRequest({
+      statuses: registry.followStream(
+        environmentId,
+        subscribe(WS_METHODS.subscribeBackupStatus, {}),
+      ),
+      refused: stateChanges.pipe(
+        Stream.filterEffect((state) =>
+          state.phase === "backoff" ? signedOut : Effect.succeed(state.phase === "blocked"),
+        ),
+        Stream.runHead,
+      ),
+      restoredAt: registry
+        .run(environmentId, request(WS_METHODS.backupRestoreReport, {}))
+        .pipe(Effect.map((result) => result.report?.restoredAt ?? null)),
+      lastRestoredAt: input.lastRestoredAt,
+    });
+    if (found.outcome !== "restarting") return found;
+    yield* waitForEnvironmentAnswerAfterRestart(stateChanges, input.signedOut);
+    return { outcome: "restarted" as const };
+  }).pipe(
+    Effect.timeoutOption(RESTART_TIMEOUT),
+    Effect.map(Option.getOrElse(() => ({ outcome: "notBack" as const }))),
+  );
 });
 
 const perEnvironment = {
@@ -192,6 +280,16 @@ export function createBackupEnvironmentAtoms<R, E>(
       label: "environment-data:backup:await-restart",
       concurrency: perEnvironment,
       execute: awaitRestart,
+    }),
+    /**
+     * After a restore or undo request failed without the server refusing it: the restore
+     * may be running all the same. Follows it to the restart, as `awaitRestart` does, or
+     * says that it failed or never started.
+     */
+    resumeRestore: createEnvironmentCommand(runtime, {
+      label: "environment-data:backup:resume-restore",
+      concurrency: perEnvironment,
+      execute: resumeRestore,
     }),
   };
 }

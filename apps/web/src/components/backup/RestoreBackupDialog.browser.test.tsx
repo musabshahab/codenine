@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   inspect: vi.fn(),
   restore: vi.fn(),
   awaitRestart: vi.fn(),
+  resumeRestore: vi.fn(),
+  restoreReport: { current: null as unknown },
   backups: { current: null as unknown },
 }));
 
@@ -29,6 +31,8 @@ vi.mock(import("../../state/backup"), async (original) => {
       inspect: mocks.inspect as never,
       restore: mocks.restore as never,
       awaitRestart: mocks.awaitRestart as never,
+      resumeRestore: mocks.resumeRestore as never,
+      restoreReport: (() => mocks.restoreReport.current) as never,
     },
   };
 });
@@ -79,6 +83,10 @@ function setup(overrides: { readonly blockedReason?: string } = {}) {
           ),
     );
   mocks.restore.mockReset().mockResolvedValue(AsyncResult.success({ restarting: true }));
+  mocks.restoreReport.current = Atom.make(
+    AsyncResult.success({ report: { restoredAt: "2026-11-01T00:00:00.000Z" } }),
+  ).pipe(Atom.keepAlive);
+  mocks.resumeRestore.mockReset().mockResolvedValue(AsyncResult.success({ outcome: "notBack" }));
   mocks.awaitRestart.mockReset().mockResolvedValue(AsyncResult.success(false));
 }
 
@@ -148,5 +156,34 @@ describe("RestoreBackupDialog", () => {
     });
     expect(mocks.awaitRestart).toHaveBeenCalledWith({ environmentId, input: undefined });
     await expect.element(page.getByRole("button", { name: "Reload" })).toBeVisible();
+  });
+
+  it("follows a restore whose request lost its connection, and not one the server refused", async () => {
+    setup();
+    mocks.restore.mockResolvedValueOnce(
+      AsyncResult.failure(
+        Cause.fail(new BackupError({ reason: "busy", detail: "A backup is already running." })),
+      ),
+    );
+    mocks.restore.mockResolvedValueOnce(
+      AsyncResult.failure(Cause.fail(new Error("socket closed"))),
+    );
+    await using _screen = await render(
+      <AppAtomRegistryProvider>
+        <RestoreBackupDialogHost />
+      </AppAtomRegistryProvider>,
+    );
+    await openAndUnlock();
+
+    await userEvent.click(page.getByRole("button", { name: "Restore and restart" }));
+    await expect.element(page.getByText("A backup is already running.")).toBeVisible();
+    expect(mocks.resumeRestore).not.toHaveBeenCalled();
+
+    await userEvent.click(page.getByRole("button", { name: "Restore and restart" }));
+    await expect.element(page.getByText("Codenine has not come back yet")).toBeVisible();
+    expect(mocks.resumeRestore).toHaveBeenCalledWith({
+      environmentId,
+      input: { lastRestoredAt: "2026-11-01T00:00:00.000Z" },
+    });
   });
 });

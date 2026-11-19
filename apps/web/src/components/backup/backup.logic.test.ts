@@ -321,6 +321,7 @@ describe("restore flow", () => {
     const restarting = nextRestoreFlow(review, { type: "restarting" });
     expect(restarting).toEqual({ step: "restarting" });
     expect(nextRestoreFlow(restarting, { type: "notBack" })).toEqual({ step: "notBack" });
+    expect(nextRestoreFlow(review, { type: "notBack" })).toEqual({ step: "notBack" });
     expect(nextRestoreFlow(restarting, { type: "chooseAnother" })).toBe(restarting);
     expect(nextRestoreFlow(review, { type: "finishByHand" })).toEqual({ step: "finishByHand" });
     expect(nextRestoreFlow(startRestoreFlow(null), { type: "restarting" })).toEqual({
