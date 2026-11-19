@@ -63,6 +63,7 @@ import {
   serverUpdateStateForProgressEvent,
   serverUpdateStateForServerVersion,
   validateServerUpdateReadyEvent,
+  waitForEnvironmentAnswerAfterRestart,
   waitForNextEnvironmentReconnect,
   waitForDesktopUpdateTarget,
   runDesktopCommitWithReconnectObserver,
@@ -150,6 +151,32 @@ describe("update restart reconnect nudges", () => {
       ]);
 
       yield* Fiber.join(reconnected);
+    }),
+  );
+  it.effect("a restart that signs the client out counts as the server being back", () =>
+    Effect.gen(function* () {
+      const answersAfter = (phases: ReadonlyArray<string>, signedOut?: ReadonlyArray<boolean>) =>
+        Effect.gen(function* () {
+          const seen = yield* Ref.make(0);
+          const probes = yield* Ref.make(signedOut ?? []);
+          yield* Stream.fromIterable(phases.map((phase) => ({ phase }))).pipe(
+            Stream.concat(Stream.never),
+            Stream.tap(() => Ref.update(seen, (count) => count + 1)),
+            (states) =>
+              waitForEnvironmentAnswerAfterRestart(
+                states,
+                signedOut && Ref.modify(probes, ([next = false, ...rest]) => [next, rest] as const),
+              ),
+          );
+          return yield* Ref.get(seen);
+        });
+
+      // A bearer client is refused outright.
+      expect(yield* answersAfter(["connected", "backoff", "connecting", "blocked", "x"])).toBe(4);
+      // A cookie client only fails to connect: the old server still knows it, the new one not.
+      expect(
+        yield* answersAfter(["connected", "backoff", "connecting", "backoff", "x"], [false, true]),
+      ).toBe(4);
     }),
   );
   it.effect("arms the retry observer before a commit can disconnect", () =>

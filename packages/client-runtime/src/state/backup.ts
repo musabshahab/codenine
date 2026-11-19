@@ -13,13 +13,16 @@ import {
   createEnvironmentRpcSubscriptionAtomFamily,
   runAtomCommand,
 } from "./runtime.ts";
-import { nudgeReconnectDuringUpdateRestart, waitForNextEnvironmentReconnect } from "./server.ts";
+import {
+  nudgeReconnectDuringUpdateRestart,
+  waitForEnvironmentAnswerAfterRestart,
+} from "./server.ts";
 
 // Long enough for a large restore to apply before the server opens its data again.
 const RESTART_TIMEOUT = Duration.minutes(10);
 
 const awaitRestart = Effect.fn("Backup.awaitRestart")(function* (
-  _input: void,
+  input: { readonly signedOut?: Effect.Effect<boolean> } | undefined,
   _registry: unknown,
   environmentId: EnvironmentId,
 ) {
@@ -28,10 +31,10 @@ const awaitRestart = Effect.fn("Backup.awaitRestart")(function* (
     stateChanges: registry.stateChanges(environmentId),
     retryNow: registry.retryNow(environmentId),
   }).pipe(Effect.forkChild);
-  return yield* waitForNextEnvironmentReconnect(registry.stateChanges(environmentId)).pipe(
-    Effect.timeoutOption(RESTART_TIMEOUT),
-    Effect.map(Option.isSome),
-  );
+  return yield* waitForEnvironmentAnswerAfterRestart(
+    registry.stateChanges(environmentId),
+    input?.signedOut,
+  ).pipe(Effect.timeoutOption(RESTART_TIMEOUT), Effect.map(Option.isSome));
 });
 
 const perEnvironment = {
@@ -181,8 +184,9 @@ export function createBackupEnvironmentAtoms<R, E>(
         Effect.sync(() => registry.refresh(restoreReport({ environmentId, input: {} }))),
     }),
     /**
-     * After a restore or its undo said it is restarting: true once the server is back, false
-     * when it has not come back in time. Nudges reconnects the way a server update does.
+     * After a restore or its undo said it is restarting: true once the server is back, even
+     * when it no longer accepts this client, false when it has not come back in time. A
+     * cookie client passes `signedOut`, which asks the server whether its session is gone.
      */
     awaitRestart: createEnvironmentCommand(runtime, {
       label: "environment-data:backup:await-restart",

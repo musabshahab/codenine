@@ -16,6 +16,7 @@ import {
   type RestoreDialogRequest,
   useBackupDialogStore,
 } from "../../backupDialogStore";
+import { isElectron } from "../../env";
 import { formatBytes } from "../../lib/formatBytes";
 import { backupEnvironment } from "../../state/backup";
 import { formatEnvironmentQueryError } from "../../state/query";
@@ -420,7 +421,11 @@ function ReviewStep({
                   Quit Codenine on {file.computerName} first. A ChatGPT sign-in only works on one
                   computer at a time.
                 </span>
-                <span>Devices that connect to this computer will need to pair again.</span>
+                <span>
+                  {isElectron
+                    ? "Devices that connect to this computer will need to pair again."
+                    : "Devices that connect to this computer are signed out, this browser included. To connect again, run codenine pair on the computer running Codenine and open the link it prints."}
+                </span>
               </AlertDescription>
             </Alert>
           )}

@@ -77,4 +77,6 @@ brings back what was on the computer before, for 7 days.
    finds, so a backup in iCloud Drive or Dropbox shows up once that folder has synced.
 
 A backup from another computer signs out the browsers and computers that connected to this one.
-Pair them again from **Settings → Sharing & access**.
+Pair them again from **Settings → Sharing & access**. If you restored from a browser, it is signed
+out too and shows the pairing screen after the restart: run `codenine pair` on the computer and
+open the link it prints.

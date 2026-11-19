@@ -222,6 +222,27 @@ export function waitForNextEnvironmentReconnect<E>(
   );
 }
 
+/**
+ * For a restart that may sign this client out, as a restore from another computer does.
+ * Resolves when the server answers again: connected, or refusing this client. A bearer client
+ * is told so and blocks; a browser's cookie fails like a dead socket, so `signedOut` asks.
+ */
+export function waitForEnvironmentAnswerAfterRestart<E>(
+  stateChanges: Stream.Stream<{ readonly phase: string }, E>,
+  signedOut: Effect.Effect<boolean> = Effect.succeed(false),
+): Effect.Effect<void, E> {
+  return stateChanges.pipe(
+    Stream.dropWhile((state) => state.phase === "connected"),
+    Stream.filterEffect((state) =>
+      state.phase === "backoff"
+        ? signedOut
+        : Effect.succeed(state.phase === "connected" || state.phase === "blocked"),
+    ),
+    Stream.runHead,
+    Effect.asVoid,
+  );
+}
+
 export const runDesktopCommitWithReconnectObserver = Effect.fn(
   "runDesktopCommitWithReconnectObserver",
 )(function* <EState, ECommit>(
