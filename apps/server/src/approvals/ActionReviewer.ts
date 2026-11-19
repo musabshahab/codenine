@@ -4,10 +4,11 @@ import type {
   TeamPlan,
   ThreadId,
 } from "@codenine/contracts";
-import type {
-  ActionReviewPromptInput,
-  ActionReviewTeam,
-  ReviewedAction,
+import {
+  type ActionReviewPromptInput,
+  type ActionReviewTeam,
+  type ReviewedAction,
+  reviewedActionJson,
 } from "@codenine/provider-core/server/textGenerationPrompts";
 import { resolveProjectSettings } from "@codenine/shared/projectSettings";
 import * as Cause from "effect/Cause";
@@ -169,6 +170,9 @@ const make = Effect.gen(function* () {
 
   const decide: ActionReviewer["Service"]["decide"] = Effect.fn("ActionReviewer.decide")(
     function* (input) {
+      if (reviewedActionJson(input.action) === undefined) {
+        return ask("This action is too large for Auto to review, so it asks you.");
+      }
       const outcome = yield* review(input.threadId, input.action).pipe(
         Effect.timeoutOption(REVIEW_TIMEOUT),
         Effect.catchCause((cause) =>

@@ -13,6 +13,7 @@ import {
   TurnItemId,
 } from "@codenine/contracts";
 import type { ReviewedAction } from "@codenine/provider-core/server/textGenerationPrompts";
+import { cutMiddle } from "@codenine/provider-core/server/textGenerationUtils";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -115,7 +116,10 @@ const label = (key: string) => {
   return sentence.length === 0 ? key : `${sentence[0]?.toUpperCase()}${sentence.slice(1)}`;
 };
 
-/** Labelled argument values for the approval card; one long text becomes its preview. */
+/**
+ * Labelled argument values for the approval card; one long text becomes its preview. What does
+ * not fit is marked: a cut value says how much is not shown, and a last line counts left-out fields.
+ */
 export const describeArguments = (
   args: Readonly<Record<string, unknown>>,
 ): {
@@ -130,13 +134,18 @@ export const describeArguments = (
   const long = entries
     .filter(([, text]) => text.length > DETAIL_LIMIT && !text.startsWith("{"))
     .toSorted(([, left], [, right]) => right.length - left.length)[0];
-  const details = entries
-    .filter((entry) => entry !== long)
-    .slice(0, MAX_DETAILS)
-    .map(([key, text]) => ({ label: label(key), value: truncate(text, DETAIL_LIMIT) }));
+  const short = entries.filter((entry) => entry !== long);
+  const hidden = short.length - MAX_DETAILS;
   return {
-    details,
-    preview: long === undefined ? undefined : truncate(long[1], PREVIEW_LIMIT),
+    details: [
+      ...short
+        .slice(0, MAX_DETAILS)
+        .map(([key, text]) => ({ label: label(key), value: cutMiddle(text, DETAIL_LIMIT) })),
+      ...(hidden > 0
+        ? [{ label: "Not shown", value: `${hidden} more ${hidden === 1 ? "field" : "fields"}` }]
+        : []),
+    ],
+    preview: long === undefined ? undefined : cutMiddle(long[1], PREVIEW_LIMIT),
   };
 };
 
@@ -276,13 +285,13 @@ const make = Effect.gen(function* () {
       const subject = draft.subject.length === 0 ? "(no subject)" : draft.subject;
       return {
         details: [
-          { label: "To", value: truncate(draft.to, DETAIL_LIMIT) },
+          { label: "To", value: cutMiddle(draft.to, DETAIL_LIMIT) },
           ...(draft.cc === undefined
             ? []
-            : [{ label: "Cc", value: truncate(draft.cc, DETAIL_LIMIT) }]),
-          { label: "Subject", value: truncate(subject, DETAIL_LIMIT) },
+            : [{ label: "Cc", value: cutMiddle(draft.cc, DETAIL_LIMIT) }]),
+          { label: "Subject", value: cutMiddle(subject, DETAIL_LIMIT) },
         ],
-        preview: draft.text.length === 0 ? undefined : truncate(draft.text, PREVIEW_LIMIT),
+        preview: draft.text.length === 0 ? undefined : cutMiddle(draft.text, PREVIEW_LIMIT),
         summary: (ran: boolean) =>
           ran
             ? `Sent the draft "${subject}" to ${draft.to}`

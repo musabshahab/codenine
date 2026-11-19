@@ -264,9 +264,9 @@ it.layer(NodeServices.layer)("ActionReviewer", (it) => {
     }),
   );
 
-  it.effect("asks when the review fails or takes too long", () =>
+  it.effect("asks when the review fails, takes too long, or cannot see the whole action", () =>
     Effect.gen(function* () {
-      const { layer, decide } = yield* harness;
+      const { layer, calls, decide } = yield* harness;
       yield* Effect.gen(function* () {
         const failed = yield* decide(
           chatId,
@@ -288,6 +288,21 @@ it.layer(NodeServices.layer)("ActionReviewer", (it) => {
         assert.deepStrictEqual(yield* Fiber.join(waiting), [
           { type: "ask", reason: "Auto's review took too long, so it asks you." },
         ]);
+
+        // Too many fields to show the reviewer all of them, so nothing is reviewed in part.
+        const reviewer = yield* ActionReviewer.ActionReviewer;
+        const reviews = (yield* Ref.get(calls)).length;
+        const crowded = Object.fromEntries(
+          Array.from({ length: 2_000 }, (_, index) => [`field${index}`, "x"]),
+        );
+        assert.deepStrictEqual(
+          yield* reviewer.decide({
+            threadId: chatId,
+            action: { ...action, arguments: { ...crowded, to: "stranger@example.net" } },
+          }),
+          { type: "ask", reason: "This action is too large for Auto to review, so it asks you." },
+        );
+        assert.lengthOf(yield* Ref.get(calls), reviews);
       }).pipe(Effect.provide(layer));
     }),
   );

@@ -80,6 +80,22 @@ describe("approval card wording", () => {
     ]);
     assert.strictEqual(described.preview, body);
   });
+
+  it("says when fields are left out and when a value is cut", () => {
+    const described = ConnectorGateway.describeArguments({
+      a: 1,
+      b: 2,
+      c: 3,
+      d: 4,
+      e: 5,
+      filter: { to: "x".repeat(300) },
+      g: 7,
+      h: 8,
+    });
+    assert.lengthOf(described.details, 7);
+    assert.include(described.details[5]?.value, "characters not shown");
+    assert.deepStrictEqual(described.details[6], { label: "Not shown", value: "2 more fields" });
+  });
 });
 
 const call = (connectionId: string, method: string, params?: unknown) => ({

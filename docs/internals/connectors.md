@@ -39,8 +39,10 @@ mode refuses anything that is not read.
 In a chat in Auto, an action that would ask goes to a reviewer model first
 ([`ActionReviewer`](../../apps/server/src/approvals/ActionReviewer.ts)), as in Claude Code's auto
 mode. It sees only what the user wrote or approved: their own messages, the agent's instructions,
-a team task's assignment from the plan, a workflow's goal and Done when, and the exact action. It
-never sees tool results, the agent's messages or files, so text planted in a page or an email
+a team task's assignment from the plan, a workflow's goal and Done when, and the action. Every
+field of the action stays in the prompt: long text is cut in the middle with a mark the reviewer is
+told about, and an action that still does not fit asks the user instead of being reviewed in part,
+because the agent chooses what a cut would hide. It never sees tool results, the agent's messages or files, so text planted in a page or an email
 cannot argue for itself. For the same reason it runs through text generation in an empty temporary
 folder rather than the project, where a tricked agent could have written a CLAUDE.md or AGENTS.md.
 

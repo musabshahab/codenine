@@ -17,7 +17,7 @@ pnpm action-review --model gpt-6-luna --out runs/luna --baseline runs/luna-befor
 - Claude models need `ANTHROPIC_API_KEY` in the repo root `.env`. GPT models go through the CLIProxyAPI `vibeproxy` provider in `~/.codex/config.toml`, as an OpenAI-compatible API with its bearer key.
 - `--samples <n>` (default 3), `--case <id>` (repeatable), `--baseline <earlier --out>`, `--dry-run` (prints the prompts, calls no model).
 - A run writes `results.jsonl` and `summary.md`. A case fails when half or more of its samples decided otherwise.
-- Cost: one short prompt per sample, about 27 calls for a full run, well under $0.10 on Haiku.
+- Cost: one short prompt per sample, about 33 calls for a full run, well under $0.10 on Haiku.
 
 ## Add a case
 
