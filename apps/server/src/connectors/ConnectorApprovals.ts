@@ -70,7 +70,8 @@ export class ConnectorApprovals extends Context.Service<
   {
     /**
      * Shows the card through `record` and waits for the user. Nobody answering within the wait,
-     * the call ending, or `ended` completing closes the card as cancelled.
+     * the call ending, or `ended` completing closes the card as cancelled. With `untilAnswered`
+     * there is no wait to run out.
      */
     readonly ask: (input: {
       readonly threadId: ThreadId;
@@ -82,6 +83,7 @@ export class ConnectorApprovals extends Context.Service<
       /** What "always" changes so this action stops asking. */
       readonly remember: Effect.Effect<void>;
       readonly ended: Effect.Effect<void>;
+      readonly untilAnswered?: boolean;
     }) => Effect.Effect<ApprovalOutcome>;
     /** `not-waiting` when no call is waiting on this card. */
     readonly answer: (
@@ -134,7 +136,7 @@ const make = Effect.gen(function* () {
         const waited = yield* Deferred.await(entry.answered).pipe(
           Effect.asSome,
           Effect.raceFirst(input.ended.pipe(Effect.as(Option.none<ConnectorApprovalAnswer>()))),
-          Effect.timeoutOption(APPROVAL_WAIT),
+          input.untilAnswered === true ? Effect.asSome : Effect.timeoutOption(APPROVAL_WAIT),
           Effect.map(Option.flatten),
         );
         if (Option.isSome(waited)) return outcomeOf(waited.value);

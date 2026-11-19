@@ -22,6 +22,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as Agents from "../agents/Agents.ts";
 import * as ActionReviewer from "../approvals/ActionReviewer.ts";
@@ -485,6 +486,33 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ConnectorGateway
         assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), ["merge_pull_request"]);
         assert.deepStrictEqual(yield* Ref.get(harness.dispatched), []);
         assert.deepStrictEqual(yield* Ref.get(harness.reviewed), []);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
+  it.effect("a step of a workflow run that asks waits for the answer, however long", () =>
+    Effect.gen(function* () {
+      const planId = TeamPlanId.make("plan:weekly");
+      const leadId = ThreadId.make("thread:weekly-lead");
+      const harness = yield* makeHarness(
+        { teamTask: { rootThreadId: leadId, planId, taskId: TeamTaskId.make("post"), attempt: 1 } },
+        { team: { id: planId, run: { approvals: "ask" } } as unknown as TeamPlan },
+      );
+      yield* Effect.gen(function* () {
+        const gateway = yield* ConnectorGateway.ConnectorGateway;
+        const github = yield* connectGitHub;
+        const merging = yield* gateway
+          .handle({
+            threadId,
+            ...call(github.id, "tools/call", { name: "merge_pull_request", arguments: {} }),
+          })
+          .pipe(Effect.forkChild);
+        const card = yield* Deferred.await(harness.cardShown);
+        assert.ok(card.type === "connector_approval.record");
+        yield* TestClock.adjust("8 hours");
+        yield* gateway.answerApproval({ threadId, turnItemId: card.turnItemId, answer: "allow" });
+        yield* Fiber.join(merging);
+        assert.deepStrictEqual(yield* Ref.get(harness.upstreamCalls), ["merge_pull_request"]);
       }).pipe(Effect.provide(harness.layer));
     }),
   );

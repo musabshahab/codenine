@@ -336,7 +336,7 @@ const make = Effect.gen(function* () {
           Stream.runHead,
         );
     },
-    // Without the run's events the wait falls back to its own limit.
+    // Without the run's events the wait falls back to its own limit, or to the call ending.
     Effect.catch(() => Effect.never),
   );
 
@@ -354,13 +354,18 @@ const make = Effect.gen(function* () {
   /**
    * Who answers an action that would ask: a step of a workflow run set to never ask goes ahead,
    * and in Auto the reviewer answers first. Never "always": a reviewer's allow covers one call.
+   * A workflow run shows as waiting for the user, so its steps' cards wait until answered.
    */
   const gate = Effect.fn("ConnectorGateway.gate")(function* (
     thread: OrchestrationV2AppThread,
     action: ReviewedAction,
   ) {
-    if ((yield* stepApprovals(thread.teamTask)) === "never") return { type: "run" } as const;
-    if (thread.runtimeMode !== "auto") return { type: "ask", autoReason: undefined } as const;
+    const step = yield* stepApprovals(thread.teamTask);
+    if (step === "never") return { type: "run" } as const;
+    const untilAnswered = step !== undefined;
+    if (thread.runtimeMode !== "auto") {
+      return { type: "ask", autoReason: undefined, untilAnswered } as const;
+    }
     const review = yield* reviewer.decide({ threadId: thread.id, action });
     switch (review.type) {
       case "allow":
@@ -368,7 +373,7 @@ const make = Effect.gen(function* () {
       case "block":
         return { type: "block", reason: review.reason } as const;
       case "ask":
-        return { type: "ask", autoReason: review.reason } as const;
+        return { type: "ask", autoReason: review.reason, untilAnswered } as const;
     }
   });
 
@@ -527,6 +532,7 @@ const make = Effect.gen(function* () {
                 .pipe(Effect.ignore)
             : allowForAgent(agent, connection.id, risk),
         ended: runEnded(threadId, runId),
+        untilAnswered: gated.untilAnswered,
       });
       if (outcome === "declined") {
         yield* logActivity("declined", false);
