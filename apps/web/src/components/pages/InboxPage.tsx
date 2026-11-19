@@ -81,7 +81,7 @@ export function InboxPage() {
                 <button
                   type="button"
                   onClick={() => open(thread, reason)}
-                  className="flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-3 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-3 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
                   <ThreadKindIcon kind={REASON[reason].kind} className="mt-0.5 size-4" />

@@ -9,7 +9,7 @@ import {
   SettingsIcon,
   UsersIcon,
 } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 
 import { resolveProjectScripts } from "@codenine/shared/projectScripts";
 
@@ -31,7 +31,14 @@ import { ScriptIcon } from "../projectScriptEditor";
 import { ThreadKindIcon } from "../ThreadKindIcon";
 import { resolveThreadKind } from "../threadKind.logic";
 import { Button } from "../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "../ui/empty";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { teamTaskProgress } from "./tasksPage.logic";
 import { WorkspacePage } from "./WorkspacePage";
@@ -46,11 +53,19 @@ export function ProjectPage(props: { projectKey: string }) {
       <WorkspacePage area="project" title="Workspace">
         <Empty className="h-full">
           <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <FolderIcon />
+            </EmptyMedia>
             <EmptyTitle>This workspace is not here</EmptyTitle>
             <EmptyDescription>
               It may have been removed, or its machine is not connected yet.
             </EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" variant="outline" render={<Link to="/settings/connections" />}>
+              Open Environments
+            </Button>
+          </EmptyContent>
         </Empty>
       </WorkspacePage>
     );
@@ -101,6 +116,11 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
+  const openSettings = () =>
+    void router.navigate({
+      to: "/settings/projects",
+      search: { project: group.projectKey, machine: undefined },
+    });
   return (
     <WorkspacePage
       area="project"
@@ -112,12 +132,7 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
             variant="ghost-muted"
             size="icon-sm"
             aria-label="Workspace settings"
-            onClick={() =>
-              void router.navigate({
-                to: "/settings/projects",
-                search: { project: group.projectKey, machine: undefined },
-              })
-            }
+            onClick={openSettings}
           >
             <SettingsIcon />
           </Button>
@@ -163,8 +178,11 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           <dt className="leading-7 text-muted-foreground">Commands</dt>
           <dd className="flex flex-wrap gap-2">
             {scripts.length === 0 ? (
-              <span className="text-xs text-muted-foreground">
-                None yet. Add them in workspace settings.
+              <span className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+                None yet.
+                <Button variant="link" size="xs" onClick={openSettings}>
+                  Add them in workspace settings
+                </Button>
               </span>
             ) : (
               scripts.map((script) => (
