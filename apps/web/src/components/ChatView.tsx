@@ -148,6 +148,7 @@ import {
 import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { useDiffPanelStore } from "../diffPanelStore";
+import { useDraftChatChoicesStore } from "../draftChatChoicesStore";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
 import { composerRequiresModifier } from "../composer-logic";
 import {
@@ -2666,18 +2667,26 @@ export default function ChatView(props: ChatViewProps) {
   usePasteToFocusComposer(embedded ? null : activeThreadId, composerRef);
   // A delegated task is a remote thread's subagent.
   const isSubagentThread = activeThread?.lineage.relationshipToParent === "subagent";
+  // A new chat's agent waits with its draft until the first send creates the thread.
+  const draftAgent = useDraftChatChoicesStore((state) => state.byThread[threadId]?.agent);
+  const hasAgent = (serverProjection?.thread.agent ?? draftAgent) !== undefined;
   const teamOffered =
     canOperateThread &&
     activeThread !== undefined &&
     teamToggleAvailable({
       lineage: activeThread.lineage,
       inTeam: threadTeamInfo !== null,
+      hasAgent,
       inProject: !activeProjectIsScratch,
     });
   const workflowOffered =
     canOperateThread &&
     activeThread !== undefined &&
-    workflowToggleAvailable({ lineage: activeThread.lineage, inTeam: threadTeamInfo !== null });
+    workflowToggleAvailable({
+      lineage: activeThread.lineage,
+      inTeam: threadTeamInfo !== null,
+      hasAgent,
+    });
   const draftTeamRequested = useComposerTeamRequested(composerDraftTarget);
   const draftWorkflowRequested = useComposerWorkflowRequested(composerDraftTarget);
   const draftHeroKind =

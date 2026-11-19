@@ -12,6 +12,7 @@ import {
   useQuestionAttachmentPreparation,
 } from "../../questionAttachments";
 import type {
+  AgentName,
   KeybindingCommand,
   AssistantCitation,
   ChatAttachment as ContractChatAttachment,
@@ -468,6 +469,8 @@ export interface ChatComposerProps {
       focusComposer?: boolean;
       /** An agent's effort, in place of the options the model was last used with. */
       agentOptions?: ReadonlyArray<ProviderOptionSelection>;
+      /** The agent being picked, so a move to another account takes it along. */
+      agent?: AgentName;
     },
   ) => boolean;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;

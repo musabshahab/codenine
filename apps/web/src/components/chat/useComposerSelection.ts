@@ -6,6 +6,7 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
 import { type AccountSwitchRequest, switchesToAccountWithOwnHistory } from "./accountSwitch.logic";
 import {
+  type AgentName,
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
@@ -129,6 +130,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     options?: {
       focusComposer?: boolean;
       agentOptions?: ReadonlyArray<ProviderOptionSelection>;
+      agent?: AgentName;
     },
   ): boolean => {
     if (!activeThread) return false;
@@ -190,6 +192,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       onSwitchToAccountWithOwnHistory({
         from: runtimeEntry.instanceId,
         selection: nextModelSelection,
+        ...(options?.agent === undefined ? {} : { agent: options.agent }),
       });
       return false;
     }

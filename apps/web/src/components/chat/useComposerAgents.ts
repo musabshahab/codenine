@@ -62,6 +62,7 @@ export function useComposerAgents(input: {
     input.onMultipleModelSelectionsChange(null);
     const applied = input.onProviderModelSelect(selection.instanceId, selection.model, {
       agentOptions: selection.options ?? [],
+      agent: name,
     });
     if (applied) void choices.setAgent(name);
     return applied;

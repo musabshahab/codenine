@@ -308,14 +308,31 @@ export function approvalChoiceLabels(item: {
   readonly action: string;
   readonly agent?: string | undefined;
 }) {
-  if (/^send\b/iu.test(item.action.trim())) {
-    return { allow: "Send", always: "Always send without asking", decline: "Don't send" };
-  }
-  return {
-    allow: "Allow",
-    always: item.agent === undefined ? "Always allow" : "Always allow for this agent",
-    decline: "Don't allow",
-  };
+  const sends = /^send\b/iu.test(item.action.trim());
+  // An agent's "always" covers its whole group of actions, so it never reads as sending alone.
+  const always =
+    item.agent !== undefined
+      ? "Always allow for this agent"
+      : sends
+        ? "Always send without asking"
+        : "Always allow";
+  return sends
+    ? { allow: "Send", always, decline: "Don't send" }
+    : { allow: "Allow", always, decline: "Don't allow" };
+}
+
+const ALWAYS_COVERS: Record<ConnectorRisk, string> = {
+  read: "read anything",
+  change: "make any change",
+  irreversible: "do anything that can't be undone",
+};
+
+/** What "Always allow for this agent" lets the agent do: every action of the asking one's group. */
+export function agentAlwaysScope(item: {
+  readonly risk: ConnectorRisk;
+  readonly connectorName: string;
+}): string {
+  return `Always lets it ${ALWAYS_COVERS[item.risk]} on ${item.connectorName} without asking.`;
 }
 
 /** The quiet line an answered approval card leaves, or null while it waits. */

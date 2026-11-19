@@ -8,20 +8,27 @@ import {
 } from "./composerTeam.logic";
 
 describe("teamToggleAvailable and workflowToggleAvailable", () => {
-  const top = { parent: null, sideChat: false, inTeam: false, inProject: true } as const;
+  const top = {
+    parent: null,
+    sideChat: false,
+    inTeam: false,
+    hasAgent: false,
+    inProject: true,
+  } as const;
   it.each([
     { name: "a draft or top-level thread", ...top, team: true, workflow: true },
     { name: "a fork", ...top, parent: "fork", team: true, workflow: true },
     { name: "a subagent", ...top, parent: "subagent", team: false, workflow: false },
     { name: "a side chat", ...top, parent: "fork", sideChat: true, team: false, workflow: false },
     { name: "a lead or team agent", ...top, inTeam: true, team: false, workflow: false },
+    { name: "an agent's chat", ...top, hasAgent: true, team: false, workflow: false },
     { name: "a chat without a project", ...top, inProject: false, team: false, workflow: true },
   ] as const)(
     "offers Team on $name: $team, and Workflow: $workflow",
-    ({ parent, sideChat, inTeam, inProject, team, workflow }) => {
+    ({ parent, sideChat, inTeam, hasAgent, inProject, team, workflow }) => {
       const lineage = { relationshipToParent: parent, sideChat };
-      expect(teamToggleAvailable({ lineage, inTeam, inProject })).toBe(team);
-      expect(workflowToggleAvailable({ lineage, inTeam })).toBe(workflow);
+      expect(teamToggleAvailable({ lineage, inTeam, hasAgent, inProject })).toBe(team);
+      expect(workflowToggleAvailable({ lineage, inTeam, hasAgent })).toBe(workflow);
     },
   );
 });

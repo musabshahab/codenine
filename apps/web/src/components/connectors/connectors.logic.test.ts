@@ -6,6 +6,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  agentAlwaysScope,
   approvalChoiceLabels,
   approvalOutcomeLabel,
   customConnectRequest,
@@ -168,6 +169,15 @@ describe("approvals", () => {
       decline: "Don't send",
     });
     expect(approvalChoiceLabels({ action: "delete a thread" }).allow).toBe("Allow");
+    // An agent's "always" covers more than the one action, sending included.
+    expect(approvalChoiceLabels({ action: "send a draft", agent: "mail-helper" })).toEqual({
+      allow: "Send",
+      always: "Always allow for this agent",
+      decline: "Don't send",
+    });
+    expect(agentAlwaysScope({ risk: "irreversible", connectorName: "Gmail" })).toBe(
+      "Always lets it do anything that can't be undone on Gmail without asking.",
+    );
     expect(approvalChoiceLabels({ action: "sending reports" }).allow).toBe("Allow");
   });
 

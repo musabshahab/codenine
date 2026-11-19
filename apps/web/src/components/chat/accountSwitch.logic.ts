@@ -1,4 +1,9 @@
-import type { ModelSelection, ProviderInstanceId, ServerProvider } from "@codenine/contracts";
+import type {
+  AgentName,
+  ModelSelection,
+  ProviderInstanceId,
+  ServerProvider,
+} from "@codenine/contracts";
 
 type AccountEntry = Pick<ServerProvider, "instanceId" | "driver" | "continuation">;
 
@@ -6,6 +11,8 @@ type AccountEntry = Pick<ServerProvider, "instanceId" | "driver" | "continuation
 export interface AccountSwitchRequest {
   readonly from: ProviderInstanceId;
   readonly selection: ModelSelection;
+  /** The agent whose model was picked: the chat that goes on there talks to it. */
+  readonly agent?: AgentName | undefined;
 }
 
 /**

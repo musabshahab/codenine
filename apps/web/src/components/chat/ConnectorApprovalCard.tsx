@@ -13,7 +13,11 @@ import { commandErrorMessage } from "../../lib/commandError";
 import { connectorsEnvironment } from "../../state/connectors";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { agentTitle, useAgents } from "../agents/useAgents";
-import { approvalChoiceLabels, approvalOutcomeLabel } from "../connectors/connectors.logic";
+import {
+  agentAlwaysScope,
+  approvalChoiceLabels,
+  approvalOutcomeLabel,
+} from "../connectors/connectors.logic";
 import { Button } from "../ui/button";
 import { WorkLogRow } from "./WorkLog";
 
@@ -156,7 +160,7 @@ function PendingConnectorApproval(props: {
         )}
         {askingAgent === null ? null : (
           <span className="text-xs text-muted-foreground">
-            The {askingAgent.title} agent asks first.{" "}
+            The {askingAgent.title} agent asks first. {agentAlwaysScope(item)}{" "}
             <Link
               to="/agents/$name/edit"
               params={{ name: askingAgent.name }}

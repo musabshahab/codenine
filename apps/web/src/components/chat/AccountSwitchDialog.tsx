@@ -11,10 +11,13 @@ import { type ReactNode, useState } from "react";
 
 import { newThreadId } from "~/lib/utils";
 import { type ComposerThreadTarget, useComposerDraftStore } from "../../composerDraftStore";
+import { setDraftChatChoices } from "../../draftChatChoicesStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { commandErrorMessage } from "../../lib/commandError";
 import { readThreadShell, waitForThreadShell } from "../../state/entities";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { Button } from "../ui/button";
 import {
@@ -49,6 +52,9 @@ export function AccountSwitchDialog({
   const forkFromLatest = useAtomCommand(threadEnvironment.forkFromLatest, {
     reportFailure: false,
   });
+  const updateMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
   const [pending, setPending] = useState(false);
   const nameOf = (instanceId: ProviderInstanceId) => {
     const provider = providerStatuses.find((candidate) => candidate.instanceId === instanceId);
@@ -61,7 +67,8 @@ export function AccountSwitchDialog({
   const continueOnAccount = (target: ComposerThreadTarget) => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(target, request.selection, { explicit: true, replaceOptions: true });
-    store.setStickyModelSelection(request.selection);
+    // An agent's model is the agent's; new chats keep starting on the user's own pick.
+    if (request.agent === undefined) store.setStickyModelSelection(request.selection);
   };
 
   // Each action resolves true once the dialog has done its job.
@@ -97,6 +104,20 @@ export function AccountSwitchDialog({
       return true;
     }
     continueOnAccount(targetRef);
+    if (request.agent !== undefined) {
+      // A branch keeps the chat's agent, and this pick was for another one.
+      const handed = await updateMetadata({
+        environmentId: targetRef.environmentId,
+        input: { threadId: targetRef.threadId, agent: request.agent },
+      });
+      if (handed._tag === "Failure" && !isAtomCommandInterrupted(handed)) {
+        toastManager.add({
+          type: "error",
+          title: "Could not hand the branch to the agent",
+          description: commandErrorMessage(handed, "Pick the agent again in the branch."),
+        });
+      }
+    }
     await navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(targetRef) });
     return true;
   };
@@ -105,7 +126,13 @@ export function AccountSwitchDialog({
     const thread = readThreadShell(threadRef);
     if (thread === null) return true;
     const opened = await handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId));
-    if (opened !== null) continueOnAccount(opened.draftId);
+    if (opened !== null) {
+      continueOnAccount(opened.draftId);
+      const agent = request.agent;
+      if (agent !== undefined) {
+        setDraftChatChoices(opened.threadId, (current) => ({ ...current, agent }));
+      }
+    }
     return true;
   };
 

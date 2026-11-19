@@ -3,6 +3,8 @@ import type { OrchestrationV2AppThreadLineage } from "@codenine/contracts";
 interface LeadPlace {
   readonly lineage: Pick<OrchestrationV2AppThreadLineage, "relationshipToParent" | "sideChat">;
   readonly inTeam: boolean;
+  /** An agent's chat cannot start or steer other chats, so it cannot lead. */
+  readonly hasAgent: boolean;
 }
 
 /**
@@ -12,6 +14,7 @@ interface LeadPlace {
 function canLead(input: LeadPlace): boolean {
   return (
     !input.inTeam &&
+    !input.hasAgent &&
     input.lineage.relationshipToParent !== "subagent" &&
     input.lineage.sideChat !== true
   );
