@@ -1,7 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - node:sqlite copies the live database off the main
 // thread, and archives stream files through Node streams with backpressure.
 import * as NodeCrypto from "node:crypto";
-import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import * as NodeSqlite from "node:sqlite";
@@ -150,23 +149,31 @@ interface ArchiveRoot {
   readonly include?: (relative: string) => boolean;
 }
 
-/** Where each archive root lives in a Codenine home. `scratch` and `projects` are older layouts. */
+/**
+ * Where each archive root lives in a Codenine home. `scratch` and `projects` are older layouts.
+ * `ignoredFiles` also takes what Git ignores: a restore replaces these folders whole, so the
+ * backup that undoes one must hold every file in them.
+ */
 export const archiveRoots = (
   paths: BackupPaths,
   includeWorktrees: boolean,
-): ReadonlyArray<ArchiveRoot> => [
-  { name: "userdata", diskPath: paths.stateDir, gitAware: false, include: isBackedUpStatePath },
-  { name: "accounts", diskPath: NodePath.join(paths.baseDir, "accounts"), gitAware: true },
-  { name: "skills", diskPath: NodePath.join(paths.baseDir, "skills"), gitAware: true },
-  { name: "agents", diskPath: NodePath.join(paths.baseDir, "agents"), gitAware: true },
-  { name: "workflows", diskPath: NodePath.join(paths.baseDir, "workflows"), gitAware: true },
-  { name: "workspaces", diskPath: NodePath.join(paths.baseDir, "workspaces"), gitAware: true },
-  { name: "scratch", diskPath: NodePath.join(paths.baseDir, "scratch"), gitAware: true },
-  { name: "projects", diskPath: NodePath.join(paths.baseDir, "projects"), gitAware: true },
-  ...(includeWorktrees
-    ? [{ name: "worktrees" as const, diskPath: paths.worktreesDir, gitAware: true }]
-    : []),
-];
+  ignoredFiles = false,
+): ReadonlyArray<ArchiveRoot> => {
+  const gitAware = !ignoredFiles;
+  return [
+    { name: "userdata", diskPath: paths.stateDir, gitAware: false, include: isBackedUpStatePath },
+    { name: "accounts", diskPath: NodePath.join(paths.baseDir, "accounts"), gitAware },
+    { name: "skills", diskPath: NodePath.join(paths.baseDir, "skills"), gitAware },
+    { name: "agents", diskPath: NodePath.join(paths.baseDir, "agents"), gitAware },
+    { name: "workflows", diskPath: NodePath.join(paths.baseDir, "workflows"), gitAware },
+    { name: "workspaces", diskPath: NodePath.join(paths.baseDir, "workspaces"), gitAware },
+    { name: "scratch", diskPath: NodePath.join(paths.baseDir, "scratch"), gitAware },
+    { name: "projects", diskPath: NodePath.join(paths.baseDir, "projects"), gitAware },
+    ...(includeWorktrees
+      ? [{ name: "worktrees" as const, diskPath: paths.worktreesDir, gitAware }]
+      : []),
+  ];
+};
 
 export interface ArchiveEntry extends TarEntry {
   readonly diskPath: string;
@@ -520,6 +527,7 @@ async function* archiveStream(input: {
   readonly manifest: Uint8Array;
   readonly createdAtMs: number;
   readonly onBytes: (bytes: number) => void;
+  readonly onUnreadable: () => void;
 }): AsyncGenerator<Uint8Array> {
   yield encodeTarHeader({
     path: MANIFEST_NAME,
@@ -543,31 +551,43 @@ async function* archiveStream(input: {
     } catch {
       continue;
     }
-    yield encodeTarHeader({ ...entry, size });
-    let written = 0;
-    if (size > 0) {
-      try {
-        const reader = NodeFS.createReadStream(entry.diskPath, {
-          end: size - 1,
-          highWaterMark: READ_CHUNK_BYTES,
-        });
-        for await (const chunk of reader) {
-          const bytes = chunk as Buffer;
-          written += bytes.length;
-          input.onBytes(bytes.length);
-          yield bytes;
-        }
-      } catch {
-        // A file that shrinks or vanishes mid-read is padded below: its header is already out.
-      }
-      while (written < size) {
-        const fill = Math.min(size - written, READ_CHUNK_BYTES);
-        written += fill;
-        input.onBytes(fill);
-        yield new Uint8Array(fill);
-      }
+    // Opened before its header goes out: a file that cannot be read is left out, not zero-filled.
+    const file = await NodeFSP.open(entry.diskPath, "r").catch(() => undefined);
+    if (file === undefined) {
+      input.onUnreadable();
+      continue;
     }
-    yield tarPadding(size);
+    try {
+      yield encodeTarHeader({ ...entry, size });
+      let written = 0;
+      if (size > 0) {
+        try {
+          const reader = file.createReadStream({
+            autoClose: false,
+            end: size - 1,
+            highWaterMark: READ_CHUNK_BYTES,
+          });
+          for await (const chunk of reader) {
+            const bytes = chunk as Buffer;
+            written += bytes.length;
+            input.onBytes(bytes.length);
+            yield bytes;
+          }
+        } catch {
+          // A file that shrinks or fails mid-read is padded below: its header is already out.
+          input.onUnreadable();
+        }
+        while (written < size) {
+          const fill = Math.min(size - written, READ_CHUNK_BYTES);
+          written += fill;
+          input.onBytes(fill);
+          yield new Uint8Array(fill);
+        }
+      }
+      yield tarPadding(size);
+    } finally {
+      await file.close().catch(() => undefined);
+    }
   }
   yield TAR_END_BLOCKS;
 }
@@ -665,9 +685,10 @@ export const createBackup = Effect.fn("BackupArchive.create")(function* (input: 
       mtimeMs: createdAtMs,
     },
     // A backup folder inside the home must not back up earlier backups.
-    ...(yield* collectArchiveEntries(archiveRoots(input.paths, input.includeWorktrees), [
-      yield* fs.realPath(input.folder).pipe(Effect.orElseSucceed(() => input.folder)),
-    ])),
+    ...(yield* collectArchiveEntries(
+      archiveRoots(input.paths, input.includeWorktrees, input.kind === "before-restore"),
+      [yield* fs.realPath(input.folder).pipe(Effect.orElseSucceed(() => input.folder))],
+    )),
   ];
   const contentBytes = entries.reduce((total, entry) => total + entry.size, 0);
   yield* ensureFreeSpace(input.folder, contentBytes, "This backup");
@@ -712,6 +733,7 @@ export const createBackup = Effect.fn("BackupArchive.create")(function* (input: 
     yield* encodeManifest(manifest).pipe(Effect.orDie),
   );
   let streamedBytes = 0;
+  let unreadableCount = 0;
   const written = yield* Effect.tryPromise({
     try: (signal) =>
       writeBackupFile({
@@ -733,12 +755,20 @@ export const createBackup = Effect.fn("BackupArchive.create")(function* (input: 
             streamedBytes += bytes;
             input.onProgress?.(contentBytes === 0 ? 1 : Math.min(1, streamedBytes / contentBytes));
           },
+          onUnreadable: () => {
+            unreadableCount += 1;
+          },
         }),
         scrypt,
         signal,
       }),
     catch: backupWriteError,
   });
+  if (unreadableCount > 0) {
+    yield* Effect.logWarning("Some files could not be read and are missing or cut in the backup.", {
+      count: unreadableCount,
+    });
+  }
   return { file: backupFileInfo(written), manifest };
 }, Effect.scoped);
 

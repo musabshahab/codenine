@@ -107,6 +107,28 @@ it.live(
       ]) {
         assert.isFalse(files.has(excluded), `${excluded} should be left out`);
       }
+      // The backup that undoes a restore also holds what Git ignores.
+      const everyFile = new Set(
+        (yield* collectArchiveEntries(
+          archiveRoots(
+            {
+              baseDir,
+              stateDir: path.join(baseDir, "userdata"),
+              dbPath: path.join(baseDir, "userdata", "statev2.sqlite"),
+              worktreesDir: path.join(baseDir, "worktrees"),
+            },
+            false,
+            true,
+          ),
+        )).map((entry) => entry.path),
+      );
+      for (const kept of [
+        "workspaces/app/debug.log",
+        "workspaces/app/node_modules/pkg/index.js",
+        "workspaces/app/.git/HEAD",
+      ]) {
+        assert.isTrue(everyFile.has(kept), `${kept} should be in a safety backup`);
+      }
       // A link into the archive becomes relative, so it works wherever the archive lands.
       assert.equal(
         entries.find((entry) => entry.path === "workspaces/plain/review")?.linkTarget,

@@ -644,11 +644,12 @@ export const applyPendingRestore = Effect.fn("BackupRestore.applyPending")(funct
         .readFileString(folders.journal)
         .pipe(Effect.flatMap(decodeJournal), Effect.orDie);
       yield* rollBack(journal.moves);
-      yield* removeQuietly(folders.previous);
+      // The marker goes before the journal: a marker with no journal would apply the restore again.
       yield* abandonRestore(
         paths,
         "The last restore was interrupted, so your data was left as it was.",
       );
+      yield* removeQuietly(folders.previous);
     } else {
       yield* removeQuietly(folders.previous);
     }
@@ -717,11 +718,11 @@ export const applyPendingRestore = Effect.fn("BackupRestore.applyPending")(funct
     });
     // A failed rollback stops the server rather than open half of each.
     yield* rollBack(moves.value);
-    yield* removeQuietly(folders.previous);
-    return yield* abandonRestore(
+    yield* abandonRestore(
       paths,
       "The restore could not be applied, so your data was left as it was.",
     );
+    return yield* removeQuietly(folders.previous);
   }
   yield* fs.remove(folders.marker).pipe(Effect.orDie);
   yield* removeQuietly(folders.previous);

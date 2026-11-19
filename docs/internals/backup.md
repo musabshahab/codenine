@@ -36,7 +36,9 @@ decrypted payload.
 The state folder minus logs, caches, runtime files and the backup's own state; `accounts/`,
 `skills/`, `agents/`, `workflows/`, the workspace folders, and `worktrees/` when asked. In a Git
 repository only what Git tracks or would track is copied, plus all of `.git`, so ignored build
-output stays behind but every commit, stash and branch comes back. A symlink into the archive is
+output stays behind but every commit, stash and branch comes back. The safety backup a restore
+saves is the exception and holds ignored files too: the restore replaces those folders whole, so
+undoing it has nothing else to bring back a `.env` from. A symlink into the archive is
 stored relative, so links like a Codex shadow home's links into its shared home work in a new
 home; a symlink out of it is left out.
 
