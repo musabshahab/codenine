@@ -166,7 +166,12 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
     setErrors({});
     setSubmitError(null);
     setSubmitting(true);
-    const result = await createProject(planned.plan, { onCreated: closeNewProjectDialog });
+    const result = await createProject(planned.plan, {
+      onCreated: closeNewProjectDialog,
+      ...(request.relinkProjectId === undefined
+        ? {}
+        : { relinkProjectId: request.relinkProjectId }),
+    });
     if (result.ok) {
       closeNewProjectDialog();
       return;

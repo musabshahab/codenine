@@ -907,14 +907,17 @@ function useSidebarLookups() {
   const projectGroupByScopeKey = new Map(
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
+  // Personal leads, as it does in the list: a chat's menu can filter by it too.
+  const pickableGroups = pickableProjectGroups(projectGroups);
   const projectScopeItems = [
     { value: "all", label: "All workspaces" },
-    ...pickableProjectGroups(projectGroups)
-      .filter((project) => !project.isScratch)
-      .map((project) => ({
-        value: project.projectKey,
-        label: project.displayName,
-      })),
+    ...[
+      ...pickableGroups.filter((project) => project.isScratch),
+      ...pickableGroups.filter((project) => !project.isScratch),
+    ].map((project) => ({
+      value: project.projectKey,
+      label: project.displayName,
+    })),
   ];
   return {
     projects,
@@ -1458,10 +1461,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           groups:
             scopedProjectGroups.length === 0
               ? // An archived workspace keeps a folder for its active threads, below the rest.
-                [
-                  ...scopeGroups,
-                  ...projectGroups.filter((project) => project.archived && !project.isScratch),
-                ]
+                [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
               : scopedProjectGroups,
           keepEmpty: (group) => scopedProjectGroups.length > 0 || !group.archived,
         }

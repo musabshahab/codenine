@@ -20,6 +20,7 @@ import {
   type ExecutionEnvironmentPlatform,
   type ModelSelection,
   type ProjectIconOverride,
+  type ProjectId,
   resolveEnvironmentMachineKind,
   type ServerSettings,
   SourceControlProviderKind,
@@ -40,6 +41,8 @@ export interface NewProjectRequest {
   readonly name?: string;
   readonly folderPath?: string;
   readonly repository?: string;
+  /** A workspace whose folder was lost: the folder picked here becomes its folder. */
+  readonly relinkProjectId?: ProjectId;
 }
 
 /** What `newProjectMachines` reads from an environment. */

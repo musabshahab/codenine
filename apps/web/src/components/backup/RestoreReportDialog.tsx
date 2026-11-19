@@ -367,6 +367,7 @@ function ReportTasks({
                           source: "folder",
                           name: workspace.title,
                           folderPath: workspace.path,
+                          relinkProjectId: workspace.projectId,
                         })
                       }
                     >

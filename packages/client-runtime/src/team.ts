@@ -412,12 +412,19 @@ export function teamResumeCommand(input: {
   };
 }
 
-/** Mirrors the server: a step whose result waits for review, while its run still runs. */
+/**
+ * Mirrors the server: a step whose result waits for review, while its run still runs. A run
+ * stopped at a spending or time limit takes no review until the user lets it go on.
+ */
 export function canReviewTeamTask(
-  plan: Pick<TeamPlan, "status">,
+  plan: Pick<TeamPlan, "status" | "hold">,
   task: Pick<TeamTask, "review">,
 ): boolean {
-  return plan.status === "running" && task.review?.awaiting === true;
+  return (
+    plan.status === "running" &&
+    (plan.hold === undefined || plan.hold.reason === "review") &&
+    task.review?.awaiting === true
+  );
 }
 
 export function canCancelTeam(plan: Pick<TeamPlan, "status">): boolean {

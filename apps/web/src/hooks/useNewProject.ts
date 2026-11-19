@@ -18,6 +18,7 @@ import {
   AuthSourceControlWriteScope,
   type EnvironmentId,
   type ModelSelection,
+  type ProjectId,
   type ScopedProjectRef,
 } from "@codenine/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -272,12 +273,35 @@ export function useNewProject() {
   const addFolder = async (
     plan: Extract<NewProjectPlan, { kind: "folder" }>,
     onCreated: (() => void) | undefined,
+    relinkProjectId: ProjectId | undefined,
   ): Promise<NewProjectResult> => {
     const existing = findExistingAddProject({
       projects: readProjects(),
       environmentId: plan.environmentId,
       path: plan.workspaceRoot,
     });
+    const lost =
+      relinkProjectId === undefined
+        ? undefined
+        : readProjects().find(
+            (project) =>
+              project.environmentId === plan.environmentId && project.id === relinkProjectId,
+          );
+    // A workspace that lost its folder takes the new one, so its chats come along.
+    if (lost !== undefined && existing?.id !== lost.id) {
+      if (existing !== null) {
+        return { ok: false, message: `${existing.title} already uses that folder.` };
+      }
+      if (!readEnvironmentScope(plan.environmentId, AuthOrchestrationOperateScope)) {
+        return { ok: false, message: "This connection cannot change workspaces." };
+      }
+      const moved = await updateProject({
+        environmentId: plan.environmentId,
+        input: { projectId: lost.id, title: plan.title, workspaceRoot: plan.workspaceRoot },
+      });
+      if (moved._tag === "Failure") return failure(moved);
+      return openExisting(lost, onCreated);
+    }
     if (existing !== null) return openExisting(existing, onCreated);
     if (!readEnvironmentScope(plan.environmentId, AuthOrchestrationOperateScope)) {
       return { ok: false, message: "This connection cannot add workspaces." };
@@ -338,13 +362,13 @@ export function useNewProject() {
 
   return (
     plan: NewProjectPlan,
-    options?: { readonly onCreated?: () => void },
+    options?: { readonly onCreated?: () => void; readonly relinkProjectId?: ProjectId },
   ): Promise<NewProjectResult> => {
     switch (plan.kind) {
       case "empty":
         return createEmpty(plan, options?.onCreated);
       case "folder":
-        return addFolder(plan, options?.onCreated);
+        return addFolder(plan, options?.onCreated, options?.relinkProjectId);
       case "clone":
         return cloneRepository(plan, options?.onCreated);
     }

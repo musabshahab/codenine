@@ -14,6 +14,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   canRetryTeamTask,
+  canReviewTeamTask,
   changeTeamDraft,
   editTeamDraft,
   isTeamFinishedNotification,
@@ -363,6 +364,18 @@ it("reviews the round the step is on, with trimmed notes only when there are som
     verdict: "revise",
     notes: "Under 800 words.",
   });
+
+  // The server takes a review while the run runs, and not while it waits at a limit.
+  const awaiting = { review: { round: 1, awaiting: true, awaitingSince: null } };
+  const at = "2026-11-18T10:00:00.000Z";
+  expect(canReviewTeamTask({ status: "running" }, awaiting)).toBe(true);
+  expect(canReviewTeamTask({ status: "running", hold: { reason: "review", at } }, awaiting)).toBe(
+    true,
+  );
+  expect(canReviewTeamTask({ status: "running", hold: { reason: "spend", at } }, awaiting)).toBe(
+    false,
+  );
+  expect(canReviewTeamTask({ status: "completed" }, awaiting)).toBe(false);
 });
 
 describe("teamCommandFailure", () => {

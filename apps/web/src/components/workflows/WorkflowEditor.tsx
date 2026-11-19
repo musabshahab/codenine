@@ -146,11 +146,8 @@ export function WorkflowEditor(props: {
 
   const save = async () => {
     if (busy) return;
-    const current = resolveWorkflowEdit(
-      savedState,
-      start,
-      readWorkflowEdit(environmentId, editKey),
-    );
+    const edited = readWorkflowEdit(environmentId, editKey);
+    const current = resolveWorkflowEdit(savedState, start, edited);
     const checked = checkWorkflow(current.definition, takenNames);
     if (checked.issues !== undefined) {
       setChecking(true);
@@ -166,7 +163,8 @@ export function WorkflowEditor(props: {
       input: {
         workflow: checked.workflow,
         ...(saved === null ? {} : { previousName: saved.name }),
-        ...(current.notes === (saved?.notes ?? "")
+        // Only notes the user changed: a run may have added its own since these edits began.
+        ...(edited === null || edited.notes === edited.base.notes
           ? {}
           : { notes: current.notes.slice(-WORKFLOW_NOTES_MAX) }),
       },

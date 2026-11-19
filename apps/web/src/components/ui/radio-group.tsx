@@ -1,6 +1,6 @@
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
-import { type ReactNode, useId } from "react";
+import { type KeyboardEvent, type ReactNode, useId } from "react";
 
 import { cn } from "~/lib/utils";
 
@@ -30,6 +30,19 @@ function Radio({ className, ...props }: RadioPrimitive.Root.Props) {
       />
     </RadioPrimitive.Root>
   );
+}
+
+const GROUP_NAVIGATION_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Home",
+  "End",
+]);
+
+function keepArrowKeysInside(event: KeyboardEvent) {
+  if (GROUP_NAVIGATION_KEYS.has(event.key)) event.stopPropagation();
 }
 
 /** A bordered choice in a RadioGroup; the selected card opens below for its own fields. */
@@ -83,7 +96,10 @@ function RadioCard({
         </span>
       </label>
       {selected && children !== undefined ? (
-        <div className="flex flex-col gap-2 ps-10 pe-3 pb-3">{children}</div>
+        // Arrow keys in a field here would otherwise reach the group and move its selection.
+        <div className="flex flex-col gap-2 ps-10 pe-3 pb-3" onKeyDown={keepArrowKeysInside}>
+          {children}
+        </div>
       ) : null}
     </div>
   );
