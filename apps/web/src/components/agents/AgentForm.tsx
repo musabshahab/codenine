@@ -90,6 +90,8 @@ export interface AgentFormForTeam {
   readonly start: AgentFormStart;
   readonly onSaved: (agent: AgentSummary) => void;
   readonly onCancel: () => void;
+  /** Why the agent is being made, under its name; a team's wording when left out. */
+  readonly intro?: string;
 }
 
 function draftOf(agent: AgentDetail | null, start: AgentFormStart | undefined) {
@@ -278,7 +280,8 @@ export function AgentForm({
             <span className="text-sm text-muted-foreground">
               {forTeam === undefined
                 ? "What it does, the model it runs on, and what it may use."
-                : "The lead suggested this agent for its team. Save it to add it to the team."}
+                : (forTeam.intro ??
+                  "The lead suggested this agent for its team. Save it to add it to the team.")}
             </span>
           </span>
         </div>

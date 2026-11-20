@@ -22,6 +22,7 @@ import {
   type FormatOptions,
   formatCost,
   formatRecent,
+  problemLine,
   RUN_STATUS_LABELS,
   type WorkflowCardStatus,
   workflowCardStatus,
@@ -169,7 +170,9 @@ export function WorkflowCard(props: {
           <AlertDescription>
             <ul className="flex flex-col gap-1">
               {workflow.problems.map((problem) => (
-                <li key={`${problem.step ?? ""}:${problem.message}`}>{problem.message}</li>
+                <li key={`${problem.step ?? ""}:${problem.message}`}>
+                  {problemLine(problem, workflow.steps)}
+                </li>
               ))}
             </ul>
           </AlertDescription>

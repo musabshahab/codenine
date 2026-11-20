@@ -23,6 +23,7 @@ describe("workflowScheduleText", () => {
       { days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], time: "00:15", timeZone },
       "Every day at 0:15 · Europe/London",
     ],
+    [{ days: ["mon"], time: "08:00", timeZone: "Etc/GMT" }, "Every Monday at 8:00 · GMT"],
   ] as const)("says %j as %s", (schedule, text) => {
     expect(workflowScheduleText(schedule)).toBe(text);
   });

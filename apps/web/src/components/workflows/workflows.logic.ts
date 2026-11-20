@@ -1,6 +1,7 @@
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import type {
   AgentModel,
+  AgentSummary,
   EnvironmentId,
   OrchestrationV2ThreadShell,
   ProjectId,
@@ -483,7 +484,28 @@ export function disconnectSteps(
  * Why the workflow as drawn could not run yet. The server's list is the authority once saved; this
  * one covers the edits it has not seen.
  */
-export function draftProblems(definition: WorkflowDefinition): ReadonlyArray<WorkflowProblem> {
+/**
+ * A problem as a list of the whole workflow's problems shows it. The server words a step's
+ * problem as "this step", which says nothing beside another step's, so its step is named first.
+ */
+export function problemLine(
+  problem: WorkflowProblem,
+  steps: ReadonlyArray<Pick<WorkflowStep, "id" | "title">>,
+): string {
+  const title = steps.find((step) => step.id === problem.step)?.title.trim() ?? "";
+  return title === "" || problem.message.includes(title)
+    ? problem.message
+    : `${title}: ${problem.message}`;
+}
+
+/**
+ * What keeps unsaved edits from running, as the server will say once they are saved. `agents` is
+ * the user's agents once loaded; without it the checks that need them wait.
+ */
+export function draftProblems(
+  definition: WorkflowDefinition,
+  agents?: ReadonlyArray<Pick<AgentSummary, "name" | "title" | "model">>,
+): ReadonlyArray<WorkflowProblem> {
   const problems: WorkflowProblem[] = [];
   if (definition.steps.length === 0) problems.push({ step: null, message: "Add a step." });
   if (definition.lead.model === null) {
@@ -493,8 +515,22 @@ export function draftProblems(definition: WorkflowDefinition): ReadonlyArray<Wor
     problems.push({ step: null, message: "Choose the workspace the steps work in." });
   }
   for (const step of definition.steps) {
-    if (step.agent !== null) continue;
     const title = step.title.trim() || "a step";
+    if (step.agent !== null) {
+      const agent = agents?.find((candidate) => candidate.name === step.agent);
+      if (agents !== undefined && agent === undefined) {
+        problems.push({
+          step: step.id,
+          message: `The agent for ${title} no longer exists. Choose another.`,
+        });
+      } else if (agent !== undefined && step.model === null && agent.model === null) {
+        problems.push({
+          step: step.id,
+          message: `Choose a model for ${title}. ${agent.title} has no model of its own.`,
+        });
+      }
+      continue;
+    }
     problems.push({
       step: step.id,
       message:
@@ -504,6 +540,25 @@ export function draftProblems(definition: WorkflowDefinition): ReadonlyArray<Wor
     });
   }
   return problems;
+}
+
+/**
+ * A suggested agent the user already made, such as before a reload dropped the unsaved edits,
+ * does the step: offering to create it again would only fail on its taken name.
+ */
+export function withMadeAgents(
+  definition: WorkflowDefinition,
+  agents: ReadonlyArray<Pick<AgentSummary, "name">>,
+): WorkflowDefinition {
+  return {
+    ...definition,
+    steps: definition.steps.map((step) => {
+      if (step.agent !== null || step.suggestion === undefined) return step;
+      const name = skillNameFromTitle(step.suggestion.title);
+      const made = agents.find((agent) => agent.name === name);
+      return made === undefined ? step : { ...step, agent: made.name };
+    }),
+  };
 }
 
 export interface WorkflowSaveIssue {

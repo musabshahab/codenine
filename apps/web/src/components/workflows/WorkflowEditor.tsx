@@ -87,7 +87,9 @@ export function WorkflowEditor(props: {
   const edit = useWorkflowEdit(environmentId, editKey);
   const selection = useWorkflowSelection(environmentId, editKey);
   const list = useEnvironmentQuery(savedWorkflowsEnvironment.list({ environmentId, input: {} }));
-  const { agents } = useAgents(environmentId);
+  const agentList = useAgents(environmentId);
+  const { agents } = agentList;
+  const agentsLoaded = agentList.data !== null;
   const catalog = useAgentModelCatalog(environmentId);
   const allProjects = useProjects();
   const canSave = useAtomValue(savedWorkflowsEnvironment.save.permissionAtom(environmentId));
@@ -107,7 +109,10 @@ export function WorkflowEditor(props: {
       : { definition: definitionOf(saved), notes: saved.notes, updatedAt: saved.updatedAt };
   const shown = resolveWorkflowEdit(savedState, start, edit);
   const { definition } = shown;
-  const problems = saved === null || shown.dirty ? draftProblems(definition) : saved.problems;
+  const problems =
+    saved === null || shown.dirty
+      ? draftProblems(definition, agentsLoaded ? agents : undefined)
+      : saved.problems;
   const disabled = busy || !canSave;
   const projects = allProjects.filter(
     (project) => project.environmentId === environmentId && (project.archivedAt ?? null) === null,
