@@ -9,7 +9,7 @@ so a connector works the same with every model, and model providers never see yo
 Open **Connectors** under **Build** in the sidebar. Each tile in the **Library** says how it
 connects:
 
-- **Sign in** opens the service's sign-in page in a new tab.
+- **Browser sign-in** opens the service's sign-in page in a new tab.
 - **Uses your Google app** or **Uses your Slack app** needs an app you create once; see
   [Google and Slack](#google-and-slack).
 - **Access token** (or the service's own word for it) takes a token or API key the service gave
