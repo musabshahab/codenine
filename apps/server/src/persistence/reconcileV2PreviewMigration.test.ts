@@ -62,6 +62,7 @@ describe("V2 preview upgrade", () => {
         [80, "ScheduledTaskThreadMode"],
         [81, "DropScheduledTaskCleanupEffects"],
         [82, "RetireGuestShareEvents"],
+        [83, "DropPreviewCleanupEffects"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -167,6 +168,7 @@ describe("V2 preview upgrade", () => {
         [80, "ScheduledTaskThreadMode"],
         [81, "DropScheduledTaskCleanupEffects"],
         [82, "RetireGuestShareEvents"],
+        [83, "DropPreviewCleanupEffects"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
