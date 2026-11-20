@@ -57,7 +57,7 @@ palette (`Cmd/Ctrl+K`). Give the workspace a name, then choose where its files c
 - **Clone a repository** downloads `owner/repo` from GitHub, or any Git URL, into the same
   folder.
 
-**Default agent** is the account and model new chats in the workspace start on; change it later in
+**Default model** is the account and model new chats in the workspace start on; change it later in
 the workspace's settings. With more than one machine connected, choose the machine at the bottom of
 the dialog. Codenine then opens a new thread in the workspace. Until the workspace has a thread, new
 threads work in its folder, even when your default is a new worktree.
