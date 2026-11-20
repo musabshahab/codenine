@@ -64,32 +64,34 @@ export function BackupCard({
             : "border-border/60 bg-card/40",
       )}
     >
-      <Icon
-        aria-hidden
-        className={cn(
-          "mt-0.5 size-5 shrink-0",
-          tone === "healthy"
-            ? "text-success"
-            : tone === "failed"
-              ? "text-error"
-              : tone === "attention"
-                ? "text-warning"
-                : "text-muted-foreground",
-        )}
-      />
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        {detail === null ? null : (
-          <p
-            className={cn(
-              "text-xs break-words",
-              troubled ? "text-foreground/80" : "text-muted-foreground",
-            )}
-          >
-            {detail}
-          </p>
-        )}
-        {children}
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <Icon
+          aria-hidden
+          className={cn(
+            "mt-0.5 size-5 shrink-0",
+            tone === "healthy"
+              ? "text-success"
+              : tone === "failed"
+                ? "text-error"
+                : tone === "attention"
+                  ? "text-warning"
+                  : "text-muted-foreground",
+          )}
+        />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          {detail === null ? null : (
+            <p
+              className={cn(
+                "text-xs break-words",
+                troubled ? "text-foreground/80" : "text-muted-foreground",
+              )}
+            >
+              {detail}
+            </p>
+          )}
+          {children}
+        </div>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
     </section>

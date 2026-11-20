@@ -48,13 +48,13 @@ function CodenineFolderSection({ environmentId }: { readonly environmentId: Envi
   };
 
   return (
-    <SettingsSection id="codenine-folder" title="Storage">
+    <SettingsSection id="storage" title="Storage">
       <SettingsRow
         {...searchableSetting("codenine-folder")}
         description={
           <>
             Your workspaces, accounts, skills, settings and logs, all in one folder.{" "}
-            <InlineButton render={<Link to="/settings/backup" />}>Back up this folder</InlineButton>
+            <InlineButton render={<Link to="/settings/backup" />}>Backup settings</InlineButton>
             <span className="mt-1 block font-mono break-all text-foreground">
               {codenineFolderPath(config)}
             </span>
@@ -62,14 +62,14 @@ function CodenineFolderSection({ environmentId }: { readonly environmentId: Envi
         }
         control={
           <div className="flex shrink-0 items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => copyToClipboard(folder, undefined)}>
-              {isCopied ? "Copied" : "Copy path"}
-            </Button>
             {config.availableEditors.includes("file-manager") ? (
-              <Button size="sm" onClick={() => void openFolder()}>
+              <Button variant="outline" size="sm" onClick={() => void openFolder()}>
                 Open
               </Button>
             ) : null}
+            <Button variant="outline" size="sm" onClick={() => copyToClipboard(folder, undefined)}>
+              {isCopied ? "Copied" : "Copy path"}
+            </Button>
           </div>
         }
       />

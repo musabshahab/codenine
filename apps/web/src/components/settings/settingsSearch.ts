@@ -618,7 +618,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "backup-folder",
-    title: "Where backups go",
+    title: "Where to keep backups",
     to: "/settings/backup",
     searchTerms: [
       "backup folder location path icloud dropbox onedrive google drive external drive open",

@@ -276,7 +276,8 @@ export function cloudFoldersLine(suggestions: ReadonlyArray<BackupFolderSuggesti
         .map((suggestion) => suggestion.label),
     ),
   ];
-  if (names.length === 0) return "No synced cloud folder found on this computer.";
+  if (names.length === 0)
+    return "No synced cloud folder found on this computer. An external drive keeps backups safe if this computer is lost.";
   const list =
     names.length === 1
       ? names[0]

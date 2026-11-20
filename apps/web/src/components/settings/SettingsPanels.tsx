@@ -728,6 +728,7 @@ export function GeneralSettingsPanel() {
         <SettingsRow
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.inAppNotificationsEnabled}
@@ -754,6 +755,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.sidebarGroupByProject}
@@ -780,6 +782,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={isProjectGroupingEnabled(settings.sidebarProjectGroupingMode)}
@@ -841,7 +844,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("working-shelf")}
-          description="In the single list, fold working and monitoring threads into a Working section. They return to the top of the list when they need you. Chats grouped by workspace have no Working section."
+          description="In the single list, fold working and monitoring chats into a Working section. They return to the top of the list when they need you. Chats grouped by workspace have no Working section."
           resetAction={
             settings.sidebarWorkingShelfEnabled !==
             DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
@@ -855,6 +858,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.sidebarWorkingShelfEnabled}
@@ -883,6 +887,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.confirmThreadUnpin}
@@ -908,6 +913,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.confirmThreadArchive}
@@ -933,6 +939,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.confirmThreadDelete}
@@ -1062,6 +1069,7 @@ export function ChatSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.composerRichTextEnabled}
@@ -1134,6 +1142,7 @@ export function ChatSettingsPanel() {
                 />
               ) : null
             }
+            controlPlacement="inline"
             control={
               <Switch
                 checked={settings.showSkillsInSlashMenu}
@@ -1356,6 +1365,7 @@ export function DiffsSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.diffIgnoreWhitespace}
@@ -1427,6 +1437,7 @@ export function DiffsSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.proactivePanelsEnabled}

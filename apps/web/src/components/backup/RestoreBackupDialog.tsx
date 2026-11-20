@@ -242,6 +242,15 @@ function ChooseStep({
           <h3 id={`${id}-label`} className="sr-only">
             Backup to restore
           </h3>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {backups === undefined
+              ? result._tag === "Failure"
+                ? `Could not look for backups: ${formatEnvironmentQueryError(result.cause)}`
+                : "Looking for backups…"
+              : backups.length === 0
+                ? "No backups found in the backup folder or the synced folders on this computer."
+                : "From the backup folder and the synced folders on this computer."}
+          </p>
           <RadioGroup
             aria-labelledby={`${id}-label`}
             value={value}
@@ -260,28 +269,24 @@ function ChooseStep({
             ))}
             <RadioCard
               value={OTHER_CHOICE}
-              title="Use another file…"
+              title={
+                backups !== undefined && backups.length === 0
+                  ? "Use a backup file"
+                  : "Use another file…"
+              }
+              description="The full path to a .c9backup file on this computer"
               selected={value === OTHER_CHOICE}
             >
               <Input
                 aria-label="Backup file"
                 value={otherPath}
-                placeholder="/Volumes/Backup Drive/Codenine/backup.c9backup"
+                placeholder="Path to a .c9backup file"
                 autoComplete="off"
                 spellCheck={false}
                 onChange={(event) => setTyped(event.target.value)}
               />
             </RadioCard>
           </RadioGroup>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {backups === undefined
-              ? result._tag === "Failure"
-                ? `Could not look for backups: ${formatEnvironmentQueryError(result.cause)}`
-                : "Looking for backups…"
-              : backups.length === 0
-                ? "No backups found in the backup folder or the synced folders on this computer."
-                : "From the backup folder and the synced folders on this computer."}
-          </p>
         </form>
       </WizardPanel>
       <WizardFooter>

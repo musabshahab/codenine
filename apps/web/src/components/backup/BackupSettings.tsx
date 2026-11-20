@@ -8,7 +8,7 @@ import {
   type BackupStatus,
   EnvironmentId,
 } from "@codenine/contracts";
-import { useSearch } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import { AsyncResult } from "effect/reactivity";
 import { CheckIcon } from "lucide-react";
 import { useState } from "react";
@@ -57,7 +57,7 @@ import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupDateFormat } from "./useBackupDateFormat";
 
 const FREQUENCIES = [
-  { value: "off", label: "Off" },
+  { value: "off", label: "Only when I ask" },
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
 ] as const satisfies ReadonlyArray<{ value: BackupFrequency; label: string }>;
@@ -81,13 +81,6 @@ export function BackupSettingsPanel() {
   const { candidates, environment, label } = useAccessEnvironment(selectedEnvironmentId);
   return (
     <SettingsPageContainer>
-      <div className="space-y-1.5 px-3 sm:px-4">
-        <h1 className="text-xl font-semibold text-foreground">Backup</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Keep a copy of your chats, workspaces, accounts and settings. Use it to recover from a
-          problem or to move to a new computer.
-        </p>
-      </div>
       {candidates.length > 1 && environment !== null ? (
         <EnvironmentPagePicker
           label="Showing backups for"
@@ -97,9 +90,17 @@ export function BackupSettingsPanel() {
         />
       ) : null}
       {environment === null ? (
-        <p className="px-3 text-sm text-muted-foreground sm:px-4">
-          Connect a computer to back it up.
-        </p>
+        <SettingsSection id="backup-status" title="Backups unavailable" hideTitle>
+          <SettingsRow
+            title="No computer connected"
+            description="Connect a computer to back it up."
+            control={
+              <Button size="sm" variant="outline" render={<Link to="/settings/connections" />}>
+                Open Environments
+              </Button>
+            }
+          />
+        </SettingsSection>
       ) : (
         // Keyed so dialogs and pending work never carry over to another machine.
         <BackupMachineSettings
@@ -131,9 +132,17 @@ function BackupMachineSettings({
 
   if (!connected) {
     return (
-      <p className="px-3 text-sm text-muted-foreground sm:px-4">
-        Reconnect {label} to manage its backups.
-      </p>
+      <SettingsSection id="backup-status" title="Backups unavailable" hideTitle>
+        <SettingsRow
+          title={`${label} is disconnected`}
+          description="Reconnect it to manage its backups."
+          control={
+            <Button size="sm" variant="outline" render={<Link to="/settings/connections" />}>
+              Open Environments
+            </Button>
+          }
+        />
+      </SettingsSection>
     );
   }
   if (status.data === null) {
@@ -251,7 +260,7 @@ function TurnOnBackups({
       label="Turn on backups"
       tone="empty"
       title="Backups are off"
-      detail="Turn them on to keep a copy somewhere that survives losing this computer."
+      detail="Keep a copy of your chats, workspaces, accounts and settings somewhere that survives losing this computer."
       actions={
         <>
           <Button size="sm" disabled={!canTurnOn} onClick={onTurnOn}>
@@ -443,7 +452,7 @@ function FolderSection({
         control={
           <div className="flex shrink-0 items-center gap-2">
             <Button size="sm" variant="outline" disabled={!canChange} onClick={onChange}>
-              Change
+              Change folder
             </Button>
             {canOpen ? (
               <Button size="sm" variant="outline" onClick={() => void openFolder()}>

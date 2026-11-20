@@ -112,7 +112,7 @@ export function BackupRecentList({
                   disabled={!canMaintain}
                   onClick={() => openRestoreDialog({ environmentId, path: file.path })}
                 >
-                  Restore
+                  Restore…
                 </Button>
                 <Button
                   size="sm"

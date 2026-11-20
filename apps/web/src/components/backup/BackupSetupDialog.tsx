@@ -154,15 +154,19 @@ export function BackupSetupDialog({
                 Every backup is encrypted with this password. You need it to restore, and Codenine
                 cannot recover it.
               </p>
-              <label className="flex cursor-pointer items-start gap-2 text-sm">
-                <Checkbox
-                  checked={saved}
-                  disabled={submitting}
-                  aria-invalid={errors.saved !== undefined}
-                  aria-describedby={errors.saved === undefined ? undefined : `${id}-saved-error`}
-                  onCheckedChange={(checked) => setSaved(checked)}
-                />
-                I saved this password somewhere safe, like a password manager
+              <label className="flex cursor-pointer items-start gap-3 text-sm has-disabled:cursor-not-allowed">
+                <span className="flex h-5 items-center">
+                  <Checkbox
+                    checked={saved}
+                    disabled={submitting}
+                    aria-invalid={errors.saved !== undefined}
+                    aria-describedby={errors.saved === undefined ? undefined : `${id}-saved-error`}
+                    onCheckedChange={(checked) => setSaved(checked)}
+                  />
+                </span>
+                <span className="leading-5">
+                  I saved this password somewhere safe, like a password manager
+                </span>
               </label>
               <FieldError id={`${id}-saved-error`} message={errors.saved} />
             </section>

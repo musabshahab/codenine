@@ -251,7 +251,7 @@ describe("backup folders", () => {
   it("lists the cloud folders it found", () => {
     expect(cloudFoldersLine(suggestions)).toBe("Found iCloud Drive and Dropbox on this computer.");
     expect(cloudFoldersLine(suggestions.slice(0, 1))).toBe(
-      "No synced cloud folder found on this computer.",
+      "No synced cloud folder found on this computer. An external drive keeps backups safe if this computer is lost.",
     );
   });
 });

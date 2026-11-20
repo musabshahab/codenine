@@ -68,7 +68,7 @@ export function BackupFolderChoice({
             title={
               <span className="flex flex-wrap items-center gap-1.5">
                 {suggestion.label}
-                {suggestion.recommended ? (
+                {suggestion.recommended && suggestion.kind !== "local" ? (
                   <Badge size="sm" variant="secondary">
                     Recommended
                   </Badge>
@@ -88,7 +88,7 @@ export function BackupFolderChoice({
           <Input
             aria-label="Folder for backups"
             value={choice.otherPath}
-            placeholder="/Volumes/Backup Drive/Codenine"
+            placeholder="Path to a folder"
             autoComplete="off"
             spellCheck={false}
             disabled={disabled}
