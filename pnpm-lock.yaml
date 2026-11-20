@@ -259,6 +259,7 @@ catalogs:
       version: 11.0.5
 
 overrides:
+  unenv: 2.0.0-rc.24
   mdast-util-math: 3.0.0
   micromark-extension-llm-math: 3.1.0
   micromark: 4.0.2
