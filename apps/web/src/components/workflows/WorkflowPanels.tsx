@@ -179,7 +179,11 @@ export function WorkflowPanel(props: {
           <AlertDescription>
             <ul className="flex flex-col gap-1">
               {props.problems.map((problem) => (
-                <li key={`${problem.step ?? ""}:${problem.message}`}>
+                <li
+                  key={`${problem.step ?? ""}:${problem.message}`}
+                  // A problem is a sentence, so its link wraps in the panel instead of running off it.
+                  className="wrap-anywhere [--inline-button-text-align:start] [--inline-button-white-space:normal] [&_[data-slot=inline-button]]:max-w-full"
+                >
                   {problem.step === null && !isLeadProblem(problem.message) ? (
                     problem.message
                   ) : (
