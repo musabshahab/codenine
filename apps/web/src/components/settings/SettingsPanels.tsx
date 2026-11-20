@@ -1623,6 +1623,7 @@ export function ThreadsSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["ghqCloneLayout"]}
@@ -1648,6 +1649,7 @@ export function ThreadsSettingsPanel() {
           {...searchableSetting("auto-resume-limited-threads")}
           description="Automatically resume threads when their usage limits reset. You can cancel auto-resume in each thread."
           settingKeys={["autoResumeLimitedThreads"]}
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["autoResumeLimitedThreads"]}
@@ -1664,6 +1666,7 @@ export function ThreadsSettingsPanel() {
           {...searchableSetting("snooze-limited-threads")}
           description="Snooze threads until their usage limits reset. Enable auto-resume to continue the agent after the reset."
           settingKeys={["snoozeLimitedThreads"]}
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["snoozeLimitedThreads"]}
@@ -1697,6 +1700,7 @@ export function ThreadsSettingsPanel() {
                 />
               ) : null
             }
+            controlPlacement="inline"
             control={
               <ScopedSwitch
                 settingKeys={["sidebarAutoSettleOnMerge"]}
@@ -1728,6 +1732,7 @@ export function ThreadsSettingsPanel() {
                 />
               ) : null
             }
+            controlPlacement="inline"
             control={
               <ScopedSwitch
                 settingKeys={["sidebarAutoSettleAfterDays"]}
@@ -1761,6 +1766,7 @@ export function ThreadsSettingsPanel() {
               settingKeys={["sidebarAutoSettleKeepPullRequests"]}
               title="Keep threads with a PR"
               description="Inactivity does not mark threads with a pull request done. Merge and close still do."
+              controlPlacement="inline"
               control={
                 <ScopedSwitch
                   settingKeys={["sidebarAutoSettleKeepPullRequests"]}
@@ -1967,6 +1973,7 @@ export function MaintenanceSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["enableProviderUpdateChecks"]}
@@ -2003,6 +2010,7 @@ export function MaintenanceSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["continueThreadsAfterServerUpdate"]}
