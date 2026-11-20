@@ -30,7 +30,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { ScriptIcon } from "../projectScriptEditor";
 import { ThreadKindIcon } from "../ThreadKindIcon";
 import { resolveThreadKind } from "../threadKind.logic";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import {
   Empty,
   EmptyContent,
@@ -178,11 +178,9 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           <dt className="leading-7 text-muted-foreground">Commands</dt>
           <dd className="flex flex-wrap gap-2">
             {scripts.length === 0 ? (
-              <span className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
-                None yet.
-                <Button variant="link" size="xs" onClick={openSettings}>
-                  Add them in workspace settings
-                </Button>
+              <span className="text-xs text-muted-foreground">
+                None yet.{" "}
+                <InlineButton onClick={openSettings}>Add them in workspace settings</InlineButton>
               </span>
             ) : (
               scripts.map((script) => (

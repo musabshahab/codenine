@@ -119,7 +119,9 @@ export function ArchivePage() {
               <EmptyDescription>
                 {shown === "completed"
                   ? "Chats and tasks you mark done, or that finish and sit idle, move here."
-                  : (archived.error ?? "Chats and tasks you archive move here.")}
+                  : archived.error
+                    ? "Check that the machine is connected, then try again."
+                    : "Chats and tasks you archive move here."}
               </EmptyDescription>
             )}
           </EmptyHeader>
