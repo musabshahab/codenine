@@ -20,6 +20,7 @@ import { WorkflowEditor } from "../workflows/WorkflowEditor";
 import { WorkflowBreadcrumb } from "../workflows/WorkflowHeader";
 import {
   blankWorkflow,
+  withMadeAgents,
   workflowFromDraft,
   workflowFromTeamPlan,
 } from "../workflows/workflows.logic";
@@ -163,6 +164,7 @@ function DraftWorkflowEditor(props: {
   const status = useThreadStatus(ref);
   const shell = useQuietThreadShell(ref);
   const catalog = useAgentModelCatalog(environmentId);
+  const { agents } = useAgents(environmentId);
   const edit = useWorkflowEdit(environmentId, editKey);
   if (draft === null && edit === null && status !== "live" && status !== "deleted") {
     return (
@@ -174,11 +176,14 @@ function DraftWorkflowEditor(props: {
   const start =
     draft === null
       ? BLANK
-      : workflowFromDraft(draft, {
-          model:
-            shell === null ? null : agentModelOfSelection(catalog.entries, shell.modelSelection),
-          projectId: shell?.projectId ?? null,
-        });
+      : withMadeAgents(
+          workflowFromDraft(draft, {
+            model:
+              shell === null ? null : agentModelOfSelection(catalog.entries, shell.modelSelection),
+            projectId: shell?.projectId ?? null,
+          }),
+          agents,
+        );
   return (
     <WorkflowEditor
       environmentId={environmentId}

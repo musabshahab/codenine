@@ -1,4 +1,5 @@
 import {
+  AgentName,
   EnvironmentId,
   ProviderInstanceId,
   type TeamAgent,
@@ -23,6 +24,7 @@ import {
   changeWorkflowEdit,
   checkWorkflow,
   connectSteps,
+  draftProblems,
   findCycle,
   layoutSteps,
   raisedLimits,
@@ -34,6 +36,7 @@ import {
   stepRunState,
   upcomingRuns,
   upcomingRunsLine,
+  withMadeAgents,
   workflowCardStatus,
   workflowFromDraft,
   workflowFromTeamPlan,
@@ -192,6 +195,40 @@ describe("workflowFromDraft", () => {
     expect(definition.steps[1]?.suggestion?.title).toBe("Publisher");
     expect(definition.steps[1]?.position.x).toBeGreaterThan(definition.steps[0]?.position.x ?? 0);
     expect(definition.trigger.position.x).toBeLessThan(definition.steps[0]?.position.x ?? 0);
+
+    // Before any agent exists, both steps wait: one for its missing agent, one to be created.
+    const agent = (name: string, model: boolean) => ({
+      name: AgentName.make(name),
+      title: name,
+      model: model
+        ? {
+            instanceId: ProviderInstanceId.make("claude"),
+            model: "haiku",
+            effort: "medium" as const,
+          }
+        : null,
+    });
+    const aboutSteps = (problems: ReturnType<typeof draftProblems>) =>
+      problems.filter((problem) => problem.step !== null);
+    expect(aboutSteps(draftProblems(definition, [])).map((problem) => problem.step)).toEqual([
+      "research",
+      "publish",
+    ]);
+    // A suggested agent the user already made does the step instead of being offered again.
+    const made = withMadeAgents(definition, [agent("researcher", true), agent("publisher", false)]);
+    expect(made.steps[1]?.agent).toBe("publisher");
+    // It has no model and neither has the step, which the server would refuse to run.
+    expect(
+      aboutSteps(draftProblems(made, [agent("researcher", true), agent("publisher", false)])),
+    ).toEqual([
+      {
+        step: "publish",
+        message: "Choose a model for Publish. publisher has no model of its own.",
+      },
+    ]);
+    expect(
+      aboutSteps(draftProblems(made, [agent("researcher", true), agent("publisher", true)])),
+    ).toEqual([]);
   });
 });
 

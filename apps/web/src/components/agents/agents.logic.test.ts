@@ -12,6 +12,7 @@ import {
   copyTitle,
   modelInfoLine,
   NO_ABILITIES,
+  suggestedAbilities,
 } from "./agents.logic";
 
 const gmail = ConnectionId.make("gmail");
@@ -70,6 +71,16 @@ describe("checkAgentDraft", () => {
       checkAgentDraft({ ...draft, title: "Bug finder" }, true, AgentName.make("code-reviewer")),
     ).toMatchObject({ agent: { name: "code-reviewer", title: "Bug finder" } });
   });
+});
+
+it("starts a suggested agent able to search the web only when its words ask for it", () => {
+  expect(suggestedAbilities("Using web search, find notable tech news.")).toEqual({
+    readFiles: false,
+    editFiles: false,
+    runCommands: false,
+    searchWeb: true,
+  });
+  expect(suggestedAbilities("Pick the best stories and summarise them.").searchWeb).toBe(false);
 });
 
 it("titles a copy so its name is free", () => {

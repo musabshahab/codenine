@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import { resolveTeamDraft } from "@codenine/client-runtime/team";
 import {
+  type AgentModel,
   type AgentSummary,
   type AgentName,
   type ConnectionSnapshot,
@@ -28,7 +29,7 @@ import { useReadSinceOpened } from "../../hooks/useEditorDraft";
 import { useEnvironmentQuery } from "../../state/query";
 import { environmentThreadDetails } from "../../state/threads";
 import { AgentForm, type AgentFormStart } from "../agents/AgentForm";
-import { NO_ABILITIES, teamRoleAbilities } from "../agents/agents.logic";
+import { suggestedAbilities, teamRoleAbilities } from "../agents/agents.logic";
 import {
   type AgentModelCatalog,
   agentChatModelSelection,
@@ -289,6 +290,7 @@ function SuggestedAgentForm(props: {
 /** The lead's suggestion for a workflow step, with only the connectors the user has. */
 function workflowStepStart(
   step: WorkflowStep | null,
+  leadModel: AgentModel | null,
   connections: ReadonlyArray<ConnectionSnapshot>,
 ): AgentFormStart {
   const suggestion = step?.suggestion;
@@ -296,11 +298,14 @@ function workflowStepStart(
     title: suggestion?.title ?? "",
     description: suggestion?.description ?? "",
     instructions: suggestion?.instructions ?? "",
-    model: step?.model ?? null,
+    // As a team's suggested agent starts on its member's model, this one starts on the lead's.
+    model: step?.model ?? leadModel,
     connectors: (suggestion?.connectors ?? []).flatMap((id) =>
       connections.some((connection) => connection.id === id) ? [{ id, approvals: {} }] : [],
     ),
-    abilities: NO_ABILITIES,
+    abilities: suggestedAbilities(
+      `${suggestion?.description ?? ""}\n${suggestion?.instructions ?? ""}\n${step?.instructions ?? ""}`,
+    ),
   };
 }
 
@@ -323,7 +328,13 @@ function WorkflowStepAgentForm(props: {
   // The form starts from the suggestion once, and stays open if the workflow changes meanwhile.
   const [start, setStart] = useState<AgentFormStart | null>(null);
   if (start === null && (connectors.data !== null || connectors.error !== null)) {
-    setStart(workflowStepStart(step, connectors.data?.connections ?? NO_CONNECTIONS));
+    setStart(
+      workflowStepStart(
+        step,
+        edit?.definition.lead.model ?? null,
+        connectors.data?.connections ?? NO_CONNECTIONS,
+      ),
+    );
   }
   const backToWorkflow = () => {
     const target = parseWorkflowEditKey(editKey);
@@ -374,7 +385,13 @@ function WorkflowStepAgentForm(props: {
       workspace={props.workspace}
       agent={null}
       connected={props.connected}
-      forTeam={{ start, onSaved, onCancel: backToWorkflow }}
+      forTeam={{
+        start,
+        onSaved,
+        onCancel: backToWorkflow,
+        intro:
+          "The lead suggested this agent for a step of your workflow. Save it to give the step its agent.",
+      }}
     />
   );
 }

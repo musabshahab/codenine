@@ -38,6 +38,7 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { ModelField } from "./ModelField";
 import type { WorkflowSelection } from "./workflowEditStore";
 import {
+  problemLine,
   assignStepAgent,
   removeStep,
   updateStep,
@@ -197,7 +198,7 @@ export function WorkflowPanel(props: {
                         )
                       }
                     >
-                      {problem.message}
+                      {problemLine(problem, definition.steps)}
                     </InlineButton>
                   )}
                 </li>

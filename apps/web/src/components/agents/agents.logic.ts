@@ -69,6 +69,18 @@ export function teamRoleAbilities(role: TeamAgentRole): AgentAbilities {
   }
 }
 
+/**
+ * What a suggested agent starts able to do when its suggestion names no role: only what its own
+ * words plainly ask for, so an agent told to search the web is not saved unable to. The user
+ * reviews the switches before saving.
+ */
+export function suggestedAbilities(text: string): AgentAbilities {
+  return {
+    ...NO_ABILITIES,
+    searchWeb: /\b(web search|search(es|ing)? (the web|online)|browse the web)\b/i.test(text),
+  };
+}
+
 export interface AgentDraft {
   readonly title: string;
   readonly description: string;
