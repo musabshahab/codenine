@@ -53,7 +53,7 @@ export function AddSkillDialog(props: {
     },
     {
       value: "codenine",
-      label: "Codenine",
+      label: "All workspaces",
       items: available.filter((skill) => skill.scope === "codenine").map(item),
     },
   ].filter((group) => group.items.length > 0);
