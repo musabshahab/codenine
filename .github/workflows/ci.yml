@@ -111,7 +111,8 @@ jobs:
     name: Build and Typecheck
     needs: changes
     if: ${{ !cancelled() && (needs.changes.outputs.build != 'false' || needs.changes.outputs.typecheck != 'false') }}
-    runs-on: ubuntu-latest
+    # Playwright has no Chromium build for the runner image ubuntu-latest now points at.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -330,7 +331,8 @@ jobs:
     name: Test Web
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.test_web != 'false' }}
-    runs-on: ubuntu-latest
+    # Pinned for Chromium, as the build job is.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -344,8 +346,8 @@ jobs:
       - name: Setup Vite+
         uses: ./.github/actions/setup-ci-deps
 
-      # The browser project runs React tests in headless Chromium. Same cache key as
-      # test_server, so both jobs share one downloaded browser.
+      # The browser project runs React tests in headless Chromium. The build job's boot
+      # check uses the same cache key, so both share one downloaded browser.
       - name: Resolve Playwright version
         id: playwright_version
         run: echo "version=$(node -p "require('./apps/web/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
@@ -413,33 +415,6 @@ jobs:
       # No Electron setup here: `codenine` (apps/server) has no Electron dependency
       # and none of its tests touch the runtime. Only the non-server `test`
       # job, which covers @codenine/desktop, needs the download.
-      # Cache the pinned browser and skip apt unless shared libraries are missing.
-      - name: Resolve Playwright version
-        id: playwright_version
-        if: steps.changes.outputs.test_server != 'false'
-        run: echo "version=$(node -p "require('./apps/server/node_modules/playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Chromium
-        id: chromium_cache
-        if: steps.changes.outputs.test_server != 'false'
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
-
-      - name: Install Chromium for server browser integration tests
-        if: steps.changes.outputs.test_server != 'false' && steps.chromium_cache.outputs.cache-hit != 'true'
-        run: node apps/server/node_modules/playwright-core/cli.js install --only-shell chromium
-
-      - name: Install missing Chromium system dependencies
-        if: steps.changes.outputs.test_server != 'false'
-        run: |
-          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
-          test -n "$browser"
-          if ldd "$browser" | grep '=> not found'; then
-            node apps/server/node_modules/playwright-core/cli.js install-deps chromium
-          fi
-
       - name: Test
         if: steps.changes.outputs.test_server != 'false'
         env:

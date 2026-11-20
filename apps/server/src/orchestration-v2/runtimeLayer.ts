@@ -263,8 +263,7 @@ const layerTeamTaskProvided = TeamTaskService.layer.pipe(
       layerThreadLaunchProvided,
       layerThreadManagementProvided,
       layerProjectService,
-      GitVcsDriver.layer,
-    ),
+    ).pipe(Layer.provideMerge(GitVcsDriver.layer)),
   ),
 );
 const layerSecretRequestsProvided = SecretRequests.layer.pipe(

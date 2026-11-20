@@ -95,6 +95,8 @@ catalog:
   unified: 11.0.5
 
 overrides:
+  # wrangler pins rc.24 and its preset peers on exactly that; a fresh resolve otherwise picks rc.25.
+  unenv: 2.0.0-rc.24
   # Pin every patched package, including transitive dependencies, so lockfile-free
   # release installs cannot drift past the patch. Update these with patchedDependencies.
   mdast-util-math: 3.0.0

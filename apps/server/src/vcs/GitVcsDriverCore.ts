@@ -563,7 +563,8 @@ function isMissingGitCwdError(error: GitCommandError): boolean {
 }
 
 function isNonRepositoryGitStderr(stderr: string): boolean {
-  return stderr.toLowerCase().includes("not a git repository");
+  // Newer Git says the second for a gitfile that points nowhere.
+  return /not a git repository|does not point to a valid repository/i.test(stderr);
 }
 function isUnbornHeadStderr(stderr: string): boolean {
   const normalized = stderr.toLowerCase();

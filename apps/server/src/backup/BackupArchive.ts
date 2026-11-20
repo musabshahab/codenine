@@ -403,12 +403,15 @@ const summarizeDatabase = (database: NodeSqlite.DatabaseSync): DatabaseSummary =
 
 // One backup step copies a consistent snapshot on a worker thread; WAL readers never block the
 // server's writes, and a stepped copy would restart whenever the server wrote between steps.
+// Node takes only a positive page count per step, so "all at once" is the largest one.
+const WHOLE_DATABASE_PAGES = 2 ** 31 - 1;
+
 const snapshotDatabase = (databasePath: string, snapshotPath: string) =>
   Effect.tryPromise({
     try: async () => {
       const source = new NodeSqlite.DatabaseSync(databasePath, { readOnly: true });
       try {
-        await NodeSqlite.backup(source, snapshotPath, { rate: -1 });
+        await NodeSqlite.backup(source, snapshotPath, { rate: WHOLE_DATABASE_PAGES });
       } finally {
         source.close();
       }
