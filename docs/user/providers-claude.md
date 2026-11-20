@@ -4,37 +4,39 @@ Codenine uses Claude Code's login and configuration. Start with the default prov
 for one account; [provider setup](./install.md#providers) covers installation and
 shared provider settings.
 
-## Separate accounts or configurations
+## Use more than one account
 
-Use a separate Claude config directory for each account. This also works for named
-presets that need different Claude settings or a router connection.
+In **Settings → Accounts**, choose **Add account**, pick Claude, then **Sign in with Claude**. Name
+the account, such as Work or Personal, and finish Claude Code's sign-in in the panel that opens.
+Codenine gives each new account its own folder in your Codenine folder
+(`~/.codenine/accounts/claude`), so there is no path to type. If Claude Code is already signed in on
+the machine, the first account uses that login where it is.
 
-Keep your existing account in the default directory. On the environment's machine,
-create the second login:
+Each Claude account keeps its own login and chat history. When you pick another Claude account in a
+chat that has already started, Codenine asks how to go on:
+
+- **Branch this chat** copies the conversation into a new chat on the other account. The history
+  goes with your next message, so it counts toward that account's usage.
+- **New chat** starts an empty chat on the other account in the same workspace.
+
+The original chat stays on its account either way.
+
+To end an account's login, choose **Sign out** on it. Removing an account keeps its login and chat
+history on the machine, so adding it again picks them up.
+
+### Configure an account by hand
+
+**Configure manually** lets you choose the config directory, for presets that need different Claude
+settings or a router connection. It sets `CLAUDE_CONFIG_DIR` and leaves `HOME` and the system
+keychain location intact. To sign in from your own terminal, set the same variable:
 
 ```bash
-mkdir -p ~/.claude_personal
-CLAUDE_CONFIG_DIR=~/.claude_personal claude auth login
+CLAUDE_CONFIG_DIR=~/.codenine/accounts/claude/personal claude auth login
 ```
 
-Add another Claude instance in **Settings > Providers**:
+Setting `HOME` instead can put credentials where this provider will not find them.
 
-| Instance        | Binary path | CLAUDE_CONFIG_DIR path |
-| --------------- | ----------- | ---------------------- |
-| Claude Work     | `claude`    | Leave empty            |
-| Claude Personal | `claude`    | `~/.claude_personal`   |
-
-An empty config-directory setting uses Claude Code's normal configuration. The
-custom setting changes `CLAUDE_CONFIG_DIR`, leaving `HOME` and the system keychain
-location intact. Use the same variable for the login command. Setting `HOME`
-instead can put credentials where this provider will not find them.
-
-Check the account reported in provider settings after signing in. Existing
-threads can switch only between Claude instances with the same config directory.
-Separate account directories stay isolated, including their local conversation
-state. Claude does not have Codex's shared-home and shadow-home arrangement.
-
-For presets that differ only in API keys or endpoints, use the instance's
+For presets that differ only in API keys or endpoints, use the account's
 **Environment variables**. Variable assignments do not belong in **Launch arguments**.
 
 Claude Code's verbose mode can stay enabled when you use Claude for text generation, including
@@ -60,7 +62,7 @@ history for that message. The cache lasts about an hour on a Claude
 subscription and 5 minutes with an API key, Bedrock, or Vertex. See [commands and skills](./composer.md#commands-and-skills) for using
 composer commands.
 
-**Compact idle threads** in **Settings > Providers > Advanced** controls this for threads
+**Compact idle threads** in **Settings > Accounts > Advanced** controls this for threads
 over 200,000 tokens. Each Claude provider's settings can override it:
 
 - **When you return** shows the **Compact** chip described above. This is the default.
@@ -83,7 +85,7 @@ timestamp shows when the displayed wait started.
 
 ## Skills
 
-Claude skills come from the config directory's `skills` folder and the project's
+Claude skills come from the config directory's `skills` folder and the workspace's
 `.claude/skills` folder. If both define the same name, the config-directory copy
 wins. Skills disabled in Claude's settings do not appear in the composer.
 
@@ -97,7 +99,7 @@ tool, which refuses skills reserved for manual invocation.
 
 To show Claude task lists, add
 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` under **Variables** in the Claude instance's
-**Environment** section in **Settings > Providers**. Each update shows as a Tasks
+**Environment** section in **Settings > Accounts**. Each update shows as a Tasks
 row in the thread; open it to see every step.
 
 ## Use OpenRouter
@@ -108,12 +110,12 @@ runs through Claude Code, so Claude Code must be installed on the environment's 
 do not sign in to it.
 
 1. Create a key at [openrouter.ai/keys](https://openrouter.ai/keys).
-2. In **Settings > Providers**, select **Add provider**, choose **OpenRouter**, and select
+2. In **Settings > Accounts**, select **Add account**, choose **OpenRouter**, and select
    **Next**. On the Welcome page, select **Have an OpenRouter API key?** instead.
 3. Paste the key, keep the starter models you want, and select **Add OpenRouter**.
 
 Codenine stores the key as a secret and checks it with OpenRouter. If OpenRouter rejects it, open
-the OpenRouter instance in **Settings > Providers** and replace **OpenRouter API key**. When the key
+the OpenRouter instance in **Settings > Accounts** and replace **OpenRouter API key**. When the key
 has a spending limit, the instance's status shows how much is left.
 
 The instance lists only the models you add. To add one, copy its ID, such as

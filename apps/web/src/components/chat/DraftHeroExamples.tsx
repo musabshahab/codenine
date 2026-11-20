@@ -5,22 +5,27 @@ import {
   useComposerDraftHasUserContent,
   useComposerDraftStore,
   useComposerTeamRequested,
+  useComposerWorkflowRequested,
 } from "~/composerDraftStore";
 import { cn } from "~/lib/utils";
 import type { ChatComposerHandle } from "./ChatComposer";
 import { draftHeroExamples } from "./composerTeam.logic";
 
-/** The quiet line under the composer while Team is on. */
-export function ComposerTeamNote(props: {
+/** The quiet line under the composer while Team or Workflow is on. */
+export function ComposerRequestNote(props: {
   target: ComposerThreadTarget;
-  offered: boolean;
+  teamOffered: boolean;
+  workflowOffered: boolean;
   className?: string;
 }) {
-  const on = useComposerTeamRequested(props.target);
-  if (!props.offered || !on) return null;
+  const team = useComposerTeamRequested(props.target) && props.teamOffered;
+  const workflow = useComposerWorkflowRequested(props.target) && props.workflowOffered;
+  if (!team && !workflow) return null;
   return (
     <p className={cn("text-center text-muted-foreground text-xs", props.className)}>
-      The lead agent will plan a team and show it to you. Nothing runs until you approve it.
+      {team
+        ? "The lead agent will plan a team and show it to you. Nothing runs until you approve it."
+        : "The lead agent will draft a workflow for you to review. Nothing is saved until you save it."}
     </p>
   );
 }
@@ -33,11 +38,13 @@ export function DraftHeroExamples(props: {
   composerRef: { readonly current: ChatComposerHandle | null };
 }) {
   const composerEmpty = !useComposerDraftHasUserContent(props.target);
+  const workflowRequested = useComposerWorkflowRequested(props.target);
   const setTeamRequested = useComposerDraftStore((store) => store.setTeamRequested);
   const examples = draftHeroExamples({
     hasProject: props.hasProject,
     composerEmpty,
     teamAvailable: props.teamOffered,
+    workflowRequested,
   });
   if (examples.length === 0) return null;
   return (

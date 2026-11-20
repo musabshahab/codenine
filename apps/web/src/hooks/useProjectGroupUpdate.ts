@@ -115,7 +115,7 @@ export function useProjectPin() {
     void updateProjectGroup(
       group.memberProjects,
       { pinned },
-      pinned ? "Failed to pin project" : "Failed to unpin project",
+      pinned ? "Failed to pin workspace" : "Failed to unpin workspace",
     );
   };
   return {
@@ -136,7 +136,7 @@ export function checkProjectAccess(
   return denied
     ? failWith(
         failureTitle,
-        `This connection cannot change projects in ${denied.environmentLabel ?? "this environment"}.`,
+        `This connection cannot change workspaces in ${denied.environmentLabel ?? "this environment"}.`,
       )
     : null;
 }

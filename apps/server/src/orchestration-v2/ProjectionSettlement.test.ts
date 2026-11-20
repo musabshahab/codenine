@@ -218,6 +218,8 @@ it.effect(
       const idle = yield* createThread("idle");
       const completed = yield* createThread("completed");
       yield* createRun(completed);
+      const filed = yield* createThread("filed", { folder: "Research" });
+      yield* createRun(filed);
       for (const [name, overrides] of [
         ["archived", { archivedAt: old }],
         ["deleted", { deletedAt: old }],
@@ -225,7 +227,6 @@ it.effect(
         ["unsettled", { settledOverride: "active" }],
         ["pinned", { pinnedAt: old }],
         ["auto-settle-disabled", { autoSettleDisabledAt: old }],
-        ["filed", { folder: "Research" }],
       ] satisfies ReadonlyArray<readonly [string, Partial<OrchestrationV2AppThread>]>) {
         yield* createRun(yield* createThread(name, overrides));
       }
@@ -325,7 +326,7 @@ it.effect(
       );
       assert.deepEqual(
         new Set(eligible.map((thread) => thread.id)),
-        new Set([idle, completed, queued, woke, background, persistent, rolledBack]),
+        new Set([idle, completed, filed, queued, woke, background, persistent, rolledBack]),
       );
       assert.deepEqual(
         new Set(eligible.map((thread) => thread.id)),

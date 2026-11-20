@@ -77,6 +77,7 @@ import {
   formatClaudeResumeCompactionQuestion,
 } from "@codenine/shared/claudeCompaction";
 import {
+  AgentAbility,
   type ChatAttachment,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   ClaudeSettings,
@@ -188,6 +189,10 @@ import {
 import type { ManagedServerProvider } from "@codenine/provider-core/server/snapshot";
 import { CODENINE_ORCHESTRATION_INSTRUCTIONS } from "@codenine/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@codenine/provider-core/server/runtimeInstructions";
+import {
+  buildSkillsInstructions,
+  type SkillListing,
+} from "@codenine/provider-core/server/skillInstructions";
 import {
   mcpToolPresentation,
   normalizeMcpText,
@@ -486,6 +491,14 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
+
+/** Claude Code's own tools behind each ability an agent can lose, as the Agent SDK names them. */
+const CLAUDE_TOOLS_BY_AGENT_ABILITY: Readonly<Record<AgentAbility, ReadonlyArray<string>>> = {
+  readFiles: ["Read", "Glob", "Grep", "LSP"],
+  editFiles: ["Edit", "Write", "NotebookEdit", "EnterWorktree", "ExitWorktree"],
+  runCommands: ["Bash", "PowerShell", "Monitor"],
+  searchWeb: ["WebSearch", "WebFetch"],
+};
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,
@@ -1523,6 +1536,10 @@ export function makeClaudeQueryOptions(input: {
   readonly appendSystemPromptFileText?: string;
   // Flag settings, because a user's settings.json env beats the process env in Claude Code.
   readonly toolSearchOverride?: "true";
+  /** Codenine's skills, listed after its orchestration instructions while its MCP server is attached. */
+  readonly skills?: ReadonlyArray<SkillListing> | undefined;
+  /** Who the chat's agent is and how it works. */
+  readonly agentInstructions?: string;
 }): ClaudeAgentSdkQueryOptions {
   const compiledSelection = compileClaudeModelSelection(input.modelSelection, input.modelCatalog);
   const {
@@ -1635,6 +1652,10 @@ export function makeClaudeQueryOptions(input: {
           (input.mcpServers === undefined
             ? ""
             : CODENINE_ORCHESTRATION_INSTRUCTIONS + CLAUDE_BACKGROUND_WAIT_INSTRUCTIONS),
+        ...(input.mcpServers === undefined || input.skills === undefined
+          ? []
+          : [buildSkillsInstructions(input.skills)].filter((text) => text.length > 0)),
+        ...(input.agentInstructions ? [input.agentInstructions] : []),
         ...launchAppendSystemPrompt,
       ].join("\n\n"),
     },
@@ -1741,6 +1762,9 @@ export const CLAUDE_READ_ONLY_CODENINE_MCP_ALLOWED_TOOLS: ReadonlyArray<string> 
 // Codenine waits can block for an hour; exceed Claude's default 60 s timeout.
 export const CLAUDE_CODENINE_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
+// A workflow step's approval card waits for the user, so a connector call can outlast any wait above.
+const CLAUDE_CONNECTOR_MCP_TOOL_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1_000;
+
 // allowedTools pre-approves calls; tools controls availability. Pre-approve Codenine tools for headless modes,
 // limited to annotated read-only tools in read-only sandboxes.
 
@@ -1759,9 +1783,28 @@ export function claudeMcpQueryOverrides(input: {
   const mcpAllowedTools = input.readOnlySandbox
     ? CLAUDE_READ_ONLY_CODENINE_MCP_ALLOWED_TOOLS
     : [CLAUDE_CODENINE_MCP_TOOL_WILDCARD];
+  const connectors = session.connectors ?? [];
   return {
-    allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
+    allowedTools: Array.from(
+      new Set([
+        ...(input.allowedTools ?? []),
+        ...mcpAllowedTools,
+        // Codenine asks before a connector action itself, so Claude must not ask again.
+        ...connectors.map((connectionId) => `mcp__${connectionId}__*`),
+      ]),
+    ),
     mcpServers: {
+      ...Object.fromEntries(
+        connectors.map((connectionId) => [
+          connectionId,
+          {
+            type: "http" as const,
+            url: McpProviderSession.connectorEndpoint(session, connectionId),
+            headers: { Authorization: session.authorizationHeader },
+            timeout: CLAUDE_CONNECTOR_MCP_TOOL_TIMEOUT_MS,
+          },
+        ]),
+      ),
       codenine: {
         type: "http",
         url: session.endpoint,
@@ -2113,26 +2156,35 @@ function isSupportedClaudeImageMimeType(
 
 export function makeClaudeUserMessage(input: {
   readonly text: string;
+  /** Codenine's context, each a text block ahead of the user's text. */
+  readonly context?: ReadonlyArray<string> | undefined;
   readonly priority?: SDKUserMessage["priority"];
   readonly skills?: ReadonlyMap<string, ClaudeSkillTarget>;
+  readonly codenineSkills?: ReadonlyArray<string> | undefined;
   readonly uuid?: SDKUserMessage["uuid"];
 }): SDKUserMessage {
   // Claude expands a skill only when `/name` starts the last text block.
   // Keep the whole request before that block; see ClaudeSkillDispatch.
   const dispatch =
-    input.skills === undefined ? undefined : planClaudeSkillDispatch(input.text, input.skills);
+    input.skills === undefined
+      ? undefined
+      : planClaudeSkillDispatch(input.text, input.skills, input.codenineSkills);
+  const context = (input.context ?? []).map((text) => ({ type: "text" as const, text }));
   return {
     type: "user",
     message: {
       role: "user",
       content: dispatch
         ? [
+            ...context,
             ...(dispatch.leadingText === undefined
               ? []
               : [{ type: "text" as const, text: dispatch.leadingText }]),
             { type: "text" as const, text: dispatch.commandText },
           ]
-        : input.text,
+        : context.length === 0
+          ? input.text
+          : [...context, { type: "text" as const, text: input.text }],
     },
     parent_tool_use_id: null,
     ...(input.priority === undefined ? {} : { priority: input.priority }),
@@ -2281,10 +2333,14 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   readonly fileSystem: FileSystem.FileSystem;
   readonly pdfReservation: Effect.Success<ReturnType<typeof reserveClaudePdfBudget>>;
   readonly skills?: ReadonlyMap<string, ClaudeSkillTarget>;
+  readonly message: Pick<ProviderAdapter.ProviderAdapterV2TurnMessage, "context" | "skills">;
 }) {
+  const codenineSkills = input.message.skills?.attached;
   if (input.attachments.length === 0) {
     const message = makeClaudeUserMessage({
       text: input.text,
+      context: input.message.context,
+      codenineSkills,
       ...(input.skills === undefined ? {} : { skills: input.skills }),
       ...(input.priority === undefined ? {} : { priority: input.priority }),
       ...(input.uuid === undefined ? {} : { uuid: input.uuid }),
@@ -2309,8 +2365,9 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   const dispatch =
     input.skills === undefined
       ? undefined
-      : planClaudeSkillDispatch(textWithAttachmentPaths, input.skills);
-  const content: Array<ClaudeUserContentBlock> = [];
+      : planClaudeSkillDispatch(textWithAttachmentPaths, input.skills, codenineSkills);
+  const context = (input.message.context ?? []).map((text) => ({ type: "text" as const, text }));
+  const content: Array<ClaudeUserContentBlock> = [...context];
   // Base64 adds a third to the payload. Leave room below Anthropic's 32 MB
   // request limit for text, instructions, and SDK framing. The SDK does not
   // expose document/context-window capabilities, so use the 100-page limit
@@ -2323,16 +2380,17 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
   // including images that follow it in attachment order.
   const images = new Map<number, ClaudeUserContentBlock>();
   const textBytes = Buffer.byteLength(
-    encodeClaudeJson(
-      dispatch
+    encodeClaudeJson([
+      ...context,
+      ...(dispatch
         ? [
             ...(dispatch.leadingText === undefined
               ? []
               : [{ type: "text", text: dispatch.leadingText }]),
             { type: "text", text: dispatch.commandText },
           ]
-        : [{ type: "text", text: textWithAttachmentPaths }],
-    ),
+        : [{ type: "text", text: textWithAttachmentPaths }]),
+    ]),
   );
   input.pdfReservation.budget.pending.bytes += textBytes;
   input.pdfReservation.bytes += textBytes;
@@ -2586,8 +2644,25 @@ export interface ClaudeRuntimeQueryPolicy {
   readonly permissionMode: PermissionMode;
   readonly tools?: ClaudeAgentSdkQueryTools;
   readonly allowedTools?: ReadonlyArray<string>;
+  /** The built-in tools the chat's agent may not use. */
+  readonly disallowedTools?: ReadonlyArray<string>;
+  readonly agentInstructions?: string;
   readonly allowDangerouslySkipPermissions?: true;
   readonly installPermissionCallback: boolean;
+}
+
+/** What the chat's agent changes about the query: tools it may not use and its instructions. */
+function claudeAgentQueryPolicy(
+  agent: ProviderAdapter.ProviderAdapterV2RuntimePolicy["agent"],
+): Pick<ClaudeRuntimeQueryPolicy, "disallowedTools" | "agentInstructions"> {
+  if (agent === undefined) return {};
+  const disallowedTools = AgentAbility.literals.flatMap((ability) =>
+    agent.abilities[ability] ? [] : CLAUDE_TOOLS_BY_AGENT_ABILITY[ability],
+  );
+  return {
+    ...(disallowedTools.length === 0 ? {} : { disallowedTools }),
+    ...(agent.instructions === "" ? {} : { agentInstructions: agent.instructions }),
+  };
 }
 
 interface ClaudeBypassAvailability {
@@ -2619,19 +2694,23 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
     readOnlyTools !== undefined && readOnlyPolicyAllowsGlobalReads(runtimePolicy)
       ? readOnlyTools
       : undefined;
-  // acceptEdits approves edits before the callback; the callback must ask for everything else.
+  // acceptEdits approves edits before the callback, and auto sends it only what its classifier could
+  // not decide or everything once it falls back to default; the callback must ask for those.
   const installPermissionCallback =
     downgraded ||
+    permissionMode === "auto" ||
     (runtimePolicy.approvalPolicy === undefined
       ? runtimePolicy.runtimeMode === "approval-required" ||
         runtimePolicy.runtimeMode === "auto-accept-edits"
       : runtimePolicy.approvalPolicy !== "never");
 
+  const agent = claudeAgentQueryPolicy(runtimePolicy.agent);
   if (permissionMode === "plan") {
     return {
       permissionMode,
       ...(readOnlyTools === undefined ? {} : { tools: readOnlyTools }),
       ...(allowedTools === undefined ? {} : { allowedTools }),
+      ...agent,
       // Claude routes Plan-mode writes to the callback even in Auto or Full access.
       installPermissionCallback: true,
     };
@@ -2641,6 +2720,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
     permissionMode,
     ...(readOnlyTools === undefined ? {} : { tools: readOnlyTools }),
     ...(allowedTools === undefined ? {} : { allowedTools }),
+    ...agent,
     ...(permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
     installPermissionCallback,
   };
@@ -2749,6 +2829,8 @@ function claudeRuntimeQueryPolicyKey(policy: ClaudeRuntimeQueryPolicy): string {
     permissionMode: policy.permissionMode,
     tools: policy.tools,
     allowedTools: policy.allowedTools,
+    disallowedTools: policy.disallowedTools,
+    agentInstructions: policy.agentInstructions,
     allowDangerouslySkipPermissions: policy.allowDangerouslySkipPermissions,
     installPermissionCallback: policy.installPermissionCallback,
   });
@@ -10591,6 +10673,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(mcpOverrides.allowedTools === undefined
               ? {}
               : { allowedTools: mcpOverrides.allowedTools }),
+            ...(queryPolicy.disallowedTools === undefined
+              ? {}
+              : { disallowedTools: queryPolicy.disallowedTools }),
+            ...(queryPolicy.agentInstructions === undefined
+              ? {}
+              : { agentInstructions: queryPolicy.agentInstructions }),
             ...(mcpOverrides.mcpServers === undefined
               ? {}
               : { mcpServers: mcpOverrides.mcpServers }),
@@ -10606,6 +10694,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             supportedDialogKinds: ["resume_return"],
             ...(appendSystemPromptFileText === undefined ? {} : { appendSystemPromptFileText }),
             ...(toolSearchOverride === undefined ? {} : { toolSearchOverride }),
+            // Fixed while this process lives; codenine_skill_list shows skills added since.
+            skills: turnInput.message.skills?.available,
           });
           const resolvedTurnCwd = yield* fileSystem
             .realPath(turnInput.runtimePolicy.cwd ?? ".")
@@ -10825,6 +10915,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     fileSystem,
                     pdfReservation,
                     skills: yield* userInvocableSkills(turnInput.runtimePolicy.cwd),
+                    message: turnInput.message,
                     uuid: promptUuid,
                   }).pipe(
                     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -11284,6 +11375,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               fileSystem,
               pdfReservation,
               skills: yield* userInvocableSkills(currentTurn.input.runtimePolicy.cwd),
+              message: turnInput.message,
             }).pipe(
               Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
               Effect.provideService(Path.Path, path),

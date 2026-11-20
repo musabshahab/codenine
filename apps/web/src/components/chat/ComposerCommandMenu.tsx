@@ -5,6 +5,7 @@ import {
   type ProviderSkillSourceKind,
 } from "@codenine/client-runtime/providerSkills";
 import {
+  type AgentName,
   type EnvironmentId,
   type EnvironmentMachineKind,
   type ProjectEntry,
@@ -17,10 +18,13 @@ import {
 } from "@codenine/contracts";
 import {
   BlocksIcon,
+  BotIcon,
+  BotOffIcon,
   FolderIcon,
   MessagesSquareIcon,
   PackageIcon,
   SettingsIcon,
+  SparklesIcon,
   UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -98,6 +102,14 @@ export type ComposerCommandItem =
       model: string;
       iconKind: ProviderDriverKind;
       providerDisplayName: string;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "agent";
+      /** Null for No agent. */
+      name: AgentName | null;
       label: string;
       description: string;
     };
@@ -233,6 +245,13 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           className="size-4 shrink-0 text-secondary-label"
         />
       ) : null}
+      {props.item.type === "agent" ? (
+        props.item.name === null ? (
+          <BotOffIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
+        ) : (
+          <BotIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
+        )
+      ) : null}
       {props.item.type === "model" ? (
         <ProviderInstanceIcon
           driverKind={props.item.iconKind}
@@ -291,15 +310,17 @@ const SKILL_SOURCE_ICON_BY_KIND: Record<ProviderSkillSourceKind, LucideIcon> = {
   project: FolderIcon,
   personal: UserRoundIcon,
   system: SettingsIcon,
+  codenine: SparklesIcon,
   other: PackageIcon,
 };
 
 const SKILL_SOURCE_LABEL_BY_KIND: Record<ProviderSkillSourceKind, string> = {
   app: "App",
   repo: "Repo",
-  project: "Project",
+  project: "Workspace",
   personal: "Personal",
   system: "System",
+  codenine: "Codenine",
   other: "Provider",
 };
 

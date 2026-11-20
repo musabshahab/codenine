@@ -184,7 +184,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
     if (project === null) {
       setState({
         status: "failed",
-        message: "None of your machines can start a thread without a project right now.",
+        message: "None of your machines can start a thread in Personal right now.",
       });
       return;
     }
@@ -253,7 +253,10 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
       () => null,
     );
     if (project === null) {
-      setState({ status: "failed", message: "The clone started, but its project did not appear." });
+      setState({
+        status: "failed",
+        message: "The clone started, but its workspace did not appear.",
+      });
       return;
     }
     if (link.kind === "pull-request") {
@@ -372,13 +375,13 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
       return (
         <LinkPage
           title={`You don't have ${name}`}
-          description="Clone it to work on it here, or start without a project."
+          description="Clone it to work on it here, or start in Personal."
         >
           <Button size="sm" onClick={() => void cloneRepository(state.repository)}>
             Clone {name}
           </Button>
           <Button size="sm" variant="outline" onClick={openWithoutProject}>
-            Use without project
+            Use in Personal
           </Button>
         </LinkPage>
       );
@@ -417,7 +420,7 @@ function PullRequestLinkCheckout({
   return (
     <LinkPage
       title={`Check out ${owner}/${name}#${number}?`}
-      description="This puts the pull request's code in a new worktree and runs your project's setup script on it."
+      description="This puts the pull request's code in a new worktree and runs your workspace's setup script on it."
     >
       <Button
         size="sm"

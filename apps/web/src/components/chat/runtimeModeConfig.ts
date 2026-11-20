@@ -17,7 +17,7 @@ export const runtimeModeConfig: Record<
   },
   auto: {
     label: "Auto",
-    description: "Supported providers approve routine actions; others still ask.",
+    description: "A reviewer allows actions that fit your request and asks you about the rest.",
     icon: SparklesIcon,
   },
   "full-access": {

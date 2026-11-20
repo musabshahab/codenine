@@ -1,3 +1,4 @@
+import { collectComposerAgentMentions } from "@codenine/client-runtime/composer-agent-mentions";
 import { collectComposerModelMentions } from "@codenine/client-runtime/composer-model-mentions";
 import type { AssistantCitation } from "@codenine/contracts";
 import { collectAssistantCitations } from "@codenine/shared/assistantCitations";
@@ -27,6 +28,11 @@ export type ComposerPromptSegment =
       type: "model";
       instanceId: string;
       model: string;
+      source: string;
+    }
+  | {
+      type: "agent";
+      name: string;
       source: string;
     }
   | {
@@ -97,13 +103,24 @@ function collectModelTokens(text: string, inlineTokens: ReadonlyArray<ComposerIn
     .map((mention) => ({ ...mention, type: "model" as const }));
 }
 
+// Agent references come from the @ menu, which adds the space after them.
+function collectAgentTokens(text: string, taken: ReadonlyArray<{ start: number; end: number }>) {
+  return collectComposerAgentMentions(text)
+    .filter((mention) => /\s/.test(text[mention.end] ?? ""))
+    .filter(
+      (mention) => !taken.some((range) => mention.start < range.end && mention.end > range.start),
+    )
+    .map((mention) => ({ ...mention, type: "agent" as const }));
+}
+
 export function collectComposerPromptInlineTokens(text: string) {
   const inlineTokens = collectComposerInlineTokens(text);
   const models = collectModelTokens(text, inlineTokens);
+  const agents = collectAgentTokens(text, [...inlineTokens, ...composerMathRanges(text)]);
   const tokens =
-    models.length === 0
+    models.length === 0 && agents.length === 0
       ? inlineTokens
-      : [...inlineTokens, ...models].sort((left, right) => left.start - right.start);
+      : [...inlineTokens, ...models, ...agents].sort((left, right) => left.start - right.start);
   const citations = collectAssistantCitations(text);
   const references = collectComposerContextReferences(text);
   if (citations.length === 0 && references.length === 0) return tokens;
@@ -161,6 +178,8 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
         model: match.model,
         source: match.source,
       });
+    } else if (match.type === "agent") {
+      segments.push({ type: "agent", name: match.name, source: match.source });
     } else {
       segments.push({ type: "skill", name: match.value, source: match.source });
     }

@@ -303,6 +303,7 @@ export function SettingsRow({
   resetAction,
   onResetOverride,
   control,
+  controlPlacement = "stack",
   serverScoped = false,
   settingKeys = EMPTY_SETTING_KEYS,
   mixed: mixedOverride,
@@ -316,6 +317,8 @@ export function SettingsRow({
   resetAction?: ReactNode;
   onResetOverride?: () => void;
   control?: ReactNode;
+  /** "inline" keeps a small control, such as a switch, beside the title at every width. */
+  controlPlacement?: "stack" | "inline";
   serverScoped?: boolean;
   settingKeys?: readonly (keyof ServerSettings)[];
   mixed?: boolean;
@@ -374,19 +377,26 @@ export function SettingsRow({
   ) : (
     resetAction
   );
+  const inline = controlPlacement === "inline";
   const inertControl = (message: string) => (
     <Tooltip>
       <TooltipTrigger
         render={
           <span
             tabIndex={0}
-            className="flex w-full items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @min-[32rem]/settings-row:w-auto"
+            className={cn(
+              "flex items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              inline ? null : "w-full @min-[32rem]/settings-row:w-auto",
+            )}
           />
         }
       >
         <div
           inert
-          className="flex w-full items-center gap-2 opacity-50 @min-[32rem]/settings-row:w-auto"
+          className={cn(
+            "flex items-center gap-2 opacity-50",
+            inline ? null : "w-full @min-[32rem]/settings-row:w-auto",
+          )}
         >
           {control}
         </div>
@@ -427,7 +437,7 @@ export function SettingsRow({
   const inheritance: { state: SettingInheritanceState; summary: string } = mixed
     ? { state: "mixed", summary: "Mixed across selected environments" }
     : source === "project"
-      ? { state: "overridden", summary: "Overridden for this project" }
+      ? { state: "overridden", summary: "Overridden for this workspace" }
       : source === "codenine.json"
         ? { state: "inherited", summary: "Inherited from the repository's codenine.json" }
         : source === "environment" && scopedKeys.length > 0
@@ -466,7 +476,14 @@ export function SettingsRow({
         className,
       )}
     >
-      <div className="flex flex-col gap-3 @min-[32rem]/settings-row:grid @min-[32rem]/settings-row:grid-cols-[minmax(0,1fr)_auto] @min-[32rem]/settings-row:items-center @min-[32rem]/settings-row:gap-8">
+      <div
+        className={cn(
+          "@min-[32rem]/settings-row:items-center @min-[32rem]/settings-row:gap-8",
+          inline
+            ? "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4"
+            : "flex flex-col gap-3 @min-[32rem]/settings-row:grid @min-[32rem]/settings-row:grid-cols-[minmax(0,1fr)_auto]",
+        )}
+      >
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 items-center gap-1.5">
             <h3 className="text-sm font-medium text-foreground">{title}</h3>
@@ -497,7 +514,13 @@ export function SettingsRow({
           ) : null}
         </div>
         {renderedControl ? (
-          <div className="flex w-full min-w-0 shrink-0 items-center gap-2 @min-[32rem]/settings-row:w-auto @min-[32rem]/settings-row:justify-end @min-[32rem]/settings-row:[&_[data-slot=select-trigger]]:min-w-40">
+          <div
+            className={
+              inline
+                ? "flex shrink-0 items-center gap-2"
+                : "flex w-full min-w-0 shrink-0 items-center gap-2 @min-[32rem]/settings-row:w-auto @min-[32rem]/settings-row:justify-end @min-[32rem]/settings-row:[&_[data-slot=select-trigger]]:min-w-40"
+            }
+          >
             {renderedControl}
           </div>
         ) : null}

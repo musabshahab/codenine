@@ -23,6 +23,7 @@ import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ProjectService from "./ProjectService.ts";
 
@@ -86,6 +87,9 @@ export class NamedProjectCreateError extends Schema.TaggedError<NamedProjectCrea
 }
 
 export type NamedProjectError = NamedProjectFolderError | NamedProjectCreateError;
+
+const PERSONAL_README =
+  "# Personal\n\nCodenine keeps Personal's chats here, each in its own folder.\n";
 
 export class ManagedProjectFolders extends Context.Service<
   ManagedProjectFolders,
@@ -209,7 +213,29 @@ const make = Effect.gen(function* () {
   const gitWorkflow = yield* GitWorkflow.GitWorkflowService;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const projects = yield* ProjectService.ProjectService;
+  const projectStore = yield* ProjectStore.ProjectStoreV2;
   const random = yield* SecureRandom.SecureRandom;
+
+  // Older installs keep each folder they already use. Personal keeps scratch/ while its project
+  // is there, even when the folder itself was deleted.
+  const workspacesRoot = path.resolve(config.baseDir, "workspaces");
+  const personalFolder = path.join(workspacesRoot, "personal");
+  const legacyScratchRoot = path.resolve(config.baseDir, "scratch");
+  const legacyNamedProjectsRoot = path.resolve(config.baseDir, "projects");
+  const folderExists = (folder: string) =>
+    fileSystem.exists(folder).pipe(Effect.orElseSucceed(() => false));
+  const scratchFolder =
+    (yield* folderExists(legacyScratchRoot)) ||
+    Option.isSome(
+      yield* projectStore
+        .findActiveByWorkspaceRoot(legacyScratchRoot)
+        .pipe(Effect.orElseSucceed(() => Option.none())),
+    )
+      ? legacyScratchRoot
+      : personalFolder;
+  const namedProjectsRoot = (yield* folderExists(legacyNamedProjectsRoot))
+    ? legacyNamedProjectsRoot
+    : workspacesRoot;
 
   // Non-recursive mkdir atomically claims a name; racers move on after AlreadyExists.
   const claimFreeFolder = Effect.fnUntraced(function* <E>(
@@ -236,7 +262,7 @@ const make = Effect.gen(function* () {
     gitWorkflow.isRepository(config.baseDir).pipe(
       Effect.catchIf(isGitMissing, () => Effect.succeed(false)),
       Effect.map((isRepository) =>
-        isRepository ? Option.none<string>() : Option.some(path.resolve(config.baseDir, "scratch")),
+        isRepository ? Option.none<string>() : Option.some(scratchFolder),
       ),
       Effect.catchCause((cause) =>
         Cause.hasInterrupts(cause) ? Effect.interrupt : Effect.succeed(Option.none<string>()),
@@ -251,6 +277,17 @@ const make = Effect.gen(function* () {
       .makeDirectory(folder, { recursive: true })
       .pipe(Effect.mapError((cause) => new ScratchFolderError({ folder, cause })));
 
+  // A README keeps Personal's folder from ever looking empty, so a clone cannot land in it.
+  const writePersonalReadme = (folder: string) => {
+    const file = path.join(folder, "README.md");
+    return fileSystem.exists(file).pipe(
+      Effect.flatMap((exists) =>
+        exists ? Effect.void : fileSystem.writeFileString(file, PERSONAL_README),
+      ),
+      Effect.ignore,
+    );
+  };
+
   const ensureScratchProject: ManagedProjectFolders["Service"]["ensureScratchProject"] = Effect.gen(
     function* () {
       const workspaceRoot = yield* scratchRoot.pipe(
@@ -262,6 +299,7 @@ const make = Effect.gen(function* () {
         ),
       );
       yield* makeScratchFolder(workspaceRoot);
+      yield* writePersonalReadme(workspaceRoot);
       const id = yield* random
         .uuidV4()
         .pipe(Effect.mapError((cause) => new ScratchProjectError({ workspaceRoot, cause })));
@@ -269,7 +307,7 @@ const make = Effect.gen(function* () {
         .bootstrap({
           commandId: CommandId.make(`scratch-project:${id}`),
           projectId: ProjectId.make(id),
-          title: "No project",
+          title: "Personal",
           workspaceRoot,
         })
         .pipe(
@@ -342,8 +380,6 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const namedProjectsRoot = path.resolve(config.baseDir, "projects");
-
   const claimNamedFolder = Effect.fn("ManagedProjectFolders.claimNamedFolder")(function* (
     name: string,
   ) {
@@ -355,18 +391,12 @@ const make = Effect.gen(function* () {
         ),
       );
     const folderName = newProjectFolderName(name);
+    // workspaces/personal stays Personal's, even before Personal has made it.
+    const candidates = Array.from({ length: MAX_NAMED_FOLDER_ATTEMPTS }, (_, index) =>
+      path.join(namedProjectsRoot, index === 0 ? folderName : `${folderName}-${index + 1}`),
+    ).filter((folder) => folder !== personalFolder);
     const claimed = yield* claimFreeFolder(
-      (attempt) =>
-        Effect.succeed(
-          attempt > MAX_NAMED_FOLDER_ATTEMPTS
-            ? Option.none()
-            : Option.some(
-                path.join(
-                  namedProjectsRoot,
-                  attempt === 1 ? folderName : `${folderName}-${attempt}`,
-                ),
-              ),
-        ),
+      (attempt) => Effect.succeed(Option.fromUndefinedOr(candidates[attempt - 1])),
       (folder, cause) => new NamedProjectFolderError({ folder, cause }),
     );
     if (Option.isSome(claimed)) return claimed.value;
@@ -471,3 +501,13 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(ManagedProjectFolders, make);
+
+/** Personal exists before any client asks for it. Where it is unavailable, there is nothing to do. */
+export const ensureScratchProjectAtStartup = ManagedProjectFolders.pipe(
+  Effect.flatMap((folders) => folders.ensureScratchProject),
+  Effect.asVoid,
+  Effect.catchTags({ ScratchUnavailableError: () => Effect.void }),
+  Effect.catch((error) =>
+    Effect.logWarning("Could not create Personal at startup.", { error: error.message }),
+  ),
+);

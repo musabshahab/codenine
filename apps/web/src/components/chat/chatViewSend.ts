@@ -267,6 +267,7 @@ export function restoreComposerDraft(
   store.setThreadContexts(draftTarget, snapshot.threadContexts);
   store.setEnvironmentContexts(draftTarget, snapshot.environmentContexts);
   if (snapshot.teamRequested) store.setTeamRequested(draftTarget, true);
+  if (snapshot.workflowRequested) store.setWorkflowRequested(draftTarget, true);
   return images;
 }
 

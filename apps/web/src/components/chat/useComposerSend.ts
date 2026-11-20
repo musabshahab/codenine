@@ -77,7 +77,8 @@ import {
   type TerminalContextDraft,
 } from "../../lib/terminalContext";
 import { buildMessageContext } from "../../lib/composerContextRecords";
-import { sendsTeamRequest } from "./composerTeam.logic";
+import { draftThreadChoices } from "../../draftChatChoicesStore";
+import { sendsComposerRequest } from "./composerTeam.logic";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { threadEnvironment } from "../../state/threads";
 import { runMobileComposerTransition } from "./draftHeroTransition";
@@ -191,6 +192,8 @@ interface ComposerSendInput {
   readonly isDraftHeroState: boolean;
   /** The composer offers Team here; a Team left on elsewhere is not sent. */
   readonly teamToggleAvailable: boolean;
+  /** Likewise for Workflow. */
+  readonly workflowToggleAvailable: boolean;
   readonly panelAnimationsActive: boolean;
   readonly panelAnimationDurationMs: number;
   readonly keepFullHistory: boolean;
@@ -286,6 +289,7 @@ export function useComposerSend(input: ComposerSendInput) {
     sendQueuesBehindSetup,
     isDraftHeroState,
     teamToggleAvailable,
+    workflowToggleAvailable,
     panelAnimationsActive,
     panelAnimationDurationMs,
     keepFullHistory,
@@ -503,7 +507,7 @@ export function useComposerSend(input: ComposerSendInput) {
           type: "warning",
           title: "Choose models and a base branch",
           description:
-            "Multiple models need a new thread in a Git project. Each gets its own worktree.",
+            "Multiple models need a new thread in a Git workspace. Each gets its own worktree.",
         }),
       );
       return;
@@ -663,13 +667,16 @@ export function useComposerSend(input: ComposerSendInput) {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: "Choose a project first",
-          description: "This draft no longer points to an available project.",
+          title: "Choose a workspace first",
+          description: "This draft no longer points to an available workspace.",
         }),
       );
       return;
     }
     const threadIdForSend = activeThread.id;
+    const composerDraftAtSend = useComposerDraftStore
+      .getState()
+      .getComposerDraft(composerDraftTarget);
     const sendSnapshot = snapshotComposerSend({
       prompt: promptForSend,
       images: composerImages,
@@ -679,10 +686,8 @@ export function useComposerSend(input: ComposerSendInput) {
       reviewComments: composerReviewComments,
       threadContexts: composerThreadContexts,
       environmentContexts: composerEnvironmentContexts,
-      teamRequested:
-        teamToggleAvailable &&
-        useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.teamRequested ===
-          true,
+      teamRequested: teamToggleAvailable && composerDraftAtSend?.teamRequested === true,
+      workflowRequested: workflowToggleAvailable && composerDraftAtSend?.workflowRequested === true,
     });
     const {
       files: composerFilesSnapshot,
@@ -730,8 +735,12 @@ export function useComposerSend(input: ComposerSendInput) {
           attachment,
           attachmentId: attachmentIds[index] ?? attachment.id,
         })),
-        teamRequested: sendsTeamRequest({
-          teamRequested: sendSnapshot.teamRequested,
+        teamRequested: sendsComposerRequest({
+          requested: sendSnapshot.teamRequested,
+          prompt: messageTextForSend,
+        }),
+        workflowRequested: sendsComposerRequest({
+          requested: sendSnapshot.workflowRequested,
           prompt: messageTextForSend,
         }),
       });
@@ -1148,6 +1157,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
                     },
+                    ...draftThreadChoices(threadIdForSend),
                   }
                 : {}),
               ...(baseBranchForWorktree

@@ -29,6 +29,7 @@ import {
   sanitizeComposerContextLabel,
   teamRequestContextRecord,
   toKindScopedComposerContextId,
+  workflowRequestContextRecord,
 } from "@codenine/shared/composerContextReferences";
 
 import {
@@ -252,6 +253,7 @@ export function buildMessageContext(input: {
   environmentContexts?: ReadonlyArray<EnvironmentContextRecord>;
   attachments?: ReadonlyArray<BoundComposerAttachment>;
   teamRequested?: boolean;
+  workflowRequested?: boolean;
 }): OrchestrationMessageContext | undefined {
   const records: ComposerContextRecord[] = [
     ...input.terminalContexts.map(terminalContextRecord),
@@ -260,6 +262,7 @@ export function buildMessageContext(input: {
     ...(input.environmentContexts ?? []),
     ...(input.attachments ?? []).map(attachmentContextRecord),
     ...(input.teamRequested === true ? [teamRequestContextRecord()] : []),
+    ...(input.workflowRequested === true ? [workflowRequestContextRecord()] : []),
   ];
   return records.length === 0 ? undefined : { version: 1, records };
 }
@@ -267,7 +270,14 @@ export function buildMessageContext(input: {
 export function asKnownContextRecord(
   record: ComposerContextRecord | undefined,
 ): KnownComposerContextRecord | undefined {
-  if (!record || "payload" in record || record.kind === "team-request") return undefined;
+  if (
+    !record ||
+    "payload" in record ||
+    record.kind === "team-request" ||
+    record.kind === "workflow-request"
+  ) {
+    return undefined;
+  }
   return record;
 }
 

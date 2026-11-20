@@ -37,6 +37,16 @@ describe("planClaudeSkillDispatch", () => {
     });
   });
 
+  it("leaves a mention Codenine answered with its own skill as text", () => {
+    expect(
+      planClaudeSkillDispatch("$review the diff, then $implement the fixes", SKILLS, ["implement"]),
+    ).toEqual({
+      leadingText: undefined,
+      commandText: "/review the diff, then $implement the fixes",
+    });
+    expect(planClaudeSkillDispatch("$review the diff", SKILLS, ["review"])).toBeUndefined();
+  });
+
   it("dispatches currency-prefixed mentions and preserves their source boundaries", () => {
     for (const symbol of ["€", "£", "¥", "₹", "₩", "₿", "𑿝"]) {
       expect(

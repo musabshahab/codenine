@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, ProjectId, ServerProvider } from "@codenine/contracts";
+import type { EnvironmentId, ServerProvider } from "@codenine/contracts";
 import { scopeProjectRef } from "@codenine/client-runtime/environment";
 import { resolveProviderInstanceDisplayName as agentName } from "@codenine/client-runtime/state/provider-instance-display";
 import {
@@ -12,7 +12,7 @@ import { Link, useBlocker } from "@tanstack/react-router";
 import { CheckIcon, ChevronDownIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { openCommandPalette } from "../../commandPaletteBus";
+import { openRestoreDialog } from "../../backupDialogStore";
 import { isElectron } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
@@ -29,11 +29,9 @@ import {
   groupWelcomeAgents,
   turnedOnInstance,
   welcomeCardInstanceId,
-  welcomeContinueWithout,
-  type WelcomeProjectSource,
-  type WelcomeStep,
   welcomeAgentState,
 } from "../../onboarding/welcomePage.logic";
+import { backupEnvironment } from "../../state/backup";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentScope } from "../../state/session";
@@ -49,16 +47,15 @@ import { SidebarInset } from "../ui/sidebar";
 import { toastManager } from "../ui/toast";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { cn } from "../../lib/utils";
-import { AgentSetupCard, agentSetupName } from "./AgentSetupCard";
+import { AgentSetupCard } from "./AgentSetupCard";
 import AgentSetupDialog from "./AgentSetupDialog";
-import { WelcomeProjectStep, WelcomeSteps } from "./WelcomeProjectStep";
 
 /** Opens the page setup ends on. False sends the user to the app's home instead. */
 export type WelcomeLanding = () => Promise<boolean>;
 
 /**
- * First-run page for one computer: its agents, then a project. Every part is optional except one
- * ready agent to start chatting.
+ * First-run page for one computer: connect an agent, then chat in Personal. The agent is optional,
+ * since a chat without one offers the same setup.
  */
 export function WelcomePage({
   environmentId,
@@ -70,17 +67,18 @@ export function WelcomePage({
   const { environments } = useEnvironments();
   const environment = environments.find((entry) => entry.environmentId === environmentId);
   const label = environment?.label ?? "this computer";
-  const welcomeAgents = useWelcomeAgents(environmentId);
-  const agentReady = welcomeAgents.readyCount > 0;
-  const continueWithout = welcomeContinueWithout(
-    welcomeAgents.cards,
-    welcomeAgents.openRouterReady,
-  );
-  const [step, setStep] = useState<WelcomeStep>("agents");
+  const agentReady = useWelcomeAgents(environmentId).readyCount > 0;
   const handleNewThread = useNewThreadHandler();
   const { scratchEnvironmentId, openScratchProject } = useScratchProject();
-  const scratchTargetEnvironmentId = scratchEnvironmentId(environmentId);
+  const personalEnvironmentId = scratchEnvironmentId(environmentId);
+  const personalUnavailableReason =
+    personalEnvironmentId !== null
+      ? null
+      : environment?.connection.phase === "connected" && environment.serverConfig !== null
+        ? "Personal is unavailable because the Codenine data directory is inside a Git checkout."
+        : `Personal opens once ${label} is connected.`;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const canRestore = useAtomValue(backupEnvironment.restore.permissionAtom(environmentId));
   // `codenine` on PATH belongs to the primary computer, so only it offers that.
   const isPrimary = primaryEnvironmentId === environmentId;
   // True while setup is saved before a landing; leaving earlier would drop the landing.
@@ -101,8 +99,7 @@ export function WelcomePage({
   });
   const finishingPromiseRef = useRef<Promise<boolean> | null>(null);
   const completionErrorToastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
-  // Without a landing, setup is saved and the page stays, for a flow that navigates on its own.
-  const finish = (landing: WelcomeLanding | null) => {
+  const finish = (landing: WelcomeLanding) => {
     if (finishingPromiseRef.current !== null) return finishingPromiseRef.current;
     if (completionErrorToastIdRef.current !== null) {
       toastManager.close(completionErrorToastIdRef.current);
@@ -118,7 +115,7 @@ export function WelcomePage({
         }
         // Release before onDone so its own navigation is not blocked.
         holdPageRef.current = false;
-        if (landing !== null) await onDone(landing);
+        await onDone(landing);
         return true;
       })
       .catch(() => {
@@ -143,25 +140,16 @@ export function WelcomePage({
     finishingPromiseRef.current = completion;
     return completion;
   };
-  const openProjectDraft = async (project: {
-    readonly environmentId: EnvironmentId;
-    readonly id: ProjectId;
-  }) =>
-    (await handleNewThread(scopeProjectRef(project.environmentId, project.id), {
-      replace: true,
-    })) !== null;
-  // The palette's add-project flows open the new project's start screen themselves.
-  const addProject = (source: WelcomeProjectSource) => {
-    void finish(null).then((saved) => {
-      if (saved)
-        openCommandPalette({ open: "add-project", addProjectSource: { environmentId, source } });
-    });
-  };
-  const skip = () => {
+  const start = () => {
     void finish(async () => {
-      if (scratchTargetEnvironmentId === null) return false;
-      const project = await openScratchProject(scratchTargetEnvironmentId);
-      return project !== null && (await openProjectDraft(project));
+      if (personalEnvironmentId === null) return false;
+      const project = await openScratchProject(personalEnvironmentId);
+      return (
+        project !== null &&
+        (await handleNewThread(scopeProjectRef(project.environmentId, project.id), {
+          replace: true,
+        })) !== null
+      );
     });
   };
 
@@ -174,72 +162,48 @@ export function WelcomePage({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
         {/* The desktop window only moves where CSS opts in, so keep a titlebar strip. */}
         {isElectron ? <WorkspacePageHeader electron /> : null}
-        {/* Keyed by step, so each step opens at its top. */}
-        <div key={step} className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
+        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
           <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-6 pt-12 pb-8 sm:pt-20">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
               Welcome to Codenine
             </h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
-              Setting up <span className="text-foreground">{label}</span>.
+              Connect an agent to begin.
+              {personalEnvironmentId === null
+                ? null
+                : " Your Personal workspace is ready, so you can start chatting right away."}
             </p>
-            <WelcomeSteps step={step} />
-            {step === "agents" ? (
-              <>
-                <div className="mt-8 border-t border-border/60">
-                  <AgentsSection
-                    environmentId={environmentId}
-                    environmentLabel={label}
-                    isPrimary={isPrimary}
-                  />
-                </div>
-                <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-                  {!agentReady ? (
-                    <Button variant="ghost-muted" onClick={() => setStep("project")}>
-                      Continue without an agent
-                    </Button>
-                  ) : continueWithout !== null ? (
-                    <p className="min-w-0 max-w-md flex-1 text-xs text-muted-foreground">
-                      Teams that mix Claude and Codex need both. You can set up {continueWithout}{" "}
-                      later in Settings → Providers.
-                    </p>
-                  ) : (
-                    <span />
-                  )}
-                  <div className="flex items-center gap-3">
-                    {agentReady ? null : (
-                      <span className="text-xs text-muted-foreground">
-                        Set up one agent to continue.
-                      </span>
-                    )}
-                    <Button disabled={!agentReady} onClick={() => setStep("project")}>
-                      {continueWithout !== null
-                        ? `Continue without ${continueWithout}`
-                        : "Continue"}
-                    </Button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <WelcomeProjectStep
+            {canRestore ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Moving from another computer?{" "}
+                <InlineButton onClick={() => openRestoreDialog({ environmentId })}>
+                  Restore from a backup
+                </InlineButton>
+              </p>
+            ) : null}
+            <div className="mt-8 border-t border-border/60">
+              <AgentsSection
                 environmentId={environmentId}
-                label={label}
-                newProjectsRoot={environment?.serverConfig?.newProjectsRoot}
-                readyAgentNames={welcomeAgents.found
-                  .filter(
-                    (provider) =>
-                      welcomeAgentState(provider, welcomeAgents.serverConfig?.settings) === "ready",
-                  )
-                  .map(agentName)}
-                canChatWithoutProject={scratchTargetEnvironmentId !== null}
-                onChangeAgents={() => setStep("agents")}
-                onAddProject={addProject}
-                onOpenProject={(projectId) =>
-                  void finish(() => openProjectDraft({ environmentId, id: projectId }))
-                }
-                onSkip={skip}
+                environmentLabel={label}
+                isPrimary={isPrimary}
               />
-            )}
+            </div>
+            <div className="mt-6 flex flex-col items-start gap-3">
+              {personalUnavailableReason === null ? null : (
+                <p className="text-sm text-muted-foreground">{personalUnavailableReason}</p>
+              )}
+              <Button variant={agentReady ? "default" : "outline"} onClick={start}>
+                {!agentReady
+                  ? "Continue without an agent"
+                  : personalEnvironmentId === null
+                    ? "Continue"
+                    : "Start chatting in Personal"}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Working on a project? Create a workspace from the sidebar to keep its files, chats
+                and tasks together.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -272,29 +236,17 @@ function RowIcon({ children }: { readonly children: ReactNode }) {
   );
 }
 
-// Shared by the page (to enable Continue) and the agents section, so both agree on what is ready.
+// Shared by the page (to pick its action) and the agents section, so both agree on what is ready.
 function useWelcomeAgents(environmentId: EnvironmentId) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const settings = serverConfig?.settings;
-  const cards = AGENT_SETUP_DRIVERS.map((driver) => {
-    const instanceId = welcomeCardInstanceId(providers, driver, settings);
-    const provider = providers?.find((candidate) => candidate.instanceId === instanceId);
-    return {
-      driver,
-      instanceId,
-      name: agentSetupName(driver, instanceId, provider),
-      ready: provider !== undefined && welcomeAgentState(provider, settings) === "ready",
-    };
-  });
   return {
     serverConfig,
-    cards,
-    openRouterReady:
-      providers?.some(
-        (provider) =>
-          isOpenRouterProvider(provider) && welcomeAgentState(provider, settings) === "ready",
-      ) ?? false,
+    cards: AGENT_SETUP_DRIVERS.map((driver) => ({
+      driver,
+      instanceId: welcomeCardInstanceId(providers, driver, settings),
+    })),
     ...groupWelcomeAgents(providers, settings, agentName),
   };
 }

@@ -4,6 +4,20 @@ import * as Random from "effect/Random";
 import * as EnvironmentKeys from "./cloud/environmentKeys.ts";
 import * as AssetSigner from "./assets/AssetSigner.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
+import * as BackupService from "./backup/BackupService.ts";
+import * as Skills from "./skills/Skills.ts";
+import * as Agents from "./agents/Agents.ts";
+import * as ActionReviewer from "./approvals/ActionReviewer.ts";
+import * as Workflows from "./workflows/Workflows.ts";
+import { applyPendingRestore } from "./backup/BackupRestore.ts";
+import * as ConnectorApprovals from "./connectors/ConnectorApprovals.ts";
+import * as ConnectorClients from "./connectors/ConnectorClients.ts";
+import * as ConnectorGateway from "./connectors/ConnectorGateway.ts";
+import * as ConnectorRoutes from "./connectors/connectorRoutes.ts";
+import * as Connectors from "./connectors/Connectors.ts";
+import * as ConnectorSignIn from "./connectors/ConnectorSignIn.ts";
+import * as ConnectorStore from "./connectors/ConnectorStore.ts";
+import * as Scheduler from "./scheduling/Scheduler.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
@@ -489,6 +503,16 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(ProjectionMaintenance.layer),
     Layer.provide(layerServerRestart),
   ),
+  BackupService.layer.pipe(Layer.provide(Scheduler.layer), Layer.provide(layerServerRestart)),
+  Skills.layer,
+  Workflows.layer.pipe(Layer.provide(Scheduler.layer), Layer.provide(ProjectionStoreV2.layer)),
+  ConnectorGateway.layer.pipe(
+    Layer.provideMerge(Connectors.layer),
+    Layer.provideMerge(ConnectorClients.layer),
+    Layer.provideMerge(ConnectorSignIn.layer),
+    Layer.provideMerge(ConnectorApprovals.layer),
+    Layer.provideMerge(ActionReviewer.layer),
+  ),
   layerThreadPullRequestWorker,
   Layer.effectDiscard(
     Effect.gen(function* () {
@@ -529,6 +553,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
+  // Beneath the orchestration runtime, whose turns apply a chat's agent.
+  Layer.provideMerge(Agents.layer),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
   Layer.provideMerge(SecretResolver.layer),
@@ -555,6 +581,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
       ResetCreditCoordinator.layer,
       ProviderLatestVersions.layer,
       McpProviderSessions.layer,
+      ConnectorStore.layer,
     ),
   ),
   Layer.provideMerge(layerWorkspace),
@@ -613,6 +640,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAttachmentUploadRoute,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
+    ConnectorRoutes.layer,
   ),
   McpHttpServer.layer.pipe(
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
@@ -632,6 +660,8 @@ const layerMakeServer = Layer.unwrap(
     const config = yield* ServerConfig.ServerConfig;
     // Before anything opens the database: one server per Codenine home.
     const ownership = yield* ServerOwnership.acquireServerOwnership(config.serverRuntimeStatePath);
+    // A restore staged by the last run replaces the data before anything reads it.
+    yield* applyPendingRestore(config);
     const activation = yield* Deferred.make<void>();
     const awaitActivation = Deferred.await(activation);
     const layerActivation = Layer.succeed(ServerActivation.ServerActivation, awaitActivation);

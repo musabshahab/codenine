@@ -25,7 +25,7 @@ the account's home setting or its `CODEX_HOME` or `CLAUDE_CONFIG_DIR` environmen
 variable. Models without
 known prices still contribute tokens and appear as unpriced; set custom prices to estimate their cost.
 Use absolute paths or `~/` paths in the account's environment settings; relative environment paths
-depend on each project's working directory and cannot be reliably discovered by Usage. Accounts
+depend on each workspace's working directory and cannot be reliably discovered by Usage. Accounts
 sharing a history directory count once.
 
 The server saves its first hostname in `<Codenine home>/usage-host-id`, so a recreated container keeps
@@ -140,7 +140,7 @@ has none; Limits links to its activity page instead.
 
 ## Connect a CLIProxyAPI hub
 
-To see pooled accounts, open **Settings → Providers → Usage providers → Add hub**. Choose the
+To see pooled accounts, open **Settings → Accounts → Usage providers → Add hub**. Choose the
 environment that will connect to the hub and enter its URL and management key.
 
 The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an

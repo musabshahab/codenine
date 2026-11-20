@@ -210,6 +210,16 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
+  it("splits an agent reference into an agent segment once a space follows it", () => {
+    expect(splitPromptIntoComposerSegments("agent:gmail sort my inbox")).toEqual([
+      { type: "agent", name: "gmail", source: "agent:gmail" },
+      { type: "text", text: " sort my inbox" },
+    ]);
+    expect(splitPromptIntoComposerSegments("agent:gma")).toEqual([
+      { type: "text", text: "agent:gma" },
+    ]);
+  });
+
   it("splits digit-leading skill tokens into skill segments", () => {
     expect(splitPromptIntoComposerSegments("Use $2spec please")).toEqual([
       { type: "text", text: "Use " },

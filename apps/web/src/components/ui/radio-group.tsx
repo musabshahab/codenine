@@ -1,5 +1,6 @@
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
+import { type KeyboardEvent, type ReactNode, useId } from "react";
 
 import { cn } from "~/lib/utils";
 
@@ -31,4 +32,77 @@ function Radio({ className, ...props }: RadioPrimitive.Root.Props) {
   );
 }
 
-export { RadioGroup, Radio, Radio as RadioGroupItem };
+const GROUP_NAVIGATION_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Home",
+  "End",
+]);
+
+function keepArrowKeysInside(event: KeyboardEvent) {
+  if (GROUP_NAVIGATION_KEYS.has(event.key)) event.stopPropagation();
+}
+
+/** A bordered choice in a RadioGroup; the selected card opens below for its own fields. */
+function RadioCard({
+  value,
+  title,
+  description,
+  selected,
+  disabled = false,
+  children,
+}: {
+  readonly value: string;
+  readonly title: ReactNode;
+  readonly description?: ReactNode;
+  readonly selected: boolean;
+  readonly disabled?: boolean;
+  readonly children?: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <div
+      data-slot="radio-card"
+      className={cn(
+        "rounded-lg border transition-colors",
+        selected ? "border-primary/48 bg-primary/4" : "border-border",
+      )}
+    >
+      <label
+        className={cn(
+          "flex items-start gap-3 px-3 py-2.5",
+          disabled ? "cursor-not-allowed opacity-64" : "cursor-pointer",
+        )}
+      >
+        <span className="flex h-5 items-center">
+          <Radio
+            value={value}
+            disabled={disabled}
+            aria-labelledby={`${id}-title`}
+            aria-describedby={description === undefined ? undefined : `${id}-description`}
+          />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <span id={`${id}-title`} className="font-medium text-foreground text-sm">
+            {title}
+          </span>
+          {description === undefined ? null : (
+            <span id={`${id}-description`} className="text-muted-foreground text-xs">
+              {description}
+            </span>
+          )}
+        </span>
+      </label>
+      {selected && children !== undefined ? (
+        // Arrow keys in a field here would otherwise reach the group and move its selection.
+        <div className="flex flex-col gap-2 ps-10 pe-3 pb-3" onKeyDown={keepArrowKeysInside}>
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export { RadioGroup, Radio, Radio as RadioGroupItem, RadioCard };

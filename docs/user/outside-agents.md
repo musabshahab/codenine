@@ -1,7 +1,7 @@
 # Outside agents
 
 Agents that Codenine did not start can work with an environment through its MCP
-server. They can read projects and threads, start and message threads, and
+server. They can read workspaces and threads, start and message threads, and
 check which providers and models are available. This covers Claude Code or
 Codex in your own terminal, hosted assistants, and bots that support MCP. Each agent signs
 in once, and you choose what it may do.
@@ -68,10 +68,10 @@ A code from **Use Codenine in another app (MCP)** already carries the level you
 picked there. With another code, choose what the agent may do here: **Auto** is
 selected by default. Approving without a code starts at **Read only**:
 
-- **Read only** lets the agent read projects and threads and see
+- **Read only** lets the agent read workspaces and threads and see
   the available providers and models. It cannot change anything.
 - **Supervised** through **Full access** also let it start, message and stop
-  threads in every project. A thread it starts or steers cannot run with more
+  threads in every workspace. A thread it starts or steers cannot run with more
   permissions than the mode you chose.
 
 ## Claude Code
@@ -125,9 +125,9 @@ codenine thread show "$id"
 codenine thread list
 ```
 
-`.` means the project that contains the current folder; a project id also
-works. A new thread uses the project's default model and permission mode, and
-runs in the project folder unless you pass `--worktree <base-branch>`. `send`
+`.` means the workspace that contains the current folder; a workspace id also
+works. A new thread uses the workspace's default model and permission mode, and
+runs in the workspace folder unless you pass `--worktree <base-branch>`. `send`
 never interrupts: a busy thread gets the message as its next turn. Pass `-` as
 the message to read it from stdin.
 

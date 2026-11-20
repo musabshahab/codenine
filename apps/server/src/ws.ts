@@ -182,6 +182,13 @@ import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+import { findExistingAgentHomes } from "./provider/agentHomes.ts";
+import * as BackupService from "./backup/BackupService.ts";
+import * as Skills from "./skills/Skills.ts";
+import * as Agents from "./agents/Agents.ts";
+import * as Workflows from "./workflows/Workflows.ts";
+import * as ConnectorGateway from "./connectors/ConnectorGateway.ts";
+import * as Connectors from "./connectors/Connectors.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
 import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
@@ -1268,6 +1275,23 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
+/** Plain words for a workspace folder the user got wrong, which they can fix themselves. */
+const workspaceFolderProblem = (cause: {
+  readonly _tag: string;
+  readonly cause?: unknown;
+}): string | undefined => {
+  if (cause._tag === "ProjectConflictError") return "Another workspace already uses that folder.";
+  const reason = cause._tag === "ProjectOperationError" ? cause.cause : undefined;
+  if (typeof reason !== "object" || reason === null || !("_tag" in reason)) return undefined;
+  const folder =
+    "normalizedWorkspaceRoot" in reason && typeof reason.normalizedWorkspaceRoot === "string"
+      ? reason.normalizedWorkspaceRoot
+      : "that path";
+  if (reason._tag === "WorkspaceRootNotExistsError") return `There is no folder at ${folder}.`;
+  if (reason._tag === "WorkspaceRootNotDirectoryError") return `${folder} is a file, not a folder.`;
+  return undefined;
+};
+
 export const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   settingsClient: { readonly secretReferences: boolean },
@@ -1348,6 +1372,12 @@ export const layerWsRpc = (
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
       const storageCleanup = yield* StorageCleanup.StorageCleanup;
       const databaseStorage = yield* DatabaseStorage.DatabaseStorage;
+      const backups = yield* BackupService.BackupService;
+      const skills = yield* Skills.Skills;
+      const agents = yield* Agents.Agents;
+      const workflows = yield* Workflows.Workflows;
+      const connectors = yield* Connectors.Connectors;
+      const connectorGateway = yield* ConnectorGateway.ConnectorGateway;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const secretResolver = yield* SecretResolver.SecretResolver;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
@@ -1417,6 +1447,7 @@ export const layerWsRpc = (
         const auth = yield* serverAuth.getDescriptor();
         const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
         const homeDirectory = (yield* HostProcess.HomeDirectory).trim();
+        const agentHomesFound = yield* findExistingAgentHomes();
         const lastEventLoopStall = yield* eventLoopMonitor.latestNoticeableStall;
         const discovery = yield* resolveOpenDiscoveryForConfig({
           editors: externalLauncher.resolveAvailableEditors(),
@@ -1484,6 +1515,8 @@ export const layerWsRpc = (
           }),
           newProjectsRoot: managedFolders.namedProjectsRoot,
           ...(homeDirectory ? { homeDirectory } : {}),
+          codenineHome: config.baseDir,
+          agentHomesFound,
           ...(lastEventLoopStall === undefined ? {} : { lastEventLoopStall }),
         };
       });
@@ -2143,6 +2176,31 @@ export const layerWsRpc = (
                       }),
                   ),
                 ),
+            repointProject: (project) =>
+              projectService
+                .update({
+                  // One project can be given a clone more than once, so the time tells them apart.
+                  commandId: CommandId.make(
+                    `project-clone-repoint:${project.projectId}:${project.createdAt}`,
+                  ),
+                  projectId: project.projectId,
+                  title: project.title,
+                  workspaceRoot: project.workspaceRoot,
+                  createWorkspaceRootIfMissing: true,
+                })
+                .pipe(
+                  Effect.asVoid,
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationDispatchCommandError({
+                        message:
+                          cause._tag === "ProjectConflictError"
+                            ? cause.message
+                            : "Failed to give the workspace its cloned folder.",
+                        cause,
+                      }),
+                  ),
+                ),
             onCloned: (project) =>
               repositoryIdentityResolver.resolve(project.workspaceRoot, { refresh: true }).pipe(
                 Effect.andThen(
@@ -2186,6 +2244,53 @@ export const layerWsRpc = (
         [WS_METHODS.projectCloneRetry]: (input) =>
           projectCloneTracker.retry(input.projectId).pipe(Effect.map((applied) => ({ applied }))),
         [WS_METHODS.subscribeProjectClones]: () => projectCloneTracker.stream,
+        [WS_METHODS.backupStatus]: () => backups.status,
+        [WS_METHODS.subscribeBackupStatus]: () => backups.statusChanges,
+        [WS_METHODS.backupCreate]: () => backups.create,
+        [WS_METHODS.backupSetPassword]: (input) =>
+          backups.setPassword(input.password).pipe(Effect.as({})),
+        [WS_METHODS.backupSuggestFolders]: () =>
+          backups.suggestFolders.pipe(Effect.map((folders) => ({ folders }))),
+        [WS_METHODS.backupList]: (input) =>
+          backups
+            .list({ includeSuggestedFolders: input.includeSuggestedFolders === true })
+            .pipe(Effect.map((found) => ({ backups: found }))),
+        [WS_METHODS.backupDelete]: (input) => backups.remove(input.path).pipe(Effect.as({})),
+        [WS_METHODS.backupDownloadUrl]: (input) => backups.downloadUrl(input.path),
+        [WS_METHODS.backupInspect]: (input) => backups.inspect(input),
+        [WS_METHODS.backupRestore]: (input) => backups.restore(input),
+        [WS_METHODS.backupRestoreReport]: () =>
+          backups.restoreReport.pipe(Effect.map((report) => ({ report }))),
+        [WS_METHODS.backupDismissRestoreReport]: () =>
+          backups.dismissRestoreReport.pipe(Effect.as({})),
+        [WS_METHODS.backupUndoRestore]: () => backups.undoRestore,
+        [WS_METHODS.connectorsList]: () => connectors.state,
+        [WS_METHODS.subscribeConnectors]: () => connectors.stateChanges,
+        [WS_METHODS.connectorsConnect]: (input) => connectors.connect(input),
+        [WS_METHODS.connectorsSignIn]: (input) => connectors.signIn(input),
+        [WS_METHODS.connectorsUpdate]: (input) => connectors.update(input).pipe(Effect.as({})),
+        [WS_METHODS.connectorsDisconnect]: ({ connectionId }) =>
+          connectors.disconnect(connectionId).pipe(Effect.as({})),
+        [WS_METHODS.connectorsTest]: ({ connectionId }) => connectors.test(connectionId),
+        [WS_METHODS.connectorsTools]: ({ connectionId }) => connectors.tools(connectionId),
+        [WS_METHODS.connectorsActivity]: (input) => connectors.activity(input),
+        [WS_METHODS.connectorsAnswerApproval]: (input) =>
+          connectorGateway.answerApproval(input).pipe(Effect.as({})),
+        [WS_METHODS.skillsList]: (input) => skills.list(input),
+        [WS_METHODS.skillsRead]: (input) => skills.read(input),
+        [WS_METHODS.skillsSave]: (input) => skills.save(input),
+        [WS_METHODS.skillsDelete]: (input) => skills.remove(input).pipe(Effect.as({})),
+        [WS_METHODS.skillsAddFromLibrary]: (input) => skills.addFromLibrary(input),
+        [WS_METHODS.skillsImport]: (input) => skills.importFound(input),
+        [WS_METHODS.agentsList]: () => agents.list,
+        [WS_METHODS.agentsRead]: (input) => agents.read(input),
+        [WS_METHODS.agentsSave]: (input) => agents.save(input),
+        [WS_METHODS.agentsDelete]: (input) => agents.remove(input).pipe(Effect.as({})),
+        [WS_METHODS.workflowsList]: () => workflows.list,
+        [WS_METHODS.workflowsRead]: (input) => workflows.read(input),
+        [WS_METHODS.workflowsSave]: (input) => workflows.save(input),
+        [WS_METHODS.workflowsDelete]: (input) => workflows.remove(input).pipe(Effect.as({})),
+        [WS_METHODS.workflowsRun]: (input) => workflows.run(input),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.
@@ -2276,7 +2381,7 @@ export const layerWsRpc = (
                     cause._tag === "ProjectNotEmptyError" ||
                     cause._tag === "ProjectFolderDeleteError"
                       ? cause.message
-                      : "Failed to mutate project.",
+                      : (workspaceFolderProblem(cause) ?? "Failed to mutate project."),
                   cause,
                 }),
             ),

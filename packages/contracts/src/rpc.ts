@@ -229,6 +229,73 @@ import {
   ProjectCloneSubscribeInput,
 } from "./projectClone.ts";
 import {
+  BackupDownloadUrlResult,
+  BackupEmptyInput,
+  BackupEmptyResult,
+  BackupError,
+  BackupFileInput,
+  BackupJobSnapshot,
+  BackupListInput,
+  BackupListResult,
+  BackupRestoreReportResult,
+  BackupRestoreResult,
+  BackupRestoreSummary,
+  BackupSetPasswordInput,
+  BackupStatus,
+  BackupSuggestFoldersResult,
+  BackupUnlockInput,
+} from "./backup.ts";
+import {
+  ConnectorActivityInput,
+  ConnectorActivityResult,
+  ConnectorApprovalAnswerInput,
+  ConnectorConnectInput,
+  ConnectorConnectResult,
+  ConnectorError,
+  ConnectorIdInput,
+  ConnectorSignInInput,
+  ConnectorSignInResult,
+  ConnectorTestResult,
+  ConnectorToolsResult,
+  ConnectorUpdateInput,
+  ConnectorsEmptyInput,
+  ConnectorsEmptyResult,
+  ConnectorsState,
+} from "./connectors.ts";
+import {
+  AgentError,
+  AgentDetail,
+  AgentNameInput,
+  AgentSaveInput,
+  AgentSummary,
+  AgentsEmptyInput,
+  AgentsEmptyResult,
+  AgentsListResult,
+} from "./agents.ts";
+import {
+  WorkflowDetail,
+  WorkflowError,
+  WorkflowNameInput,
+  WorkflowRunInput,
+  WorkflowRunStarted,
+  WorkflowSaveInput,
+  WorkflowsEmptyInput,
+  WorkflowsEmptyResult,
+  WorkflowsListResult,
+} from "./workflows.ts";
+import {
+  SkillAddFromLibraryInput,
+  SkillDetail,
+  SkillError,
+  SkillImportInput,
+  SkillRefInput,
+  SkillSaveInput,
+  SkillSummary,
+  SkillsEmptyResult,
+  SkillsListInput,
+  SkillsListResult,
+} from "./skills.ts";
+import {
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
   SourceControlDiscoveryResult,
@@ -357,6 +424,44 @@ export const WS_METHODS = {
   projectCloneCancel: "projectClone.cancel",
   projectCloneRetry: "projectClone.retry",
   subscribeProjectClones: "subscribeProjectClones",
+  backupStatus: "backup.status",
+  subscribeBackupStatus: "subscribeBackupStatus",
+  backupCreate: "backup.create",
+  backupSetPassword: "backup.setPassword",
+  backupSuggestFolders: "backup.suggestFolders",
+  backupList: "backup.list",
+  backupDelete: "backup.delete",
+  backupDownloadUrl: "backup.downloadUrl",
+  backupInspect: "backup.inspect",
+  backupRestore: "backup.restore",
+  backupRestoreReport: "backup.restoreReport",
+  backupDismissRestoreReport: "backup.dismissRestoreReport",
+  backupUndoRestore: "backup.undoRestore",
+  connectorsList: "connectors.list",
+  subscribeConnectors: "subscribeConnectors",
+  connectorsConnect: "connectors.connect",
+  connectorsSignIn: "connectors.signIn",
+  connectorsUpdate: "connectors.update",
+  connectorsDisconnect: "connectors.disconnect",
+  connectorsTest: "connectors.test",
+  connectorsTools: "connectors.tools",
+  connectorsActivity: "connectors.activity",
+  connectorsAnswerApproval: "connectors.answerApproval",
+  skillsList: "skills.list",
+  skillsRead: "skills.read",
+  skillsSave: "skills.save",
+  skillsDelete: "skills.delete",
+  skillsAddFromLibrary: "skills.addFromLibrary",
+  skillsImport: "skills.import",
+  agentsList: "agents.list",
+  agentsRead: "agents.read",
+  agentsSave: "agents.save",
+  agentsDelete: "agents.delete",
+  workflowsList: "workflows.list",
+  workflowsRead: "workflows.read",
+  workflowsSave: "workflows.save",
+  workflowsDelete: "workflows.delete",
+  workflowsRun: "workflows.run",
 
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeVcsBranch: "subscribeVcsBranch",
@@ -753,6 +858,253 @@ const WsSubscribeProjectClonesRpc = Rpc.make(WS_METHODS.subscribeProjectClones, 
   success: ProjectCloneListEvent,
   error: EnvironmentAuthorizationError,
   stream: true,
+});
+
+const BackupRpcError = Schema.Union([BackupError, EnvironmentAuthorizationError]);
+
+const WsBackupStatusRpc = Rpc.make(WS_METHODS.backupStatus, {
+  payload: BackupEmptyInput,
+  success: BackupStatus,
+  error: BackupRpcError,
+});
+
+// Emits the current status first, then again whenever it changes, including backup progress.
+const WsSubscribeBackupStatusRpc = Rpc.make(WS_METHODS.subscribeBackupStatus, {
+  payload: BackupEmptyInput,
+  success: BackupStatus,
+  error: BackupRpcError,
+  stream: true,
+});
+
+// Returns once the backup starts; progress arrives on the status subscription.
+const WsBackupCreateRpc = Rpc.make(WS_METHODS.backupCreate, {
+  payload: BackupEmptyInput,
+  success: BackupJobSnapshot,
+  error: BackupRpcError,
+});
+
+const WsBackupSetPasswordRpc = Rpc.make(WS_METHODS.backupSetPassword, {
+  payload: BackupSetPasswordInput,
+  success: BackupEmptyResult,
+  error: BackupRpcError,
+});
+
+const WsBackupSuggestFoldersRpc = Rpc.make(WS_METHODS.backupSuggestFolders, {
+  payload: BackupEmptyInput,
+  success: BackupSuggestFoldersResult,
+  error: BackupRpcError,
+});
+
+const WsBackupListRpc = Rpc.make(WS_METHODS.backupList, {
+  payload: BackupListInput,
+  success: BackupListResult,
+  error: BackupRpcError,
+});
+
+const WsBackupDeleteRpc = Rpc.make(WS_METHODS.backupDelete, {
+  payload: BackupFileInput,
+  success: BackupEmptyResult,
+  error: BackupRpcError,
+});
+
+const WsBackupDownloadUrlRpc = Rpc.make(WS_METHODS.backupDownloadUrl, {
+  payload: BackupFileInput,
+  success: BackupDownloadUrlResult,
+  error: BackupRpcError,
+});
+
+const WsBackupInspectRpc = Rpc.make(WS_METHODS.backupInspect, {
+  payload: BackupUnlockInput,
+  success: BackupRestoreSummary,
+  error: BackupRpcError,
+});
+
+// Saves a safety backup, stages the restore and restarts; the restore applies before data opens.
+const WsBackupRestoreRpc = Rpc.make(WS_METHODS.backupRestore, {
+  payload: BackupUnlockInput,
+  success: BackupRestoreResult,
+  error: BackupRpcError,
+});
+
+const WsBackupRestoreReportRpc = Rpc.make(WS_METHODS.backupRestoreReport, {
+  payload: BackupEmptyInput,
+  success: BackupRestoreReportResult,
+  error: BackupRpcError,
+});
+
+const WsBackupDismissRestoreReportRpc = Rpc.make(WS_METHODS.backupDismissRestoreReport, {
+  payload: BackupEmptyInput,
+  success: BackupEmptyResult,
+  error: BackupRpcError,
+});
+
+// Restores the safety backup the last restore saved, the same way a restore does.
+const WsBackupUndoRestoreRpc = Rpc.make(WS_METHODS.backupUndoRestore, {
+  payload: BackupEmptyInput,
+  success: BackupRestoreResult,
+  error: BackupRpcError,
+});
+
+const ConnectorRpcError = Schema.Union([ConnectorError, EnvironmentAuthorizationError]);
+
+const WsConnectorsListRpc = Rpc.make(WS_METHODS.connectorsList, {
+  payload: ConnectorsEmptyInput,
+  success: ConnectorsState,
+  error: ConnectorRpcError,
+});
+
+// Emits the current state first, then again whenever a connection or its status changes.
+const WsSubscribeConnectorsRpc = Rpc.make(WS_METHODS.subscribeConnectors, {
+  payload: ConnectorsEmptyInput,
+  success: ConnectorsState,
+  error: ConnectorRpcError,
+  stream: true,
+});
+
+const WsConnectorsConnectRpc = Rpc.make(WS_METHODS.connectorsConnect, {
+  payload: ConnectorConnectInput,
+  success: ConnectorConnectResult,
+  error: ConnectorRpcError,
+});
+
+// Starts signing in again, such as after the service signed Codenine out.
+const WsConnectorsSignInRpc = Rpc.make(WS_METHODS.connectorsSignIn, {
+  payload: ConnectorSignInInput,
+  success: ConnectorSignInResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsUpdateRpc = Rpc.make(WS_METHODS.connectorsUpdate, {
+  payload: ConnectorUpdateInput,
+  success: ConnectorsEmptyResult,
+  error: ConnectorRpcError,
+});
+
+// Removes the connection with its saved sign-in and activity; chats stop using it.
+const WsConnectorsDisconnectRpc = Rpc.make(WS_METHODS.connectorsDisconnect, {
+  payload: ConnectorIdInput,
+  success: ConnectorsEmptyResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsTestRpc = Rpc.make(WS_METHODS.connectorsTest, {
+  payload: ConnectorIdInput,
+  success: ConnectorTestResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsToolsRpc = Rpc.make(WS_METHODS.connectorsTools, {
+  payload: ConnectorIdInput,
+  success: ConnectorToolsResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsActivityRpc = Rpc.make(WS_METHODS.connectorsActivity, {
+  payload: ConnectorActivityInput,
+  success: ConnectorActivityResult,
+  error: ConnectorRpcError,
+});
+
+const WsConnectorsAnswerApprovalRpc = Rpc.make(WS_METHODS.connectorsAnswerApproval, {
+  payload: ConnectorApprovalAnswerInput,
+  success: ConnectorsEmptyResult,
+  error: ConnectorRpcError,
+});
+
+const SkillRpcError = Schema.Union([SkillError, EnvironmentAuthorizationError]);
+
+const WsSkillsListRpc = Rpc.make(WS_METHODS.skillsList, {
+  payload: SkillsListInput,
+  success: SkillsListResult,
+  error: SkillRpcError,
+});
+
+const WsSkillsReadRpc = Rpc.make(WS_METHODS.skillsRead, {
+  payload: SkillRefInput,
+  success: SkillDetail,
+  error: SkillRpcError,
+});
+
+const WsSkillsSaveRpc = Rpc.make(WS_METHODS.skillsSave, {
+  payload: SkillSaveInput,
+  success: SkillSummary,
+  error: SkillRpcError,
+});
+
+const WsSkillsDeleteRpc = Rpc.make(WS_METHODS.skillsDelete, {
+  payload: SkillRefInput,
+  success: SkillsEmptyResult,
+  error: SkillRpcError,
+});
+
+const WsSkillsAddFromLibraryRpc = Rpc.make(WS_METHODS.skillsAddFromLibrary, {
+  payload: SkillAddFromLibraryInput,
+  success: SkillSummary,
+  error: SkillRpcError,
+});
+
+const WsSkillsImportRpc = Rpc.make(WS_METHODS.skillsImport, {
+  payload: SkillImportInput,
+  success: SkillSummary,
+  error: SkillRpcError,
+});
+
+const AgentRpcError = Schema.Union([AgentError, EnvironmentAuthorizationError]);
+
+const WsAgentsListRpc = Rpc.make(WS_METHODS.agentsList, {
+  payload: AgentsEmptyInput,
+  success: AgentsListResult,
+  error: AgentRpcError,
+});
+
+const WsAgentsReadRpc = Rpc.make(WS_METHODS.agentsRead, {
+  payload: AgentNameInput,
+  success: AgentDetail,
+  error: AgentRpcError,
+});
+
+const WsAgentsSaveRpc = Rpc.make(WS_METHODS.agentsSave, {
+  payload: AgentSaveInput,
+  success: AgentSummary,
+  error: AgentRpcError,
+});
+
+const WsAgentsDeleteRpc = Rpc.make(WS_METHODS.agentsDelete, {
+  payload: AgentNameInput,
+  success: AgentsEmptyResult,
+  error: AgentRpcError,
+});
+
+const WorkflowRpcError = Schema.Union([WorkflowError, EnvironmentAuthorizationError]);
+
+const WsWorkflowsListRpc = Rpc.make(WS_METHODS.workflowsList, {
+  payload: WorkflowsEmptyInput,
+  success: WorkflowsListResult,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsReadRpc = Rpc.make(WS_METHODS.workflowsRead, {
+  payload: WorkflowNameInput,
+  success: WorkflowDetail,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsSaveRpc = Rpc.make(WS_METHODS.workflowsSave, {
+  payload: WorkflowSaveInput,
+  success: WorkflowDetail,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
+  payload: WorkflowNameInput,
+  success: WorkflowsEmptyResult,
+  error: WorkflowRpcError,
+});
+
+const WsWorkflowsRunRpc = Rpc.make(WS_METHODS.workflowsRun, {
+  payload: WorkflowRunInput,
+  success: WorkflowRunStarted,
+  error: WorkflowRpcError,
 });
 
 const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPublishRepository, {
@@ -1301,6 +1653,44 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectCloneCancelRpc,
   WsProjectCloneRetryRpc,
   WsSubscribeProjectClonesRpc,
+  WsBackupStatusRpc,
+  WsSubscribeBackupStatusRpc,
+  WsBackupCreateRpc,
+  WsBackupSetPasswordRpc,
+  WsBackupSuggestFoldersRpc,
+  WsBackupListRpc,
+  WsBackupDeleteRpc,
+  WsBackupDownloadUrlRpc,
+  WsBackupInspectRpc,
+  WsBackupRestoreRpc,
+  WsBackupRestoreReportRpc,
+  WsBackupDismissRestoreReportRpc,
+  WsBackupUndoRestoreRpc,
+  WsConnectorsListRpc,
+  WsSubscribeConnectorsRpc,
+  WsConnectorsConnectRpc,
+  WsConnectorsSignInRpc,
+  WsConnectorsUpdateRpc,
+  WsConnectorsDisconnectRpc,
+  WsConnectorsTestRpc,
+  WsConnectorsToolsRpc,
+  WsConnectorsActivityRpc,
+  WsConnectorsAnswerApprovalRpc,
+  WsSkillsListRpc,
+  WsSkillsReadRpc,
+  WsSkillsSaveRpc,
+  WsSkillsDeleteRpc,
+  WsSkillsAddFromLibraryRpc,
+  WsSkillsImportRpc,
+  WsAgentsListRpc,
+  WsAgentsReadRpc,
+  WsAgentsSaveRpc,
+  WsAgentsDeleteRpc,
+  WsWorkflowsListRpc,
+  WsWorkflowsReadRpc,
+  WsWorkflowsSaveRpc,
+  WsWorkflowsDeleteRpc,
+  WsWorkflowsRunRpc,
   WsProjectsListEntriesRpc,
   WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,

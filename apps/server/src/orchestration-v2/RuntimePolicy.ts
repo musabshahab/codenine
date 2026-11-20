@@ -1,4 +1,5 @@
 import {
+  type AgentName,
   ModelSelection,
   OrchestrationV2AppThread,
   ProjectId,
@@ -11,6 +12,9 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { buildAgentInstructions } from "@codenine/provider-core/server/agentInstructions";
+import * as Agents from "../agents/Agents.ts";
+import { NO_ABILITIES } from "../agents/AgentFile.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@codenine/provider-core/server/ProviderAdapter";
 import * as ProjectStore from "./ProjectStore.ts";
@@ -74,12 +78,29 @@ function providerRuntimeMode(
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
-  ProjectStore.ProjectStoreV2 | ProviderInstanceRegistry.ProviderInstanceRegistry
+  ProjectStore.ProjectStoreV2 | ProviderInstanceRegistry.ProviderInstanceRegistry | Agents.Agents
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
     const projects = yield* ProjectStore.ProjectStoreV2;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const agents = yield* Agents.Agents;
+    // An agent that cannot be read may do nothing, so no load can widen what a chat reaches.
+    const chatAgent = (name: AgentName) =>
+      agents.find(name).pipe(
+        Effect.map(
+          Option.match({
+            onNone: (): ProviderAdapter.ProviderAdapterV2Agent => ({
+              instructions: "",
+              abilities: NO_ABILITIES,
+            }),
+            onSome: (agent): ProviderAdapter.ProviderAdapterV2Agent => ({
+              instructions: buildAgentInstructions(agent),
+              abilities: agent.abilities,
+            }),
+          }),
+        ),
+      );
     return RuntimePolicyV2.of({
       resolve: Effect.fn("RuntimePolicyV2.resolve")(function* (input) {
         const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
@@ -116,6 +137,9 @@ export const layerFromProjectStore: Layer.Layer<
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
+          ...(input.thread.agent === undefined
+            ? {}
+            : { agent: yield* chatAgent(input.thread.agent) }),
         });
       }),
     });

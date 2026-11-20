@@ -63,10 +63,10 @@ package an installable, unsigned app for your platform, see
 ### Windows Subsystem for Linux
 
 In a packaged Windows build that bundles the Linux server, choose a WSL distro in
-**Settings → Sharing & access** to run agents and projects there. Install the provider CLIs inside
+**Settings → Sharing & access** to run agents and workspaces there. Install the provider CLIs inside
 that distro.
 
-### Open a project from a terminal
+### Open a workspace from a terminal
 
 With the desktop app already running on the same machine:
 
@@ -74,7 +74,7 @@ With the desktop app already running on the same machine:
 codenine app
 ```
 
-This opens a new thread for the current directory, adding the project if needed. Pass a path,
+This opens a new thread for the current directory, adding the workspace if needed. Pass a path,
 such as `codenine app ../my-project`, to open another directory. It needs the desktop app, so a
 standalone server or an SSH session is not enough.
 
@@ -93,6 +93,8 @@ choose **Install** next to **codenine command** in **Settings → About**. The g
 | Set up access from your other devices            | `codenine up` ([details](./remote-access.md))                                 |
 | Keep it running in the background (macOS, Linux) | `codenine service install` ([details](./background-service.md))               |
 | Reclaim database space                           | `codenine doctor` ([details](./background-service.md#reclaim-database-space)) |
+| Back up this Codenine folder                     | `codenine backup` ([details](./backup.md))                                    |
+| Restore a backup                                 | `codenine restore <file>` ([details](./backup.md))                            |
 
 Run `codenine help` or `codenine --help` for the full reference. To start in a new working
 directory, use an explicit path such as `codenine ./my-project`. A bare directory name is accepted
@@ -113,7 +115,7 @@ as described above.
 
 ## Providers
 
-Codenine works with Codex and Claude Code. Open **Settings → Providers**, select the environment,
+Codenine works with Codex and Claude Code. Open **Settings → Accounts**, select the environment,
 and enable the provider you want. Installation, login, and configuration belong to that
 environment's machine, even when you connect from another computer.
 
@@ -128,7 +130,7 @@ in provider settings, especially when using a version manager. Codex connected t
 uses its managed runtime without a `PATH` entry.
 
 Codenine warns when a provider version has known compatibility problems. Check
-**Settings → Providers** on that environment for the recommended version or range. An unlisted
+**Settings → Accounts** on that environment for the recommended version or range. An unlisted
 version is unverified.
 
 When a provider CLI is behind its latest release, its provider card shows the available version.

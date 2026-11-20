@@ -118,7 +118,7 @@ function ProjectIconPickerBody({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Choose project icon</DialogTitle>
+        <DialogTitle>Choose workspace icon</DialogTitle>
         <DialogDescription>Choose an icon, emoji, or monogram.</DialogDescription>
       </DialogHeader>
       <DialogPanel className="flex min-h-0 flex-col">

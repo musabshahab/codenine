@@ -516,7 +516,7 @@ export function ThreadRelationshipsPanel(props: {
     });
     setStoppingId(null);
     if (result._tag === "Failure") {
-      toastManager.add({ type: "error", title: "Could not stop workflow" });
+      toastManager.add({ type: "error", title: "Could not stop the Claude workflow" });
     }
   };
 

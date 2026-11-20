@@ -1,3 +1,4 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   EventId,
@@ -17,9 +18,13 @@ import {
 } from "@codenine/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
@@ -157,7 +162,7 @@ function fixtureEvents(now: DateTime.Utc): ReadonlyArray<OrchestrationV2DomainEv
         runId,
         nodeId,
         role: "user",
-        text: "Use the smaller fix.",
+        text: steerText,
         attachments: [],
         streaming: false,
         createdBy: "user",
@@ -184,6 +189,8 @@ function fixtureEvents(now: DateTime.Utc): ReadonlyArray<OrchestrationV2DomainEv
     },
   ];
 }
+
+const steerText = "Use the smaller fix, like $review-code says.";
 
 const storageCases = [
   {
@@ -254,7 +261,7 @@ it.effect.each(storageCases)(
       assert.equal(context.providerThread?.id, providerThreadId);
       assert.equal(context.providerTurn?.id, providerTurnId);
       assert.equal(context.attempt?.id, attemptId);
-      assert.equal(context.message?.text, "Use the smaller fix.");
+      assert.equal(context.message?.text, steerText);
       assert.equal(context.run?.id, runId);
       assert.equal((yield* store.getRuntimeRequest(threadId, requestId))?.status, "resolved");
       assert.isUndefined(
@@ -282,11 +289,15 @@ it.effect.each(storageCases)(
             steerTurn: (input: {
               message: {
                 text: string;
+                context?: ReadonlyArray<string>;
+                skills?: { attached: ReadonlyArray<string> };
               };
               runId: RunId;
             }) =>
               Effect.sync(() => {
                 assert.equal(input.runId, runId);
+                assert.deepEqual(input.message.skills?.attached, ["review-code"]);
+                assert.include(input.message.context?.join("\n"), "Review it line by line.");
                 calls.push(input.message.text);
               }),
             respondToRuntimeRequest: () =>
@@ -298,6 +309,18 @@ it.effect.each(storageCases)(
       yield* Effect.gen(function* () {
         const control = yield* ProviderTurnControlService.ProviderTurnControlServiceV2;
         const reply = yield* RuntimeRequestService.RuntimeRequestServiceV2;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const skillFolder = path.join(
+          (yield* ServerConfig.ServerConfig).baseDir,
+          "skills",
+          "review-code",
+        );
+        yield* fileSystem.makeDirectory(skillFolder, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(skillFolder, "SKILL.md"),
+          "---\nname: review-code\ndescription: Reviews.\n---\n\nReview it line by line.\n",
+        );
         yield* control.interrupt({ threadId, providerThreadId, providerTurnId, providerSessionId });
         yield* control.steer({
           threadId,
@@ -307,7 +330,7 @@ it.effect.each(storageCases)(
           messageId,
         });
         yield* reply.respond({ threadId, providerSessionId, requestId, decision: "accept" });
-        assert.deepEqual(calls, ["interrupt", "Use the smaller fix.", "reply"]);
+        assert.deepEqual(calls, ["interrupt", steerText, "reply"]);
         const wrongSession = ProviderSessionId.make("session:wrong");
         assert.equal(
           (yield* Effect.exit(
@@ -341,11 +364,18 @@ it.effect.each(storageCases)(
           payload: { ...turn, status: "completed", completedAt: now },
         });
         yield* control.interrupt({ threadId, providerThreadId, providerTurnId, providerSessionId });
-        assert.deepEqual(calls, ["interrupt", "Use the smaller fix.", "reply", "interrupt"]);
+        assert.deepEqual(calls, ["interrupt", steerText, "reply", "interrupt"]);
       }).pipe(
         Effect.provide(
           Layer.merge(ProviderTurnControlService.layer, RuntimeRequestService.layer).pipe(
             Layer.provide(layerSessions),
+            Layer.provide(
+              Layer.mock(ProjectService.ProjectService)({ getById: () => Effect.succeedNone }),
+            ),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "codenine-control-reads-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
           ),
         ),
       );

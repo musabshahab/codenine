@@ -10,7 +10,7 @@ request. A **text generator** — a model API that only writes text — is usual
 
 ## Add a text generator
 
-Go to **Settings → Providers → Text generators** and choose **Add generator**:
+Go to **Settings → Accounts → Text generators** and choose **Add generator**:
 
 - **OpenAI** or **Anthropic** — enter an API key.
 - **OpenRouter** — enter an OpenRouter key to use any model it serves.

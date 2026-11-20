@@ -266,7 +266,7 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
                     }}
                     items={targets.map((t) => ({ value: t.environmentId, label: t.label }))}
                   >
-                    <SelectTrigger size="sm" aria-label="Machine to add the project to">
+                    <SelectTrigger size="sm" aria-label="Machine to add the workspace to">
                       {target ? (
                         <EnvironmentMachineIcon kind={target.machine} className="size-3.5" />
                       ) : null}

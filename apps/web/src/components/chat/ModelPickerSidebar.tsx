@@ -1,7 +1,7 @@
 import { Toolbar } from "@base-ui/react/toolbar";
 import { type ProviderInstanceId } from "@codenine/contracts";
-import { memo, useLayoutEffect, useRef, useState } from "react";
-import { StarIcon } from "lucide-react";
+import { memo, type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { BotIcon, StarIcon } from "lucide-react";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -29,19 +29,60 @@ function describeUnavailableInstance(entry: ProviderInstanceEntry): string {
 const PICKER_TOOLTIP_SIDE = "left" as const;
 const PICKER_TOOLTIP_SIDE_OFFSET = 8;
 
+/** A tab that is not a provider: the chat's agents, or favorite models. */
+export type ModelPickerListTab = "agents" | "favorites";
+
+function ListTab(props: {
+  tab: ModelPickerListTab;
+  label: string;
+  selected: boolean;
+  onSelect: (tab: ModelPickerListTab) => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="relative w-full" data-model-picker-provider={props.tab}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Toolbar.Button
+              className="relative isolate flex w-full cursor-pointer aspect-square items-center justify-center rounded-md transition-colors hover:bg-foreground/10 focus-visible:bg-foreground/10 focus-visible:outline-none"
+              onClick={() => props.onSelect(props.tab)}
+              type="button"
+              aria-label={props.label}
+              aria-pressed={props.selected}
+            >
+              {props.children}
+            </Toolbar.Button>
+          }
+        />
+        <TooltipPopup
+          side={PICKER_TOOLTIP_SIDE}
+          sideOffset={PICKER_TOOLTIP_SIDE_OFFSET}
+          align="center"
+        >
+          {props.label}
+        </TooltipPopup>
+      </Tooltip>
+    </div>
+  );
+}
+
 export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
-  selectedInstanceId: ProviderInstanceId | "favorites";
-  onSelectInstance: (instanceId: ProviderInstanceId | "favorites") => void;
+  selectedInstanceId: ProviderInstanceId | ModelPickerListTab;
+  onSelectInstance: (instanceId: ProviderInstanceId | ModelPickerListTab) => void;
   onFocusSearch: () => void;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
+  /** Puts the chat's agents above the models. */
+  showAgents?: boolean;
   showFavorites?: boolean;
   disabledInstanceIds?: ReadonlySet<ProviderInstanceId>;
   selectableUnavailableInstanceIds?: ReadonlySet<ProviderInstanceId>;
   getDisabledInstanceTooltip?: (entry: ProviderInstanceEntry) => string;
 }) {
-  const handleSelect = (instanceId: ProviderInstanceId | "favorites") => {
+  const handleSelect = (instanceId: ProviderInstanceId | ModelPickerListTab) => {
     props.onSelectInstance(instanceId);
   };
+  const showAgents = props.showAgents ?? false;
   const showFavorites = props.showFavorites ?? true;
   const [hoveredInstanceId, setHoveredInstanceId] = useState<ProviderInstanceId | null>(null);
   const sidebarContentRef = useRef<HTMLDivElement>(null);
@@ -64,6 +105,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Adding, removing or reordering providers moves the selected item, so the indicator re-measures.
     props.instanceEntries,
     props.selectedInstanceId,
+    showAgents,
     showFavorites,
   ]);
 
@@ -91,36 +133,28 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
               style={{ top: selectedIndicatorTop }}
             />
           ) : null}
+          {showAgents ? (
+            <ListTab
+              tab="agents"
+              label="Agents"
+              selected={props.selectedInstanceId === "agents"}
+              onSelect={handleSelect}
+            >
+              <BotIcon className="size-5 shrink-0" aria-hidden />
+            </ListTab>
+          ) : null}
           {showFavorites ? (
-            <>
-              <div className="relative w-full" data-model-picker-provider="favorites">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Toolbar.Button
-                        className={cn(
-                          "relative isolate flex w-full cursor-pointer aspect-square items-center justify-center rounded-md transition-colors hover:bg-foreground/10 focus-visible:bg-foreground/10 focus-visible:outline-none",
-                        )}
-                        onClick={() => handleSelect("favorites")}
-                        type="button"
-                        aria-label="Favorites"
-                        aria-pressed={props.selectedInstanceId === "favorites"}
-                      >
-                        <StarIcon className="size-5 fill-current shrink-0" aria-hidden />
-                      </Toolbar.Button>
-                    }
-                  />
-                  <TooltipPopup
-                    side={PICKER_TOOLTIP_SIDE}
-                    sideOffset={PICKER_TOOLTIP_SIDE_OFFSET}
-                    align="center"
-                  >
-                    Favorites
-                  </TooltipPopup>
-                </Tooltip>
-              </div>
-              <div className="border-b border-border/70" aria-hidden="true" />
-            </>
+            <ListTab
+              tab="favorites"
+              label="Favorites"
+              selected={props.selectedInstanceId === "favorites"}
+              onSelect={handleSelect}
+            >
+              <StarIcon className="size-5 fill-current shrink-0" aria-hidden />
+            </ListTab>
+          ) : null}
+          {showAgents || showFavorites ? (
+            <div className="border-b border-border/70" aria-hidden="true" />
           ) : null}
 
           {props.instanceEntries.map((entry) => {

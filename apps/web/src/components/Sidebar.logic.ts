@@ -610,34 +610,6 @@ export function filterSidebarV2VisibleThreads<
   );
 }
 
-/**
- * The thread a switch to a sidebar mode reopens: of the threads that mode lists, the one visited
- * last, else the one updated last.
- */
-export function resolveSidebarModeReturnThread<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "updatedAt">,
->(input: {
-  readonly threads: readonly T[];
-  readonly inMode: (thread: T) => boolean;
-  readonly visitedAt: (thread: T) => string | null | undefined;
-}): T | null {
-  let best: T | null = null;
-  let bestVisited = -1;
-  let bestUpdated = -1;
-  for (const thread of input.threads) {
-    if (thread.archivedAt !== null || !isListedThreadLineage(thread.lineage)) continue;
-    if (!input.inMode(thread)) continue;
-    const visited = firstValidTimestampMs(input.visitedAt(thread));
-    const updated = firstValidTimestampMs(thread.updatedAt);
-    if (visited > bestVisited || (visited === bestVisited && updated > bestUpdated)) {
-      best = thread;
-      bestVisited = visited;
-      bestUpdated = updated;
-    }
-  }
-  return best;
-}
-
 export function buildBulkTitleRegenerationContextMenuItem(input: {
   supportedCount: number;
   actionableCount: number;
@@ -868,6 +840,7 @@ export function resolveSidebarFolderDot(
     reasons.has("approval") ||
     reasons.has("question") ||
     reasons.has("review") ||
+    reasons.has("waiting") ||
     statuses.has("limited")
   ) {
     return "attention";
@@ -930,39 +903,6 @@ export function groupSidebarThreadsByProject<
     folderByProject.get(`${thread.environmentId}:${thread.projectId}`)?.threads.push(thread);
   }
   return folders.filter((folder) => folder.threads.length > 0 || keepEmpty(folder.group));
-}
-
-/** Chat folder names: the ones this device made and the ones its chats use, sorted by name. */
-export function resolveChatFolderNames(
-  chats: ReadonlyArray<
-    Pick<SidebarThreadSummary, "archivedAt"> & { readonly folder?: string | null | undefined }
-  >,
-  localNames: readonly string[],
-): string[] {
-  const names = new Set(localNames);
-  for (const chat of chats) {
-    if (chat.archivedAt === null && chat.folder) names.add(chat.folder);
-  }
-  return [...names].toSorted((left, right) =>
-    left.localeCompare(right, undefined, { sensitivity: "base" }),
-  );
-}
-
-/** Chats in a folder for each of `names`, in that order, and the chats in none. */
-export function groupSidebarChatsByFolder<
-  TThread extends { readonly folder?: string | null | undefined },
->(
-  names: readonly string[],
-  threads: readonly TThread[],
-): { readonly folders: Array<{ name: string; threads: TThread[] }>; readonly rest: TThread[] } {
-  const folders = names.map((name) => ({ name, threads: [] as TThread[] }));
-  const folderByName = new Map(folders.map((folder) => [folder.name, folder] as const));
-  const rest: TThread[] = [];
-  for (const thread of threads) {
-    const folder = thread.folder == null ? undefined : folderByName.get(thread.folder);
-    (folder?.threads ?? rest).push(thread);
-  }
-  return { folders, rest };
 }
 
 export type SidebarV2TopStatusKind =

@@ -1,4 +1,10 @@
-import type { EnvironmentId, MessageId, ThreadId } from "@codenine/contracts";
+import type {
+  EnvironmentId,
+  MessageId,
+  ScopedThreadRef,
+  ServerProvider,
+  ThreadId,
+} from "@codenine/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 
@@ -14,6 +20,8 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import type { AccountSwitchRequest } from "./accountSwitch.logic";
+import { AccountSwitchDialog } from "./AccountSwitchDialog";
 import { registerThreadOverlay } from "./threadOverlayRetention";
 
 /**
@@ -178,5 +186,28 @@ export function RevertConfirmHost(props: {
         </AlertDialogFooter>
       </AlertDialogPopup>
     </AlertDialog>
+  );
+}
+
+const accountSwitchAtom = makeThreadOverlayAtom<AccountSwitchRequest>("account-switch");
+
+export function openAccountSwitch(threadKey: string, request: AccountSwitchRequest): void {
+  appAtomRegistry.set(accountSwitchAtom, { threadKey, value: request });
+}
+
+export function AccountSwitchHost(props: {
+  readonly threadKey: string;
+  readonly threadRef: ScopedThreadRef;
+  readonly providerStatuses: ReadonlyArray<ServerProvider>;
+}) {
+  const request = useThreadOverlay(accountSwitchAtom, props.threadKey);
+  if (request === null) return null;
+  return (
+    <AccountSwitchDialog
+      threadRef={props.threadRef}
+      request={request}
+      providerStatuses={props.providerStatuses}
+      onClose={() => closeThreadOverlay(accountSwitchAtom)}
+    />
   );
 }

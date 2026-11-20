@@ -135,6 +135,9 @@ export function findProjectByPath<T extends { workspaceRoot?: string; cwd?: stri
   });
 }
 
+/** The workspace that holds the chats started without one, where each chat has its own folder. */
+export const PERSONAL_WORKSPACE_NAME = "Personal";
+
 export function isScratchProject(
   project: { readonly workspaceRoot: string },
   scratchWorkspaceRoot: string | null | undefined,

@@ -15,6 +15,10 @@
       "types": "./src/server/adapterDriver.ts",
       "import": "./src/server/adapterDriver.ts"
     },
+    "./server/agentInstructions": {
+      "types": "./src/server/agentInstructions.ts",
+      "import": "./src/server/agentInstructions.ts"
+    },
     "./server/attachmentPrompt": {
       "types": "./src/server/attachmentPrompt.ts",
       "import": "./src/server/attachmentPrompt.ts"
@@ -134,6 +138,10 @@
     "./server/selectionTransition": {
       "types": "./src/server/selectionTransition.ts",
       "import": "./src/server/selectionTransition.ts"
+    },
+    "./server/skillInstructions": {
+      "types": "./src/server/skillInstructions.ts",
+      "import": "./src/server/skillInstructions.ts"
     },
     "./server/snapshot": {
       "types": "./src/server/snapshot.ts",

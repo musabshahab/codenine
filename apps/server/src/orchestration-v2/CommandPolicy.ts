@@ -254,14 +254,17 @@ const ensureQueuedMessages: CommandPolicyV2Shape["ensureQueuedMessages"] = (inpu
         ),
       );
 
+export function canRestartToSteer(capabilities: OrchestrationV2ProviderCapabilities): boolean {
+  return (
+    capabilities.turns.supportsInterrupt && capabilities.turns.supportsSteeringByInterruptRestart
+  );
+}
+
 const decideSteeringExecution: CommandPolicyV2Shape["decideSteeringExecution"] = (input) => {
   if (!input.forceRestart && input.capabilities.turns.supportsActiveSteering) {
     return Effect.succeed("active_steering");
   }
-  if (
-    input.capabilities.turns.supportsInterrupt &&
-    input.capabilities.turns.supportsSteeringByInterruptRestart
-  ) {
+  if (canRestartToSteer(input.capabilities)) {
     return Effect.succeed("interrupt_restart");
   }
   return Effect.fail(

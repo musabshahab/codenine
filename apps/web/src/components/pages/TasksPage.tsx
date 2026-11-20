@@ -28,7 +28,7 @@ export function TasksPage() {
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
   return (
-    <WorkspacePage area="tasks" title="Tasks" subtitle="Across all projects">
+    <WorkspacePage area="tasks" title="Tasks" subtitle="Across all workspaces">
       {tasks.length === 0 ? (
         <Empty className="h-full">
           <EmptyHeader>
@@ -37,16 +37,17 @@ export function TasksPage() {
             </EmptyMedia>
             <EmptyTitle>No tasks yet</EmptyTitle>
             <EmptyDescription>
-              Turn on Team in a project's composer and the lead proposes a team for the task.
+              A task is work a team of agents does together. Open a workspace and choose New task;
+              the lead proposes a team for you to approve.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="flex flex-col gap-5 px-4 py-4">
+        <div className="flex flex-col gap-5 p-2">
           {groupTeamTasks(tasks, (thread) => thread.source.teamSummary?.status ?? null).map(
             (group) => (
               <section key={group.label} aria-label={group.label} className="flex flex-col gap-px">
-                <h2 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+                <h2 className="px-3 pb-1 text-xs font-medium text-muted-foreground">
                   {group.label} · {group.tasks.length}
                 </h2>
                 <ul className="flex flex-col gap-px">
@@ -57,7 +58,7 @@ export function TasksPage() {
                         <button
                           type="button"
                           onClick={() => open(thread)}
-                          className="flex min-h-9 w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          className="flex min-h-9 w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-3 py-1.5 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                         >
                           <ThreadKindIcon kind={resolveThreadKind(thread)} className="size-4" />
                           <span className="min-w-40 flex-1 truncate text-foreground">

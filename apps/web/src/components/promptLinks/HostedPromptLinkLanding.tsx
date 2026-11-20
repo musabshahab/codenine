@@ -74,7 +74,7 @@ function summarize(
       ...PROMPT_HEADER,
       prompt: link.value.prompt,
       details: [
-        repository ? `Repository ${repository.owner}/${repository.name}` : "No project",
+        repository ? `Repository ${repository.owner}/${repository.name}` : "Personal",
         ...(provider ? [`Model ${model ? `${provider} ${model}` : provider}`] : []),
       ],
     },

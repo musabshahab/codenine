@@ -48,8 +48,9 @@ export const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/settings/chat",
   "/settings/diffs",
   "/settings/connections",
-  // Access picks its environment on the page itself.
+  // Access and Backup pick their environment on the page itself.
   "/settings/access",
+  "/settings/backup",
   "/settings/about",
 ]);
 
@@ -310,13 +311,13 @@ function ProjectScopeMenu({ value, groups, environments, onChange }: SettingsSco
   }));
   return (
     <ScopeMenu
-      ariaLabel="Project scope"
+      ariaLabel="Workspace scope"
       icon={selected ? <ProjectFavicon project={selected} className="size-3.5 shrink-0" /> : null}
-      label={selected?.displayName ?? (value.project ? "Unavailable project" : "All projects")}
+      label={selected?.displayName ?? (value.project ? "Unavailable workspace" : "All workspaces")}
       value={projectAxisValue(value)}
       onChange={(next) => onChange(selectProjectAxis(value, next))}
-      searchLabel="Search projects"
-      allOption={{ value: ALL_PROJECTS_VALUE, label: "All projects" }}
+      searchLabel="Search workspaces"
+      allOption={{ value: ALL_PROJECTS_VALUE, label: "All workspaces" }}
       options={projects.map(({ group, machines }) => {
         const sameName = projects.filter(
           (other) =>

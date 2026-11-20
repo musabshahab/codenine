@@ -7,9 +7,11 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { McpServer } from "effect/ai";
 
+import { Agents } from "../agents/Agents.ts";
 import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { ServerConfig } from "../config.ts";
+import { ConnectorStore } from "../connectors/ConnectorStore.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
@@ -27,6 +29,7 @@ import { ProjectCloneTracker } from "../project/ProjectCloneTracker.ts";
 import { ProjectService } from "../project/ProjectService.ts";
 import { ProjectSetupScriptRunner } from "../project/ProjectSetupScriptRunner.ts";
 import { SecretRequests } from "../secrets/SecretRequests.ts";
+import { Skills } from "../skills/Skills.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { SourceControlRepositoryService } from "../sourceControl/SourceControlRepositoryService.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
@@ -38,7 +41,9 @@ import budget from "./agentContextBudget.json" with { type: "json" };
 
 // Registration only stores tool definitions, so the handlers' services are never called.
 const toolHandlerServices = Layer.mergeAll(
+  Layer.mock(Agents)({}),
   Layer.mock(AssetSigner)({}),
+  Layer.mock(ConnectorStore)({}),
   Layer.mock(DocumentText)({}),
   Layer.mock(GitVcsDriver)({}),
   Layer.mock(GitWorkflowService)({}),
@@ -51,6 +56,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ProviderAdapterRegistryV2)({}),
   Layer.mock(ProviderRegistry)({}),
   Layer.mock(SecretRequests)({}),
+  Layer.mock(Skills)({}),
   ServerConfig.layerTest(process.cwd(), { prefix: "codenine-agent-context-budget-" }),
   Layer.mock(ServerEnvironment)({}),
   Layer.mock(ServerSecretStore)({}),

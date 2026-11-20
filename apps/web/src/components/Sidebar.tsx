@@ -35,7 +35,11 @@ import {
   isThreadWorking,
 } from "@codenine/client-runtime/state/thread-inbox";
 import { sortSettledThreads } from "@codenine/client-runtime/state/thread-sort";
-import { groupTeamThreads, withTeamTaskRows } from "@codenine/client-runtime/state/team-threads";
+import {
+  groupTeamThreads,
+  withoutWorkflowRuns,
+  withTeamTaskRows,
+} from "@codenine/client-runtime/state/team-threads";
 import {
   nextShownOrder,
   threadSearchMatchKey,
@@ -120,7 +124,7 @@ import {
   getSidebarProjectSettingsKey,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { resolveProjectExpanded, type SidebarMode, useUiStateStore } from "../uiStateStore";
+import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -132,13 +136,13 @@ import {
 } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
-import { readChatFolderNames, useChatFolders } from "../hooks/useChatFolders";
 import { useOrderWhileOpen } from "../hooks/useOrderWhileOpen";
 import { useProjectPin } from "../hooks/useProjectGroupUpdate";
 import { useProjectRemoval } from "../hooks/useProjectRemoval";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
+import { openNewProjectDialog } from "../newProjectDialogStore";
 import { registerSettleAndAdvance } from "../settleAndAdvance";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
@@ -179,7 +183,6 @@ import { ProjectRowActions } from "./ProjectComboboxRow";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
-  resolveThreadFolderChoice,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
 import {
@@ -218,10 +221,6 @@ import {
   type SidebarListItem,
   type SidebarSection,
   resolveSidebarRowThreadId,
-  resolveSidebarModeReturnThread,
-  resolveThreadLastVisitedAt,
-  groupSidebarChatsByFolder,
-  resolveChatFolderNames,
 } from "./Sidebar.logic";
 import {
   createSidebarCollisionDetection,
@@ -240,9 +239,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { deriveProviderEntriesByEnvironment } from "../providerInstances";
 import { useStableCallback } from "../hooks/useStableCallback";
 import {
-  applySidebarRouteMode,
   resolveSidebarRouteReveal,
-  sidebarRouteModeApplied,
   type SidebarRouteReveal,
   useActiveRowReveal,
 } from "./sidebar/routeReveal";
@@ -276,14 +273,20 @@ import {
 } from "./sidebar/SidebarThreadRow";
 import { SidebarDraftBlock } from "./sidebar/SidebarDraftBlock";
 import { SidebarTeamTasksContext } from "./sidebar/SidebarTeamTasks";
-import { SidebarNavRows, SidebarNewMenu, SidebarSectionLabel } from "./sidebar/SidebarNav";
-import { useCompletedThreads, useNeedsYouEntries, useTeamTasks } from "../hooks/useWorkLists";
 import {
-  SidebarChatFolderHeader,
+  SidebarBuildRows,
+  SidebarNavRows,
+  SidebarNewMenu,
+  SidebarSectionLabel,
+  sidebarPageForPath,
+  type SidebarPage,
+} from "./sidebar/SidebarNav";
+import { useCompletedThreads, useNeedsYouEntries, useTeamTasks } from "../hooks/useWorkLists";
+import { useStartWorkflowChat } from "./chat/useStartWorkflowChat";
+import {
   SidebarProjectFolderHeader,
   sidebarFolderRowId,
 } from "./sidebar/SidebarProjectFolderHeader";
-import { SidebarModeSwitch } from "./sidebar/SidebarModeSwitch";
 import {
   SidebarDragBoundary,
   SidebarSectionHeader,
@@ -340,9 +343,6 @@ const sidebarProviderEntriesAtom = Atom.make((get) => {
 
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, SidebarProviderEntry> = new Map();
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
-// Chats without a project fold into their folders; the chats in no folder sit under Recent.
-const CHAT_RECENT_FOLDER_KEY = "chats:recent";
-const chatFolderKey = (name: string) => `chats:folder:${name}`;
 
 function projectMemberKeys(
   groups: ReadonlyArray<Pick<SidebarProjectSnapshot, "memberProjectRefs">>,
@@ -459,17 +459,13 @@ function useSidebarThreads(input: {
   readonly optimisticDrop: SidebarOptimisticDrop | null;
   readonly threads: readonly EnvironmentThreadShell[];
   readonly routeRowThreadKey: string | null;
-  // Set when active threads fold into folders: project folders, or the folders of chats.
-  readonly folders:
-    | {
-        readonly kind: "project";
-        // The project groups to fold active threads into, in order.
-        readonly groups: readonly SidebarProjectSnapshot[];
-        // Keeps folders with no active threads, so a project the user filtered to or pinned can start one.
-        readonly keepEmpty: (group: SidebarProjectSnapshot) => boolean;
-      }
-    | { readonly kind: "chat"; readonly names: readonly string[] }
-    | null;
+  // Set when active threads fold into a folder per workspace.
+  readonly folders: {
+    // The workspace groups to fold active threads into, in order.
+    readonly groups: readonly SidebarProjectSnapshot[];
+    // Keeps folders with no active threads, so a workspace the user filtered to or pinned can start one.
+    readonly keepEmpty: (group: SidebarProjectSnapshot) => boolean;
+  } | null;
 }) {
   const {
     projectScopeKey,
@@ -593,43 +589,19 @@ function useSidebarThreads(input: {
   const folderContents =
     folders === null
       ? null
-      : folders.kind === "project"
-        ? groupSidebarThreadsByProject(folders.groups, activeThreads, folders.keepEmpty).map(
-            (folder) => ({
-              kind: "project" as const,
-              key: folder.group.projectKey,
-              expansionKeys: sidebarFolderExpansionKeys(folder.group),
-              group: folder.group,
-              threads: folder.threads,
-            }),
-          )
-        : (() => {
-            const { folders: filed, rest } = groupSidebarChatsByFolder(
-              folders.names,
-              activeThreads,
-            );
-            const chatFolder = (key: string, name: string | null, threads: typeof rest) => ({
-              kind: "chat" as const,
-              key,
-              expansionKeys: [key],
-              name,
-              threads,
-            });
-            return [
-              ...filed.map((folder) =>
-                chatFolder(chatFolderKey(folder.name), folder.name, folder.threads),
-              ),
-              ...(rest.length === 0 ? [] : [chatFolder(CHAT_RECENT_FOLDER_KEY, null, rest)]),
-            ];
-          })();
+      : groupSidebarThreadsByProject(folders.groups, activeThreads, folders.keepEmpty).map(
+          (folder) => ({
+            key: folder.group.projectKey,
+            expansionKeys: sidebarFolderExpansionKeys(folder.group),
+            group: folder.group,
+            threads: folder.threads,
+          }),
+        );
   const sidebarFolders =
     folderContents === null
       ? null
       : folderContents.map((folder) => {
-          const collapsed =
-            folder.kind === "chat" && folder.name === null
-              ? false
-              : !resolveProjectExpanded(projectExpandedById, folder.expansionKeys);
+          const collapsed = !resolveProjectExpanded(projectExpandedById, folder.expansionKeys);
           return {
             ...folder,
             collapsed,
@@ -704,8 +676,6 @@ function useSidebarThreads(input: {
       const keys = sidebarFolderExpansionKeys(group);
       setProjectExpanded(keys, !resolveProjectExpanded(projectExpandedById, keys));
     },
-    toggleChatFolder: (folderKey: string) =>
-      setProjectExpanded(folderKey, !resolveProjectExpanded(projectExpandedById, [folderKey])),
     renderedSettledThreads,
     visibleSnoozedThreads,
     visibleWorkingThreads,
@@ -937,14 +907,17 @@ function useSidebarLookups() {
   const projectGroupByScopeKey = new Map(
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
+  // Personal leads, as it does in the list: a chat's menu can filter by it too.
+  const pickableGroups = pickableProjectGroups(projectGroups);
   const projectScopeItems = [
-    { value: "all", label: "All projects" },
-    ...pickableProjectGroups(projectGroups)
-      .filter((project) => !project.isScratch)
-      .map((project) => ({
-        value: project.projectKey,
-        label: project.displayName,
-      })),
+    { value: "all", label: "All workspaces" },
+    ...[
+      ...pickableGroups.filter((project) => project.isScratch),
+      ...pickableGroups.filter((project) => !project.isScratch),
+    ].map((project) => ({
+      value: project.projectKey,
+      label: project.displayName,
+    })),
   ];
   return {
     projects,
@@ -1180,7 +1153,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const shortcutModifiers = useShortcutModifierState();
   const terminalFocused = useTerminalFocus();
-  const openNewProjectCommandPalette = () => openCommandPalette({ open: "new-project" });
   const routeThreadRef = resolveActiveThreadRouteRef(routeTarget, routeDraftThread);
   const routeThreadKey = routeThreadRef ? scopedThreadKey(routeThreadRef) : null;
 
@@ -1191,11 +1163,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     setPersistedProjectScopeKeys(keys);
     scrollSidebarToTop(sidebarContentRef.current);
   };
-  // A scope whose project is gone reads as all projects once every snapshot has
-  // loaded. The stored keys are left alone, so the scope returns with its project.
-  // An archived project's scope reads as all projects, matching the menu.
-  // Chats without a project have their own mode, so the project filter leaves them out.
-  const scopeGroups = pickableProjectGroups(projectGroups).filter((project) => !project.isScratch);
+  // A scope whose workspace is gone reads as all workspaces once every snapshot has
+  // loaded. The stored keys are left alone, so the scope returns with its workspace.
+  // An archived workspace's scope reads as all workspaces, matching the menu.
+  // Personal, which holds the chats started without a workspace, leads the list.
+  const openGroups = pickableProjectGroups(projectGroups);
+  const scopeGroups = [
+    ...openGroups.filter((project) => project.isScratch),
+    ...openGroups.filter((project) => !project.isScratch),
+  ];
+  // A team works in one shared folder, and each Personal chat has a folder of its own.
+  const teamWorkspaceGroups = scopeGroups.filter((project) => !project.isScratch);
   const archivedProjectKeys = new Set(
     projectGroups.filter((project) => project.archived).map((project) => project.projectKey),
   );
@@ -1228,41 +1206,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const [threadSearchOpen, setThreadSearchOpen] = useState(false);
   const showThreadSearch = threadSearchOpen || isSearchingThreads;
 
-  const persistedSidebarMode = useUiStateStore((store) => store.sidebarMode);
-  const setPersistedSidebarMode = useUiStateStore((store) => store.setSidebarMode);
-  const chatProjectGroups = projectGroups.filter((project) => project.isScratch);
-  const chatProjectKeys = projectMemberKeys(chatProjectGroups);
-  const isChatThread = (thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">) =>
-    chatProjectKeys.has(`${thread.environmentId}:${thread.projectId}`);
-  const localChatFolderNames = useUiStateStore((store) => store.chatFolderNames);
-  const chatFolderNames = resolveChatFolderNames(
-    threads.filter(isChatThread),
-    localChatFolderNames,
-  );
-  const chatFolders = useChatFolders();
-  // Opening a thread shows the mode that lists it, once per route, so switching modes on the
-  // same route sticks. Render decides it, so the first frame of the route already lists its row.
-  const routeModeKey =
-    routeRowThreadKey ?? (routeTarget?.kind === "draft" ? `draft:${routeTarget.draftId}` : null);
-  const routeModeProject = (() => {
-    if (routeModeKey === null || sidebarRouteModeApplied(routeReveal, routeModeKey)) return null;
-    const source =
-      routeTarget?.kind === "draft"
-        ? routeDraftThread
-        : threads.find((thread) => threadShellKey(thread) === routeRowThreadKey);
-    if (!source || !serverConfigs.has(source.environmentId)) return null;
-    return projectByKey.get(`${source.environmentId}:${source.projectId}`) ?? null;
-  })();
-  const routeMode: SidebarMode | null =
-    routeModeProject === null ? null : routeModeProject.isScratch ? "chats" : "projects";
-  const sidebarMode = routeMode ?? persistedSidebarMode;
-  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- records the mode a navigation chose, so pages without a thread and later renders keep it
-  useEffect(() => {
-    if (routeMode === null) return;
-    applySidebarRouteMode(routeReveal, routeModeKey);
-    setPersistedSidebarMode(routeMode);
-  }, [routeMode, routeModeKey, routeReveal, setPersistedSidebarMode]);
-
   // History, the palette and links can open a thread the scope hides or the list
   // scrolled away; a remount starts at the top, so each mount scrolls to the open
   // thread once. Render decides the widening, so the first frame of the new route
@@ -1272,9 +1215,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     routeKey: routeRowThreadKey,
     isSearching: isSearchingThreads,
     scopedProjectKeys: chosenScopeProjectKeys,
-    // Chats live in their own mode, so opening one never clears the project filter.
-    findThread: (key) =>
-      threads.find((candidate) => threadShellKey(candidate) === key && !isChatThread(candidate)),
+    findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
   const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
@@ -1326,15 +1267,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     matches: (item, query) =>
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
-  // The project filter, which applies only to Projects.
-  const scopedProjectGroups =
-    sidebarMode === "projects" && !revealWidensScope ? chosenProjectGroups : [];
-  // Projects lists every project but the one that holds chats without a project.
-  const scopedProjectKeys =
-    sidebarMode === "chats"
-      ? chatProjectKeys
-      : ((scopedProjectGroups.length === 0 ? null : chosenScopeProjectKeys) ??
-        projectMemberKeys(projectGroups.filter((project) => !project.isScratch)));
+  // The workspace filter; without one, every workspace's threads are listed.
+  const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
+  const scopedProjectKeys = scopedProjectGroups.length === 0 ? null : chosenScopeProjectKeys;
   const threadSearch = useThreadSearch(connectedEnvironmentIds, threadSearchQuery, {});
   const routeDraftIdForRows = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
   const visibleDraftSessionCount = useComposerDraftStore((store) => {
@@ -1346,7 +1281,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       if (!composerDraftHasUserContent(store.draftsByThreadKey[draftKey])) {
         continue;
       }
-      if (!scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)) {
+      if (
+        scopedProjectKeys !== null &&
+        !scopedProjectKeys.has(`${session.environmentId}:${session.projectId}`)
+      ) {
         continue;
       }
       count += 1;
@@ -1407,11 +1345,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               ...(canPinProject(group)
                 ? [
                     group.pinned
-                      ? { id: "unpin", label: "Unpin project", icon: "pin-off" }
-                      : { id: "pin", label: "Pin project", icon: "pin" },
+                      ? { id: "unpin", label: "Unpin workspace", icon: "pin-off" }
+                      : { id: "pin", label: "Pin workspace", icon: "pin" },
                   ]
                 : []),
-              { id: "project-settings", label: "Project settings", icon: "settings" },
+              { id: "project-settings", label: "Workspace settings", icon: "settings" },
               ...(group.isScratch
                 ? []
                 : [
@@ -1429,7 +1367,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       ? [
                           {
                             id: "delete-project-folder",
-                            label: "Delete project and folder…",
+                            label: "Delete workspace and folder…",
                             icon: "trash",
                             destructive: true,
                             disabled: !canOperateThreads(group.memberProjects),
@@ -1494,7 +1432,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     toggleWorkingShelf,
     sidebarFolders,
     toggleProjectFolder,
-    toggleChatFolder,
     renderedSettledThreads,
     visibleSnoozedThreads,
     visibleWorkingThreads,
@@ -1511,31 +1448,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     openRowKey,
     toggleTeam,
   } = useSidebarThreads({
-    projectScopeKey: sidebarMode === "chats" ? "chats" : projectScopeKey,
+    projectScopeKey,
     scopedProjectKeys,
     serverConfigs,
     connectedEnvironmentIds,
     optimisticDrop,
-    threads,
+    // Workflow runs live on the Workflows pages.
+    threads: withoutWorkflowRuns(threads),
     routeRowThreadKey,
-    folders:
-      sidebarMode === "chats"
-        ? { kind: "chat", names: chatFolderNames }
-        : groupByProject
-          ? {
-              kind: "project",
-              groups:
-                scopedProjectGroups.length === 0
-                  ? // An archived project keeps a folder for its active threads, below the rest.
-                    [
-                      ...scopeGroups,
-                      ...projectGroups.filter((project) => project.archived && !project.isScratch),
-                    ]
-                  : scopedProjectGroups,
-              keepEmpty: (group) =>
-                scopedProjectGroups.length > 0 || (!group.archived && !group.isScratch),
-            }
-          : null,
+    folders: groupByProject
+      ? {
+          groups:
+            scopedProjectGroups.length === 0
+              ? // An archived workspace keeps a folder for its active threads, below the rest.
+                [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
+              : scopedProjectGroups,
+          keepEmpty: (group) => scopedProjectGroups.length > 0 || !group.archived,
+        }
+      : null,
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -2817,7 +2747,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
-        const folderNames = threadProjectGroup?.isScratch ? readChatFolderNames() : null;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -2826,9 +2755,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 AuthOrchestrationOperateScope,
               ),
               branch: thread.branch ?? null,
-              // An archived project is not a filter choice, and chats have no project to filter by.
+              // An archived workspace is not a filter choice.
               projectFilter:
-                threadProjectGroup && !threadProjectGroup.archived && !threadProjectGroup.isScratch
+                threadProjectGroup && !threadProjectGroup.archived
                   ? {
                       label: threadProjectGroup.displayName,
                       isActive: projectScopeKeys.includes(threadProjectGroup.projectKey),
@@ -2842,10 +2771,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               isRegeneratingTitle,
               isRunning: !threadRuntimeCanArchive(thread.runtime),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
-              chatFolders:
-                folderNames === null
-                  ? null
-                  : { names: folderNames, current: thread.folder ?? null },
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -2860,15 +2785,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
-        const folderChoice = resolveThreadFolderChoice(clicked.value, folderNames ?? []);
-        if (folderChoice === "new") {
-          await chatFolders.moveToNewFolder(threadRef);
-          return;
-        }
-        if (folderChoice !== null) {
-          await chatFolders.moveToFolder(threadRef, folderChoice.folder);
-          return;
-        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"
@@ -2940,7 +2856,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             if (result._tag === "Success") {
               toastManager.add({
                 type: "success",
-                title: "Project created",
+                title: "Workspace created",
                 description: thread.title,
               });
             } else if (!isAtomCommandInterrupted(result)) {
@@ -2948,7 +2864,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Could not turn thread into a project",
+                  title: "Could not turn thread into a workspace",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -3164,45 +3080,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (isMobile) setOpenMobile(false);
     void startScratchThread(chatEnvironmentId);
   });
-  const handleChatFolderContextMenu = useStableCallback(
-    (name: string, position: { x: number; y: number }) => {
-      const api = readLocalApi();
-      if (!api) return;
-      void (async () => {
-        const clicked = await settlePromise(() =>
-          api.contextMenu.show(
-            [
-              { id: "rename", label: "Rename folder…", icon: "pencil" },
-              { id: "delete", label: "Delete folder", icon: "trash", destructive: true },
-            ],
-            position,
-          ),
-        );
-        if (clicked._tag === "Failure") return;
-        if (clicked.value === "rename") await chatFolders.renameFolder(name);
-        if (clicked.value === "delete") await chatFolders.deleteFolder(name);
-      })();
-    },
-  );
-  // Switching modes reopens the thread last visited in that mode, so the whole view follows.
-  const openSidebarMode = (mode: SidebarMode) => {
-    if (mode === sidebarMode) return;
-    clearSelection();
-    clearThreadSearch();
-    setPersistedSidebarMode(mode);
-    const visitedAtByKey = useUiStateStore.getState().threadLastVisitedAtById;
-    const returnThread = resolveSidebarModeReturnThread({
-      threads,
-      inMode: (thread) => (mode === "chats") === isChatThread(thread),
-      visitedAt: (thread) =>
-        resolveThreadLastVisitedAt(thread.lastVisitedAt, visitedAtByKey[threadShellKey(thread)]),
-    });
-    if (returnThread !== null) {
-      void navigateToThread(scopeThreadRef(returnThread.environmentId, returnThread.id));
-    } else if (mode === "chats") {
-      startChatWithoutProject();
-    }
-  };
 
   const inboxEntries = useNeedsYouEntries();
   const openTaskCount = useTeamTasks().filter((thread) => {
@@ -3210,25 +3087,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     return status === "proposed" || status === "running" || status === "failed";
   }).length;
   const completedCount = useCompletedThreads(0, false).total;
-  const currentPage = useLocation({
-    select: (location) =>
-      location.pathname === "/inbox"
-        ? ("inbox" as const)
-        : location.pathname === "/tasks"
-          ? ("tasks" as const)
-          : location.pathname === "/archive"
-            ? ("archive" as const)
-            : null,
-  });
-  const openPage = (to: "/inbox" | "/tasks" | "/archive") => {
+  const currentPage = useLocation({ select: (location) => sidebarPageForPath(location.pathname) });
+  const openPage = (page: SidebarPage) => {
     if (isMobile) setOpenMobile(false);
-    void router.navigate({ to });
+    void router.navigate({ to: `/${page}` });
   };
   const openProjectPage = useStableCallback((group: SidebarProjectSnapshot) => {
     if (isMobile) setOpenMobile(false);
     void router.navigate({ to: "/project/$projectKey", params: { projectKey: group.projectKey } });
   });
-  // A team works in a project, so a chat's context falls back to the first open project.
+  // A team works in a workspace's folder, so a Personal chat's context falls back to the first one.
   const startTeamTask = async () => {
     const contextRef = resolveThreadActionProjectRef({
       activeDraftThread: newThreadContext.activeDraftThread,
@@ -3239,7 +3107,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const contextProject = contextRef
       ? projectByKey.get(`${contextRef.environmentId}:${contextRef.projectId}`)
       : undefined;
-    const fallback = scopeGroups[0];
+    const fallback = teamWorkspaceGroups[0];
     const projectRef =
       contextRef && contextProject && !contextProject.isScratch
         ? contextRef
@@ -3252,8 +3120,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (opened) useComposerDraftStore.getState().setTeamRequested(opened.draftId, true);
   };
 
+  const startWorkflowChat = useStartWorkflowChat();
+  const startNewWorkflow = useStableCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void startWorkflowChat();
+  });
+
   const handleNewThreadClick = (event?: ReactMouseEvent) => {
-    if (sidebarMode === "chats") {
+    // With no workspace yet, a chat starts in Personal.
+    if (projectGroups.length === 0 && chatEnvironmentId !== null) {
       startChatWithoutProject();
       return;
     }
@@ -3324,8 +3199,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           <SidebarHeaderIconButton
             label={
               scopedProjectGroups.length > 0
-                ? `Filter threads by project: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
-                : "Filter threads by project"
+                ? `Filter threads by workspace: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
+                : "Filter threads by workspace"
             }
           />
         }
@@ -3359,8 +3234,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         finalFocus={(closeType) => closeType === "keyboard"}
       >
         <ComboboxSearchInput
-          aria-label="Search projects"
-          placeholder="Search projects..."
+          aria-label="Search workspaces"
+          placeholder="Search workspaces..."
           value={projectScopeMenuState.query}
           onKeyDown={(event) => {
             if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229) {
@@ -3394,7 +3269,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             })
           }
         />
-        <ComboboxEmpty>No matching projects.</ComboboxEmpty>
+        <ComboboxEmpty>No matching workspaces.</ComboboxEmpty>
         <ComboboxList aria-multiselectable>
           {(item: (typeof projectScopeItems)[number]) => {
             const project = projectGroupByScopeKey.get(item.value) ?? null;
@@ -3446,7 +3321,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         variant="ghost-muted"
                         tabIndex={-1}
                         aria-hidden="true"
-                        title={`Project settings for ${project.displayName}`}
+                        title={`Workspace settings for ${project.displayName}`}
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           void handleProjectSettings(event, project);
@@ -3486,16 +3361,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             </SidebarHeaderIconButton>
             <SidebarNewMenu
               newChatShortcutLabel={newThreadShortcutLabel ?? null}
-              newChatDisabled={
-                sidebarMode === "chats" ? chatEnvironmentId === null : projects.length === 0
-              }
+              newChatDisabled={projects.length === 0 && chatEnvironmentId === null}
               onNewChat={handleNewThreadClick}
-              onNewTeamTask={scopeGroups.length > 0 ? () => void startTeamTask() : null}
-              onNewProject={openNewProjectCommandPalette}
-              onNewFolder={() => {
-                if (sidebarMode !== "chats") openSidebarMode("chats");
-                void chatFolders.createFolder();
-              }}
+              onNewTeamTask={teamWorkspaceGroups.length > 0 ? () => void startTeamTask() : null}
+              onNewWorkflow={
+                projects.length === 0 && chatEnvironmentId === null ? null : startNewWorkflow
+              }
+              onNewWorkspace={() => openNewProjectDialog()}
             />
           </>
         }
@@ -3523,13 +3395,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 />
               ) : null}
               <SidebarNavRows
-                current={currentPage === "archive" ? null : currentPage}
+                current={currentPage}
                 inboxCount={inboxEntries.length}
                 openTaskCount={openTaskCount}
-                onOpenInbox={() => openPage("/inbox")}
-                onOpenTasks={() => openPage("/tasks")}
+                onOpen={openPage}
               />
-              <SidebarModeSwitch mode={sidebarMode} onModeChange={openSidebarMode} />
+              <SidebarBuildRows current={currentPage} onOpen={openPage} />
             </div>
           </SidebarGroup>
         }
@@ -3719,12 +3590,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           scratchMachineLabel: scratchMachineLabelFor(thread),
                           project:
                             projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null,
-                          // A chat has no project to name, so its row names its folder.
-                          projectDisplayName: isChatThread(thread)
-                            ? (thread.folder ?? null)
-                            : (projectDisplayNameByKey.get(
-                                `${thread.environmentId}:${thread.projectId}`,
-                              ) ?? null),
+                          projectDisplayName:
+                            projectDisplayNameByKey.get(
+                              `${thread.environmentId}:${thread.projectId}`,
+                            ) ?? null,
                           providerEntryByInstanceId:
                             providerEntriesByEnvironment.get(thread.environmentId) ??
                             EMPTY_PROVIDER_ENTRIES,
@@ -3774,25 +3643,21 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       };
                       const from = isContextDrag ? null : (dragState?.activeSection ?? null);
                       const items: ReactNode[] = [
-                        ...(sidebarMode === "projects"
-                          ? [
-                              <SidebarSectionLabel
-                                key="projects-label"
-                                label={`${scopeGroups.length} project${scopeGroups.length === 1 ? "" : "s"}`}
-                                actions={
-                                  <>
-                                    {projectFilterControl}
-                                    <SidebarHeaderIconButton
-                                      label="New project"
-                                      onClick={openNewProjectCommandPalette}
-                                    >
-                                      <PlusIcon />
-                                    </SidebarHeaderIconButton>
-                                  </>
-                                }
-                              />,
-                            ]
-                          : []),
+                        <SidebarSectionLabel
+                          key="workspaces-label"
+                          label="Workspaces"
+                          actions={
+                            <>
+                              {projectFilterControl}
+                              <SidebarHeaderIconButton
+                                label="New workspace"
+                                onClick={() => openNewProjectDialog()}
+                              >
+                                <PlusIcon />
+                              </SidebarHeaderIconButton>
+                            </>
+                          }
+                        />,
                         <SidebarDraftBlock
                           key="draft-sessions"
                           projectByKey={projectByKey}
@@ -3811,56 +3676,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           continue;
                         }
                         if (sidebarFolders !== null && item.marker === "active-placeholder") {
-                          if (sidebarMode === "chats") {
-                            items.push(
-                              <SidebarSectionLabel
-                                key="folders-label"
-                                label="Folders"
-                                actions={
-                                  <SidebarHeaderIconButton
-                                    label="New folder"
-                                    onClick={() => void chatFolders.createFolder()}
-                                  >
-                                    <PlusIcon />
-                                  </SidebarHeaderIconButton>
-                                }
-                              />,
-                            );
-                          }
                           for (const folder of sidebarFolders) {
-                            if (folder.kind === "chat" && folder.name === null) {
-                              items.push(<SidebarSectionLabel key="recent-label" label="Recent" />);
-                              for (const thread of folder.threads) {
-                                items.push(renderThreadRow(thread, "active"));
-                              }
-                              continue;
-                            }
                             items.push(
-                              folder.kind === "project" ? (
-                                <SidebarProjectFolderHeader
-                                  key={`project-folder:${folder.key}`}
-                                  group={folder.group}
-                                  collapsed={folder.collapsed}
-                                  empty={folder.threads.length + folder.hiddenThreads.length === 0}
-                                  hiddenThreads={folder.hiddenThreads}
-                                  onToggle={toggleProjectFolder}
-                                  onOpen={openProjectPage}
-                                  onNewThread={startThreadInProjectFolder}
-                                  onContextMenu={handleProjectFolderContextMenu}
-                                />
-                              ) : (
-                                <SidebarChatFolderHeader
-                                  key={`chat-folder:${folder.key}`}
-                                  folderKey={folder.key}
-                                  name={folder.name}
-                                  collapsed={folder.collapsed}
-                                  empty={folder.threads.length + folder.hiddenThreads.length === 0}
-                                  hiddenThreads={folder.hiddenThreads}
-                                  onToggle={toggleChatFolder}
-                                  onNewChat={startChatWithoutProject}
-                                  onContextMenu={handleChatFolderContextMenu}
-                                />
-                              ),
+                              <SidebarProjectFolderHeader
+                                key={`project-folder:${folder.key}`}
+                                group={folder.group}
+                                collapsed={folder.collapsed}
+                                empty={folder.threads.length + folder.hiddenThreads.length === 0}
+                                hiddenThreads={folder.hiddenThreads}
+                                onToggle={toggleProjectFolder}
+                                onOpen={openProjectPage}
+                                onNewThread={startThreadInProjectFolder}
+                                onContextMenu={handleProjectFolderContextMenu}
+                              />,
                             );
                             for (const thread of folder.threads) {
                               items.push(
@@ -4045,38 +3873,24 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             (sidebarFolders === null ? settledCount : 0) ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
-              {sidebarMode === "chats" ? (
+              {projectGroups.length === 0 ? (
                 <>
-                  <span>No chats yet</span>
-                  {chatEnvironmentId === null ? null : (
-                    <button
-                      type="button"
-                      onClick={startChatWithoutProject}
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-                    >
-                      <PlusIcon className="-mx-0.5 size-3" />
-                      New chat
-                    </button>
-                  )}
-                </>
-              ) : projectGroups.every((project) => project.isScratch) ? (
-                <>
-                  <span>No projects yet</span>
+                  <span>No workspaces yet</span>
                   <button
                     type="button"
-                    onClick={openNewProjectCommandPalette}
+                    onClick={() => openNewProjectDialog()}
                     className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2.5 py-1 text-2xs font-medium text-sidebar-muted-foreground transition-colors hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                   >
                     <PlusIcon className="-mx-0.5 size-3" />
-                    New project
+                    New workspace
                   </button>
                 </>
               ) : scopedProjectGroups.length > 1 ? (
-                "No threads in these projects yet"
+                "No chats in these workspaces yet"
               ) : scopedProjectGroups[0] ? (
-                `No threads in ${scopedProjectGroups[0].displayName} yet`
+                `No chats in ${scopedProjectGroups[0].displayName} yet`
               ) : (
-                "No threads yet"
+                "No chats yet"
               )}
             </div>
           ) : null}
@@ -4086,7 +3900,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         <div className="px-(--sidebar-content-inset) pt-1">
           <SidebarMenuButton
             isActive={currentPage === "archive"}
-            onClick={() => openPage("/archive")}
+            onClick={() => openPage("archive")}
           >
             <ArchiveIcon />
             <span className="min-w-0 flex-1 truncate">Completed &amp; archived</span>

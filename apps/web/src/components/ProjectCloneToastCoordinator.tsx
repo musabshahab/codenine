@@ -150,7 +150,7 @@ function EnvironmentCloneToasts({ environmentId }: { environmentId: EnvironmentI
           description: clone.destinationPath,
           timeout: 8_000,
           actionProps: {
-            children: "Open project",
+            children: "Open workspace",
             onClick: () => {
               closeToast();
               openProject(clone.projectId);
@@ -185,7 +185,7 @@ function EnvironmentCloneToasts({ environmentId }: { environmentId: EnvironmentI
         data: {
           ...(cancelled ? { hideCopyButton: true } : {}),
           secondaryActionProps: {
-            children: "Remove project",
+            children: "Remove workspace",
             onClick: () => {
               void removeClonedProject({ environmentId, projectId: clone.projectId });
             },

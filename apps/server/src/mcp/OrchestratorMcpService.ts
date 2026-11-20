@@ -1,4 +1,5 @@
 import {
+  type AgentDefinition,
   CommandId,
   type RunId,
   isProviderAvailable,
@@ -7,6 +8,7 @@ import {
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
+  ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT,
   TurnItemId,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
@@ -25,6 +27,12 @@ import {
   type OrchestratorMcpDelegateTaskResult,
   type OrchestratorMcpProposeTeamInput,
   type OrchestratorMcpProposeTeamResult,
+  type OrchestratorMcpProposeWorkflowInput,
+  type OrchestratorMcpProposeWorkflowResult,
+  type OrchestratorMcpReviewStepInput,
+  type OrchestratorMcpReviewStepResult,
+  type OrchestratorMcpSaveRunNoteInput,
+  type OrchestratorMcpSaveRunNoteResult,
   type OrchestratorMcpRequestSecretInput,
   type OrchestratorMcpRequestSecretResult,
   type OrchestratorMcpTarget,
@@ -52,16 +60,24 @@ import {
   type RuntimeMode,
   type ServerProvider,
   type ServerProviderModel,
+  type TeamAgent,
   type TeamDraft,
   ThreadId,
+  type WorkflowDraftStep,
   isOrchestrationV2WorkActive,
   latestProviderTurnForAttempt,
   resolveProjectProviderInstanceEnabled,
   SECRET_REQUEST_UNSAVED_NOTE,
 } from "@codenine/contracts";
+import { agentModelSelection } from "@codenine/shared/agentModel";
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@codenine/shared/model";
 import { runRanAfter } from "@codenine/shared/orchestrationV2ThreadError";
-import { validateTeamDraft } from "@codenine/shared/team";
+import {
+  teamMemberChoiceMessage,
+  unknownTeamAgentMessage,
+  validateTeamDraft,
+  workflowStepsIssue,
+} from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
 import {
   normalizeThreadPullRequestKey,
@@ -80,6 +96,8 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import * as Agents from "../agents/Agents.ts";
+import * as ConnectorStore from "../connectors/ConnectorStore.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import {
   subagentResultForRun,
@@ -113,6 +131,13 @@ import * as Metrics from "../observability/Metrics.ts";
 import { resolveInteractionMode, resolveRuntimeMode, taskPrompt } from "./delegatedTaskModes.ts";
 import { isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+
+const REVIEW_STEP_NEXT = {
+  accept:
+    "Accepted. The steps that depend on it can start now. Codenine wakes you with the next result, or when the run finishes. End your turn.",
+  revise:
+    "Sent back. The step's agent fixes it in its own chat, and Codenine wakes you with the updated result. End your turn.",
+} as const;
 
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
@@ -160,6 +185,20 @@ export interface OrchestratorMcpServiceShape {
     scope: McpInvocationScope,
     input: OrchestratorMcpProposeTeamInput,
   ) => Effect.Effect<OrchestratorMcpProposeTeamResult, OrchestratorMcpFailure>;
+  /** Leaves a workflow draft on the calling chat for the user to review and save. */
+  readonly proposeWorkflow: (
+    scope: McpInvocationScope,
+    input: OrchestratorMcpProposeWorkflowInput,
+  ) => Effect.Effect<OrchestratorMcpProposeWorkflowResult, OrchestratorMcpFailure>;
+  /** The lead of a workflow run accepts a step's result or sends it back. */
+  readonly reviewStep: (
+    scope: McpInvocationScope,
+    input: OrchestratorMcpReviewStepInput,
+  ) => Effect.Effect<OrchestratorMcpReviewStepResult, OrchestratorMcpFailure>;
+  readonly saveRunNote: (
+    scope: McpInvocationScope,
+    input: OrchestratorMcpSaveRunNoteInput,
+  ) => Effect.Effect<OrchestratorMcpSaveRunNoteResult, OrchestratorMcpFailure>;
   readonly createThreads: (
     scope: McpInvocationScope,
     input: OrchestratorMcpCreateThreadsInput,
@@ -915,6 +954,8 @@ function turnItemText(item: OrchestrationV2TurnItem): string | null {
       return `Created thread ${item.targetThreadId} with ${item.targetProviderInstanceId} (${item.targetModel}).`;
     case "secret_request":
       return `Asked the user for ${item.label}: ${item.secretStatus}.`;
+    case "connector_approval":
+      return `Asked the user to let ${item.connectorName} ${item.action}: ${item.approvalStatus}.`;
     case "link_request":
       return item.linkStatus === "linked"
         ? `Linked ${item.linkedLabel ?? item.label ?? item.url ?? "an environment"} (${item.linkedAccess}).`
@@ -985,6 +1026,8 @@ const make = Effect.gen(function* () {
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const agents = yield* Agents.Agents;
+  const connectorStore = yield* ConnectorStore.ConnectorStore;
 
   const requireProject = (projectId: ProjectId) =>
     projects.getById(projectId).pipe(
@@ -1117,6 +1160,49 @@ const make = Effect.gen(function* () {
     const parent = yield* loadProjection(threadScope.thread.threadId);
     return { scope: threadScope, parent } as const;
   });
+
+  /** The calling chat alone, for tools that act on it and need none of its history. */
+  const loadCallerThread = Effect.fn("OrchestratorMcpService.loadCallerThread")(function* (
+    scope: McpInvocationScope,
+    operation: string,
+  ) {
+    yield* requireCapability(scope);
+    const threadScope = yield* requireThreadScope(scope, operation);
+    const { thread } = yield* loadThreadRecords(threadScope.thread.threadId, []);
+    return { scope: threadScope, thread } as const;
+  });
+
+  /** Only the lead of a workflow run reviews its steps and writes its note, on its own plan. */
+  const loadRunLead = Effect.fn("OrchestratorMcpService.loadRunLead")(function* (
+    scope: McpInvocationScope,
+    operation: string,
+  ) {
+    const caller = yield* loadCallerThread(scope, operation);
+    const plan = caller.thread.team;
+    if (plan == null || plan.run === undefined) {
+      return yield* failure(
+        "invalid_request",
+        "This chat does not lead a workflow run. Only a run's lead reviews its steps and saves its note.",
+      );
+    }
+    return { scope: caller.scope, plan } as const;
+  });
+
+  // The plan's own guards, such as team_plan_running, are the caller's to fix.
+  const leadDispatchFailure =
+    (action: string) =>
+    (error: unknown): OrchestratorMcpFailure => {
+      if (
+        isThreadManagementError(error) &&
+        error._tag === "ThreadManagementProviderInstanceDisabledError"
+      ) {
+        return threadManagementFailure(error);
+      }
+      const detail = userFacingDispatchErrorMessage(error);
+      return detail !== undefined && /^(team|workflow)_/.test(detail)
+        ? failure("invalid_request", detail)
+        : failure("orchestration_error", `Unable to ${action}: ${detail ?? errorMessage(error)}`);
+    };
 
   const resolveProjectTarget = (
     parent: Pick<OrchestrationV2ThreadProjection, "thread"> | undefined,
@@ -1413,6 +1499,168 @@ const make = Effect.gen(function* () {
       modelSelection: { instanceId, model, ...(options === undefined ? {} : { options }) },
       supportedRuntimeModes: provider.supportedRuntimeModes,
     };
+  });
+
+  /**
+   * The agent's own model at its effort, as a chat with it starts. When it has none, or that model
+   * cannot run here now, the lead's; the user can change it before approving.
+   */
+  const teamAgentModel = Effect.fn("OrchestratorMcpService.teamAgentModel")(function* (input: {
+    readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
+    readonly agent: AgentDefinition;
+    readonly providers: ReadonlyArray<ServerProvider>;
+    readonly skipProjectEnablementFilter: boolean;
+  }) {
+    const { parent, providers, skipProjectEnablementFilter } = input;
+    const lead = () =>
+      resolveTargetRechecking({
+        parent,
+        target: undefined,
+        providers,
+        skipProjectEnablementFilter,
+      });
+    const model = input.agent.model;
+    if (model === null) return (yield* lead()).modelSelection;
+    const selection = agentModelSelection(
+      model,
+      providers
+        .find((provider) => provider.instanceId === model.instanceId)
+        ?.models.find((candidate) => candidate.slug === model.model)?.capabilities,
+    );
+    const runs = yield* resolveTargetRechecking({
+      parent,
+      target: {
+        providerInstanceId: selection.instanceId,
+        model: selection.model,
+        options: selection.options ?? [],
+      },
+      providers,
+      skipProjectEnablementFilter,
+    }).pipe(
+      Effect.andThen(() =>
+        skipProjectEnablementFilter
+          ? Effect.succeed(true)
+          : threadManagement.isProviderInstanceEnabledForProject({
+              projectId: parent.thread.projectId,
+              instanceId: selection.instanceId,
+            }),
+      ),
+      Effect.orElseSucceed(() => false),
+    );
+    return runs ? selection : (yield* lead()).modelSelection;
+  });
+
+  /** What a team is built from. A list that cannot be read is left out, so delegation still works. */
+  const teamCapabilities = Effect.fn("OrchestratorMcpService.teamCapabilities")(function* () {
+    const connections = yield* connectorStore.list.pipe(
+      Effect.flatMap((stored) =>
+        Effect.forEach(stored, (connection) =>
+          connectorStore.isReady(connection).pipe(Effect.map((ready) => ({ connection, ready }))),
+        ),
+      ),
+      Effect.tapError((error) => Effect.logWarning("Could not list connections", error)),
+      Effect.option,
+    );
+    const names = new Map(
+      Option.getOrElse(connections, () => []).map(({ connection }) => [
+        connection.id,
+        connection.name,
+      ]),
+    );
+    const listed = yield* agents.list.pipe(
+      Effect.tapError((error) => Effect.logWarning("Could not list agents", error)),
+      Effect.option,
+    );
+    return {
+      ...Option.match(listed, {
+        onNone: () => ({}),
+        onSome: (result) => ({
+          agents: result.agents.map((agent) => ({
+            name: agent.name,
+            title: agent.title,
+            description: agent.description,
+            model: agent.model === null ? null : `${agent.model.instanceId}/${agent.model.model}`,
+            ready: agent.modelStatus === "ready",
+            connectors: agent.connectors.flatMap((connector) => names.get(connector.id) ?? []),
+            skills: agent.skills,
+          })),
+        }),
+      }),
+      ...Option.match(connections, {
+        onNone: () => ({}),
+        onSome: (all) => ({
+          connections: all.flatMap(({ connection, ready }) =>
+            ready ? [{ id: connection.id, name: connection.name }] : [],
+          ),
+        }),
+      }),
+    };
+  });
+
+  const teamMember = Effect.fn("OrchestratorMcpService.teamMember")(function* (input: {
+    readonly parent: Pick<OrchestrationV2ThreadProjection, "thread">;
+    readonly member: OrchestratorMcpProposeTeamInput["agents"][number];
+    readonly providers: ReadonlyArray<ServerProvider>;
+    readonly skipProjectEnablementFilter: boolean;
+  }): Effect.fn.Return<TeamAgent, OrchestratorMcpFailure> {
+    const { parent, providers, skipProjectEnablementFilter } = input;
+    const { agent: name, suggestion, ...member } = input.member;
+    const base = { id: member.id, role: member.role, workspace: member.workspace ?? "shared" };
+    if (name !== undefined && suggestion === undefined) {
+      const agent = yield* agents.find(name);
+      if (Option.isNone(agent)) {
+        return yield* failure("invalid_request", unknownTeamAgentMessage(member.id, name));
+      }
+      return {
+        ...base,
+        label: member.label ?? agent.value.title,
+        modelSelection: yield* teamAgentModel({
+          parent,
+          agent: agent.value,
+          providers,
+          skipProjectEnablementFilter,
+        }),
+        agent: name,
+      };
+    }
+    if (suggestion !== undefined && name === undefined) {
+      const { target, connectors, ...suggested } = suggestion;
+      const { modelSelection } = yield* resolveTargetRechecking({
+        parent,
+        target,
+        providers,
+        skipProjectEnablementFilter,
+      });
+      return {
+        ...base,
+        label: member.label ?? suggested.title,
+        modelSelection,
+        suggestion: { ...suggested, connectors: connectors ?? [] },
+      };
+    }
+    return yield* failure("invalid_request", teamMemberChoiceMessage(member.id));
+  });
+
+  /** A drafted step runs as one of the user's agents, or carries a suggestion for one to create. */
+  const workflowStep = Effect.fn("OrchestratorMcpService.workflowStep")(function* (
+    step: OrchestratorMcpProposeWorkflowInput["steps"][number],
+  ): Effect.fn.Return<WorkflowDraftStep, OrchestratorMcpFailure> {
+    const { agent: name, suggestion, doneWhen, dependsOn, ...rest } = step;
+    const fields = { ...rest, doneWhen: doneWhen ?? "", dependsOn: dependsOn ?? [] };
+    if (name !== undefined && suggestion === undefined) {
+      if (Option.isNone(yield* agents.find(name))) {
+        return yield* failure("invalid_request", unknownTeamAgentMessage(step.id, name, "step"));
+      }
+      return { ...fields, agent: name };
+    }
+    if (suggestion !== undefined && name === undefined) {
+      return {
+        ...fields,
+        agent: null,
+        suggestion: { ...suggestion, connectors: suggestion.connectors ?? [] },
+      };
+    }
+    return yield* failure("invalid_request", teamMemberChoiceMessage(step.id, "step"));
   });
 
   const requestKey = (clientRequestId: string | undefined): Effect.Effect<string> =>
@@ -1847,6 +2095,7 @@ const make = Effect.gen(function* () {
       );
       const inherited = parent?.thread.modelSelection;
       const searchTerms = input.search?.toLowerCase().split(/\s+/).filter(Boolean) ?? [];
+      const team = yield* teamCapabilities();
       return {
         parentThreadId: parent?.thread.id ?? null,
         inheritedProviderInstanceId: inherited?.instanceId ?? null,
@@ -1910,6 +2159,7 @@ const make = Effect.gen(function* () {
             constraints: [...constraints],
           };
         }),
+        ...team,
         features: {
           appOwnedSubagents: true,
           asyncPolling: true,
@@ -2318,21 +2568,13 @@ const make = Effect.gen(function* () {
       });
       const isRetryOfAcceptedProposal = yield* threadManagement.hasReceipt(commandId);
       const draft: TeamDraft = {
-        agents: yield* Effect.forEach(input.agents, (agent) =>
-          resolveTargetRechecking({
+        agents: yield* Effect.forEach(input.agents, (member) =>
+          teamMember({
             parent,
-            target: agent.target,
+            member,
             providers,
             skipProjectEnablementFilter: isRetryOfAcceptedProposal,
-          }).pipe(
-            Effect.map(({ modelSelection }) => ({
-              id: agent.id,
-              label: agent.label,
-              role: agent.role,
-              modelSelection,
-              workspace: agent.workspace ?? "shared",
-            })),
-          ),
+          }),
         ),
         tasks: input.tasks.map((task) => ({
           id: task.id,
@@ -2353,21 +2595,7 @@ const make = Effect.gen(function* () {
           goal: input.goal,
           ...draft,
         })
-        .pipe(
-          Effect.mapError((error) => {
-            if (error._tag === "ThreadManagementProviderInstanceDisabledError") {
-              return threadManagementFailure(error);
-            }
-            const detail = userFacingDispatchErrorMessage(error);
-            // The plan's own guards, such as team_plan_running, are the caller's to fix.
-            return detail?.startsWith("team_") === true
-              ? failure("invalid_request", detail)
-              : failure(
-                  "orchestration_error",
-                  `Unable to propose the team: ${detail ?? errorMessage(error)}`,
-                );
-          }),
-        );
+        .pipe(Effect.mapError(leadDispatchFailure("propose the team")));
       const plan = result.storedEvents.flatMap(({ event }) =>
         event.type === "thread.metadata-updated" && event.payload.team != null
           ? [event.payload.team]
@@ -2382,6 +2610,110 @@ const make = Effect.gen(function* () {
         status: "proposed",
         next: ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
       };
+    }),
+    proposeWorkflow: Effect.fn("OrchestratorMcpService.proposeWorkflow")(
+      function* (callerScope, input) {
+        const { scope, thread } = yield* loadCallerThread(callerScope, "propose_workflow");
+        if (thread.agent !== undefined) {
+          return yield* failure(
+            "invalid_request",
+            "This chat talks to an agent, so it cannot draft a workflow. Tell the user to ask in a chat without an agent.",
+          );
+        }
+        if (thread.teamTask !== undefined) {
+          return yield* failure(
+            "invalid_request",
+            "You run one task of a team, so you cannot draft a workflow. Do the task yourself.",
+          );
+        }
+        if (thread.team?.run !== undefined) {
+          return yield* failure(
+            "invalid_request",
+            "You lead a workflow run, so you cannot draft a workflow. Review the run's steps.",
+          );
+        }
+        const issue = workflowStepsIssue(
+          input.steps.map((step) => ({ id: step.id, dependsOn: step.dependsOn ?? [] })),
+        );
+        if (issue !== null) return yield* failure("invalid_request", issue);
+        const steps = yield* Effect.forEach(input.steps, workflowStep);
+        yield* threadManagement
+          .dispatch({
+            type: "workflow.draft.set",
+            commandId: stableCommandId({
+              scope,
+              requestKey: yield* requestKey(undefined),
+              operation: "propose-workflow",
+            }),
+            threadId: scope.thread.threadId,
+            draft: {
+              title: input.title,
+              description: input.description ?? "",
+              goal: input.goal,
+              schedule: input.schedule ?? null,
+              inputs: input.inputs ?? [],
+              steps,
+              proposedAt: DateTime.formatIso(yield* DateTime.now),
+            },
+          })
+          .pipe(Effect.mapError(leadDispatchFailure("draft the workflow")));
+        return { status: "drafted", next: ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT };
+      },
+    ),
+    reviewStep: Effect.fn("OrchestratorMcpService.reviewStep")(function* (callerScope, input) {
+      const { scope, plan } = yield* loadRunLead(callerScope, "review_step");
+      const task = plan.tasks.find((candidate) => candidate.id === input.step);
+      if (task === undefined) {
+        return yield* failure(
+          "invalid_request",
+          `The run has no step "${input.step}". Use the step id from the message with its result.`,
+        );
+      }
+      if (input.verdict === "revise" && input.notes === undefined) {
+        return yield* failure(
+          "invalid_request",
+          "Pass `notes` with 'revise': exactly what to fix.",
+        );
+      }
+      // The step's current round, so a review that comes after the step moved on changes nothing.
+      yield* threadManagement
+        .dispatch({
+          type: "team.task.review",
+          commandId: stableCommandId({
+            scope,
+            requestKey: yield* requestKey(undefined),
+            operation: "review-step",
+          }),
+          threadId: scope.thread.threadId,
+          planId: plan.id,
+          taskId: task.id,
+          attempt: task.attempt,
+          round: task.review?.round ?? 1,
+          verdict: input.verdict,
+          ...(input.notes === undefined ? {} : { notes: input.notes }),
+        })
+        .pipe(Effect.mapError(leadDispatchFailure("review the step")));
+      return input.verdict === "accept"
+        ? { status: "accepted", next: REVIEW_STEP_NEXT.accept }
+        : { status: "sent-back", next: REVIEW_STEP_NEXT.revise };
+    }),
+    saveRunNote: Effect.fn("OrchestratorMcpService.saveRunNote")(function* (callerScope, input) {
+      const { scope, plan } = yield* loadRunLead(callerScope, "save_run_note");
+      yield* threadManagement
+        .dispatch({
+          type: "team.run.update",
+          commandId: stableCommandId({
+            scope,
+            requestKey: yield* requestKey(undefined),
+            operation: "save-run-note",
+          }),
+          threadId: scope.thread.threadId,
+          planId: plan.id,
+          headline: input.headline,
+          note: input.note,
+        })
+        .pipe(Effect.mapError(leadDispatchFailure("save the run's note")));
+      return { saved: true };
     }),
     createThreads: Effect.fn("OrchestratorMcpService.createThreads")(
       function* (callerScope, input) {
@@ -2917,4 +3249,6 @@ export const layer: Layer.Layer<
   | ProjectService.ProjectService
   | SecretRequests.SecretRequests
   | ServerSettings.ServerSettingsService
+  | Agents.Agents
+  | ConnectorStore.ConnectorStore
 > = Layer.effect(OrchestratorMcpService, make);

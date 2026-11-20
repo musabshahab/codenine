@@ -25,6 +25,22 @@ export function limitSection(value: string, maxChars: number): string {
   return `${truncated}\n\n[truncated]`;
 }
 
+/** Keeps a long text's start and end, and says how much is left out between them. */
+export function cutMiddle(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  // Half an emoji serializes to a lone surrogate escape, which provider JSON parsers reject.
+  const isHigh = (index: number) => {
+    const code = value.charCodeAt(index);
+    return code >= 0xd800 && code <= 0xdbff;
+  };
+  const headEnd = Math.ceil((maxChars * 2) / 3);
+  const head = value.slice(0, isHigh(headEnd - 1) ? headEnd - 1 : headEnd);
+  const tailStart = value.length - (maxChars - headEnd);
+  const tail = value.slice(isHigh(tailStart - 1) ? tailStart + 1 : tailStart);
+  const hidden = value.length - head.length - tail.length;
+  return `${head} [… ${hidden} characters not shown …] ${tail}`;
+}
+
 export function sanitizeCommitSubject(raw: string): string {
   const singleLine = raw.trim().split(/\r?\n/g)[0]?.trim() ?? "";
   const withoutTrailingPeriod = singleLine.replace(/[.]+$/g, "").trim();

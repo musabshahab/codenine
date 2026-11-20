@@ -18,6 +18,35 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.serverRunStorageCleanup]: AuthSettingsWriteScope,
   // Restarts the server, as an update does.
   [WS_METHODS.serverReclaimDatabaseSpace]: AuthEnvironmentMaintainScope,
+  // Backups hold every saved key and sign-in, and a restore replaces all data and restarts.
+  [WS_METHODS.backupCreate]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupSetPassword]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupSuggestFolders]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupList]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupDelete]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupDownloadUrl]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupInspect]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupRestore]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupUndoRestore]: AuthEnvironmentMaintainScope,
+  [WS_METHODS.backupDismissRestoreReport]: AuthEnvironmentMaintainScope,
+  // Connectors hold sign-ins and decide what agents can reach, as saved tokens in Settings do.
+  [WS_METHODS.connectorsConnect]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsSignIn]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsUpdate]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsDisconnect]: AuthSettingsWriteScope,
+  [WS_METHODS.connectorsTest]: AuthSettingsWriteScope,
+  // Skills steer every agent that uses them.
+  [WS_METHODS.skillsSave]: AuthSettingsWriteScope,
+  [WS_METHODS.skillsDelete]: AuthSettingsWriteScope,
+  [WS_METHODS.skillsAddFromLibrary]: AuthSettingsWriteScope,
+  [WS_METHODS.skillsImport]: AuthSettingsWriteScope,
+  // Agents decide what a chat may reach, as connectors and skills do.
+  [WS_METHODS.agentsSave]: AuthSettingsWriteScope,
+  [WS_METHODS.agentsDelete]: AuthSettingsWriteScope,
+  // A workflow runs agents unattended, on a schedule, so making one is a settings change.
+  [WS_METHODS.workflowsSave]: AuthSettingsWriteScope,
+  [WS_METHODS.workflowsDelete]: AuthSettingsWriteScope,
+  [WS_METHODS.workflowsRun]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
   // Listing models spends the stored API key, so only those who can choose a model may.
   [WS_METHODS.serverListTextGeneratorModels]: AuthSettingsWriteScope,

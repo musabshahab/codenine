@@ -7,7 +7,6 @@ import { ChevronDownIcon, FolderPlusIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { useRef, useState } from "react";
 
-import { openCommandPalette } from "~/commandPaletteBus";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
@@ -15,6 +14,7 @@ import { useOrderWhileOpen } from "~/hooks/useOrderWhileOpen";
 import { useProjectPin } from "~/hooks/useProjectGroupUpdate";
 import { useScratchProject } from "~/hooks/useScratchProject";
 import { useClientSettings } from "~/hooks/useSettings";
+import { openNewProjectDialog } from "~/newProjectDialogStore";
 import { hasExplicitComposerModelSelection } from "~/lib/chatThreadActions";
 import {
   pickableProjectGroups,
@@ -84,7 +84,7 @@ export function DraftProjectPicker({
   const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
   const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
-  const openNewProject = () => openCommandPalette({ open: "new-project" });
+  const openNewProject = () => openNewProjectDialog();
   const { scratchWorkspaceRootFor } = useScratchProject();
   const openProjectDraft = useNewThreadHandler();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -143,7 +143,7 @@ export function DraftProjectPicker({
   const pickerItems: readonly PickerItem[] = useOrderWhileOpen(
     [
       ...menuEntries.map(({ group }) => ({ value: group.projectKey, label: group.displayName })),
-      { value: NEW_PROJECT_VALUE, label: "New project" },
+      { value: NEW_PROJECT_VALUE, label: "New workspace" },
     ],
     (item) => item.value,
     pickerOpen,
@@ -249,15 +249,15 @@ export function DraftProjectPicker({
                 <ComposerControl className="min-w-0 max-w-56 rounded-full border-border/80" />
               }
               data-draft-project-trigger=""
-              aria-label={`Project: ${activeProjectTitle ?? "none chosen"}`}
+              aria-label={`Workspace: ${activeProjectTitle ?? "none chosen"}`}
             />
           }
         >
           {activeProjectGroup ? (
             <ProjectFavicon project={activeProjectGroup} className="size-4 shrink-0" />
           ) : null}
-          <span data-composer-control-label className="min-w-0">
-            <DraftProjectName value={activeProjectTitle ?? "Choose a project"} singleLine />
+          <span data-composer-control-label className="min-w-0 truncate">
+            {activeProjectTitle ?? "Choose a workspace"}
           </span>
           <ChevronDownIcon
             aria-hidden
@@ -265,12 +265,12 @@ export function DraftProjectPicker({
             className="size-3.5 opacity-70"
           />
         </TooltipTrigger>
-        <TooltipPopup side="top">Choose the project</TooltipPopup>
+        <TooltipPopup side="top">Choose the workspace</TooltipPopup>
       </Tooltip>
       <ComboboxPopup align="center" className="w-72 overflow-hidden">
         <ComboboxSearchInput
-          aria-label="Search projects"
-          placeholder="Search projects..."
+          aria-label="Search workspaces"
+          placeholder="Search workspaces..."
           value={pickerQuery}
           onChange={(event) => setPickerQuery(event.target.value)}
           onKeyDown={(event) => {
@@ -284,7 +284,7 @@ export function DraftProjectPicker({
             toggleProjectGroupPin(group);
           }}
         />
-        <ComboboxEmpty>No matching projects.</ComboboxEmpty>
+        <ComboboxEmpty>No matching workspaces.</ComboboxEmpty>
         <ComboboxList>
           {(item: PickerItem) => {
             const entry = projectEntryByKey.get(item.value);
@@ -325,20 +325,22 @@ export function DraftProjectPicker({
   ) : (
     <ComposerControl className="rounded-full border-border/80" onClick={openNewProject}>
       <ComposerControlIcon icon={FolderPlusIcon} />
-      <span data-composer-control-label>Add a project</span>
+      <span data-composer-control-label>Add a workspace</span>
     </ComposerControl>
   );
 }
 
 /** The start screen's question: a chat in Chats, a task for a team, or work in a project. */
-export function DraftHeroHeadline(props: { kind: "chat" | "team" | "project" }) {
+export function DraftHeroHeadline(props: { kind: "chat" | "team" | "workflow" | "project" }) {
   return (
     <h1 className="w-full px-1 text-start font-semibold text-2xl text-foreground tracking-tight">
       {props.kind === "chat"
         ? "Start a chat"
         : props.kind === "team"
           ? "What should the team build?"
-          : "What would you like to do?"}
+          : props.kind === "workflow"
+            ? "What should the workflow do?"
+            : "What would you like to do?"}
     </h1>
   );
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@codenine/shared/keybindings";
 import { DEFAULT_CLIENT_SETTINGS } from "@codenine/contracts/settings";
@@ -26,7 +26,7 @@ vi.mock("../hooks/useSettings", async (original) => ({
 vi.mock("../hooks/useScratchProject", () => ({
   useScratchProject: () => ({ scratchEnvironmentId: () => null }),
 }));
-vi.mock("../hooks/useNewProject", () => ({ useNewProject: () => async () => undefined }));
+vi.mock("../hooks/useNewProject", () => ({ useNewProject: () => async () => ({ ok: true }) }));
 vi.mock("../hooks/useHandleNewThread", () => ({
   useHandleNewThread: () => ({
     activeDraftThread: null,
@@ -44,52 +44,28 @@ vi.mock("../state/use-atom-command", () => ({
 vi.mock("../state/use-atom-query-runner", () => ({
   useAtomQueryRunner: () => async () => ({ _tag: "Success", value: undefined }),
 }));
-const newProjectsRoot = vi.hoisted(() => {
-  let value: string | null = null;
-  const listeners = new Set<() => void>();
-  return {
-    // Each test starts with no new-projects root and no listeners left by an earlier test.
-    setup: (initial: string | null) => {
-      value = initial;
-      listeners.clear();
-    },
-    get: () => value,
-    set: (next: string) => {
-      value = next;
-      for (const listener of listeners) listener();
-    },
-    subscribe: (listener: () => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-});
-vi.mock("../state/environments", async (original) => {
-  const { useSyncExternalStore } = await import("react");
-  return {
-    ...(await original<typeof import("../state/environments")>()),
-    useEnvironments: () => ({
-      environments: [
-        {
-          environmentId: "local",
-          label: "Local",
-          connection: { phase: "connected" },
-          entry: { target: { _tag: "PrimaryConnectionTarget" } },
-          serverConfig: {
-            environment: {
-              platform: { os: "linux" },
-              capabilities: { projectCloneTracking: true },
-            },
-            settings: { addProjectBaseDirectory: "/workspace/" },
-            newProjectsRoot: useSyncExternalStore(newProjectsRoot.subscribe, newProjectsRoot.get),
+vi.mock("../state/environments", async (original) => ({
+  ...(await original<typeof import("../state/environments")>()),
+  useEnvironments: () => ({
+    environments: [
+      {
+        environmentId: "local",
+        label: "Local",
+        connection: { phase: "connected" },
+        entry: { target: { _tag: "PrimaryConnectionTarget" } },
+        serverConfig: {
+          environment: {
+            platform: { os: "linux" },
+            capabilities: { projectCloneTracking: true },
           },
+          settings: { addProjectBaseDirectory: "/workspace/", ghqCloneLayout: false },
         },
-      ],
-    }),
-    usePrimaryEnvironmentId: () => "local",
-    useEnvironmentProviders: () => new Map(),
-  };
-});
+      },
+    ],
+  }),
+  usePrimaryEnvironmentId: () => "local",
+  useEnvironmentProviders: () => new Map(),
+}));
 vi.mock("../state/entities", async (original) => ({
   ...(await original<typeof import("../state/entities")>()),
   useProjects: () => [],
@@ -127,46 +103,31 @@ vi.mock("./settings/useAvailableSettingsSearchItems", () => ({
 }));
 
 // The real palette and Base UI input must agree that confirming composition is typing.
-describe.each(["repository", "folder", "destination"] as const)("add-project %s", (step) => {
-  it.each([
-    { isComposing: true, keyCode: 13 },
-    { isComposing: false, keyCode: 229 },
-  ])("keeps Enter in the input during composition: %j", async (composition) => {
-    newProjectsRoot.setup(null);
-    await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
-    await act(() => openCommandPalette({ open: "add-project" }));
-    await page.getByText(step === "folder" ? "Local folder" : "Git URL", { exact: true }).click();
-    const input = () => page.getByRole("combobox");
-    if (step === "destination") {
-      await input().fill("https://example.com/team/project.git");
-      await userEvent.keyboard("{Enter}");
-    }
-    const value = step === "repository" ? "https://example.com/team/計画.git" : "/workspace/計画";
-    await input().fill(value);
-    const event = new KeyboardEvent("keydown", {
-      key: "Enter",
-      bubbles: true,
-      cancelable: true,
-      ...composition,
-    });
-    await act(() => input().element().dispatchEvent(event));
-    expect(event.defaultPrevented).toBe(false);
-    await expect.element(input()).toHaveValue(value);
-    if (step === "repository") {
-      await userEvent.keyboard("{Enter}");
-      await expect.element(input()).toHaveValue("/workspace/計画");
-    } else {
-      await userEvent.keyboard("{Enter}");
-      await expect.element(page.getByRole("combobox")).not.toBeInTheDocument();
-    }
+it.each([
+  { isComposing: true, keyCode: 13 },
+  { isComposing: false, keyCode: 229 },
+])("keeps Enter in a folder path during composition: %j", async (composition) => {
+  await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
+  await act(() => openCommandPalette({}));
+  const input = () => page.getByRole("combobox");
+  const value = "/workspace/計画";
+  await input().fill(value);
+  const event = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+    ...composition,
   });
+  await act(() => input().element().dispatchEvent(event));
+  expect(event.defaultPrevented).toBe(false);
+  await expect.element(input()).toHaveValue(value);
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("combobox")).not.toBeInTheDocument();
 });
 
 it("keeps the caret in place when an edit briefly makes the folder path not a path", async () => {
-  newProjectsRoot.setup(null);
   await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
-  await act(() => openCommandPalette({ open: "add-project" }));
-  await page.getByText("Local folder", { exact: true }).click();
+  await act(() => openCommandPalette({}));
   const input = () => page.getByRole("combobox");
   await input().fill("/workspace/project");
   await userEvent.keyboard("{Home}{ArrowRight}{Backspace}");
@@ -175,17 +136,4 @@ it("keeps the caret in place when an edit briefly makes the folder path not a pa
   await expect.element(input()).toHaveValue("/workspace/project");
   await userEvent.keyboard("w");
   await expect.element(input()).toHaveValue("/wworkspace/project");
-});
-
-it("opens New project on the name input once an environment can create projects", async () => {
-  newProjectsRoot.setup(null);
-  await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
-  await act(() => openCommandPalette({ open: "new-project" }));
-  await expect.element(page.getByText("Local folder", { exact: true })).toBeInTheDocument();
-  await expect.element(page.getByPlaceholder("Project name")).not.toBeInTheDocument();
-
-  await act(() => newProjectsRoot.set("/home/me/projects"));
-  await expect.element(page.getByPlaceholder("Project name")).toHaveFocus();
-  await expect.element(page.getByText("Add existing project", { exact: true })).toBeInTheDocument();
-  await expect.element(page.getByText("Local folder", { exact: true })).not.toBeInTheDocument();
 });

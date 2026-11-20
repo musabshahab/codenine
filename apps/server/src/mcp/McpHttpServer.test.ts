@@ -6,6 +6,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  AgentName,
   EnvironmentId,
   OrchestratorMcpFailure,
   ProviderInstanceId,
@@ -116,9 +117,13 @@ const RecordingToolkit = Toolkit.make(
   OrchestratorToolkit.tools.codenine_thread_read,
   OrchestratorToolkit.tools.codenine_thread_wait,
   ProjectToolkit.tools.codenine_project_update,
+  OrchestratorToolkit.tools.codenine_background_wait,
 );
 
-const layerRecordingTools = (calls: Array<unknown>) => {
+const layerRecordingTools = (
+  calls: Array<unknown>,
+  caller: { readonly agent?: AgentName } = {},
+) => {
   const record = McpToolAccess.reads((params: unknown) =>
     Effect.sync(() => calls.push(params)).pipe(
       Effect.andThen(
@@ -133,12 +138,16 @@ const layerRecordingTools = (calls: Array<unknown>) => {
       codenine_thread_read: record,
       codenine_thread_wait: record,
       codenine_project_update: record,
+      codenine_background_wait: record,
     }),
   ).pipe(
     Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
     Layer.provide(
       Layer.mergeAll(
-        McpToolAccessTestkit.liveThreadsLayer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: (id) =>
+            Effect.succeed({ ...McpToolAccessTestkit.liveThreadShell(id), ...caller }),
+        }),
         Layer.mock(OrchestratorMcpService.OrchestratorMcpService)({}),
         Layer.mock(ProjectService.ProjectService)({}),
         NodeServices.layer,
@@ -175,6 +184,18 @@ it.effect("decodes null optional arguments the way it decodes omitted ones", () 
     expect(calls[3]).toEqual(calls[2]);
     expect(calls[4]).toStrictEqual({ projectId: "project-1", projectIcon: null });
   }).pipe(Effect.provide(layerRecordingTools(calls)));
+});
+
+it.effect("an agent's chat may use only the Codenine tools that act on that chat alone", () => {
+  const calls: Array<unknown> = [];
+  return Effect.gen(function* () {
+    // A chat it started would run without the agent's limits.
+    const refused = yield* callTool("delegate_task", { task: "Inspect", target: {} });
+    expect(refused.isError).toBe(true);
+    expect(calls).toEqual([]);
+    yield* callTool("codenine_background_wait", { taskIds: ["task-1"] });
+    expect(calls).toHaveLength(1);
+  }).pipe(Effect.provide(layerRecordingTools(calls, { agent: AgentName.make("page-reader") })));
 });
 
 it.effect(
@@ -395,6 +416,7 @@ it.effect("admits provider and OAuth client credentials and points only clients 
         ),
       ).pipe(
         Layer.provide(ServerSettings.layerTest()),
+        Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
         Layer.provide(
           Layer.mock(McpSessionRegistry.McpSessionRegistry)({
             resolve: (token) =>

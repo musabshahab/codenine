@@ -1,5 +1,6 @@
 import { remapComposerContextAttachments } from "@codenine/shared/composerContextReferences";
 import {
+  type AgentName,
   type ThreadLinkedPullRequest,
   CommandId,
   CheckpointId,
@@ -8,6 +9,7 @@ import {
   OrchestrationV2CheckpointUnavailableError,
   WS_METHODS,
   type ChatAttachment,
+  type ConnectionId,
   MessageId,
   type ModelSelection,
   type NodeId,
@@ -23,6 +25,7 @@ import {
   type RunId,
   type RuntimeMode,
   type RuntimeRequestId,
+  type SkillName,
   type ThreadId,
   type ThreadEnvMode,
   type UploadChatAttachment,
@@ -126,11 +129,6 @@ export interface VisitThreadInput extends ThreadCommandInput {
 
 export type MarkThreadUnreadInput = ThreadCommandInput;
 
-export interface SetThreadFolderInput extends ThreadCommandInput {
-  /** The folder to move the thread into, or null to take it out of its folder. */
-  readonly folder: string | null;
-}
-
 export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly limitRecovery?: import("@codenine/contracts").OrchestrationV2LimitRecoveryUpdate | null;
   readonly title?: string;
@@ -140,6 +138,19 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly regenerateTitle?: boolean;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly expectedEmpty?: boolean;
+  /** The chat's own connectors; null goes back to the ones on by default. */
+  readonly connectors?: ReadonlyArray<ConnectionId> | null;
+  /** Skills kept on for the chat. */
+  readonly skills?: ReadonlyArray<SkillName>;
+  /** The agent the chat talks to; null goes back to no agent. */
+  readonly agent?: AgentName | null;
+}
+
+/** What a new chat chose before it had a thread. */
+export interface ThreadChoices {
+  readonly connectors?: ReadonlyArray<ConnectionId>;
+  readonly skills?: ReadonlyArray<SkillName>;
+  readonly agent?: AgentName;
 }
 
 export interface SetThreadRuntimeModeInput extends ThreadCommandInput {
@@ -169,6 +180,8 @@ interface StartThreadBootstrap {
     readonly startFromOrigin?: boolean;
   };
   readonly runSetupScript?: boolean;
+  /** With `createThread`: applied once the thread exists, before its first message. */
+  readonly threadChoices?: ThreadChoices;
 }
 
 export interface StartThreadTurnInput extends ThreadCommandInput {
@@ -570,17 +583,6 @@ export const markThreadUnread = Effect.fn("EnvironmentCommands.markThreadUnread"
   });
 });
 
-export const setThreadFolder = Effect.fn("EnvironmentCommands.setThreadFolder")(function* (
-  input: SetThreadFolderInput,
-) {
-  return yield* dispatch({
-    type: "thread.folder.set",
-    commandId: yield* allocateCommandId(input),
-    threadId: input.threadId,
-    folder: input.folder,
-  });
-});
-
 export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadMetadata")(
   function* (input: UpdateThreadMetadataInput) {
     const commandId = yield* allocateCommandId(input);
@@ -591,7 +593,10 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
       input.linkedPullRequest !== undefined ||
-      input.limitRecovery !== undefined
+      input.limitRecovery !== undefined ||
+      input.connectors !== undefined ||
+      input.skills !== undefined ||
+      input.agent !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
@@ -606,6 +611,9 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.linkedPullRequest === undefined
           ? {}
           : { linkedPullRequest: input.linkedPullRequest }),
+        ...(input.connectors === undefined ? {} : { connectors: input.connectors }),
+        ...(input.skills === undefined ? {} : { skills: input.skills }),
+        ...(input.agent === undefined ? {} : { agent: input.agent }),
       });
     }
     if (input.modelSelection !== undefined) {
@@ -659,6 +667,37 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
   const bootstrap = input.bootstrap?.createThread;
   const prepareWorktree = input.bootstrap?.prepareWorktree;
   if (bootstrap !== undefined || prepareWorktree !== undefined) {
+    const choices = input.bootstrap?.threadChoices;
+    // Commands run in order: the thread, then its choices, then the launch with the first message.
+    const createdFirst =
+      bootstrap !== undefined &&
+      (choices?.connectors !== undefined ||
+        choices?.skills !== undefined ||
+        choices?.agent !== undefined);
+    if (createdFirst) {
+      yield* dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`${commandId}:create`),
+        createdBy: "user",
+        creationSource: input.creationSource ?? "web",
+        threadId: input.threadId,
+        projectId: bootstrap.projectId,
+        title: input.titleSeed ?? bootstrap.title,
+        modelSelection: input.modelSelection ?? bootstrap.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: input.interactionMode,
+        branch: bootstrap.branch,
+        worktreePath: bootstrap.worktreePath,
+      });
+      yield* dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make(`${commandId}:choices`),
+        threadId: input.threadId,
+        ...(choices?.connectors === undefined ? {} : { connectors: choices.connectors }),
+        ...(choices?.skills === undefined ? {} : { skills: choices.skills }),
+        ...(choices?.agent === undefined ? {} : { agent: choices.agent }),
+      });
+    }
     const existingProjection =
       bootstrap === undefined ? yield* getProjection(input.threadId) : null;
     const thread = bootstrap ?? existingProjection!.thread;
@@ -688,7 +727,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       commandId,
       creationSource: input.creationSource ?? "web",
       threadId: input.threadId,
-      ...(bootstrap === undefined ? { reuseExistingThread: true } : {}),
+      ...(bootstrap === undefined || createdFirst ? { reuseExistingThread: true } : {}),
       projectId: thread.projectId,
       title: input.titleSeed ?? thread.title,
       generateTitle: input.titleSeed !== undefined,
@@ -984,6 +1023,22 @@ export const forkSideChat = Effect.fn("EnvironmentCommands.forkSideChat")(functi
     ...(input.title === undefined ? {} : { title: input.title }),
   });
 });
+
+/** Forks the thread's latest stable point into an ordinary thread, such as one for another account. */
+export const forkThreadFromLatest = Effect.fn("EnvironmentCommands.forkThreadFromLatest")(
+  function* (input: ForkSideChatInput) {
+    return yield* dispatch({
+      type: "thread.fork",
+      commandId: yield* allocateCommandId(input),
+      createdBy: "user",
+      creationSource: input.creationSource ?? "web",
+      sourceThreadId: input.sourceThreadId,
+      targetThreadId: input.targetThreadId,
+      sourcePoint: { type: "latest_stable" },
+      ...(input.title === undefined ? {} : { title: input.title }),
+    });
+  },
+);
 
 export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(function* (
   input: MergeThreadBackInput,

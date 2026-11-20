@@ -31,12 +31,17 @@ function makeHarness(options?: {
   readonly clone?: SourceControlRepositoryService.SourceControlRepositoryService["Service"]["cloneRepository"];
 }) {
   const created: Array<{ projectId: ProjectId; workspaceRoot: string }> = [];
+  const repointed: Array<{ projectId: ProjectId; workspaceRoot: string }> = [];
   const cloned: Array<ProjectId> = [];
   const discarded: Array<string> = [];
   const hooks: ProjectCloneTracker.ProjectCloneHooks = {
     createProject: (input) =>
       Effect.sync(() => {
         created.push({ projectId: input.projectId, workspaceRoot: input.workspaceRoot });
+      }),
+    repointProject: (input) =>
+      Effect.sync(() => {
+        repointed.push({ projectId: input.projectId, workspaceRoot: input.workspaceRoot });
       }),
     onCloned: (input) => Effect.sync(() => void cloned.push(input.projectId)),
   };
@@ -62,7 +67,7 @@ function makeHarness(options?: {
       }),
     ),
   );
-  return { layer, hooks, created, cloned, discarded };
+  return { layer, hooks, created, repointed, cloned, discarded };
 }
 
 describe("ProjectCloneTracker", () => {
@@ -261,6 +266,20 @@ describe("ProjectCloneTracker", () => {
       yield* tracker.discard(projectId);
       expect(yield* tracker.get(projectId)).toBeNull();
       expect(harness.discarded).toEqual(["/workspace/codenine"]);
+    }).pipe(Effect.provide(harness.layer));
+  });
+
+  it.effect("a clone for a project that lost its folder repoints it and creates none", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const tracker = yield* ProjectCloneTracker.ProjectCloneTracker;
+      yield* tracker.start({ ...startInput, repointExisting: true }, harness.hooks);
+      yield* Effect.yieldNow;
+
+      expect(harness.created).toEqual([]);
+      expect(harness.repointed).toEqual([{ projectId, workspaceRoot: "/workspace/codenine" }]);
+      expect((yield* tracker.get(projectId))?.phase).toBe("done");
+      expect(harness.cloned).toEqual([projectId]);
     }).pipe(Effect.provide(harness.layer));
   });
 

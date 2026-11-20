@@ -1,4 +1,5 @@
 import { scopeThreadRef } from "@codenine/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import type { NeedsYouReason } from "@codenine/client-runtime/state/thread-inbox";
 import { InboxIcon } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
@@ -7,6 +8,7 @@ import { useNeedsYouEntries } from "../../hooks/useWorkLists";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { formatElapsedDurationLabel } from "../../timestampFormat";
+import { workflowRunHref } from "../../workflowLinks";
 import { ThreadKindIcon } from "../ThreadKindIcon";
 import type { ThreadKind } from "../threadKind.logic";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
@@ -17,8 +19,21 @@ const REASON = {
   approval: { kind: "approval", title: (title: string) => `Approve a request: ${title}` },
   review: { kind: "approval", title: (title: string) => `Approve team: ${title}` },
   question: { kind: "question", title: (title: string) => `Answer a question: ${title}` },
-  failed: { kind: "failed", title: (title: string) => `Team failed: ${title}` },
-} as const satisfies Record<NeedsYouReason, { kind: ThreadKind; title: (title: string) => string }>;
+  waiting: { kind: "approval", title: (title: string) => `Waiting for you: ${title}` },
+  failed: {
+    kind: "failed",
+    title: (title: string, run: boolean) => `${run ? "Failed" : "Team failed"}: ${title}`,
+  },
+} as const satisfies Record<
+  NeedsYouReason,
+  { kind: ThreadKind; title: (title: string, run: boolean) => string }
+>;
+
+/** A workflow run waiting or failed is answered on the run's page; everything else in its thread. */
+function entryRun(thread: EnvironmentThreadShell, reason: NeedsYouReason) {
+  const run = thread.source.teamSummary?.run;
+  return run !== undefined && (reason === "waiting" || reason === "failed") ? run : null;
+}
 
 /** Everything that waits on the user, across projects and chats. */
 export function InboxPage() {
@@ -27,6 +42,17 @@ export function InboxPage() {
   const placeOf = useThreadPlaceLabel();
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}Z`);
+  const open = (thread: EnvironmentThreadShell, reason: NeedsYouReason) => {
+    const run = entryRun(thread, reason);
+    if (run !== null) {
+      void router.navigate({ href: workflowRunHref(thread.environmentId, run) });
+      return;
+    }
+    void router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+    });
+  };
   return (
     <WorkspacePage
       area="inbox"
@@ -41,38 +67,41 @@ export function InboxPage() {
             </EmptyMedia>
             <EmptyTitle>Nothing needs you</EmptyTitle>
             <EmptyDescription>
-              Approvals, questions, and teams that fail show up here.
+              Approvals, questions, teams and workflow runs waiting for you, and those that fail,
+              show up here.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : (
         <ul className="flex flex-col gap-px p-2">
-          {entries.map(({ thread, reason }) => (
-            <li key={`${thread.environmentId}:${thread.id}`}>
-              <button
-                type="button"
-                onClick={() =>
-                  void router.navigate({
-                    to: "/$environmentId/$threadId",
-                    params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
-                  })
-                }
-                className="flex w-full cursor-pointer items-start gap-3 rounded-lg px-3 py-3 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
-                <ThreadKindIcon kind={REASON[reason].kind} className="mt-0.5 size-4" />
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-sm text-foreground">
-                    {REASON[reason].title(thread.title)}
+          {entries.map(({ thread, reason }) => {
+            const run = entryRun(thread, reason);
+            return (
+              <li key={`${thread.environmentId}:${thread.id}`}>
+                <button
+                  type="button"
+                  onClick={() => open(thread, reason)}
+                  className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-3 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
+                  <ThreadKindIcon kind={REASON[reason].kind} className="mt-0.5 size-4" />
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-sm text-foreground">
+                      {run === null
+                        ? REASON[reason].title(thread.title, false)
+                        : REASON[reason].title(`${run.title} · Run ${run.run}`, true)}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {placeOf(thread)}
+                    </span>
                   </span>
-                  <span className="truncate text-xs text-muted-foreground">{placeOf(thread)}</span>
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {formatElapsedDurationLabel(thread.updatedAt, nowMs)}
-                </span>
-              </button>
-            </li>
-          ))}
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {formatElapsedDurationLabel(thread.updatedAt, nowMs)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </WorkspacePage>

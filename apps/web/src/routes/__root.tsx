@@ -16,9 +16,11 @@ import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
-import { FolderNameDialogHost } from "../components/sidebar/FolderNameDialog";
 import { UseInAnotherAppDialogHost } from "../components/mcp/UseInAnotherAppDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
+import { NewProjectDialogHost } from "../components/NewProjectDialog";
+import { RestoreBackupDialogHost } from "../components/backup/RestoreBackupDialog";
+import { RestoreReportCoordinator } from "../components/backup/RestoreReportDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { FirstRunGate } from "../components/onboarding/FirstRunGate";
 import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDialog";
@@ -158,10 +160,12 @@ function RootRouteBranch() {
       <ReopenClosedViewShortcut />
       <ConfirmDialogHost />
       <CustomSnoozeDialogHost />
-      <FolderNameDialogHost />
       <ProjectCloneToastCoordinator />
       <AddProjectToMachineDialogHost />
+      <NewProjectDialogHost />
       <UseInAnotherAppDialogHost />
+      <RestoreBackupDialogHost />
+      <RestoreReportCoordinator />
     </>
   );
   const appShell = (

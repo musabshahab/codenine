@@ -11,6 +11,12 @@ import {
   OrchestratorMcpFailure,
   OrchestratorMcpProposeTeamInput,
   OrchestratorMcpProposeTeamResult,
+  OrchestratorMcpProposeWorkflowInput,
+  OrchestratorMcpProposeWorkflowResult,
+  OrchestratorMcpReviewStepInput,
+  OrchestratorMcpReviewStepResult,
+  OrchestratorMcpSaveRunNoteInput,
+  OrchestratorMcpSaveRunNoteResult,
   OrchestratorMcpTaskCancelInput,
   OrchestratorMcpTaskCancelResult,
   OrchestratorMcpTaskStatusInput,
@@ -104,7 +110,7 @@ const TaskCancelTool = Tool.make("task_cancel", {
 
 const ProposeTeamTool = Tool.make("propose_team", {
   description:
-    "Propose a team of agents for the user to edit and approve. Use when the user asks for a team, or for different models on parts of a task. One agent per model or role. Order tasks with `dependsOn`. Agents that edit in parallel: `workspace:'worktree'`, plus a last `integrate` task that depends on them. Models and option ids come from `orchestrator_capabilities` (effort is `effort` on Claude, `reasoningEffort` on Codex). Calling again replaces a team not yet approved.",
+    "Propose a team of the user's agents for the user to edit and approve. Use when the user asks for a team, or for different models on parts of a task. Each member names one of the user's agents in `agent`, from `orchestrator_capabilities` `agents`; it brings its own model. Never invent an agent name. Where none fits part of the work, give that member a `suggestion` instead and say so in your reply: the user creates that agent or picks another before the team starts. Order tasks with `dependsOn`. Members that edit in parallel: `workspace:'worktree'`, plus a last `integrate` task that depends on them. Calling again replaces a team not yet approved.",
   parameters: OrchestratorMcpProposeTeamInput,
   success: OrchestratorMcpProposeTeamResult,
   failure: OrchestratorMcpFailure,
@@ -112,6 +118,45 @@ const ProposeTeamTool = Tool.make("propose_team", {
   dependencies,
 })
   .annotate(Tool.Title, "Propose a team of agents")
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
+
+const ProposeWorkflowTool = Tool.make("propose_workflow", {
+  description:
+    "Draft a workflow for the user to review and save: a team of the user's agents that runs on a schedule or when they start it, toward one goal. Use when the user asks for recurring or repeatable work. Each step names one of the user's agents in `agent`, from `orchestrator_capabilities` `agents`; never invent one. Where none fits, give a `suggestion` and say so. Give each step a `doneWhen` the result must meet. Order steps with `dependsOn`. Nothing runs and nothing is saved until the user saves it.",
+  parameters: OrchestratorMcpProposeWorkflowInput,
+  success: OrchestratorMcpProposeWorkflowResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Draft a workflow")
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
+
+const ReviewStepTool = Tool.make("review_step", {
+  description:
+    "Only as a workflow run's lead, when Codenine sends you a step's result: accept it when it meets the goal and the step's Done when, or revise with notes on exactly what to fix; the step's agent gets them in its own chat. Then end your turn.",
+  parameters: OrchestratorMcpReviewStepInput,
+  success: OrchestratorMcpReviewStepResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Review a workflow step")
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
+
+const SaveRunNoteTool = Tool.make("save_run_note", {
+  description:
+    "Only as a workflow run's lead, once the run finished: save a one-line headline for the run history and a short note the next run reads.",
+  parameters: OrchestratorMcpSaveRunNoteInput,
+  success: OrchestratorMcpSaveRunNoteResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Save a workflow run's note")
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromSubagents);
 
@@ -262,6 +307,9 @@ export const OrchestratorToolkit = Toolkit.make(
   TaskStatusTool,
   TaskCancelTool,
   ProposeTeamTool,
+  ProposeWorkflowTool,
+  ReviewStepTool,
+  SaveRunNoteTool,
   WorkflowStopTool,
   BackgroundWaitTool,
   RequestSecretTool,

@@ -14,12 +14,14 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   canRetryTeamTask,
+  canReviewTeamTask,
   changeTeamDraft,
   editTeamDraft,
   isTeamFinishedNotification,
   resolveTeamDraft,
   savedTeamDraftEdit,
   teamAgentHeader,
+  teamApproveBlock,
   teamApproveCommands,
   teamAssignment,
   teamCommandFailure,
@@ -32,6 +34,7 @@ import {
   teamStatusText,
   teamStepFlows,
   teamTaskOfThread,
+  teamTaskReviewCommand,
   teamTaskWaitsFor,
   threadTeam,
 } from "./team.ts";
@@ -44,6 +47,16 @@ const agent = (id: string, model = "gpt-fast"): TeamAgent => ({
   role: "implement",
   modelSelection: { instanceId: codex, model },
   workspace: "shared",
+});
+/** A member the lead suggested for an agent the user does not have. */
+const suggestedAgent = (id: string): TeamAgent => ({
+  ...agent(id),
+  suggestion: {
+    title: "Fact checker",
+    description: "Checking claims against their sources.",
+    instructions: "Check every claim.",
+    connectors: [],
+  },
 });
 const task = (id: string, by: string, dependsOn: ReadonlyArray<string> = []): TeamTask => ({
   id: TeamTaskId.make(id),
@@ -105,6 +118,7 @@ describe("changeTeamDraft", () => {
     const add = (label: string) =>
       ({
         type: "agent.add",
+        agent: "code-reviewer",
         label,
         role: "review",
         modelSelection: { instanceId: codex, model: "gpt-strong" },
@@ -114,7 +128,13 @@ describe("changeTeamDraft", () => {
     const twice = changeTeamDraft(once, add("reviewer!"));
     const blank = changeTeamDraft(twice, { ...add("???"), assign: TeamTaskId.make("b") });
     expect(blank.agents.slice(2)).toMatchObject([
-      { id: "reviewer-2", label: "Reviewer", role: "review", workspace: "worktree" },
+      {
+        id: "reviewer-2",
+        agent: "code-reviewer",
+        label: "Reviewer",
+        role: "review",
+        workspace: "worktree",
+      },
       { id: "reviewer-3", label: "reviewer!" },
       { id: "agent" },
     ]);
@@ -123,6 +143,29 @@ describe("changeTeamDraft", () => {
       "agent",
       "reviewer",
     ]);
+  });
+
+  it("runs a suggested member as the agent the user chose, which settles the suggestion", () => {
+    const suggested = teamDraftOf(plan({ agents: [agent("builder"), suggestedAgent("checker")] }));
+    expect(teamApproveBlock(suggested)).not.toBeNull();
+    const assigned = changeTeamDraft(suggested, {
+      type: "agent.assign",
+      agentId: TeamAgentId.make("checker"),
+      agent: "fact-checker",
+      label: " Fact checker ",
+      modelSelection: { instanceId: codex, model: "gpt-strong" },
+    });
+    expect(assigned.agents[0]).toBe(suggested.agents[0]);
+    expect(assigned.agents[1]).toEqual({
+      id: "checker",
+      label: "Fact checker",
+      role: "implement",
+      modelSelection: { instanceId: codex, model: "gpt-strong" },
+      workspace: "shared",
+      agent: "fact-checker",
+    });
+    expect(assigned.agents[1]).not.toHaveProperty("suggestion");
+    expect(teamApproveBlock(assigned)).toBeNull();
   });
 
   it("counts each choice a draft changed, once", () => {
@@ -139,10 +182,17 @@ describe("changeTeamDraft", () => {
       },
       { type: "task.brief", taskId: TeamTaskId.make("b"), brief: "Do b well." },
       { type: "task.remove", taskId: TeamTaskId.make("a") },
+      {
+        type: "agent.assign",
+        agentId: TeamAgentId.make("reviewer"),
+        agent: "code-reviewer",
+        label: "Code reviewer",
+        modelSelection: { instanceId: codex, model: "gpt-max" },
+      },
     ] as const satisfies ReadonlyArray<Parameters<typeof changeTeamDraft>[1]>;
     const next = edited.reduce<ReturnType<typeof teamDraftOf>>(changeTeamDraft, draft);
     expect(teamDraftChangeCount(draft, draft)).toBe(0);
-    expect(teamDraftChangeCount(draft, next)).toBe(3);
+    expect(teamDraftChangeCount(draft, next)).toBe(4);
   });
 });
 
@@ -291,6 +341,41 @@ it("retries on another agent only when one is named", () => {
     taskId: "a",
     agentId: "reviewer",
   });
+});
+
+it("reviews the round the step is on, with trimmed notes only when there are some", () => {
+  const review = (notes?: string) =>
+    teamTaskReviewCommand({
+      threadId,
+      planId: TeamPlanId.make("plan-1"),
+      task: {
+        ...task("a", "builder"),
+        attempt: 2,
+        review: { round: 3, awaiting: true, awaitingSince: null },
+      },
+      verdict: notes === undefined ? "accept" : "revise",
+      notes,
+      commandId: CommandId.make("review"),
+    });
+  expect(review()).toMatchObject({ taskId: "a", attempt: 2, round: 3, verdict: "accept" });
+  expect(review()).not.toHaveProperty("notes");
+  expect(review("   ")).not.toHaveProperty("notes");
+  expect(review("  Under 800 words. ")).toMatchObject({
+    verdict: "revise",
+    notes: "Under 800 words.",
+  });
+
+  // The server takes a review while the run runs, and not while it waits at a limit.
+  const awaiting = { review: { round: 1, awaiting: true, awaitingSince: null } };
+  const at = "2026-11-18T10:00:00.000Z";
+  expect(canReviewTeamTask({ status: "running" }, awaiting)).toBe(true);
+  expect(canReviewTeamTask({ status: "running", hold: { reason: "review", at } }, awaiting)).toBe(
+    true,
+  );
+  expect(canReviewTeamTask({ status: "running", hold: { reason: "spend", at } }, awaiting)).toBe(
+    false,
+  );
+  expect(canReviewTeamTask({ status: "completed" }, awaiting)).toBe(false);
 });
 
 describe("teamCommandFailure", () => {

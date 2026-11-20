@@ -76,7 +76,7 @@ describe("settingInheritanceLayers", () => {
       "defaultThreadEnvMode",
     );
     expect(fromFile.map((layer) => [layer.label, layer.value, layer.effective])).toEqual([
-      ["Project", "Inherits", false],
+      ["Workspace", "Inherits", false],
       ["Laptop", "Inherits", false],
       ["codenine.json", "New worktree", true],
       ["Default", "Current checkout", false],

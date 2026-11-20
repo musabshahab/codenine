@@ -25,6 +25,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { ServerUpdateAction, serverUpdateStageLabel } from "../ServerUpdateAction";
 import { useAutoBalanceUpdateBanner } from "./useAutoBalanceUpdateBanner";
+import { useBackupAttentionBanner } from "./useBackupAttentionBanner";
 import { ComposerServerUpdateIcon } from "./ComposerServerUpdateStatus";
 import {
   dismissServerUpdateFailure,
@@ -53,7 +54,7 @@ interface SystemComposerBannersInput {
 
 /**
  * The composer banners about the machine itself: offline or reconnecting,
- * a server update, and auto-balanced machines that need one.
+ * a server update, auto-balanced machines that need one, and backups that need attention.
  */
 export function useSystemComposerBanners(input: SystemComposerBannersInput) {
   const {
@@ -135,6 +136,10 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
     handleDisconnectActiveEnvironment,
   );
   const autoBalanceUpdateBanner = useAutoBalanceUpdateBanner(autoUpdateEnvironments);
+  const backupAttentionBanner = useBackupAttentionBanner(
+    activeThreadEnvironmentId,
+    hasMultipleRegisteredEnvironments ? (activeEnvironment?.label ?? null) : null,
+  );
   const versionMismatch = resolveServerConfigVersionMismatch(serverConfig);
   const versionMismatchServerLabel =
     hasMultipleRegisteredEnvironments && activeThreadEnvironmentId !== null
@@ -260,6 +265,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
       });
     }
     if (autoBalanceUpdateBanner) items.push(autoBalanceUpdateBanner);
+    if (backupAttentionBanner) items.push(backupAttentionBanner);
     return items;
   })() as ComposerBannerStackItem[];
 }

@@ -49,6 +49,8 @@ import { AddProviderInstanceWizardSteps } from "./AddProviderInstanceWizardSteps
 import { AddOpenRouterDialog } from "./AddOpenRouterDialog";
 import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
 import { MultipleAccountsNote } from "./MultipleAccountsNote";
+import { AddSignInAccountDialog } from "./AddSignInAccountDialog";
+import type { SignInAccountDriver } from "./addAccount.logic";
 
 const INSTANCE_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
@@ -153,6 +155,7 @@ export function AddProviderInstanceDialog({
   const [wizardStep, setWizardStep] = useState(0);
   const [addingChatGptAccount, setAddingChatGptAccount] = useState(false);
   const [addingOpenRouter, setAddingOpenRouter] = useState(false);
+  const [addingSignInAccount, setAddingSignInAccount] = useState<SignInAccountDriver | null>(null);
   const featuredDriverOptions = FEATURED_DRIVER_OPTIONS;
   const moreDriverOptions = MORE_DRIVER_OPTIONS;
   const [driver, setDriver] = useState<ProviderDriverKind>(
@@ -272,7 +275,7 @@ export function AddProviderInstanceDialog({
       setIsSaving(false);
       toastManager.add({
         type: "error",
-        title: "Could not add provider instance",
+        title: "Could not add the account",
         description: error instanceof Error ? error.message : "The settings update failed.",
       });
       return;
@@ -280,8 +283,8 @@ export function AddProviderInstanceDialog({
     onCreated?.(brandedId, driver);
     toastManager.add({
       type: "success",
-      title: "Provider instance added",
-      description: `${driverOption.label} instance '${instanceId}' was added.`,
+      title: "Account added",
+      description: `${label.trim() || driverOption.label} was added.`,
     });
     onOpenChange(false);
   };
@@ -293,6 +296,19 @@ export function AddProviderInstanceDialog({
         environmentLabel={environmentLabel}
         onClose={() => onOpenChange(false)}
         onCreated={onCreated}
+      />
+    );
+  }
+
+  if (addingSignInAccount !== null) {
+    return (
+      <AddSignInAccountDialog
+        environmentId={environmentId}
+        driver={addingSignInAccount}
+        onClose={() => onOpenChange(false)}
+        onAccountCreated={(instanceId) =>
+          onCreated?.(instanceId, ProviderDriverKind.make(addingSignInAccount))
+        }
       />
     );
   }
@@ -311,8 +327,10 @@ export function AddProviderInstanceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <WizardPopup size="wide">
         <WizardHeader
-          title="Add provider"
-          description={<>Add an account or configure a provider on {environmentLabel}.</>}
+          title="Add account"
+          description={
+            <>Add a Claude or Codex account, or an OpenRouter key, on {environmentLabel}.</>
+          }
         >
           <AddProviderInstanceWizardSteps
             currentStep={wizardStep}
@@ -367,7 +385,7 @@ export function AddProviderInstanceDialog({
               <SettingsRow
                 title={<label htmlFor="add-provider-label">Label</label>}
                 description={
-                  <span id="add-provider-label-description">Shown in the provider list.</span>
+                  <span id="add-provider-label-description">Shown in the account list.</span>
                 }
                 control={
                   <Input
@@ -469,10 +487,22 @@ export function AddProviderInstanceDialog({
             </Button>
             {wizardStep === 0 && driver === "codex" ? (
               <>
+                <Button variant="ghost-muted" size="sm" onClick={() => navigateToStep(1)}>
+                  Configure manually
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setAddingSignInAccount("codex")}>
+                  Sign in with Codex CLI
+                </Button>
+                <ChatGptConnectionButton size="sm" onClick={() => setAddingChatGptAccount(true)} />
+              </>
+            ) : wizardStep === 0 && driver === "claudeAgent" ? (
+              <>
                 <Button variant="outline" size="sm" onClick={() => navigateToStep(1)}>
                   Configure manually
                 </Button>
-                <ChatGptConnectionButton size="sm" onClick={() => setAddingChatGptAccount(true)} />
+                <Button size="sm" onClick={() => setAddingSignInAccount("claudeAgent")}>
+                  Sign in with Claude
+                </Button>
               </>
             ) : wizardStep === 0 && openRouterChosen ? (
               <Button size="sm" onClick={() => setAddingOpenRouter(true)}>
@@ -488,7 +518,7 @@ export function AddProviderInstanceDialog({
                 disabled={isSaving || !canManageProviders}
                 onClick={() => void handleSave()}
               >
-                {isSaving ? "Adding..." : "Add instance"}
+                {isSaving ? "Adding..." : "Add account"}
               </Button>
             )}
           </WizardFooter>

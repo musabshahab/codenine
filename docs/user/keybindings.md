@@ -86,7 +86,7 @@ Invalid rules are ignored; if the file cannot be parsed, Codenine uses defaults.
 Each rule requires a `key` shortcut and a `command` ID. An optional `when`
 expression restricts when it runs.
 
-Project commands use `script.{id}.run`, such as `script.test.run`. Settings lists
+Workspace commands use `script.{id}.run`, such as `script.test.run`. Settings lists
 them as **Run Command: Test** and so on.
 
 ## Key syntax
@@ -151,10 +151,10 @@ field gets its own undo back. Terminals always keep their native shortcut.
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.
 
-`chat.new` may ask you to choose a project when there is more than one.
+`chat.new` may ask you to choose a workspace when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`
-(`mod+alt+n`) starts a thread [without a project](./thread-sidebar.md#start-without-a-project).
+(`mod+alt+n`) starts a chat [in Personal](./thread-sidebar.md#start-in-personal).
 
 ## Reserved shortcuts
 

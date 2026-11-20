@@ -1,8 +1,9 @@
 import type { ProjectIconOverride } from "@codenine/contracts";
+import { PERSONAL_WORKSPACE_NAME } from "@codenine/client-runtime/state/projects";
 
 import type { Project } from "../../types";
 
-export const SCRATCH_PROJECT_TITLE = "No project";
+export const SCRATCH_PROJECT_TITLE = PERSONAL_WORKSPACE_NAME;
 const SCRATCH_PROJECT_ICON = {
   kind: "lucide",
   name: "message-square-dashed",

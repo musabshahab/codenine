@@ -5,103 +5,98 @@ need a separate branch and working directory.
 
 ## Start a thread
 
-The **New** button at the top of the sidebar starts a chat, a task with a team, a project, or a
-chat folder. **New chat** opens the project picker when you have more than one
-open project. Archived projects don't count. **Shift-click** to start in
-the current project, or use a project's own **New chat** button. A new chat in a project shows its
-project beside **Team** in the composer; pick another there before you send. A new thread carries
-your model and mode selections, unless the destination project has its own model default.
-Its branch and workspace mode come from your configured defaults. To continue in
-the worktree you used last, choose **Previous worktree** in the workspace menu.
+The **New** button at the top of the sidebar starts a chat, a task with a team, a workflow, or a
+workspace.
+**New chat** opens the workspace picker when you have more than one open workspace. Archived
+workspaces don't count. **Shift-click** to start in the current workspace, or use a workspace's own
+**New chat** button. A new chat shows its workspace beside **Team** in the composer; pick another
+there before you send. A new thread carries your model and mode selections, unless the destination
+workspace has its own model default. Its branch and checkout come from your configured defaults. To
+continue in the worktree you used last, choose **Previous worktree** in the **Checkout** menu.
 
-When you change a new thread's project, Codenine stays in the current environment
-if that project exists there. Otherwise it selects an environment that has it.
+When you change a new thread's workspace, Codenine stays in the current environment
+if that workspace exists there. Otherwise it selects an environment that has it.
 
-### Start without a project
+### Start in Personal
 
-A chat does not need a project. To start one, switch the sidebar to **Chats** and choose **New
-chat**, pick **No project** from **New chat in...** in the command palette, or press `mod+alt+n`.
-It starts on your current machine; before sending, pick another machine from the machine menu in
-**Details** to move it there. A chat without a project cannot ask for a team, since a team works in
-a project's folder.
+**Personal** holds the chats you start without picking a workspace. To start one, pick **Personal**
+from **New chat in...** in the command palette, use the **New chat** button on Personal in the
+sidebar, or press `mod+alt+n`. With no workspace at all, **New chat** starts in Personal. A chat
+starts on your current machine; before sending, pick another machine from the machine menu in
+**Details** to move it there. A Personal chat cannot ask for a team, since a team works in one
+workspace's folder.
 
-Each thread without a project works in its own folder under `~/.codenine/scratch` (the
-`scratch` folder of your Codenine data directory), named after its date, the first words
+Each Personal chat works in its own folder under `~/.codenine/workspaces/personal`
+(`~/.codenine/scratch` on older installs), named after its date, the first words
 of its first message, and a short id, like
 `2026-09-25-convert-these-pngs-to-webp-a1b2c3d4`. Deleting a thread keeps its
 folder, so the files the agent wrote stay until you delete them. Branch, worktree, and diff controls stay hidden because
 these folders are not Git repositories. This is unavailable when the data
 directory itself sits inside a Git checkout.
 
-When the work grows into something real, pick **Turn into project** from the
-thread's menu. The thread's folder becomes a project where it is, so nothing
+When the work grows into something real, pick **Turn into workspace** from the
+thread's menu. The thread's folder becomes a workspace where it is, so nothing
 moves and the agent keeps working in the same place. Other threads in that folder
-move with it. Rename the project in its settings, and use **Initialize Git** to
+move with it. Rename the workspace in its settings, and use **Initialize Git** to
 get branch and diff controls.
 
 ### Start in the background
 
 Press `Cmd+Enter` on macOS or `Ctrl+Enter`
 on Windows and Linux to start a new thread and immediately open another draft. The
-next draft keeps the workspace mode and base branch you selected. With **New
+next draft keeps the checkout and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
 To send the same prompt to several models, **Shift-click** models
 in a new thread's model picker to add or remove them. A regular click returns to a
 single model. Choose a base branch and send. Each selection starts a separate thread
-and worktree while you stay in the new thread composer. This requires a Git project.
+and worktree while you stay in the new thread composer. This requires a Git workspace.
 
-## Projects and Chats
+## Workspaces
 
-The switch under **Inbox** and **Tasks** picks what the sidebar lists: **Projects** shows your
-projects with their tasks and chats, and **Chats** shows the chats without a project. Opening a
-thread switches to the list that holds it. Switching yourself reopens the thread you last opened in
-that list, or starts a new chat when Chats is empty. **New chat** follows the list you are on, and
-each device remembers the last one. Search, the magnifier at the top, finds threads in both lists.
+The sidebar lists your workspaces, each with its tasks and chats, under **Inbox**, **Tasks**, and
+the **Build** pages. Personal comes first. Search, the magnifier at the top, finds threads in every
+workspace.
 
-**Inbox** lists everything waiting on you, across projects and chats: approvals, questions, teams
-waiting for your approval, and teams that failed. An entry leaves once you act on it, mark the
-thread done, or snooze it. **Tasks** lists every task a team works on, grouped by whether it needs
-you, is running, or is done.
+**Inbox** lists everything waiting on you, across workspaces: approvals, a connector's included,
+questions, teams waiting for your approval, and teams that failed. A workflow run that waits for
+you or failed is there too, and opens on the run's page. An entry leaves once you act on it, mark
+the thread done, or snooze it. **Tasks** lists every task a team works on, grouped by whether it
+needs you, is running, or is done. Workflow runs and their steps' chats are on the **Workflows**
+page, not in Tasks or the workspaces.
 
 Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
 sidebar, where **Restore** brings one back. An agent's thread is not listed there; open it from its
 task.
 
-## Group chats by project
+## Build
 
-In **Projects**, the sidebar groups chats by project by default: your unsent drafts and **Pinned**
-threads, then a folder for each project, pinned projects first, then **Snoozed**. Each row's icon
+**Agents** holds the specialists you set up once, **Skills** the know-how agents follow, and
+**Connectors** the services they can use; see [Agents](./agents.md), [Skills](./skills.md) and
+[Connectors](./connectors.md). **Workflows** holds teams of your agents that run again, on a
+schedule or when you start them; see [Workflows](./workflows.md).
+
+## Group chats by workspace
+
+The sidebar groups chats by workspace by default: your unsent drafts and **Pinned**
+threads, then a folder for each workspace, pinned workspaces first, then **Snoozed**. Each row's icon
 shows where the thread stands: running, waiting for you, failed, done, or with an open pull request.
 
-A project with no active threads has no folder unless it is pinned or you pick it in the filter
-beside the project count. An archived project's folder comes last and shows only while it has active
-threads. Click a project's arrow to open or close it; a closed one shows how many threads it holds,
-and a dot when one of them needs you. Click its name to open the project's page, with its folder,
-machines, and commands, its open tasks and chats, and buttons to start either. Use a project's **New
-chat** button, or right-click it, to start a thread in that project. You can drag a thread onto the
-composer to mention it, but not within the sidebar.
+A workspace with no active threads keeps its folder unless it is archived. An archived workspace's
+folder comes last and shows only while it has active threads. The filter beside **Workspaces**
+narrows the list to the workspaces you pick. Click a workspace's arrow to open or close it; a closed
+one shows how many threads it holds, and a dot when one of them needs you. Click its name to open
+the workspace's page, with its folder, machines, and commands, its open tasks and chats, and buttons
+to start either. Use a workspace's **New chat** button, or right-click it, to start a thread in that
+workspace. You can drag a thread onto the composer to mention it, but not within the sidebar.
 
 To show each thread on two lines, with its branch, pull request, and agent under the title, turn on
 **Settings → Labs → Two-line chat rows**.
 
-For one list without project folders, turn off **Settings → General → Sidebar → Group chats by
-project**. The single list keeps finished threads on its own **Done** shelf, you can drag threads
+For one list without workspace folders, turn off **Settings → General → Sidebar → Group chats by
+workspace**. The single list keeps finished threads on its own **Done** shelf, you can drag threads
 between sections and reorder them, and [working threads fold away](#fold-working-threads-beta).
 Each device keeps its own choice.
-
-## Organize chats into folders
-
-In **Chats**, pinned chats come first, then your folders, then **Recent** for the chats in no
-folder, then **Snoozed**. To make a folder, use the **+** beside **Folders**, **New → New chat
-folder**, or **Move to folder → New folder…** from a chat's menu. To move a chat, use **Move to
-folder** at the top of the chat or in its menu. To pin a chat, use the pin beside its title. A new
-chat in Chats lists your recent chats under the composer.
-
-Right-click a folder to rename or delete it. Deleting a folder keeps its chats and moves them to
-Recent. A chat in a folder is never marked done automatically; mark it done yourself to move it to
-**Completed & archived**. Folders follow your chats to every device, but a folder with no chats in it shows only on
-the device you made it on. Turning a chat into a project takes it out of its folder.
 
 ## Pin and reorder threads
 
@@ -165,7 +160,7 @@ or when the connected environment needs a server update.
 
 To change how titles are written, add **Thread title instructions** in **Settings → Threads →
 Text generation**, under Advanced, such as a length limit or an identifier to put first. They apply to new and
-regenerated titles. Select a project to give it its own instructions.
+regenerated titles. Select a workspace to give it its own instructions.
 
 Agents connected through Codenine can use the same server-owned metadata workflow to
 rename a thread, regenerate its title, or link and unlink a pull request. These changes
@@ -182,7 +177,7 @@ there. A thread returns to the top of the active list when it finishes, fails, o
 answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
 
-This applies only to the single list; chats grouped by project have no Working section. It is on
+This applies only to the single list; chats grouped by workspace have no Working section. It is on
 by default. Turn it off with **Settings → General → Sidebar → Working section**. Each device
 keeps its own choice.
 
@@ -198,16 +193,16 @@ usual rules. Marking an idle thread done by hand dismisses unanswered async ques
 sending an answer or restarting the agent. It also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that
 runs a command, such as a dev server, stays open unless its action has **Stop this action
-when the thread is marked done** enabled in Settings > Projects > Actions. You can also set
+when the thread is marked done** enabled in Settings > Workspaces > Actions. You can also set
 `"stopOnSettle": true` on a `codenine.json` action and import it there. Start the command through
 that action so Codenine can stop its terminal and child processes. Commands started through an
 agent's own shell tools are managed by the provider.
 
 To reclaim disk space from finished work, turn on **Run in the thread's worktree when the
-thread is marked done** for one of the project's actions, or set `"runOnSettle": true` on a
+thread is marked done** for one of the workspace's actions, or set `"runOnSettle": true` on a
 `codenine.json` script, for example `cargo clean`. It runs each time a thread in its own
 worktree is marked done, by hand or automatically, even if a terminal there still runs a
-command such as a dev server. Threads in the project's main checkout skip it. Its terminal
+command such as a dev server. Threads in the workspace's main checkout skip it. Its terminal
 closes when the command succeeds and stays open when it fails.
 
 Press a thread's **Done** button and drag up or down to
@@ -252,7 +247,7 @@ The linked pull request counts when Codenine marks the thread done automatically
 ## Find and reference work
 
 Open the command palette with `Cmd/Ctrl+K` to search threads
-across connected environments by title, branch, pull request, or project.
+across connected environments by title, branch, pull request, or workspace.
 Threads you open often or recently rank higher, and for three weeks the thread
 you last picked for a query ranks higher when you type that query again.
 Threads whose messages contain all your words appear below, under **In
@@ -304,41 +299,51 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
-The top of a project's thread holds its tools: the project's main command, such as **Dev**, with
+The top of a workspace's thread holds its tools: the workspace's main command, such as **Dev**, with
 its other commands in the menu beside it; **Details**; **Terminal**; **Changes**, with the lines
 added and removed; **Files**; and **More**, the thread's menu. At its end, one button offers the
-next step: **Approve team**, **Retry** an agent that failed, the team's progress while it runs,
-**View PR**, or **Create PR** once the work is ready. On your default branch, Create PR first offers
+next step: **Open run** in a workflow run's chats, **Approve team**, **Retry** an agent that
+failed, the team's progress while it runs, **View PR**, or **Create PR** once the work is ready. On your default branch, Create PR first offers
 to move the changes to a new branch. On a narrow window some tools step aside; they stay in the
 right panel and the thread's menu.
 
-The thread details card, with the machine, editor, project commands, branch, Git actions and
+The thread details card, with the machine, editor, workspace commands, branch, Git actions and
 changes, stays closed until you open it with **Details** or `mod+shift+b`. Each thread remembers
 whether you left its card open.
 
 To choose what the thread details card shows, right-click the card or open
 **Settings → Appearance → Thread details**. Hidden rows keep their keyboard
-shortcuts, such as Open in editor and project commands. **Reset to default** brings
+shortcuts, such as Open in editor and workspace commands. **Reset to default** brings
 back the standard rows.
 
 ## Run a team
 
-A team splits one job across several agents, each on the model that fits its part, so a quick
-model can do the routine work while a stronger one reviews. To ask for one, turn on
+A team splits one job across several of your [agents](./agents.md), each on the model that fits its
+part, so a quick model can do the routine work while a stronger one reviews. To ask for one, turn on
 [**Team**](./composer.md#ask-for-a-team) in the composer before you send, or ask in your own words,
 for example "propose a team for this: one agent writes the code, one tests it, one reviews". The
-agent you asked, the lead, plans the team and starts nothing. The plan opens in the **Task** tab of
-the right panel.
+agent you asked, the lead, plans the team from your agents and starts nothing. The plan opens in the
+**Task** tab of the right panel.
+
+Each member of the team runs as one of your agents, with its instructions, skills and connectors,
+and starts on the agent's model. Where none of your agents fits a part of the job, the lead suggests
+one, and the Task tab says what it would do. **Create agent** opens the agent editor filled in from
+the suggestion, with the connectors you have. Nothing is made until you choose **Save**, which brings
+you back to the Task tab with the new agent on the team. **Choose agent** gives that part to one of
+your agents instead. The team cannot start until every member has an agent; Codenine never makes an
+agent for you.
 
 Nothing runs until you approve, from the Task tab or with **Approve team** at the top of the
 lead's thread. The Task tab lists the team's steps in order, each with its brief, the agent that
-runs it, and that agent's model. Choose a step's agent to give the step to another agent or to a new
-one, and its model to change the model or effort; **Use for all agents** puts the whole team on that
-model. **Edit team** adds an agent or removes one that has no steps. You can also edit a step's brief
-or remove the step. To add, reorder or split steps, ask the lead. Your edits apply once you choose
-**Save** or **Approve and start**. If the team changes while you edit, for example because the lead
-proposed a new one, the tab shows the new team and tells you your changes were not applied.
-**Cancel team** drops the plan.
+runs it, and that agent's model. Choose a step's agent to give the step to another member, or to
+another of your agents, and its model to change the model or effort for this team; the agent itself
+keeps its model. **Use for all agents** puts the whole team on that model. **Edit team** adds one of
+your agents, with its role and where it works, or removes one that has no steps; choose a member's
+name there to run it as another of your agents. You can also edit a step's brief or remove the
+step. To add, reorder or split steps, ask the lead. Your edits apply once you choose **Save** or
+**Approve and start**. If the team changes while you edit, for example because the lead proposed a
+new one, the tab shows the new team and tells you your changes were not applied. **Cancel team**
+drops the plan.
 
 Each step runs in a thread of its own. A step starts once the steps whose results it needs are
 done, with at most two running at a time on each provider. The Task tab shows each step's status,
@@ -349,7 +354,9 @@ retry it on its own agent or on another one; the steps that need it wait until i
 **+** menu also has **Task**.
 
 When the team finishes or gets stuck on a failed task, the lead reads the results and goes on.
-After a finished team, its reply shows as the **Task result**.
+After a finished team, its reply shows as the **Task result**, and **Save as workflow** in the Task
+tab opens the workflow editor with that team, so the same agents can do the job again on a schedule
+or when you start it.
 
 An agent's thread opens with **Assignment from the lead**: its brief and the results it received
 from earlier agents. Its header links back to the lead and shows the agent's place in the team, its
@@ -360,7 +367,7 @@ In the sidebar, the lead's row shows where the team stands: waiting for your app
 done, or failed, and in the single list as **Review**, **Running 1/3**, **Done**, **Failed 1**, or
 **Cancelled**. The agents' threads appear under it, and the team count on that row shows or hides
 them. A team waiting for your approval, or one that failed, also appears in the
-[**Inbox**](#projects-and-chats), and every team is on the **Tasks** page. When the team finishes or is
+[**Inbox**](#workspaces), and every team is on the **Tasks** page. When the team finishes or is
 cancelled, the agents' threads are marked done for you. After a failure they stay, so you can read
 and retry them. The lead is never marked done for you.
 

@@ -33,10 +33,7 @@ import {
   resolveSidebarDropVerb,
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
-  resolveSidebarModeReturnThread,
   sidebarFolderExpansionKeys,
-  groupSidebarChatsByFolder,
-  resolveChatFolderNames,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@codenine/client-runtime/environment";
 import {
@@ -1597,62 +1594,6 @@ describe("groupSidebarThreadsByProject", () => {
       { projectKey: "codenine", threads: ["a", "b"] },
       { projectKey: "fleet", threads: [] },
     ]);
-  });
-});
-
-describe("chat folders", () => {
-  it("lists every folder in use or made here once, by name, and files chats under them", () => {
-    const chat = (id: string, folder: string | null, archivedAt: string | null = null) => ({
-      id,
-      folder,
-      archivedAt,
-    });
-    const chats = [
-      chat("a", "writing"),
-      chat("b", null),
-      chat("c", "Research"),
-      chat("d", "Research"),
-      chat("old", "Archive only", "2026-03-09T10:00:00.000Z"),
-    ];
-    const names = resolveChatFolderNames(chats, ["Ideas", "Research"]);
-    expect(names).toEqual(["Ideas", "Research", "writing"]);
-
-    const grouped = groupSidebarChatsByFolder(names, chats);
-    expect(grouped.folders.map((folder) => [folder.name, folder.threads.map((t) => t.id)])).toEqual(
-      [
-        ["Ideas", []],
-        ["Research", ["c", "d"]],
-        ["writing", ["a"]],
-      ],
-    );
-    // A chat in a folder missing from the list stays with the chats in no folder.
-    expect(grouped.rest.map((thread) => thread.id)).toEqual(["b", "old"]);
-  });
-});
-
-describe("resolveSidebarModeReturnThread", () => {
-  it("reopens the mode's thread visited last, else the one updated last", () => {
-    const threads = [
-      makeThread({ id: ThreadId.make("project-thread"), updatedAt: "2026-03-09T15:00:00.000Z" }),
-      makeThread({ id: ThreadId.make("chat-visited"), updatedAt: "2026-03-09T09:00:00.000Z" }),
-      makeThread({ id: ThreadId.make("chat-newest"), updatedAt: "2026-03-09T14:00:00.000Z" }),
-      makeThread({
-        id: ThreadId.make("chat-archived"),
-        archivedAt: "2026-03-09T16:00:00.000Z",
-        updatedAt: "2026-03-09T16:00:00.000Z",
-      }),
-    ];
-    const isChat = (thread: Thread) => thread.id.startsWith("chat-");
-    const reopen = (visitedAt: (thread: Thread) => string | null) =>
-      resolveSidebarModeReturnThread({ threads, inMode: isChat, visitedAt })?.id ?? null;
-
-    expect(
-      reopen((thread) => (thread.id === "chat-visited" ? "2026-03-09T12:00:00.000Z" : null)),
-    ).toBe("chat-visited");
-    expect(reopen(() => null)).toBe("chat-newest");
-    expect(
-      resolveSidebarModeReturnThread({ threads, inMode: () => false, visitedAt: () => null }),
-    ).toBeNull();
   });
 });
 

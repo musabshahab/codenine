@@ -8,7 +8,15 @@ import { resolveStorage } from "./lib/storage";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
 import type { ChatFileAttachment } from "./types";
 
-const RIGHT_PANEL_KINDS = ["diff", "files", "file", "terminal", "side-chat", "task"] as const;
+const RIGHT_PANEL_KINDS = [
+  "diff",
+  "files",
+  "file",
+  "terminal",
+  "side-chat",
+  "task",
+  "workflow",
+] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
 export type RightPanelSurface =
@@ -38,7 +46,9 @@ export type RightPanelSurface =
       folderTrail?: string;
     }
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId }
-  | { id: "task"; kind: "task" };
+  | { id: "task"; kind: "task" }
+  /** The workflow the lead drafted in this chat. */
+  | { id: "workflow"; kind: "workflow" };
 
 type SingletonRightPanelKind = Exclude<RightPanelKind, "file" | "terminal" | "side-chat">;
 
@@ -56,6 +66,8 @@ export interface ThreadRightPanelState {
   proactiveDiffTurnId?: RunId;
   /** The team plan whose Task tab was offered, so it is offered once per plan. */
   proactiveTaskPlanId?: TeamPlanId;
+  /** When the workflow draft whose tab was offered was proposed, so each draft is offered once. */
+  proactiveWorkflowDraftAt?: string;
 }
 
 export interface ThreadPanelVisibility {
@@ -86,6 +98,15 @@ interface RightPanelStoreState {
   openProactiveTask: (
     ref: ScopedThreadRef,
     request: { planId: TeamPlanId; awaitingApproval: boolean },
+    expectedUserActionRevision: number,
+  ) => boolean;
+  /**
+   * Opens the Workflow tab once for each draft the lead proposes, as each waits for the user's
+   * review. Refused, like openProactive, after a later choice of the user's.
+   */
+  openProactiveWorkflowDraft: (
+    ref: ScopedThreadRef,
+    request: { proposedAt: string },
     expectedUserActionRevision: number,
   ) => boolean;
   open: (ref: ScopedThreadRef, kind: SingletonRightPanelKind) => void;
@@ -151,6 +172,8 @@ const singletonSurface = (kind: SingletonRightPanelKind): RightPanelSurface => {
       return { id: "files", kind };
     case "task":
       return { id: "task", kind };
+    case "workflow":
+      return { id: "workflow", kind };
   }
 };
 
@@ -208,7 +231,8 @@ const updateThreadStateMap = (
     next.activeSurfaceId === null &&
     next.surfaces.length === 0 &&
     next.proactiveDiffTurnId === undefined &&
-    next.proactiveTaskPlanId === undefined
+    next.proactiveTaskPlanId === undefined &&
+    next.proactiveWorkflowDraftAt === undefined
   ) {
     if (!(threadKey in byThreadKey)) return byThreadKey;
     const { [threadKey]: _removed, ...rest } = byThreadKey;
@@ -456,6 +480,9 @@ export function migratePersistedRightPanelState(
                   ...(typeof validThreadState?.proactiveTaskPlanId === "string"
                     ? { proactiveTaskPlanId: TeamPlanId.make(validThreadState.proactiveTaskPlanId) }
                     : {}),
+                  ...(typeof validThreadState?.proactiveWorkflowDraftAt === "string"
+                    ? { proactiveWorkflowDraftAt: validThreadState.proactiveWorkflowDraftAt }
+                    : {}),
                   ...(validThreadState?.maximized === true ? { maximized: true as const } : {}),
                 },
               ];
@@ -540,6 +567,23 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           return automaticUpdate(state, threadKey, (thread) => ({
             ...(opened ? upsertSurface(thread, singletonSurface("task")) : thread),
             proactiveTaskPlanId: request.planId,
+          }));
+        });
+        return opened;
+      },
+      openProactiveWorkflowDraft: (ref, request, expectedUserActionRevision) => {
+        let opened = false;
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          if (state.byThreadKey[threadKey]?.proactiveWorkflowDraftAt === request.proposedAt) {
+            return state;
+          }
+          opened =
+            (state.userActionRevisionByThreadKey[threadKey] ?? 0) === expectedUserActionRevision &&
+            selectActiveRightPanel(state.byThreadKey, ref) !== "workflow";
+          return automaticUpdate(state, threadKey, (thread) => ({
+            ...(opened ? upsertSurface(thread, singletonSurface("workflow")) : thread),
+            proactiveWorkflowDraftAt: request.proposedAt,
           }));
         });
         return opened;

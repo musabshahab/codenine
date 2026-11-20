@@ -1,7 +1,8 @@
-import type { ProviderInstanceId } from "@codenine/contracts";
+import type { AgentName, ProviderInstanceId } from "@codenine/contracts";
 
 const MODEL_KEY_PREFIX = "model:";
 const LEGACY_SECTION_KEY_PREFIX = "legacy-models:";
+const AGENT_KEY_PREFIX = "agent:";
 
 export function modelPickerModelKey(instanceId: ProviderInstanceId, slug: string): string {
   return `${MODEL_KEY_PREFIX}${instanceId.length}:${instanceId}${slug}`;
@@ -44,4 +45,15 @@ export function parseModelPickerLegacySectionKey(key: string): ProviderInstanceI
   return key.startsWith(LEGACY_SECTION_KEY_PREFIX)
     ? (key.slice(LEGACY_SECTION_KEY_PREFIX.length) as ProviderInstanceId)
     : null;
+}
+
+/** An agent's row; null is the No agent row. */
+export function modelPickerAgentKey(name: AgentName | null): string {
+  return `${AGENT_KEY_PREFIX}${name ?? ""}`;
+}
+
+export function parseModelPickerAgentKey(key: string): { name: AgentName | null } | null {
+  if (!key.startsWith(AGENT_KEY_PREFIX)) return null;
+  const name = key.slice(AGENT_KEY_PREFIX.length);
+  return { name: name === "" ? null : name };
 }

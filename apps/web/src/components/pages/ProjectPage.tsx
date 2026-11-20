@@ -1,5 +1,6 @@
 import { scopeProjectRef, scopeThreadRef } from "@codenine/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
+import { withoutWorkflowRuns } from "@codenine/client-runtime/state/team-threads";
 import {
   FolderIcon,
   GitBranchIcon,
@@ -8,7 +9,7 @@ import {
   SettingsIcon,
   UsersIcon,
 } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 
 import { resolveProjectScripts } from "@codenine/shared/projectScripts";
 
@@ -29,8 +30,15 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { ScriptIcon } from "../projectScriptEditor";
 import { ThreadKindIcon } from "../ThreadKindIcon";
 import { resolveThreadKind } from "../threadKind.logic";
-import { Button } from "../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
+import { Button, InlineButton } from "../ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "../ui/empty";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { teamTaskProgress } from "./tasksPage.logic";
 import { WorkspacePage } from "./WorkspacePage";
@@ -42,14 +50,22 @@ export function ProjectPage(props: { projectKey: string }) {
     null;
   if (group === null) {
     return (
-      <WorkspacePage area="project" title="Project">
+      <WorkspacePage area="project" title="Workspace">
         <Empty className="h-full">
           <EmptyHeader>
-            <EmptyTitle>This project is not here</EmptyTitle>
+            <EmptyMedia variant="icon">
+              <FolderIcon />
+            </EmptyMedia>
+            <EmptyTitle>This workspace is not here</EmptyTitle>
             <EmptyDescription>
               It may have been removed, or its machine is not connected yet.
             </EmptyDescription>
           </EmptyHeader>
+          <EmptyContent>
+            <Button size="sm" variant="outline" render={<Link to="/settings/connections" />}>
+              Open Environments
+            </Button>
+          </EmptyContent>
         </Empty>
       </WorkspacePage>
     );
@@ -79,7 +95,7 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
   const inProject = (thread: Pick<EnvironmentThreadShell, "environmentId" | "projectId">) =>
     memberKeys.has(`${thread.environmentId}:${thread.projectId}`);
   const tasks = useTeamTasks().filter(inProject);
-  const chats = openWorkThreads(useQuietThreadShells(), `${nowMinute}Z`)
+  const chats = withoutWorkflowRuns(openWorkThreads(useQuietThreadShells(), `${nowMinute}Z`))
     .filter((thread) => inProject(thread) && thread.source.teamSummary == null)
     .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   const machines = [
@@ -100,23 +116,23 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
     });
+  const openSettings = () =>
+    void router.navigate({
+      to: "/settings/projects",
+      search: { project: group.projectKey, machine: undefined },
+    });
   return (
     <WorkspacePage
       area="project"
       title={group.displayName}
-      subtitle="Project"
+      subtitle="Workspace"
       actions={
         <>
           <Button
             variant="ghost-muted"
             size="icon-sm"
-            aria-label="Project settings"
-            onClick={() =>
-              void router.navigate({
-                to: "/settings/projects",
-                search: { project: group.projectKey, machine: undefined },
-              })
-            }
+            aria-label="Workspace settings"
+            onClick={openSettings}
           >
             <SettingsIcon />
           </Button>
@@ -163,7 +179,8 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           <dd className="flex flex-wrap gap-2">
             {scripts.length === 0 ? (
               <span className="text-xs text-muted-foreground">
-                None yet. Add them in project settings.
+                None yet.{" "}
+                <InlineButton onClick={openSettings}>Add them in workspace settings</InlineButton>
               </span>
             ) : (
               scripts.map((script) => (
@@ -200,7 +217,7 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           onOpen={openThread}
         />
         <ThreadList
-          heading="Chats in this project"
+          heading="Chats in this workspace"
           empty="No open chats."
           threads={chats}
           detail={(thread) => formatElapsedDurationLabel(thread.updatedAt, nowMs)}

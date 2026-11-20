@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { Link as LinkIconNode } from "lucide";
 import { Button, InlineButton } from "../ui/button";
-import { FreshSessionRow, ModelSwitchRow } from "./V2LifecycleRow";
+import { AgentSwitchRow, FreshSessionRow, ModelSwitchRow } from "./V2LifecycleRow";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
 import { AttachmentImage } from "../media/AttachmentImage";
 import { MediaVideoPlayer } from "../media/MediaVideoPlayer";
@@ -72,7 +72,7 @@ import { WorkflowOpeningBlock } from "./WorkflowOpeningBlock";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
 import { UserMessageContextReferenceChip } from "./UserMessageContextChips";
-import { UserMessageTeamRequestTag } from "./UserMessageTeamRequestTag";
+import { UserMessageRequestTag } from "./UserMessageRequestTag";
 import { userMessageFileLabel } from "./TimelineUserMessageRow.logic";
 
 // Drawn inside the media so dark screenshots keep an edge on the dark background.
@@ -234,9 +234,13 @@ export function UserMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mes
   const ctx = use(TimelineRowCtx);
   const item = row.projectedItem?.item;
   const modelSwitch = item?.type === "user_message" ? item.modelSwitch : undefined;
+  const agentSwitch = item?.type === "user_message" ? item.agentSwitch : undefined;
   return (
     <>
       {item?.type === "user_message" && item.freshContext ? <FreshSessionRow /> : null}
+      {agentSwitch ? (
+        <AgentSwitchRow environmentId={ctx.activeThreadEnvironmentId} agentSwitch={agentSwitch} />
+      ) : null}
       {modelSwitch ? (
         <ModelSwitchRow environmentId={ctx.activeThreadEnvironmentId} modelSwitch={modelSwitch} />
       ) : null}
@@ -705,7 +709,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       !row.continuesSteer ? (
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
-      <UserMessageTeamRequestTag context={row.message.context} />
+      <UserMessageRequestTag context={row.message.context} />
       {mediaAboveText ? (
         <div className="flex max-w-[80%] justify-end">
           {/* The heading leads the media so screen readers reach it before the images. */}

@@ -1,3 +1,4 @@
+import { collectComposerAgentMentions } from "@codenine/client-runtime/composer-agent-mentions";
 import { collectComposerModelMentions } from "@codenine/client-runtime/composer-model-mentions";
 import type { EnvironmentId, ScopedThreadRef, ServerProviderSkill } from "@codenine/contracts";
 import { formatProviderSkillDisplayName } from "@codenine/shared/inlineSkills";
@@ -8,6 +9,7 @@ import { useRightPanelStore } from "~/rightPanelStore";
 import { SKILL_CHIP_ICON_SVG } from "../composerInlineChip";
 import { ContextChipPopover } from "../contextChipParts";
 import { Button } from "../ui/button";
+import { AgentMentionChip } from "./AgentMentionChip";
 import { ModelMentionChip } from "./ModelMentionChip";
 
 function SkillInlineText(props: {
@@ -42,6 +44,20 @@ function SkillInlineText(props: {
           environmentId={props.environmentId}
           instanceId={mention.instanceId}
           model={mention.model}
+          source={mention.source}
+        />
+      ),
+    });
+  }
+  for (const mention of collectComposerAgentMentions(props.text)) {
+    chips.push({
+      start: mention.start,
+      end: mention.end,
+      node: (
+        <AgentMentionChip
+          key={`${mention.start}:agent`}
+          environmentId={props.environmentId}
+          name={mention.name}
           source={mention.source}
         />
       ),

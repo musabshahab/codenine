@@ -164,7 +164,7 @@ export function AddOpenRouterDialog({
                 >
                   openrouter.ai/models
                 </a>{" "}
-                in Settings → Providers.
+                in Settings → Accounts.
               </span>
             </fieldset>
             <p className="text-xs text-muted-foreground">

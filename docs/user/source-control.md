@@ -42,30 +42,35 @@ over that choice; a host turned off stays off either way.
 For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. Codenine treats a
 custom server name as GitHub once it has a credential for that host.
 
-## Start, clone, or publish a project
+## Start, clone, or publish a workspace
 
-To start from nothing, click **New project** in the sidebar or the command palette (`Cmd/Ctrl+K`)
-and type a name. Codenine makes a Git
-repository in `~/.codenine/projects` (the `projects` folder of your Codenine data directory) with a README,
-an icon, and a first commit, then opens a new thread in it. Until the project has a thread, new
-threads work in its folder, even when your default is a new worktree. The folder is named after the project,
-like `pinball-stats` for "Pinball Stats". Turn on **Create private repository** to also
-publish it on GitHub. If Git has no name or email on that machine, the project is created without the
-first commit.
+Click **New workspace** in the sidebar, in the composer's workspace picker, or in the command
+palette (`Cmd/Ctrl+K`). Give the workspace a name, then choose where its files come from:
 
-To clone a repository, choose **Add existing project** under **New project** or in the command
-palette. Choose GitHub
-or paste a Git URL, then choose where to save it. The project opens right away while the
-clone runs in the background: you can write your first prompt, and sending waits until the files
-are in place. A toast tracks progress and lets you cancel; if the clone fails, retry it from the
-toast or from the banner above the composer. When the host refuses the machine's SSH key, Codenine
-clones over HTTPS with Git's credentials for that host instead, and the project's remote uses the
-HTTPS URL.
+- **Start empty** makes a Git repository in `~/.codenine/workspaces` (`~/.codenine/projects` on
+  older installs) with a README, an icon, and a first commit. The folder is named after the
+  workspace, like `pinball-stats` for "Pinball Stats". Turn on **Also create a private repository**
+  to also publish it on GitHub. If Git has no name or email on that machine, the workspace is created
+  without the first commit.
+- **Use a folder** adds a folder that is already on the machine. Type its path, or click **Browse**
+  in the desktop app. A folder that already is a workspace opens that workspace instead.
+- **Clone a repository** downloads `owner/repo` from GitHub, or any Git URL, into the same
+  folder.
+
+**Default model** is the account and model new chats in the workspace start on; change it later in
+the workspace's settings. With more than one machine connected, choose the machine at the bottom of
+the dialog. Codenine then opens a new thread in the workspace. Until the workspace has a thread, new
+threads work in its folder, even when your default is a new worktree.
+
+A cloned workspace opens right away while the clone runs in the background: you can write your
+first prompt, and sending waits until the files are in place. A toast tracks progress and lets you
+cancel; if the clone fails, retry it from the toast or from the banner above the composer. When the
+host refuses the machine's SSH key, Codenine clones over HTTPS with Git's credentials for that host
+instead, and the workspace's remote uses the HTTPS URL.
 
 To lay clones out like [ghq](https://github.com/x-motemen/ghq), turn on **Clone into host folders**
-under **Settings → Threads**. Clones then default to
-`<host>/<owner>/<repo>` under **Add project starts in**, so set that to `~/ghq` to share ghq's
-folders. You can still change the destination before cloning.
+under **Settings → Threads**. Clones then go to `<host>/<owner>/<repo>` under **Add workspace starts
+in**, so set that to `~/ghq` to share ghq's folders.
 
 For a local Git repository without a remote, **Publish Repository** creates a GitHub repository,
 adds it as `origin`, and pushes your commits. If there are no commits yet, it creates the remote;
@@ -82,7 +87,7 @@ If its badge is missing because several remotes hold that branch, set the branch
 the intended remote with `git branch --set-upstream-to=<remote>/<branch>`.
 
 Choose the writing style and model in **Settings → Source control**. **Repository conventions**
-uses the project's instructions and recent commit subjects.
+uses the workspace's instructions and recent commit subjects.
 
 ## Troubleshooting
 
@@ -114,7 +119,7 @@ request is terminal. An open or unsynced link keeps it active.
 Ask the agent to watch, monitor, or babysit a pull request and it calls `watch_pull_request`. While
 the thread is active, the server checks the pull request every two minutes and wakes the agent when a
 check fails, the required checks pass, someone else comments or reviews, or the branch starts to
-conflict. Threads in a project that watch the same pull request share one check. A check
+conflict. Threads in a workspace that watch the same pull request share one check. A check
 first asks whether anything changed and reads the pull request only when it did, which keeps
 watching inside GitHub's rate limit. Comments from your own account do not wake it. Watching ends
 when the pull request merges or closes, after 10 wakes in a row that bring only comments, after 8
@@ -129,7 +134,7 @@ A watched thread counts as working between wakes, so it is not marked done autom
 the single sidebar list it stays in the **Working** section. Agents stop watching when they hand the
 work back to you, and the thread then returns to your inbox.
 
-Cross-repository links use a project on the same host.
+Cross-repository links use a workspace on the same host.
 
 Pull request sharing is off by default. In Settings → Environments → Pull request sharing, choose
 **Read PRs** for each environment you trust to share its source control access. Linked pull request

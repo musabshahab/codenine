@@ -38,7 +38,15 @@ import * as ProjectService from "./ProjectService.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 
 const layerWorkspacePaths = Layer.succeed(WorkspacePaths.WorkspacePaths, {
-  normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot.replace(/\/$/, "")),
+  normalizeWorkspaceRoot: (workspaceRoot, options) =>
+    workspaceRoot.includes("/not-there") && options?.createIfMissing !== true
+      ? Effect.fail(
+          new WorkspacePaths.WorkspaceRootNotExistsError({
+            workspaceRoot,
+            normalizedWorkspaceRoot: workspaceRoot,
+          }),
+        )
+      : Effect.succeed(workspaceRoot.replace(/\/$/, "")),
   resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>
     Effect.succeed({ absolutePath: `${workspaceRoot}/${relativePath}`, relativePath }),
 });
@@ -724,6 +732,19 @@ it.effect("invalidates workspace-derived metadata when a project moves", () =>
         )).faviconPath,
         "/work/original/favicon-v3.svg",
       );
+
+      const toMissing = {
+        commandId: CommandId.make("command:moved-enrichment:missing"),
+        projectId,
+        workspaceRoot: "/work/not-there",
+      };
+      assert.equal((yield* Effect.flip(service.update(toMissing)))._tag, "ProjectOperationError");
+      const cloneTarget = yield* service.update({
+        ...toMissing,
+        commandId: CommandId.make("command:moved-enrichment:clone-target"),
+        createWorkspaceRootIfMissing: true,
+      });
+      assert.equal(cloneTarget.workspaceRoot, "/work/not-there");
     }).pipe(Effect.provide(layerTestFor(layerVersionedMetadata)));
   }),
 );

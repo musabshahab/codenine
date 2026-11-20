@@ -22,6 +22,8 @@ import {
   threadLinkContextReferences,
   toComposerContextId,
   toKindScopedComposerContextId,
+  WORKFLOW_REQUEST_INSTRUCTION,
+  workflowRequestContextRecord,
 } from "./composerContextReferences.ts";
 
 const ctx = (value: string) => value as ComposerContextId;
@@ -330,18 +332,23 @@ describe("provider projection", () => {
     expect(projected).not.toContain("boom");
   });
 
-  it("ends a message sent with Team on with the team instruction, after its context", () => {
-    const team = teamRequestContextRecord();
-    expect(
-      projectComposerContextForProvider({ text: "Add sign-in with tests", records: [team] }),
-    ).toBe(`Add sign-in with tests\n\n${TEAM_REQUEST_INSTRUCTION}`);
-    const projected = projectComposerContextForProvider({
-      text: "Use $pinchtab [$pinchtab](codenine-context://v1/skill/ctx_s)",
-      records: [skill, team],
-    });
-    expect(projected.endsWith(`</codenine_context>\n\n${TEAM_REQUEST_INSTRUCTION}`)).toBe(true);
-    expect(projected).not.toContain('kind="team-request"');
-  });
+  it.each([
+    ["Team", teamRequestContextRecord(), TEAM_REQUEST_INSTRUCTION],
+    ["Workflow", workflowRequestContextRecord(), WORKFLOW_REQUEST_INSTRUCTION],
+  ])(
+    "ends a message sent with %s on with its instruction, after its context",
+    (_, request, end) => {
+      expect(
+        projectComposerContextForProvider({ text: "Add sign-in with tests", records: [request] }),
+      ).toBe(`Add sign-in with tests\n\n${end}`);
+      const projected = projectComposerContextForProvider({
+        text: "Use $pinchtab [$pinchtab](codenine-context://v1/skill/ctx_s)",
+        records: [skill, request],
+      });
+      expect(projected.endsWith(`</codenine_context>\n\n${end}`)).toBe(true);
+      expect(projected).not.toContain(`kind="${request.kind}"`);
+    },
+  );
 });
 
 describe("threadContextsOutsideEnvironment", () => {

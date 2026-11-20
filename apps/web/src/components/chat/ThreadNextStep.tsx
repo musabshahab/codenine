@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
-import { CheckIcon, RotateCcwIcon } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
+import { CheckIcon, RotateCcwIcon, WorkflowIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import { sourceControlClients } from "@codenine/client-runtime/source-control-clients";
@@ -9,21 +10,23 @@ import {
   teamTaskOfThread,
   type ThreadTeam,
 } from "@codenine/client-runtime/team";
-import type { ScopedThreadRef, TeamPlan, TeamTaskRef } from "@codenine/contracts";
+import type { ScopedThreadRef, TeamPlan, TeamPlanSummary, TeamTaskRef } from "@codenine/contracts";
 import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import { teamPlanSummary } from "@codenine/shared/team";
 
 import { useOpenPrLink } from "../../lib/openPullRequestLink";
 import { environmentThreadDetails } from "../../state/threads";
+import { workflowRunHref } from "../../workflowLinks";
 import GitActionsControl from "../GitActionsControl";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { openPullRequestOf } from "../threadKind.logic";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useTeamPlanActions } from "./useTeamPlanActions";
 
 /**
- * The one button for what a thread needs next: approve its team, retry the agent that failed,
- * see the team at work, then open or view its pull request.
+ * The one button for what a thread needs next: open the workflow run it belongs to, approve its
+ * team, retry the agent that failed, see the team at work, then open or view its pull request.
  */
 export function ThreadNextStep(props: {
   threadRef: ScopedThreadRef;
@@ -37,6 +40,10 @@ export function ThreadNextStep(props: {
 }) {
   const { team } = props;
   const summary = team?.summary ?? null;
+  // A run and its steps are managed on the run's page.
+  if (summary?.run !== undefined) {
+    return <OpenWorkflowRun threadRef={props.threadRef} run={summary.run} />;
+  }
   if (team !== null && summary !== null) {
     const leadRef = scopeThreadRef(props.threadRef.environmentId, team.leadThreadId);
     if (summary.status === "proposed" && team.role === "lead") {
@@ -78,6 +85,26 @@ export function ThreadNextStep(props: {
   );
 }
 
+function OpenWorkflowRun(props: {
+  threadRef: ScopedThreadRef;
+  run: NonNullable<TeamPlanSummary["run"]>;
+}) {
+  const router = useRouter();
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      aria-label={`Open run ${props.run.run} of ${props.run.title}`}
+      onClick={() =>
+        void router.navigate({ href: workflowRunHref(props.threadRef.environmentId, props.run) })
+      }
+    >
+      <WorkflowIcon aria-hidden />
+      <NarrowHidden>Open run</NarrowHidden>
+    </Button>
+  );
+}
+
 function TeamRunningPill(props: { progress: string | null; onOpenTask: () => void }) {
   return (
     <button
@@ -114,11 +141,11 @@ function TeamPlanStepButton(props: {
   const { plan, onOpenTask } = props;
   const actions = useTeamPlanActions(props.leadRef, plan);
   if (plan.status === "proposed") {
-    return (
+    const approve = (
       <Button
         size="xs"
         aria-label="Approve team"
-        disabled={actions.pending !== null}
+        disabled={actions.pending !== null || actions.approveBlock !== null}
         onClick={() => {
           // The Task tab shows why a team cannot start yet, and any error approving it.
           if (actions.issue !== null || !actions.canOperate) return onOpenTask();
@@ -128,6 +155,16 @@ function TeamPlanStepButton(props: {
         <CheckIcon aria-hidden />
         <NarrowHidden>{actions.pending === "approve" ? "Approving…" : "Approve team"}</NarrowHidden>
       </Button>
+    );
+    return actions.approveBlock === null ? (
+      approve
+    ) : (
+      <Tooltip>
+        <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+          {approve}
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">{actions.approveBlock}</TooltipPopup>
+      </Tooltip>
     );
   }
   const ownTask = props.teamTask === null ? null : teamTaskOfThread(plan, props.teamTask);

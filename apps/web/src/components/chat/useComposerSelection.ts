@@ -4,10 +4,13 @@ import type { Dispatch } from "react";
 import type { ComposerThreadTarget, DraftSessionState } from "../../composerDraftStore";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
+import { type AccountSwitchRequest, switchesToAccountWithOwnHistory } from "./accountSwitch.logic";
 import {
+  type AgentName,
   type EnvironmentId,
   type ModelSelection,
   ProviderInstanceId,
+  type ProviderOptionSelection,
   type ServerProvider,
   type ThreadId,
   RuntimeMode,
@@ -49,6 +52,8 @@ interface ComposerSelectionInput {
     SetStateAction<Record<string, boolean>>
   >;
   readonly scheduleComposerFocus: () => void;
+  /** Asked instead of switching when a started chat moves to an account with its own history. */
+  readonly onSwitchToAccountWithOwnHistory?: ((request: AccountSwitchRequest) => void) | undefined;
 }
 
 /**
@@ -74,6 +79,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
+    onSwitchToAccountWithOwnHistory,
   } = input;
   const navigate = useNavigate();
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -121,9 +127,13 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   const onProviderModelSelect = (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => {
-    if (!activeThread) return;
+    options?: {
+      focusComposer?: boolean;
+      agentOptions?: ReadonlyArray<ProviderOptionSelection>;
+      agent?: AgentName;
+    },
+  ): boolean => {
+    if (!activeThread) return false;
     const entry = providerStatuses.find((snapshot) => snapshot.instanceId === instanceId);
     const resolvedDriverKind = entry?.driver ?? null;
     if (
@@ -133,7 +143,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       resolvedDriverKind !== lockedProvider
     ) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
     if (
       !supportsProviderSwitchingViaHandoff &&
@@ -149,7 +159,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         currentEntry.continuation.groupKey !== entry.continuation.groupKey
       ) {
         if (options?.focusComposer !== false) scheduleComposerFocus();
-        return;
+        return false;
       }
     }
     const resolvedModel = resolveAppModelSelectionForInstance(
@@ -160,14 +170,32 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     );
     if (!resolvedModel) {
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
     const rememberedOptions =
+      options?.agentOptions ??
       useComposerDraftStore.getState().stickyOptionsByModelByProvider[instanceId]?.[resolvedModel];
     const nextModelSelection: ModelSelection =
       rememberedOptions !== undefined && rememberedOptions.length > 0
         ? { instanceId, model: resolvedModel, options: [...rememberedOptions] }
         : { instanceId, model: resolvedModel };
+    // Found only once a session started, so a chat that has not run yet switches in place.
+    const runtimeEntry = providerStatuses.find(
+      (snapshot) => snapshot.instanceId === runtimeProviderInstanceId,
+    );
+    if (
+      onSwitchToAccountWithOwnHistory !== undefined &&
+      !isLocalDraftThread &&
+      runtimeEntry !== undefined &&
+      switchesToAccountWithOwnHistory(runtimeEntry, entry)
+    ) {
+      onSwitchToAccountWithOwnHistory({
+        from: runtimeEntry.instanceId,
+        selection: nextModelSelection,
+        ...(options?.agent === undefined ? {} : { agent: options.agent }),
+      });
+      return false;
+    }
     const modelChangeBlockReason = getStartedThreadModelChangeBlockReason({
       hasStartedSession: activeRuntime !== null,
       supportsProviderSwitchingViaHandoff,
@@ -182,16 +210,18 @@ export function useComposerSelection(input: ComposerSelectionInput) {
         description: modelChangeBlockReason.description,
       });
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return false;
     }
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     setComposerDraftModelSelection(threadRef, nextModelSelection, {
       explicit: true,
       replaceOptions: true,
     });
-    setStickyComposerModelSelection(nextModelSelection);
+    // An agent's model is the agent's; new chats keep starting on the user's own pick.
+    if (options?.agentOptions === undefined) setStickyComposerModelSelection(nextModelSelection);
     if (!isLocalDraftThread) applyThreadModelPick(threadRef);
     if (options?.focusComposer !== false) scheduleComposerFocus();
+    return true;
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {

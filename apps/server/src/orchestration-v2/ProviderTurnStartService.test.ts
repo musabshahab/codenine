@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
+  type AgentDefinition,
   CheckpointScopeId,
   ContextHandoffId,
   ContextTransferId,
@@ -34,6 +35,7 @@ import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 
+import * as Agents from "../agents/Agents.ts";
 import * as ServerConfig from "../config.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
@@ -66,10 +68,13 @@ const normalize = (target: string) => {
   }
   return `/${parts.join("/")}`;
 };
-const layerWorktreeLocation = (worktreesDir = managedWorktreesDir) =>
+const layerWorktreeLocation = (worktreesDir = managedWorktreesDir, baseDir?: string) =>
   Layer.mergeAll(
     Path.layer,
-    Layer.mock(ServerConfig.ServerConfig)({ worktreesDir } as ServerConfig.ServerConfig["Service"]),
+    Layer.mock(ServerConfig.ServerConfig)({
+      worktreesDir,
+      ...(baseDir === undefined ? {} : { baseDir }),
+    } as ServerConfig.ServerConfig["Service"]),
     ServerSettings.layerTest(),
   );
 
@@ -192,6 +197,7 @@ function startWithMissingWorktree(
         }),
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
+        Layer.mock(Agents.Agents)({}),
       ),
     ),
   );
@@ -303,6 +309,10 @@ function makeLocalCommandHarness(input: {
     readonly switchedProvider?: boolean;
     readonly threadRuntimeMode?: OrchestrationV2ThreadProjection["thread"]["runtimeMode"];
   };
+  /** A Codenine folder with skills, and the skills the chat keeps on. */
+  readonly skills?: { readonly baseDir: string; readonly keptOn: ReadonlyArray<string> };
+  /** The agent the chat talks to; without a definition its file is gone. */
+  readonly agent?: { readonly name: string; readonly definition?: AgentDefinition };
 }) {
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = ThreadId.make("thread-native-account-command");
@@ -372,6 +382,8 @@ function makeLocalCommandHarness(input: {
       branch: input.worktreePath === undefined ? null : "feature/restore",
       worktreePath: input.worktreePath ?? null,
       lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+      ...(input.skills === undefined ? {} : { skills: input.skills.keptOn }),
+      ...(input.agent === undefined ? {} : { agent: input.agent.name }),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -939,7 +951,7 @@ function makeLocalCommandHarness(input: {
             }),
         }),
         IdAllocator.layer,
-        layerWorktreeLocation(input.worktreesDir),
+        layerWorktreeLocation(input.worktreesDir, input.skills?.baseDir),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
           : Layer.succeed(FileSystem.FileSystem, input.fileSystem),
@@ -995,6 +1007,9 @@ function makeLocalCommandHarness(input: {
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({
           resolve: resolveRuntimePolicy,
+        }),
+        Layer.mock(Agents.Agents)({
+          find: () => Effect.succeed(Option.fromUndefinedOr(input.agent?.definition)),
         }),
       ),
     ),
@@ -1294,6 +1309,111 @@ effectIt.effect.each([
         },
       ]);
     }),
+);
+
+effectIt.effect("sends the skill a message names and the chat's kept-on skills with the turn", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const baseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-turn-" });
+    for (const name of ["deploy", "review-code"]) {
+      yield* fileSystem.makeDirectory(path.join(baseDir, "skills", name), { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(baseDir, "skills", name, "SKILL.md"),
+        `---\nname: ${name}\ndescription: ${name} help\n---\n\n${name} steps\n`,
+      );
+    }
+    const harness = makeLocalCommandHarness({
+      text: "$deploy to staging",
+      sideChat: { contextRun: "current" },
+      fileSystem,
+      skills: { baseDir, keptOn: ["review-code", "deploy"] },
+    });
+
+    yield* harness.start;
+
+    const message = harness.startTurn.mock.calls[0]?.[0].message;
+    expect(message?.text).toBe(withInlineContext("SIDE_CHAT_CONTEXT", "$deploy to staging"));
+    expect(message?.skills).toEqual({
+      available: [
+        { name: "deploy", description: "deploy help" },
+        { name: "review-code", description: "review-code help" },
+      ],
+      attached: ["deploy"],
+    });
+    expect(message?.context).toEqual([
+      expect.stringMatching(
+        /^<codenine_skill name="deploy"[\s\S]*deploy steps\n<\/codenine_skill>$/,
+      ),
+      expect.stringContaining("keeps these skills on for this chat: review-code."),
+    ]);
+
+    // An agent's skills stand in for the chat's own.
+    const withAgent = makeLocalCommandHarness({
+      text: "Ship it",
+      sideChat: { contextRun: "current" },
+      fileSystem,
+      skills: { baseDir, keptOn: ["review-code"] },
+      agent: {
+        name: "release-manager",
+        definition: {
+          name: "release-manager",
+          title: "Release manager",
+          description: "Ships releases.",
+          instructions: "",
+          model: null,
+          skills: ["deploy"],
+          connectors: [],
+          abilities: { readFiles: true, editFiles: true, runCommands: true, searchWeb: true },
+        },
+      },
+    });
+    yield* withAgent.start;
+    expect(withAgent.startTurn.mock.calls[0]?.[0].message.context).toEqual([
+      expect.stringContaining("keeps these skills on for this chat: deploy."),
+    ]);
+
+    // /compact can open the provider process, so it lists the skills and takes none along.
+    const compaction = makeLocalCommandHarness({
+      text: "/compact",
+      previousMessages: ["Earlier work"],
+      sideChat: { contextRun: "current" },
+      fileSystem,
+      skills: { baseDir, keptOn: ["review-code"] },
+    });
+    compaction.tryHandlePromptCommand.mockImplementation(() => Effect.succeed(false));
+    yield* compaction.start;
+    const compactMessage = compaction.startRootRun.mock.calls[0]?.[0].message;
+    expect(compactMessage?.skills?.available.map((skill) => skill.name)).toEqual([
+      "deploy",
+      "review-code",
+    ]);
+    expect(compactMessage?.context).toBeUndefined();
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+effectIt.effect("refuses a turn whose agent is gone and says how to go on", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      agent: { name: "release-manager" },
+    });
+
+    yield* harness.start;
+
+    expect(harness.open).not.toHaveBeenCalled();
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+    expect(harness.projection().runs.at(-1)).toMatchObject({ status: "failed" });
+    expect(harness.projection().turnItems).toMatchObject([
+      {
+        type: "error",
+        failure: {
+          message:
+            "This chat talks to the Release manager agent, which is gone or cannot be read. Choose another agent for the chat, or none.",
+        },
+      },
+    ]);
+  }),
 );
 
 effectIt.effect.each([

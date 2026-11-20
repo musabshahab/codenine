@@ -38,7 +38,8 @@ it. Very large code blocks are shown without syntax highlighting.
 
 ## Attach files
 
-Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
+Choose **+** next to the message box, then **Add files or photos**. Attach up to 100 files per
+message. Each image can be up to 10 MiB, with at most
 80 MiB of images in one message. Other files, including videos, can be up to
 50 MiB each, subject to the environment's upload support and limit. The agent
 receives them on the environment's machine. Provider and model limits still
@@ -79,7 +80,7 @@ start of the composer to edit the most recently queued message. Change
 
 ## Custom models
 
-Use Settings → Providers → **Models** to add an unlisted model with a custom
+Use Settings → Accounts → **Models** to add an unlisted model with a custom
 name and options. Only options supported by the provider integration affect turns.
 
 To rename a built-in model on every client, edit the server's `settings.json` in its `userdata`
@@ -100,8 +101,11 @@ instance:
 ## Model defaults
 
 Codenine remembers your provider, model, and model options for new threads. A
-project's configured model takes precedence; resetting that project setting
+workspace's configured model takes precedence; resetting that workspace setting
 returns to the remembered selection.
+
+Once you have [agents](./agents.md), the model picker lists them under **Agents**, above the
+models. Choosing one makes the chat talk to that agent on its model; **No agent** keeps the model.
 
 Leaving reasoning level or service tier unset uses the provider's own configuration.
 
@@ -141,7 +145,7 @@ empty composer shows a predicted next message. Press `Tab` to fill it in, then e
 press `Escape` to dismiss it. Each suggestion is one extra request that reuses the turn's prompt
 cache, so it uses a little of your plan's usage. Claude skips suggestions on the first turn of a
 thread and near usage limits. Codex needs version 0.165 or later; if Codenine manages
-Codex, update it in Settings > Providers. Codex follows a change to the setting at once; open Claude
+Codex, update it in Settings > Accounts. Codex follows a change to the setting at once; open Claude
 threads follow it after they restart.
 
 ## Edit an earlier prompt
@@ -153,7 +157,7 @@ to its checkpoint from before that message. That also undoes edits you made your
 File restore is only offered for threads running in a worktree, and it is
 refused when another thread or agent session also uses that directory, a folder
 inside it, or a folder that contains it, since
-restoring would erase their changes. A thread that works in the project directory
+restoring would erase their changes. A thread that works in the workspace directory
 rewinds the conversation only. The selected prompt and its attachments return to the composer for editing and
 resending. Any unsent draft stays above the restored prompt.
 
@@ -201,8 +205,12 @@ composer when it is empty, and is discarded otherwise.
 
 ## Commands and skills
 
-Type `/` for commands or `$` to add a skill from the selected environment and
-provider.
+Type `/` for commands or `$` to add a skill. Your Codenine skills come first; a provider skill
+with the same name is left out. See [Skills](./skills.md).
+
+The **+** menu next to the message box keeps a skill on for the whole chat (**Add a skill…**) and
+turns the chat's [connectors](./connectors.md) on or off. What the chat uses shows above the message
+box, where you can remove it. In a chat with an [agent](./agents.md), the agent decides both.
 
 The slash menu also includes skills unless you turn off **Settings → Chat →
 Show skills in slash menu**, under Advanced. Only skills enabled for the provider are listed.
@@ -254,12 +262,24 @@ Turn on **Team**, next to the attach button, to have the agent plan a
 [team](./thread-sidebar.md#run-a-team) for your message instead of starting the work. The sent
 message shows **Team requested**. Team turns off once the message is sent or you reload, and it
 does not apply to a message that starts with a `/` command. It is not offered in a thread that
-already leads a team or works for one, in subagent threads and side chats, or in a chat without a
-project, since a team works in a project's folder. To toggle it from
+already leads a team or works for one, in subagent threads and side chats, or in a Personal chat, since a team works in
+one workspace's folder. To toggle it from
 the keyboard, bind **Composer: Toggle Team** in **Settings → Keybindings**.
 
-A new chat in a project suggests a few example prompts under the composer. Choosing one fills in
+A new chat in a workspace suggests a few example prompts under the composer. Choosing one fills in
 the composer without sending; the team example also turns on Team.
+
+## Draft a workflow
+
+Turn on **Workflow**, next to **Team**, to have the agent draft a workflow from your message
+instead of doing the work: say what should happen each time, and when. The draft opens in the
+right panel's **Workflow** tab, a step for each of your agents' parts; a step none of your agents
+fits shows the agent the lead suggests. Ask in the chat to change it. Nothing is saved until you
+choose **Review and save**, which opens the draft in the workflow editor. The sent message shows
+**Workflow requested**. Like Team, Workflow turns off once the message is sent, and it does not
+apply to a `/` command; turning one on turns the other off. It is offered in Personal chats too,
+since you pick the workspace when you save. **New workflow** in the sidebar's **New** menu starts a
+chat with Workflow on.
 
 ## Context in your message
 
@@ -273,7 +293,7 @@ excerpt, Terminal 1 lines 3-4" and similar to screen readers.
 A pull request appears as its icon and number. Its color reflects whether it was open, draft,
 merged, or closed when it was attached. Select it to inspect the captured title and branches,
 then choose **Open pull request** to visit the pull request. Type `#` to browse the newest
-pull requests in the current project's repository. Pull requests linked to the thread are included
+pull requests in the current workspace's repository. Pull requests linked to the thread are included
 from any repository and listed first, after any exact number match. Continue typing digits to filter the recent list
 by any part of its pull request numbers. A complete number is also resolved directly, even when that
 pull request is older than the recent list. Type a single word after `#` to search pull requests in

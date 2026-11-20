@@ -1,3 +1,4 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   type ModelSelection,
@@ -22,6 +23,8 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
+import * as ServerConfig from "../config.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import type * as ProviderAdapter from "@codenine/provider-core/server/ProviderAdapter";
@@ -298,6 +301,9 @@ it.effect(
       );
       const layerControl = ProviderTurnControlService.layer.pipe(
         Layer.provide(Layer.merge(layerProjection, layerSessionManager)),
+        Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "codenine-turn-control-" })),
+        Layer.provide(NodeServices.layer),
       );
 
       const [ordinaryInterrupt, unrelatedRestart] = yield* Effect.gen(function* () {

@@ -33,8 +33,8 @@ import {
   resolveLocalVersionStatusLabel,
   resolveTailscaleServeBaseUrl,
 } from "./ConnectionsSettings.logic";
-import { settingsScopeEnvironmentLabel } from "./settingsScopeAxis";
 import { useAccessEnvironment } from "./useAccessEnvironment";
+import { EnvironmentPagePicker } from "./EnvironmentPagePicker";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
 import { searchableSetting } from "./settingsSearch";
@@ -175,49 +175,12 @@ function AccessSettings() {
   const accessEnvironmentId = accessEnvironment?.environmentId ?? null;
   const picker =
     candidates.length > 1 && accessEnvironmentId !== null ? (
-      <div className="flex min-w-0 items-center gap-1.5 px-3 text-sm text-muted-foreground sm:px-4">
-        <span className="shrink-0">Showing access for</span>
-        <Select
-          value={accessEnvironmentId}
-          onValueChange={(next) => {
-            if (next !== null) setSelectedEnvironmentId(next);
-          }}
-        >
-          <SelectTrigger size="sm" className="w-auto max-w-72" aria-label="Environment">
-            <SelectValue>
-              {(value: EnvironmentId) => {
-                const environment = candidates.find(
-                  (candidate) => candidate.environmentId === value,
-                );
-                return environment ? settingsScopeEnvironmentLabel(environment, candidates) : null;
-              }}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup alignItemWithTrigger={false}>
-            {candidates.map((environment) => (
-              <SelectItem
-                hideIndicator
-                key={environment.environmentId}
-                value={environment.environmentId}
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <EnvironmentMachineIcon
-                    aria-hidden
-                    kind={resolveEnvironmentMachineKind(environment.serverConfig)}
-                    className="size-3.5 shrink-0"
-                  />
-                  <span className="min-w-0 truncate">
-                    {settingsScopeEnvironmentLabel(environment, candidates)}
-                  </span>
-                  {environment.connection.phase !== "connected" ? (
-                    <span className="shrink-0 text-xs text-muted-foreground">Offline</span>
-                  ) : null}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
-      </div>
+      <EnvironmentPagePicker
+        label="Showing access for"
+        candidates={candidates}
+        value={accessEnvironmentId}
+        onChange={setSelectedEnvironmentId}
+      />
     ) : null;
   // Keyed so pairing credentials and pending work never carry over to another environment.
   return (
@@ -921,7 +884,7 @@ function ConnectionsSettingsContent({
       <>
         <SettingsRow
           {...searchableSetting("wsl-backend")}
-          description="Run the selected WSL distro alongside Windows. Projects remain on their current filesystem."
+          description="Run the selected WSL distro alongside Windows. Workspaces remain on their current filesystem."
           status={
             desktopWslError ? (
               <span className="block text-destructive">{desktopWslError}</span>
@@ -1360,14 +1323,14 @@ function ConnectionsSettingsContent({
                 <AlertDialogDescription>
                   {pendingWslChange?.kind === "disable"
                     ? pendingWslChange.wasWslOnly
-                      ? "Codenine will restart on the Windows backend. Threads and projects opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
-                      : "The WSL backend will stop. Threads and projects opened against WSL stay safe inside the distro, but they'll be unavailable in Codenine until you re-enable WSL."
+                      ? "Codenine will restart on the Windows backend. Threads and workspaces opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
+                      : "The WSL backend will stop. Threads and workspaces opened against WSL stay safe inside the distro, but they'll be unavailable in Codenine until you re-enable WSL."
                     : pendingWslChange?.kind === "distro"
                       ? "Codenine will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
                       : pendingWslChange?.kind === "enable"
                         ? "Run the WSL backend alongside the Windows one, or stop the Windows backend and use only WSL? You can change this later from Settings."
                         : pendingWslChange?.nextValue
-                          ? "Codenine will restart and start only the WSL backend. Your Windows-side projects won't be accessible until you turn this off again."
+                          ? "Codenine will restart and start only the WSL backend. Your Windows-side workspaces won't be accessible until you turn this off again."
                           : "Codenine will restart and bring the Windows backend back up alongside WSL."}
                 </AlertDialogDescription>
               </AlertDialogHeader>

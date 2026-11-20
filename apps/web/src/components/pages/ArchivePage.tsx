@@ -22,7 +22,14 @@ import { formatElapsedDurationLabel } from "../../timestampFormat";
 import { ThreadKindIcon } from "../ThreadKindIcon";
 import { resolveThreadKind } from "../threadKind.logic";
 import { Button } from "../ui/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "../ui/empty";
 import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { useThreadPlaceLabel } from "./threadPlace";
@@ -57,7 +64,10 @@ export function ArchivePage() {
         const error = squashAtomCommandFailure(result);
         toastManager.add({
           type: "error",
-          title: "Could not restore the thread",
+          title:
+            shown === "archived"
+              ? "Could not unarchive the chat"
+              : "Could not mark the chat not done",
           description: error instanceof Error ? error.message : "An error occurred.",
         });
       },
@@ -78,9 +88,14 @@ export function ArchivePage() {
             if (value === "completed" || value === "archived") setShown(value);
           }}
         >
-          <Toggle value="completed">Completed · {completed.total}</Toggle>
+          <Toggle value="completed">
+            Completed<span className="max-sm:hidden"> · {completed.total}</span>
+          </Toggle>
           <Toggle value="archived">
-            Archived{archived.isLoading ? "" : ` · ${archivedThreads.length}`}
+            Archived
+            {archived.isLoading ? null : (
+              <span className="max-sm:hidden"> · {archivedThreads.length}</span>
+            )}
           </Toggle>
         </ToggleGroup>
       }
@@ -92,14 +107,31 @@ export function ArchivePage() {
               <ArchiveIcon />
             </EmptyMedia>
             <EmptyTitle>
-              {shown === "completed" ? "Nothing is done yet" : "Nothing is archived"}
-            </EmptyTitle>
-            <EmptyDescription>
               {shown === "completed"
-                ? "Threads you mark done, or that finish and sit idle, move here."
-                : (archived.error ?? "Threads you archive move here.")}
-            </EmptyDescription>
+                ? "Nothing is done yet"
+                : archived.isLoading
+                  ? "Loading archived chats"
+                  : archived.error
+                    ? "Archived chats could not load"
+                    : "Nothing is archived"}
+            </EmptyTitle>
+            {shown === "archived" && archived.isLoading ? null : (
+              <EmptyDescription>
+                {shown === "completed"
+                  ? "Chats and tasks you mark done, or that finish and sit idle, move here."
+                  : archived.error
+                    ? "Check that the machine is connected, then try again."
+                    : "Chats and tasks you archive move here."}
+              </EmptyDescription>
+            )}
           </EmptyHeader>
+          {shown === "archived" && !archived.isLoading && archived.error ? (
+            <EmptyContent>
+              <Button size="sm" variant="outline" onClick={archived.refresh}>
+                Try again
+              </Button>
+            </EmptyContent>
+          ) : null}
         </Empty>
       ) : (
         <ArchiveRows rows={rows} archived={shown === "archived"} onRestore={restore} />
@@ -119,7 +151,7 @@ export function ArchivePage() {
             {completed.loading
               ? "Loading"
               : completed.failed
-                ? "Could not load older threads. Retry"
+                ? "Could not load older chats. Retry"
                 : "Show more"}
           </Button>
         </div>
@@ -137,6 +169,7 @@ function ArchiveRows(props: {
   const placeOf = useThreadPlaceLabel();
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}Z`);
+  const action = props.archived ? "Unarchive" : "Mark not done";
   return (
     <ul className="flex flex-col gap-px p-2">
       {props.rows.map((thread) => {
@@ -144,7 +177,7 @@ function ArchiveRows(props: {
         return (
           <li
             key={`${thread.environmentId}:${thread.id}`}
-            className="group/archive-row flex min-h-10 items-center gap-3 rounded-md px-3 py-1.5 hover:bg-accent"
+            className="group/archive-row relative flex min-h-10 items-center gap-3 rounded-md px-3 py-1.5 hover:bg-accent"
           >
             {props.archived ? (
               <ArchiveIcon
@@ -162,7 +195,7 @@ function ArchiveRows(props: {
                   params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
                 })
               }
-              className="min-w-0 flex-1 cursor-pointer truncate text-left text-sm text-foreground outline-none hover:underline focus-visible:underline"
+              className="min-w-0 flex-1 cursor-pointer truncate text-left text-sm text-foreground outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
             >
               {thread.title}
             </button>
@@ -172,9 +205,16 @@ function ArchiveRows(props: {
             <span className="w-12 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
               {when ? formatElapsedDurationLabel(when, nowMs) : ""}
             </span>
-            <Button variant="outline" size="xs" onClick={() => props.onRestore(thread)}>
-              Restore
-            </Button>
+            <span className="relative z-10">
+              <Button
+                variant="outline"
+                size="xs"
+                aria-label={`${action}: ${thread.title}`}
+                onClick={() => props.onRestore(thread)}
+              >
+                {action}
+              </Button>
+            </span>
           </li>
         );
       })}

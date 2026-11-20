@@ -210,15 +210,15 @@ export function ProjectSettingsPanel({
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
         {groups.length === 0
-          ? "Add a project from the sidebar to configure it here."
-          : "This project is no longer available."}
+          ? "Add a workspace from the sidebar to configure it here."
+          : "This workspace is no longer available."}
       </div>
     );
   }
   if (members.length === 0)
     return (
       <p className="p-8 text-sm text-muted-foreground">
-        This checkout is no longer available in the selected project and environment.
+        This checkout is no longer available in the selected workspace and environment.
       </p>
     );
   const scopedGroup = {
@@ -294,7 +294,7 @@ function ProjectDetail({
   const renameGroup = async (nextTitle: string, wasEdited: boolean) => {
     const title = nextTitle.trim();
     if (!title) {
-      toastManager.add({ type: "warning", title: "Project title cannot be empty" });
+      toastManager.add({ type: "warning", title: "Workspace title cannot be empty" });
       return;
     }
     if (
@@ -306,7 +306,7 @@ function ProjectDetail({
     ) {
       return;
     }
-    await updateAllMembers({ title }, "Failed to rename project");
+    await updateAllMembers({ title }, "Failed to rename workspace");
   };
 
   const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditGroup);
@@ -317,7 +317,7 @@ function ProjectDetail({
     if (savingFaviconRef.current) return;
     savingFaviconRef.current = true;
     setIsSavingFavicon(true);
-    await updateAllMembers(input, "Failed to update project icon");
+    await updateAllMembers(input, "Failed to update workspace icon");
     savingFaviconRef.current = false;
     setIsSavingFavicon(false);
   };
@@ -383,8 +383,8 @@ function ProjectDetail({
   const checkoutChoices = (
     <SettingsSection title="Checkouts">
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-        Grouping rule decides how each checkout joins project groups in the sidebar. Changing it can
-        move a checkout to a different project.
+        Grouping rule decides how each checkout joins workspace groups in the sidebar. Changing it
+        can move a checkout to a different workspace.
       </p>
       {Array.from(checkoutsByEnvironment, ([environmentId, members]) => {
         if (checkoutsByEnvironment.size === 1) {
@@ -461,26 +461,26 @@ function ProjectDetail({
             Can't find a setting? Keep this project picked above and hop to any other settings page.
           </AlertDescription>
         </Alert>
-        <SettingsSection id="project-overview" title="Project" hideTitle>
+        <SettingsSection id="project-overview" title="Workspace" hideTitle>
           {!canEditGroup ? (
             <p className="px-3 py-2 text-sm text-muted-foreground sm:px-4">
               {group.memberProjects.length > 1
                 ? "Shared settings require permission to change every checkout in this group."
-                : "This connection cannot change this project."}
+                : "This connection cannot change this workspace."}
             </p>
           ) : null}
           <SettingsRow
             title="Name"
-            description="The shared name for this project group in the sidebar and thread lists."
+            description="The shared name for this workspace group in the sidebar and thread lists."
             resetAction={
               canResetScratchTitle ? (
                 <SettingResetButton
-                  label="project name"
+                  label="workspace name"
                   disabled={!canEditGroup}
                   onClick={() =>
                     void updateAllMembers(
                       { title: SCRATCH_PROJECT_TITLE },
-                      "Failed to rename project",
+                      "Failed to rename workspace",
                     )
                   }
                 />
@@ -491,7 +491,7 @@ function ProjectDetail({
                 key={`${group.projectKey}:${group.displayName}`}
                 size="sm"
                 className="w-full sm:w-64"
-                aria-label="Project name"
+                aria-label="Workspace name"
                 disabled={!canEditGroup}
                 defaultValue={group.displayName}
                 onChange={() => {
@@ -510,7 +510,7 @@ function ProjectDetail({
             }
           />
           <SettingsRow
-            title="Project icon"
+            title="Workspace icon"
             description={
               projectIcon?.kind === "lucide"
                 ? `${projectIcon.name} · ${projectIcon.color}`
@@ -523,7 +523,7 @@ function ProjectDetail({
             resetAction={
               group.memberProjects.some((member) => !hasDefaultProjectIcon(member)) ? (
                 <SettingResetButton
-                  label="project icon"
+                  label="workspace icon"
                   disabled={isSavingFavicon || !canEditGroup}
                   onClick={() => void setProjectIcon(defaultProjectIcon)}
                 />
@@ -536,7 +536,7 @@ function ProjectDetail({
                   size="sm"
                   variant="outline"
                   type="button"
-                  aria-label="Choose a project icon"
+                  aria-label="Choose a workspace icon"
                   disabled={isSavingFavicon || !canEditGroup}
                   onClick={() => setIconPickerOpen(true)}
                 >
@@ -546,7 +546,7 @@ function ProjectDetail({
                   size="sm"
                   variant="outline"
                   type="button"
-                  aria-label="Choose a project icon file"
+                  aria-label="Choose a workspace icon file"
                   disabled={isSavingFavicon || !canEditGroup}
                   onClick={() => setFaviconPickerOpen(true)}
                 >
@@ -559,7 +559,7 @@ function ProjectDetail({
             <>
               <SettingsRow
                 title="Pin"
-                description="Pinned projects come first in project pickers."
+                description="Pinned workspaces come first in workspace pickers."
                 control={
                   <Switch
                     checked={group.pinned}
@@ -567,10 +567,10 @@ function ProjectDetail({
                     onCheckedChange={(checked) =>
                       void organize(
                         { pinned: Boolean(checked) },
-                        checked ? "Failed to pin project" : "Failed to unpin project",
+                        checked ? "Failed to pin workspace" : "Failed to unpin workspace",
                       )
                     }
-                    aria-label="Pin project"
+                    aria-label="Pin workspace"
                   />
                 }
               />
@@ -578,8 +578,8 @@ function ProjectDetail({
                 title="Archive"
                 description={
                   group.archived
-                    ? "Hidden from project pickers. Threads and files are kept."
-                    : "Hides the project from project pickers. Threads and files are kept."
+                    ? "Hidden from workspace pickers. Threads and files are kept."
+                    : "Hides the workspace from workspace pickers. Threads and files are kept."
                 }
                 control={
                   <Button
@@ -590,8 +590,8 @@ function ProjectDetail({
                       void organize(
                         { archived: !group.archived },
                         group.archived
-                          ? "Failed to unarchive project"
-                          : "Failed to archive project",
+                          ? "Failed to unarchive workspace"
+                          : "Failed to archive workspace",
                       )
                     }
                   >
@@ -611,15 +611,15 @@ function ProjectDetail({
               hasOtherMembers
                 ? "Remove checkout"
                 : group.memberProjects.length > 1
-                  ? "Remove this project everywhere"
-                  : "Remove project"
+                  ? "Remove this workspace everywhere"
+                  : "Remove workspace"
             }
             description={
               hasOtherMembers
                 ? "Deletes the selected machine's checkout entries and their threads. Other machines and files on disk are not touched."
                 : group.memberProjects.length > 1
                   ? `Deletes all ${group.memberProjects.length} checkout entries and their threads on every machine. Files on disk are not touched.`
-                  : "Deletes the project entry and its threads. Files on disk are not touched."
+                  : "Deletes the workspace entry and its threads. Files on disk are not touched."
             }
             control={
               <Button
@@ -633,7 +633,7 @@ function ProjectDetail({
                   ? "Remove checkout"
                   : group.memberProjects.length > 1
                     ? "Remove all entries"
-                    : "Remove project"}
+                    : "Remove workspace"}
               </Button>
             }
           />
@@ -644,14 +644,14 @@ function ProjectDetail({
                   ? "Delete a checkout and its folder"
                   : hasOtherMembers
                     ? "Delete checkout and folder"
-                    : "Delete project and folder"
+                    : "Delete workspace and folder"
               }
               description={
                 hasMultipleCheckouts
                   ? "Deletes one checkout entry, its threads, and its folder on that machine, including uncommitted work. Other checkouts are not touched."
                   : hasOtherMembers
                     ? "Deletes the selected machine's checkout entry, its threads, and its folder on that machine, including uncommitted work. Other machines are not touched."
-                    : "Deletes the project entry, its threads, and its folder on disk, including uncommitted work."
+                    : "Deletes the workspace entry, its threads, and its folder on disk, including uncommitted work."
               }
               control={
                 hasMultipleCheckouts ? undefined : (
@@ -662,7 +662,7 @@ function ProjectDetail({
                     onClick={() => void removeMembers(folderMembers, { deleteFolder: true })}
                   >
                     <Trash2Icon />
-                    {hasOtherMembers ? "Delete checkout and folder" : "Delete project and folder"}
+                    {hasOtherMembers ? "Delete checkout and folder" : "Delete workspace and folder"}
                   </Button>
                 )
               }

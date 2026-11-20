@@ -1,9 +1,9 @@
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { MessageSquareDashedIcon, PlusIcon } from "lucide-react";
 
-import { openCommandPalette } from "../commandPaletteBus";
 import { isElectron } from "../env";
 import { useScratchProject } from "../hooks/useScratchProject";
+import { openNewProjectDialog } from "../newProjectDialogStore";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { Button } from "./ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
@@ -31,13 +31,13 @@ export function NoProjectsHero() {
               <EmptyTitle>What would you like to do?</EmptyTitle>
               <EmptyDescription>
                 {scratchTargetEnvironmentId === null
-                  ? "Add a project to start your first thread."
-                  : "Add a project, or start without one."}
+                  ? "Add a workspace to start your first thread."
+                  : "Add a workspace, or start without one."}
               </EmptyDescription>
               <div className="mt-6 flex justify-center gap-2">
-                <Button size="sm" onClick={() => openCommandPalette({ open: "new-project" })}>
+                <Button size="sm" onClick={() => openNewProjectDialog()}>
                   <PlusIcon className="size-4" />
-                  New project
+                  New workspace
                 </Button>
                 {scratchTargetEnvironmentId === null ? null : (
                   <Button
@@ -46,7 +46,7 @@ export function NoProjectsHero() {
                     onClick={() => void startScratchThread(scratchTargetEnvironmentId)}
                   >
                     <MessageSquareDashedIcon className="size-4" />
-                    Start without a project
+                    Start in Personal
                   </Button>
                 )}
               </div>

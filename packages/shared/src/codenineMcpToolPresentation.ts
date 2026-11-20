@@ -132,7 +132,7 @@ const CODENINE_MCP_TOOLS: Readonly<Record<string, CodenineMcpToolDefinition>> = 
   codenine_thread_send: tool(["Send", "Sending", "Sent", "to a Codenine thread"], "thread-send"),
   codenine_thread_wait: tool(["Wait", "Waiting", "Waited", "for a Codenine thread"], "thread-wait"),
   codenine_workflow_stop: tool(
-    ["Stop", "Stopping", "Requested a stop for", "a workflow"],
+    ["Stop", "Stopping", "Requested a stop for", "a Claude workflow"],
     "workflow-stop",
   ),
   codenine_background_wait: tool(

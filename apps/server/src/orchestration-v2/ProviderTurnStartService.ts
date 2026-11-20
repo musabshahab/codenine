@@ -1,6 +1,7 @@
 import { modelSelectionsEqual } from "@codenine/shared/model";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
 import {
+  AgentName,
   CommandId,
   latestProviderTurnForAttempt,
   type OrchestrationV2DomainEvent,
@@ -13,6 +14,7 @@ import {
   isCompactionCommandMessage,
   parseGoalCommand,
   RunId,
+  skillTitle,
   ThreadId,
 } from "@codenine/contracts";
 import * as Context from "effect/Context";
@@ -25,7 +27,9 @@ import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 
+import * as Agents from "../agents/Agents.ts";
 import * as ServerConfig from "../config.ts";
+import { makeMessageSkills } from "../skills/SkillTurnContext.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -69,6 +73,15 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
+
+class ChatAgentMissingError extends Schema.TaggedError<ChatAgentMissingError>()(
+  "ChatAgentMissingError",
+  { agent: AgentName },
+) {
+  override get message(): string {
+    return `This chat talks to the ${skillTitle(this.agent)} agent, which is gone or cannot be read. Choose another agent for the chat, or none.`;
+  }
+}
 
 class WorktreeRecreateError extends Schema.TaggedError<WorktreeRecreateError>()(
   "WorktreeRecreateError",
@@ -130,6 +143,7 @@ export class ProviderTurnStartServiceV2 extends Context.Service<
 export const layer: Layer.Layer<
   ProviderTurnStartServiceV2,
   never,
+  | Agents.Agents
   | EventSink.EventSinkV2
   | ContextHandoffService.ContextHandoffServiceV2
   | IdAllocator.IdAllocatorV2
@@ -159,7 +173,9 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const agents = yield* Agents.Agents;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
+    const messageSkills = yield* makeMessageSkills;
 
     const resolveRecreateBase = Effect.fn("ProviderTurnStartService.resolveRecreateBase")(
       function* (cwd: string) {
@@ -694,6 +710,17 @@ export const layer: Layer.Layer<
       });
       const resolvedRuntimePolicy = resolvedPolicy;
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;
+      const agentName = projection.thread.agent;
+      const chatAgent =
+        agentName === undefined ? undefined : Option.getOrUndefined(yield* agents.find(agentName));
+      if (agentName !== undefined && chatAgent === undefined) {
+        yield* settleStartFailure({
+          signal: "chat-agent-missing",
+          title: "Agent not found",
+          error: new ChatAgentMissingError({ agent: agentName }),
+        });
+        return;
+      }
       const existingSessionProjection = projection.providerSessions.find(
         (candidate) => candidate.id === providerSessionId,
       );
@@ -1639,6 +1666,14 @@ export const layer: Layer.Layer<
               }),
         ),
       );
+      // Codenine's skills reach every provider the same way. /compact sends no prompt, and a
+      // /goal prompt goes verbatim, so they still list the skills but take none along.
+      const listOnly = goalCommand || isCompactionCommandMessage(message);
+      const skillFields = yield* messageSkills({
+        projectId: projection.thread.projectId,
+        text: listOnly ? "" : message.text,
+        keptOn: listOnly ? [] : (chatAgent?.skills ?? projection.thread.skills ?? []),
+      });
       const deliverySession =
         effectiveHandoffs.length === 0 &&
         retryHandoff.length === 0 &&
@@ -1690,6 +1725,7 @@ export const layer: Layer.Layer<
           ...(message.senderThreadId === undefined
             ? {}
             : { senderThreadId: message.senderThreadId }),
+          ...skillFields,
         },
         modelSelection: run.modelSelection,
         runtimePolicy: resolvedRuntimePolicy,

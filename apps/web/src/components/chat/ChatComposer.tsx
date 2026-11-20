@@ -12,6 +12,7 @@ import {
   useQuestionAttachmentPreparation,
 } from "../../questionAttachments";
 import type {
+  AgentName,
   KeybindingCommand,
   AssistantCitation,
   ChatAttachment as ContractChatAttachment,
@@ -19,6 +20,7 @@ import type {
   EnvironmentId,
   ModelSelection,
   ProjectId,
+  ProviderOptionSelection,
   ThreadContextRecord,
   EnvironmentContextRecord,
   ResolvedKeybindingsConfig,
@@ -38,6 +40,7 @@ import {
 import type { EnvironmentConnectionPresentation } from "@codenine/client-runtime/connection";
 import { settlePromise, squashAtomCommandFailure } from "@codenine/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
+import { formatComposerAgentMention } from "@codenine/client-runtime/composer-agent-mentions";
 import { formatComposerModelMention } from "@codenine/client-runtime/composer-model-mentions";
 import { isPasteAsTextShortcut } from "@codenine/client-runtime/text-paste";
 import { scopedThreadKey } from "@codenine/client-runtime/environment";
@@ -178,15 +181,23 @@ import {
   composerSuggestionOptionId,
 } from "./ComposerCommandMenu";
 import {
-  ComposerAttachButton,
   ComposerAttachmentFileList,
   ComposerAttachmentMediaRow,
   ComposerFilePreviewDialog,
   ComposerQueuedAttachmentRow,
   ComposerRestingImagePreviews,
 } from "./ComposerAttachmentStrip";
+import { ComposerAddMenu } from "./ComposerAddMenu";
+import { ComposerChoiceChips } from "./ComposerChoiceChips";
+import type { ChatChoicesTarget } from "./useChatChoices";
+import { useComposerAgents } from "./useComposerAgents";
+import { useComposerSkills } from "./useComposerSkills";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
-import { ComposerFooterPrimaryActions, ComposerTeamToggle } from "./ComposerFooterControls";
+import {
+  ComposerFooterPrimaryActions,
+  ComposerTeamToggle,
+  ComposerWorkflowToggle,
+} from "./ComposerFooterControls";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -273,6 +284,7 @@ export interface ChatComposerHandle {
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
   openModelPicker: () => void;
+  closeModelPicker: () => void;
   stepReasoningEffort: (direction: 1 | -1) => void;
   toggleModelPicker: () => void;
   openControl: (command: KeybindingCommand) => void;
@@ -353,6 +365,8 @@ export interface ChatComposerProps {
   sideChatDisabledReason?: string | null;
   /** Shows the Team toggle: a draft or top-level thread without a team. */
   teamOffered: boolean;
+  /** Shows the Workflow toggle, which a chat in Chats offers too. */
+  workflowOffered: boolean;
   /** On a start screen: the chip that picks the project, beside Team. */
   projectPicker?: React.ReactNode;
   /** On a start screen: what to type, which depends on Chats, a project, or a team. */
@@ -447,11 +461,18 @@ export interface ChatComposerProps {
     cursorAdjacentToMention: boolean,
   ) => void;
 
+  /** False when the pick did not apply, such as a provider the thread cannot switch to. */
   onProviderModelSelect: (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => void;
+    options?: {
+      focusComposer?: boolean;
+      /** An agent's effort, in place of the options the model was last used with. */
+      agentOptions?: ReadonlyArray<ProviderOptionSelection>;
+      /** The agent being picked, so a move to another account takes it along. */
+      agent?: AgentName;
+    },
+  ) => boolean;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   /** Opens the Claude Code and Codex setup cards when no provider can take a message. */
   onOpenAgentSetup: () => void;
@@ -739,6 +760,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const setTeamRequestedStable = useStableCallback((requested: boolean) =>
     setComposerDraftTeamRequested(composerDraftTarget, requested),
   );
+  const setComposerDraftWorkflowRequested = useComposerDraftStore(
+    (store) => store.setWorkflowRequested,
+  );
+  const setWorkflowRequestedStable = useStableCallback((requested: boolean) =>
+    setComposerDraftWorkflowRequested(composerDraftTarget, requested),
+  );
 
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- starts or releases server attachment uploads as upload capability, limits and draft attachments change
   useEffect(() => {
@@ -841,9 +868,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     attachmentBlockReason;
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = selectedProviderEntry?.snapshot ?? null;
-  const selectedProviderSkills = selectedProviderStatus
+  const providerNativeSkills = selectedProviderStatus
     ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
     : NO_PROVIDER_SKILLS;
+  // `$` and `/` list Codenine skills first; a provider skill of the same name is left out.
+  const selectedProviderSkills = useComposerSkills(
+    environmentId,
+    activeProjectId,
+    providerNativeSkills,
+  );
   const selectedProviderSlashCommands = selectedProviderStatus
     ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
     : NO_PROVIDER_SLASH_COMMANDS;
@@ -1005,6 +1038,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerDraft.persistedAttachments.length === 0 &&
     composerTerminalContexts.length === 0 &&
     composerReviewComments.length === 0;
+  const chatChoicesTarget: ChatChoicesTarget = {
+    environmentId,
+    threadRef: routeThreadRef,
+    onServer: routeKind === "server",
+    projectId: activeProjectId,
+    canChange: canOperateThread,
+  };
+  const composerAgents = useComposerAgents({
+    target: chatChoicesTarget,
+    providerInstanceEntries,
+    modelOptionsByInstance,
+    getModelDisabledReason,
+    onProviderModelSelect,
+    onMultipleModelSelectionsChange: setMultipleModelSelections,
+  });
   const {
     items: composerMenuItems,
     isLoading: isComposerMenuLoading,
@@ -1027,6 +1075,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     showSkillsInSlashMenu: settings.showSkillsInSlashMenu,
     workspaceSkillsScanning,
     modelMentions: { instanceEntries: providerInstanceEntries, modelOptionsByInstance },
+    agents: composerAgents,
   });
 
   const composerMenuOpen = Boolean(composerTrigger);
@@ -1826,6 +1875,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       return;
     }
+    if (item.type === "agent") {
+      if (trigger.kind !== "path") return;
+      // The chat moves to the agent now, as the picker would; the chip records it in the message.
+      if (composerAgents?.onPick(item.name) !== true) return;
+      const replacement = item.name === null ? "" : `${formatComposerAgentMention(item.name)} `;
+      const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+        snapshot.value,
+        trigger.rangeEnd,
+        replacement,
+      );
+      const applied = applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+        expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+      });
+      if (applied) {
+        setComposerHighlightedItemId(null);
+      }
+      return;
+    }
     if (item.type === "model") {
       if (trigger.kind !== "path") return;
       const replacement = `${formatComposerModelMention(item.instanceId, item.model)} `;
@@ -2183,6 +2250,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerControls = (
     <ComposerControlsBar
       environmentId={environmentId}
+      agents={composerAgents}
       routeKind={routeKind}
       routeThreadRef={routeThreadRef}
       draftId={draftId}
@@ -2687,6 +2755,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           { ensureLeadingBoundary: true, citationCommentAnchor: sourceAnchor },
         ),
       openModelPicker: openModelPickerStable,
+      closeModelPicker: () => setIsComposerModelPickerOpen(false),
       stepReasoningEffort: (direction) => {
         if (noProviderAvailable || pendingUserInputs.length > 0 || isEditingQueuedMessage) {
           return;
@@ -2937,17 +3006,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onRemoveFile={removeComposerFileFromDraft}
       />
     ) : null;
-  const composerAttachButton = showComposerAttachAction ? (
-    <ComposerAttachButton
-      addComposerAttachments={addComposerAttachments}
-      focusComposer={focusComposer}
+  const composerAddMenu = (
+    <ComposerAddMenu
+      target={chatChoicesTarget}
+      attach={showComposerAttachAction ? { add: addComposerAttachments, focusComposer } : null}
     />
-  ) : null;
+  );
   const composerTeamToggle = props.teamOffered ? (
     <ComposerTeamToggle
       pressed={composerDraft.teamRequested === true}
       shortcutLabel={shortcutLabelForCommand(keybindings, "composer.toggleTeam")}
       onPressedChange={setTeamRequestedStable}
+    />
+  ) : null;
+  const composerWorkflowToggle = props.workflowOffered ? (
+    <ComposerWorkflowToggle
+      pressed={composerDraft.workflowRequested === true}
+      onPressedChange={setWorkflowRequestedStable}
     />
   ) : null;
   return (
@@ -3177,6 +3252,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   />
                 )}
 
+              <ComposerChoiceChips target={chatChoicesTarget} />
+
               {composerAttachmentMediaRow}
 
               {composerAttachmentFileList}
@@ -3232,7 +3309,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             ? "Choose an option above"
                             : "Type your own answer, or leave this blank to use the selected option"
                           : projectSelectionRequired
-                            ? "Choose a project to start"
+                            ? "Choose a workspace to start"
                             : showProviderUnavailable
                               ? "Set up an agent to send a message"
                               : (offeredPromptSuggestion ??
@@ -3295,13 +3372,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   showMobilePendingAnswerActions && "hidden sm:flex",
                 )}
               >
-                {composerAttachButton || props.projectPicker || composerTeamToggle ? (
-                  <div className="me-2 flex min-w-0 shrink items-center gap-1">
-                    {composerAttachButton}
-                    {props.projectPicker}
-                    {composerTeamToggle}
-                  </div>
-                ) : null}
+                <div className="me-2 flex min-w-0 shrink items-center gap-1">
+                  {composerAddMenu}
+                  {props.projectPicker}
+                  {composerTeamToggle}
+                  {composerWorkflowToggle}
+                </div>
                 <div
                   data-chat-composer-actions="right"
                   data-chat-composer-transition-actions="true"

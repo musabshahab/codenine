@@ -27,6 +27,7 @@ import {
   editQueuedRun,
   interruptThreadTurn,
   forkSideChat,
+  forkThreadFromLatest,
   forkThreadFromRun,
   markThreadUnread,
   mergeThreadBack,
@@ -44,7 +45,6 @@ import {
   reorderPinnedThread,
   reorderActiveThread,
   setThreadAutoSettle,
-  setThreadFolder,
   settleThread,
   snoozeThread,
   startThreadTurn,
@@ -209,12 +209,6 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency,
     }),
-    setFolder: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:thread:set-folder",
-      execute: setThreadFolder,
-      scheduler,
-      concurrency,
-    }),
     updateMetadata: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:update-metadata",
       execute: updateThreadMetadata,
@@ -312,6 +306,15 @@ export function createThreadEnvironmentAtoms<R, E>(
     forkSideChat: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:fork-side-chat",
       execute: forkSideChat,
+      scheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
+      },
+    }),
+    forkFromLatest: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:fork-from-latest",
+      execute: forkThreadFromLatest,
       scheduler,
       concurrency: {
         mode: "serial",

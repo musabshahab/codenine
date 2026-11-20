@@ -289,6 +289,7 @@ function createTextGeneration(
       Effect.succeed({
         title: "Update workflow",
       }),
+    reviewAction: () => Effect.die("unused"),
     ...overrides,
   };
 
@@ -337,6 +338,7 @@ function createTextGeneration(
             }),
         ),
       ),
+    reviewAction: implementation.reviewAction,
   };
 }
 

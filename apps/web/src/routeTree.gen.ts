@@ -16,13 +16,20 @@ import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
+import { Route as ChatWorkflowsRouteImport } from './routes/_chat.workflows'
 import { Route as ChatUsageRouteImport } from './routes/_chat.usage'
 import { Route as ChatTasksRouteImport } from './routes/_chat.tasks'
+import { Route as ChatSkillsRouteImport } from './routes/_chat.skills'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
 import { Route as ChatInboxRouteImport } from './routes/_chat.inbox'
+import { Route as ChatConnectorsRouteImport } from './routes/_chat.connectors'
 import { Route as ChatArchiveRouteImport } from './routes/_chat.archive'
+import { Route as ChatAgentsRouteImport } from './routes/_chat.agents'
 import { Route as ThreadsEnvironmentIdThreadIdRouteImport } from './routes/threads.$environmentId.$threadId'
+import { Route as ChatWorkflowsNewRouteImport } from './routes/_chat.workflows_.new'
+import { Route as ChatWorkflowsNameRouteImport } from './routes/_chat.workflows_.$name'
+import { Route as ChatSkillsNewRouteImport } from './routes/_chat.skills_.new'
 import { Route as ChatSettingsWorktreesRouteImport } from './routes/_chat.settings.worktrees'
 import { Route as ChatSettingsThreadsRouteImport } from './routes/_chat.settings.threads'
 import { Route as ChatSettingsStorageRouteImport } from './routes/_chat.settings.storage'
@@ -40,13 +47,20 @@ import { Route as ChatSettingsDiagnosticsRouteImport } from './routes/_chat.sett
 import { Route as ChatSettingsConnectionsRouteImport } from './routes/_chat.settings.connections'
 import { Route as ChatSettingsChatRouteImport } from './routes/_chat.settings.chat'
 import { Route as ChatSettingsBetaRouteImport } from './routes/_chat.settings.beta'
+import { Route as ChatSettingsBackupRouteImport } from './routes/_chat.settings.backup'
 import { Route as ChatSettingsArchivedRouteImport } from './routes/_chat.settings.archived'
 import { Route as ChatSettingsAppearanceRouteImport } from './routes/_chat.settings.appearance'
 import { Route as ChatSettingsAccessRouteImport } from './routes/_chat.settings.access'
 import { Route as ChatSettingsAboutRouteImport } from './routes/_chat.settings.about'
 import { Route as ChatProjectProjectKeyRouteImport } from './routes/_chat.project.$projectKey'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
+import { Route as ChatConnectorsConnectionIdRouteImport } from './routes/_chat.connectors_.$connectionId'
+import { Route as ChatAgentsNewRouteImport } from './routes/_chat.agents_.new'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
+import { Route as ChatWorkflowsNameRunsRouteImport } from './routes/_chat.workflows_.$name_.runs'
+import { Route as ChatSkillsScopeNameRouteImport } from './routes/_chat.skills_.$scope.$name'
+import { Route as ChatAgentsNameEditRouteImport } from './routes/_chat.agents_.$name.edit'
+import { Route as ChatWorkflowsNameRunsRunRouteImport } from './routes/_chat.workflows_.$name_.runs_.$run'
 
 const WelcomeRoute = WelcomeRouteImport.update({
   id: '/welcome',
@@ -82,6 +96,11 @@ const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   path: '/projects/$projectKey',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatWorkflowsRoute = ChatWorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatUsageRoute = ChatUsageRouteImport.update({
   id: '/usage',
   path: '/usage',
@@ -90,6 +109,11 @@ const ChatUsageRoute = ChatUsageRouteImport.update({
 const ChatTasksRoute = ChatTasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatSkillsRoute = ChatSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
   getParentRoute: () => ChatRoute,
 } as any)
 const ChatSettingsRoute = ChatSettingsRouteImport.update({
@@ -107,9 +131,19 @@ const ChatInboxRoute = ChatInboxRouteImport.update({
   path: '/inbox',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatConnectorsRoute = ChatConnectorsRouteImport.update({
+  id: '/connectors',
+  path: '/connectors',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatArchiveRoute = ChatArchiveRouteImport.update({
   id: '/archive',
   path: '/archive',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatAgentsRoute = ChatAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
   getParentRoute: () => ChatRoute,
 } as any)
 const ThreadsEnvironmentIdThreadIdRoute =
@@ -118,6 +152,21 @@ const ThreadsEnvironmentIdThreadIdRoute =
     path: '/threads/$environmentId/$threadId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ChatWorkflowsNewRoute = ChatWorkflowsNewRouteImport.update({
+  id: '/workflows_/new',
+  path: '/workflows/new',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatWorkflowsNameRoute = ChatWorkflowsNameRouteImport.update({
+  id: '/workflows_/$name',
+  path: '/workflows/$name',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatSkillsNewRoute = ChatSkillsNewRouteImport.update({
+  id: '/skills_/new',
+  path: '/skills/new',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatSettingsWorktreesRoute = ChatSettingsWorktreesRouteImport.update({
   id: '/worktrees',
   path: '/worktrees',
@@ -206,6 +255,11 @@ const ChatSettingsBetaRoute = ChatSettingsBetaRouteImport.update({
   path: '/beta',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
+const ChatSettingsBackupRoute = ChatSettingsBackupRouteImport.update({
+  id: '/backup',
+  path: '/backup',
+  getParentRoute: () => ChatSettingsRoute,
+} as any)
 const ChatSettingsArchivedRoute = ChatSettingsArchivedRouteImport.update({
   id: '/archived',
   path: '/archived',
@@ -236,10 +290,42 @@ const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   path: '/draft/$draftId',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatConnectorsConnectionIdRoute =
+  ChatConnectorsConnectionIdRouteImport.update({
+    id: '/connectors_/$connectionId',
+    path: '/connectors/$connectionId',
+    getParentRoute: () => ChatRoute,
+  } as any)
+const ChatAgentsNewRoute = ChatAgentsNewRouteImport.update({
+  id: '/agents_/new',
+  path: '/agents/new',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatEnvironmentIdThreadIdRoute =
   ChatEnvironmentIdThreadIdRouteImport.update({
     id: '/$environmentId/$threadId',
     path: '/$environmentId/$threadId',
+    getParentRoute: () => ChatRoute,
+  } as any)
+const ChatWorkflowsNameRunsRoute = ChatWorkflowsNameRunsRouteImport.update({
+  id: '/workflows_/$name_/runs',
+  path: '/workflows/$name/runs',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatSkillsScopeNameRoute = ChatSkillsScopeNameRouteImport.update({
+  id: '/skills_/$scope/$name',
+  path: '/skills/$scope/$name',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatAgentsNameEditRoute = ChatAgentsNameEditRouteImport.update({
+  id: '/agents_/$name/edit',
+  path: '/agents/$name/edit',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatWorkflowsNameRunsRunRoute =
+  ChatWorkflowsNameRunsRunRouteImport.update({
+    id: '/workflows_/$name_/runs_/$run',
+    path: '/workflows/$name/runs/$run',
     getParentRoute: () => ChatRoute,
   } as any)
 
@@ -249,20 +335,27 @@ export interface FileRoutesByFullPath {
   '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
+  '/agents': typeof ChatAgentsRoute
   '/archive': typeof ChatArchiveRoute
+  '/connectors': typeof ChatConnectorsRoute
   '/inbox': typeof ChatInboxRoute
   '/new': typeof ChatNewRoute
   '/settings': typeof ChatSettingsRouteWithChildren
+  '/skills': typeof ChatSkillsRoute
   '/tasks': typeof ChatTasksRoute
   '/usage': typeof ChatUsageRoute
+  '/workflows': typeof ChatWorkflowsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/agents/new': typeof ChatAgentsNewRoute
+  '/connectors/$connectionId': typeof ChatConnectorsConnectionIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/project/$projectKey': typeof ChatProjectProjectKeyRoute
   '/settings/about': typeof ChatSettingsAboutRoute
   '/settings/access': typeof ChatSettingsAccessRoute
   '/settings/appearance': typeof ChatSettingsAppearanceRoute
   '/settings/archived': typeof ChatSettingsArchivedRoute
+  '/settings/backup': typeof ChatSettingsBackupRoute
   '/settings/beta': typeof ChatSettingsBetaRoute
   '/settings/chat': typeof ChatSettingsChatRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
@@ -280,28 +373,42 @@ export interface FileRoutesByFullPath {
   '/settings/storage': typeof ChatSettingsStorageRoute
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
+  '/skills/new': typeof ChatSkillsNewRoute
+  '/workflows/$name': typeof ChatWorkflowsNameRoute
+  '/workflows/new': typeof ChatWorkflowsNewRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
+  '/agents/$name/edit': typeof ChatAgentsNameEditRoute
+  '/skills/$scope/$name': typeof ChatSkillsScopeNameRoute
+  '/workflows/$name/runs': typeof ChatWorkflowsNameRunsRoute
+  '/workflows/$name/runs/$run': typeof ChatWorkflowsNameRunsRunRoute
 }
 export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
+  '/agents': typeof ChatAgentsRoute
   '/archive': typeof ChatArchiveRoute
+  '/connectors': typeof ChatConnectorsRoute
   '/inbox': typeof ChatInboxRoute
   '/new': typeof ChatNewRoute
   '/settings': typeof ChatSettingsRouteWithChildren
+  '/skills': typeof ChatSkillsRoute
   '/tasks': typeof ChatTasksRoute
   '/usage': typeof ChatUsageRoute
+  '/workflows': typeof ChatWorkflowsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/agents/new': typeof ChatAgentsNewRoute
+  '/connectors/$connectionId': typeof ChatConnectorsConnectionIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/project/$projectKey': typeof ChatProjectProjectKeyRoute
   '/settings/about': typeof ChatSettingsAboutRoute
   '/settings/access': typeof ChatSettingsAccessRoute
   '/settings/appearance': typeof ChatSettingsAppearanceRoute
   '/settings/archived': typeof ChatSettingsArchivedRoute
+  '/settings/backup': typeof ChatSettingsBackupRoute
   '/settings/beta': typeof ChatSettingsBetaRoute
   '/settings/chat': typeof ChatSettingsChatRoute
   '/settings/connections': typeof ChatSettingsConnectionsRoute
@@ -319,7 +426,14 @@ export interface FileRoutesByTo {
   '/settings/storage': typeof ChatSettingsStorageRoute
   '/settings/threads': typeof ChatSettingsThreadsRoute
   '/settings/worktrees': typeof ChatSettingsWorktreesRoute
+  '/skills/new': typeof ChatSkillsNewRoute
+  '/workflows/$name': typeof ChatWorkflowsNameRoute
+  '/workflows/new': typeof ChatWorkflowsNewRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
+  '/agents/$name/edit': typeof ChatAgentsNameEditRoute
+  '/skills/$scope/$name': typeof ChatSkillsScopeNameRoute
+  '/workflows/$name/runs': typeof ChatWorkflowsNameRunsRoute
+  '/workflows/$name/runs/$run': typeof ChatWorkflowsNameRunsRunRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -328,21 +442,28 @@ export interface FileRoutesById {
   '/connect-agent': typeof ConnectAgentRoute
   '/pair': typeof PairRoute
   '/welcome': typeof WelcomeRoute
+  '/_chat/agents': typeof ChatAgentsRoute
   '/_chat/archive': typeof ChatArchiveRoute
+  '/_chat/connectors': typeof ChatConnectorsRoute
   '/_chat/inbox': typeof ChatInboxRoute
   '/_chat/new': typeof ChatNewRoute
   '/_chat/settings': typeof ChatSettingsRouteWithChildren
+  '/_chat/skills': typeof ChatSkillsRoute
   '/_chat/tasks': typeof ChatTasksRoute
   '/_chat/usage': typeof ChatUsageRoute
+  '/_chat/workflows': typeof ChatWorkflowsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
+  '/_chat/agents_/new': typeof ChatAgentsNewRoute
+  '/_chat/connectors_/$connectionId': typeof ChatConnectorsConnectionIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
   '/_chat/project/$projectKey': typeof ChatProjectProjectKeyRoute
   '/_chat/settings/about': typeof ChatSettingsAboutRoute
   '/_chat/settings/access': typeof ChatSettingsAccessRoute
   '/_chat/settings/appearance': typeof ChatSettingsAppearanceRoute
   '/_chat/settings/archived': typeof ChatSettingsArchivedRoute
+  '/_chat/settings/backup': typeof ChatSettingsBackupRoute
   '/_chat/settings/beta': typeof ChatSettingsBetaRoute
   '/_chat/settings/chat': typeof ChatSettingsChatRoute
   '/_chat/settings/connections': typeof ChatSettingsConnectionsRoute
@@ -360,7 +481,14 @@ export interface FileRoutesById {
   '/_chat/settings/storage': typeof ChatSettingsStorageRoute
   '/_chat/settings/threads': typeof ChatSettingsThreadsRoute
   '/_chat/settings/worktrees': typeof ChatSettingsWorktreesRoute
+  '/_chat/skills_/new': typeof ChatSkillsNewRoute
+  '/_chat/workflows_/$name': typeof ChatWorkflowsNameRoute
+  '/_chat/workflows_/new': typeof ChatWorkflowsNewRoute
   '/threads/$environmentId/$threadId': typeof ThreadsEnvironmentIdThreadIdRoute
+  '/_chat/agents_/$name/edit': typeof ChatAgentsNameEditRoute
+  '/_chat/skills_/$scope/$name': typeof ChatSkillsScopeNameRoute
+  '/_chat/workflows_/$name_/runs': typeof ChatWorkflowsNameRunsRoute
+  '/_chat/workflows_/$name_/runs_/$run': typeof ChatWorkflowsNameRunsRunRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -370,20 +498,27 @@ export interface FileRouteTypes {
     | '/connect-agent'
     | '/pair'
     | '/welcome'
+    | '/agents'
     | '/archive'
+    | '/connectors'
     | '/inbox'
     | '/new'
     | '/settings'
+    | '/skills'
     | '/tasks'
     | '/usage'
+    | '/workflows'
     | '/projects/$projectKey'
     | '/$environmentId/$threadId'
+    | '/agents/new'
+    | '/connectors/$connectionId'
     | '/draft/$draftId'
     | '/project/$projectKey'
     | '/settings/about'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/archived'
+    | '/settings/backup'
     | '/settings/beta'
     | '/settings/chat'
     | '/settings/connections'
@@ -401,28 +536,42 @@ export interface FileRouteTypes {
     | '/settings/storage'
     | '/settings/threads'
     | '/settings/worktrees'
+    | '/skills/new'
+    | '/workflows/$name'
+    | '/workflows/new'
     | '/threads/$environmentId/$threadId'
+    | '/agents/$name/edit'
+    | '/skills/$scope/$name'
+    | '/workflows/$name/runs'
+    | '/workflows/$name/runs/$run'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/connect'
     | '/connect-agent'
     | '/pair'
     | '/welcome'
+    | '/agents'
     | '/archive'
+    | '/connectors'
     | '/inbox'
     | '/new'
     | '/settings'
+    | '/skills'
     | '/tasks'
     | '/usage'
+    | '/workflows'
     | '/projects/$projectKey'
     | '/'
     | '/$environmentId/$threadId'
+    | '/agents/new'
+    | '/connectors/$connectionId'
     | '/draft/$draftId'
     | '/project/$projectKey'
     | '/settings/about'
     | '/settings/access'
     | '/settings/appearance'
     | '/settings/archived'
+    | '/settings/backup'
     | '/settings/beta'
     | '/settings/chat'
     | '/settings/connections'
@@ -440,7 +589,14 @@ export interface FileRouteTypes {
     | '/settings/storage'
     | '/settings/threads'
     | '/settings/worktrees'
+    | '/skills/new'
+    | '/workflows/$name'
+    | '/workflows/new'
     | '/threads/$environmentId/$threadId'
+    | '/agents/$name/edit'
+    | '/skills/$scope/$name'
+    | '/workflows/$name/runs'
+    | '/workflows/$name/runs/$run'
   id:
     | '__root__'
     | '/_chat'
@@ -448,21 +604,28 @@ export interface FileRouteTypes {
     | '/connect-agent'
     | '/pair'
     | '/welcome'
+    | '/_chat/agents'
     | '/_chat/archive'
+    | '/_chat/connectors'
     | '/_chat/inbox'
     | '/_chat/new'
     | '/_chat/settings'
+    | '/_chat/skills'
     | '/_chat/tasks'
     | '/_chat/usage'
+    | '/_chat/workflows'
     | '/projects/$projectKey'
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
+    | '/_chat/agents_/new'
+    | '/_chat/connectors_/$connectionId'
     | '/_chat/draft/$draftId'
     | '/_chat/project/$projectKey'
     | '/_chat/settings/about'
     | '/_chat/settings/access'
     | '/_chat/settings/appearance'
     | '/_chat/settings/archived'
+    | '/_chat/settings/backup'
     | '/_chat/settings/beta'
     | '/_chat/settings/chat'
     | '/_chat/settings/connections'
@@ -480,7 +643,14 @@ export interface FileRouteTypes {
     | '/_chat/settings/storage'
     | '/_chat/settings/threads'
     | '/_chat/settings/worktrees'
+    | '/_chat/skills_/new'
+    | '/_chat/workflows_/$name'
+    | '/_chat/workflows_/new'
     | '/threads/$environmentId/$threadId'
+    | '/_chat/agents_/$name/edit'
+    | '/_chat/skills_/$scope/$name'
+    | '/_chat/workflows_/$name_/runs'
+    | '/_chat/workflows_/$name_/runs_/$run'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -544,6 +714,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_chat/workflows': {
+      id: '/_chat/workflows'
+      path: '/workflows'
+      fullPath: '/workflows'
+      preLoaderRoute: typeof ChatWorkflowsRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/usage': {
       id: '/_chat/usage'
       path: '/usage'
@@ -556,6 +733,13 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof ChatTasksRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/skills': {
+      id: '/_chat/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof ChatSkillsRouteImport
       parentRoute: typeof ChatRoute
     }
     '/_chat/settings': {
@@ -579,11 +763,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatInboxRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/connectors': {
+      id: '/_chat/connectors'
+      path: '/connectors'
+      fullPath: '/connectors'
+      preLoaderRoute: typeof ChatConnectorsRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/archive': {
       id: '/_chat/archive'
       path: '/archive'
       fullPath: '/archive'
       preLoaderRoute: typeof ChatArchiveRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/agents': {
+      id: '/_chat/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof ChatAgentsRouteImport
       parentRoute: typeof ChatRoute
     }
     '/threads/$environmentId/$threadId': {
@@ -592,6 +790,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/threads/$environmentId/$threadId'
       preLoaderRoute: typeof ThreadsEnvironmentIdThreadIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_chat/workflows_/new': {
+      id: '/_chat/workflows_/new'
+      path: '/workflows/new'
+      fullPath: '/workflows/new'
+      preLoaderRoute: typeof ChatWorkflowsNewRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/workflows_/$name': {
+      id: '/_chat/workflows_/$name'
+      path: '/workflows/$name'
+      fullPath: '/workflows/$name'
+      preLoaderRoute: typeof ChatWorkflowsNameRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/skills_/new': {
+      id: '/_chat/skills_/new'
+      path: '/skills/new'
+      fullPath: '/skills/new'
+      preLoaderRoute: typeof ChatSkillsNewRouteImport
+      parentRoute: typeof ChatRoute
     }
     '/_chat/settings/worktrees': {
       id: '/_chat/settings/worktrees'
@@ -712,6 +931,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatSettingsBetaRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
+    '/_chat/settings/backup': {
+      id: '/_chat/settings/backup'
+      path: '/backup'
+      fullPath: '/settings/backup'
+      preLoaderRoute: typeof ChatSettingsBackupRouteImport
+      parentRoute: typeof ChatSettingsRoute
+    }
     '/_chat/settings/archived': {
       id: '/_chat/settings/archived'
       path: '/archived'
@@ -754,11 +980,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatDraftDraftIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/connectors_/$connectionId': {
+      id: '/_chat/connectors_/$connectionId'
+      path: '/connectors/$connectionId'
+      fullPath: '/connectors/$connectionId'
+      preLoaderRoute: typeof ChatConnectorsConnectionIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/agents_/new': {
+      id: '/_chat/agents_/new'
+      path: '/agents/new'
+      fullPath: '/agents/new'
+      preLoaderRoute: typeof ChatAgentsNewRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/$environmentId/$threadId': {
       id: '/_chat/$environmentId/$threadId'
       path: '/$environmentId/$threadId'
       fullPath: '/$environmentId/$threadId'
       preLoaderRoute: typeof ChatEnvironmentIdThreadIdRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/workflows_/$name_/runs': {
+      id: '/_chat/workflows_/$name_/runs'
+      path: '/workflows/$name/runs'
+      fullPath: '/workflows/$name/runs'
+      preLoaderRoute: typeof ChatWorkflowsNameRunsRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/skills_/$scope/$name': {
+      id: '/_chat/skills_/$scope/$name'
+      path: '/skills/$scope/$name'
+      fullPath: '/skills/$scope/$name'
+      preLoaderRoute: typeof ChatSkillsScopeNameRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/agents_/$name/edit': {
+      id: '/_chat/agents_/$name/edit'
+      path: '/agents/$name/edit'
+      fullPath: '/agents/$name/edit'
+      preLoaderRoute: typeof ChatAgentsNameEditRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/workflows_/$name_/runs_/$run': {
+      id: '/_chat/workflows_/$name_/runs_/$run'
+      path: '/workflows/$name/runs/$run'
+      fullPath: '/workflows/$name/runs/$run'
+      preLoaderRoute: typeof ChatWorkflowsNameRunsRunRouteImport
       parentRoute: typeof ChatRoute
     }
   }
@@ -769,6 +1037,7 @@ interface ChatSettingsRouteChildren {
   ChatSettingsAccessRoute: typeof ChatSettingsAccessRoute
   ChatSettingsAppearanceRoute: typeof ChatSettingsAppearanceRoute
   ChatSettingsArchivedRoute: typeof ChatSettingsArchivedRoute
+  ChatSettingsBackupRoute: typeof ChatSettingsBackupRoute
   ChatSettingsBetaRoute: typeof ChatSettingsBetaRoute
   ChatSettingsChatRoute: typeof ChatSettingsChatRoute
   ChatSettingsConnectionsRoute: typeof ChatSettingsConnectionsRoute
@@ -793,6 +1062,7 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsAccessRoute: ChatSettingsAccessRoute,
   ChatSettingsAppearanceRoute: ChatSettingsAppearanceRoute,
   ChatSettingsArchivedRoute: ChatSettingsArchivedRoute,
+  ChatSettingsBackupRoute: ChatSettingsBackupRoute,
   ChatSettingsBetaRoute: ChatSettingsBetaRoute,
   ChatSettingsChatRoute: ChatSettingsChatRoute,
   ChatSettingsConnectionsRoute: ChatSettingsConnectionsRoute,
@@ -817,29 +1087,55 @@ const ChatSettingsRouteWithChildren = ChatSettingsRoute._addFileChildren(
 )
 
 interface ChatRouteChildren {
+  ChatAgentsRoute: typeof ChatAgentsRoute
   ChatArchiveRoute: typeof ChatArchiveRoute
+  ChatConnectorsRoute: typeof ChatConnectorsRoute
   ChatInboxRoute: typeof ChatInboxRoute
   ChatNewRoute: typeof ChatNewRoute
   ChatSettingsRoute: typeof ChatSettingsRouteWithChildren
+  ChatSkillsRoute: typeof ChatSkillsRoute
   ChatTasksRoute: typeof ChatTasksRoute
   ChatUsageRoute: typeof ChatUsageRoute
+  ChatWorkflowsRoute: typeof ChatWorkflowsRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
+  ChatAgentsNewRoute: typeof ChatAgentsNewRoute
+  ChatConnectorsConnectionIdRoute: typeof ChatConnectorsConnectionIdRoute
   ChatDraftDraftIdRoute: typeof ChatDraftDraftIdRoute
   ChatProjectProjectKeyRoute: typeof ChatProjectProjectKeyRoute
+  ChatSkillsNewRoute: typeof ChatSkillsNewRoute
+  ChatWorkflowsNameRoute: typeof ChatWorkflowsNameRoute
+  ChatWorkflowsNewRoute: typeof ChatWorkflowsNewRoute
+  ChatAgentsNameEditRoute: typeof ChatAgentsNameEditRoute
+  ChatSkillsScopeNameRoute: typeof ChatSkillsScopeNameRoute
+  ChatWorkflowsNameRunsRoute: typeof ChatWorkflowsNameRunsRoute
+  ChatWorkflowsNameRunsRunRoute: typeof ChatWorkflowsNameRunsRunRoute
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
+  ChatAgentsRoute: ChatAgentsRoute,
   ChatArchiveRoute: ChatArchiveRoute,
+  ChatConnectorsRoute: ChatConnectorsRoute,
   ChatInboxRoute: ChatInboxRoute,
   ChatNewRoute: ChatNewRoute,
   ChatSettingsRoute: ChatSettingsRouteWithChildren,
+  ChatSkillsRoute: ChatSkillsRoute,
   ChatTasksRoute: ChatTasksRoute,
   ChatUsageRoute: ChatUsageRoute,
+  ChatWorkflowsRoute: ChatWorkflowsRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,
+  ChatAgentsNewRoute: ChatAgentsNewRoute,
+  ChatConnectorsConnectionIdRoute: ChatConnectorsConnectionIdRoute,
   ChatDraftDraftIdRoute: ChatDraftDraftIdRoute,
   ChatProjectProjectKeyRoute: ChatProjectProjectKeyRoute,
+  ChatSkillsNewRoute: ChatSkillsNewRoute,
+  ChatWorkflowsNameRoute: ChatWorkflowsNameRoute,
+  ChatWorkflowsNewRoute: ChatWorkflowsNewRoute,
+  ChatAgentsNameEditRoute: ChatAgentsNameEditRoute,
+  ChatSkillsScopeNameRoute: ChatSkillsScopeNameRoute,
+  ChatWorkflowsNameRunsRoute: ChatWorkflowsNameRunsRoute,
+  ChatWorkflowsNameRunsRunRoute: ChatWorkflowsNameRunsRunRoute,
 }
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)

@@ -26,7 +26,9 @@ import { searchProviderSkills } from "../../providerSkillSearch";
 import { useVisibleThreadShells } from "~/state/entities";
 import { useComposerPathSearch, useThreadSearch } from "~/state/queries";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
+import { matchComposerAgentItems } from "./composerAgentMentions";
 import { matchComposerModelItems } from "./composerModelMentions";
+import type { ModelPickerAgents } from "./ModelPickerAgentRow";
 import type { ModelEsque } from "./providerIconUtils";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import {
@@ -55,6 +57,7 @@ export function useComposerMenuItems({
   showSkillsInSlashMenu,
   workspaceSkillsScanning,
   modelMentions,
+  agents,
 }: {
   readonly composerTrigger: ComposerTrigger | null;
   readonly environmentId: EnvironmentId;
@@ -76,6 +79,8 @@ export function useComposerMenuItems({
     readonly instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
     readonly modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
   };
+  /** The agents `@` can hand the chat to; undefined when there are none. */
+  readonly agents: ModelPickerAgents | undefined;
 }) {
   // Thread mentions rank by recency as of when the composer mounted.
   const [now] = useState(() => Date.now());
@@ -101,6 +106,7 @@ export function useComposerMenuItems({
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       return [
+        ...matchComposerAgentItems(agents, composerTrigger.query),
         ...matchComposerThreadItems({
           shells: environmentThreadShells,
           environmentId,
@@ -197,7 +203,8 @@ export function useComposerMenuItems({
           (item.command.name !== "clear" || !freshSessionAvailable),
       );
       const slashCommandItems = slashCommandItemsForPromptPosition(
-        [...builtInSlashCommandItems, ...visibleProviderSlashCommandItems, ...skillItems],
+        // Skills come before provider commands, Codenine's first, as composerSkills orders them.
+        [...builtInSlashCommandItems, ...skillItems, ...visibleProviderSlashCommandItems],
         composerTrigger.rangeStart === 0,
       );
       return searchSlashCommandItems(slashCommandItems, query);
@@ -266,7 +273,7 @@ export function useComposerMenuItems({
     }
     if (composerTriggerKind === "pull-request") {
       if (pullRequestProjectId === null || pullRequestRepository === null) {
-        return "Pull requests are not available for this project.";
+        return "Pull requests are not available for this workspace.";
       }
       return composerTrigger?.query
         ? `No pull request matches ${composerTrigger.query}.`

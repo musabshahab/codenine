@@ -4,6 +4,7 @@ import {
   type OrchestrationV2ThreadProjection,
   type ScopedThreadRef,
   type TeamPlan,
+  type WorkflowDraft,
 } from "@codenine/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -556,6 +557,21 @@ export function createEnvironmentThreadDetailAtoms<E>(
     }).pipe(Atom.setIdleTTL(0), Atom.withLabel(`environment-thread-team:${key}`));
   });
 
+  // Like the plan, the draft rides on every thread event; the limits on a draft keep its JSON small.
+  const workflowDraftAtomFamily = Atom.family((key: string) => {
+    let source: WorkflowDraft | null = null;
+    let value: WorkflowDraft | null = null;
+    return Atom.make((get) => {
+      const draft =
+        Option.getOrNull(get(threadStateValueAtomFamily(key)).data)?.thread.workflowDraft ?? null;
+      if (draft !== source) {
+        source = draft;
+        if (JSON.stringify(draft) !== JSON.stringify(value)) value = draft;
+      }
+      return value;
+    }).pipe(Atom.setIdleTTL(0), Atom.withLabel(`environment-thread-workflow-draft:${key}`));
+  });
+
   const statusAtomFamily = Atom.family((key: string) =>
     Atom.make((get) => get(threadStateValueAtomFamily(key)).status).pipe(
       Atom.setIdleTTL(0),
@@ -598,6 +614,7 @@ export function createEnvironmentThreadDetailAtoms<E>(
     lastVisitedAtAtom: (ref: ScopedThreadRef) => lastVisitedAtAtomFamily(threadKey(ref)),
     pendingRequestsAtom: (ref: ScopedThreadRef) => pendingRequestsAtomFamily(threadKey(ref)),
     teamAtom: (ref: ScopedThreadRef) => teamAtomFamily(threadKey(ref)),
+    workflowDraftAtom: (ref: ScopedThreadRef) => workflowDraftAtomFamily(threadKey(ref)),
     queueWorkflowAtom: (ref: ScopedThreadRef) => queueWorkflowAtomFamily(threadKey(ref)),
     queuedCountAtom: (ref: ScopedThreadRef) => queuedCountAtomFamily(threadKey(ref)),
     runStopAtom: (ref: ScopedThreadRef) => runStopAtomFamily(threadKey(ref)),

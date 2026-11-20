@@ -368,6 +368,8 @@ export interface ComposerThreadDraftState {
   interactionMode: ProviderInteractionMode | null;
   /** Team is on for the next message. Not persisted: a reload turns it off. */
   teamRequested?: boolean;
+  /** Workflow is on for the next message, never with Team. Not persisted either. */
+  workflowRequested?: boolean;
 }
 
 export function composerDraftHasUserContent(
@@ -531,6 +533,7 @@ interface ComposerDraftStoreState {
     interactionMode: ProviderInteractionMode | null | undefined,
   ) => void;
   setTeamRequested: (threadRef: ComposerThreadTarget, requested: boolean) => void;
+  setWorkflowRequested: (threadRef: ComposerThreadTarget, requested: boolean) => void;
   addImage: (threadRef: ComposerThreadTarget, image: ComposerImageAttachment) => boolean;
   addImages: (
     threadRef: ComposerThreadTarget,
@@ -861,8 +864,27 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
     draft.interactionMode === null &&
-    draft.teamRequested !== true
+    draft.teamRequested !== true &&
+    draft.workflowRequested !== true
   );
+}
+
+/**
+ * The draft with Team or Workflow turned on or off, or null when it already is. They ask the lead
+ * for different things, so turning one on turns the other off.
+ */
+function withMessageRequest(
+  existing: ComposerThreadDraftState | undefined,
+  request: "teamRequested" | "workflowRequested",
+  requested: boolean,
+): ComposerThreadDraftState | null {
+  if ((existing?.[request] === true) === requested) return null;
+  const {
+    teamRequested: _teamRequested,
+    workflowRequested: _workflowRequested,
+    ...base
+  } = existing ?? createEmptyThreadDraft();
+  return requested ? { ...base, [request]: true } : base;
 }
 
 function normalizeProviderDriverKind(value: unknown): ProviderDriverKind | null {
@@ -2418,6 +2440,33 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
   persist(
     (setBase, get) => {
       const set = setBase;
+      const setMessageRequest = (
+        threadRef: ComposerThreadTarget,
+        request: "teamRequested" | "workflowRequested",
+        requested: boolean,
+      ) => {
+        const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+        if (threadKey.length === 0) {
+          return;
+        }
+        set((state) => {
+          const nextDraft = withMessageRequest(
+            state.draftsByThreadKey[threadKey],
+            request,
+            requested,
+          );
+          if (nextDraft === null) {
+            return state;
+          }
+          const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
+          if (shouldRemoveDraft(nextDraft)) {
+            delete nextDraftsByThreadKey[threadKey];
+          } else {
+            nextDraftsByThreadKey[threadKey] = nextDraft;
+          }
+          return { draftsByThreadKey: nextDraftsByThreadKey };
+        });
+      };
 
       return {
         draftsByThreadKey: {},
@@ -3152,29 +3201,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
         },
-        setTeamRequested: (threadRef, requested) => {
-          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
-          if (threadKey.length === 0) {
-            return;
-          }
-          set((state) => {
-            const existing = state.draftsByThreadKey[threadKey];
-            if ((existing?.teamRequested === true) === requested) {
-              return state;
-            }
-            const { teamRequested: _teamRequested, ...base } = existing ?? createEmptyThreadDraft();
-            const nextDraft: ComposerThreadDraftState = requested
-              ? { ...base, teamRequested: true }
-              : base;
-            const nextDraftsByThreadKey = { ...state.draftsByThreadKey };
-            if (shouldRemoveDraft(nextDraft)) {
-              delete nextDraftsByThreadKey[threadKey];
-            } else {
-              nextDraftsByThreadKey[threadKey] = nextDraft;
-            }
-            return { draftsByThreadKey: nextDraftsByThreadKey };
-          });
-        },
+        setTeamRequested: (threadRef, requested) =>
+          setMessageRequest(threadRef, "teamRequested", requested),
+        setWorkflowRequested: (threadRef, requested) =>
+          setMessageRequest(threadRef, "workflowRequested", requested),
         addImage: (threadRef, image) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
           const threadId = resolveComposerThreadId(get(), threadRef);
@@ -3901,7 +3931,11 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             if (!current) {
               return state;
             }
-            const { teamRequested: _teamRequested, ...retained } = current;
+            const {
+              teamRequested: _teamRequested,
+              workflowRequested: _workflowRequested,
+              ...retained
+            } = current;
             const nextDraft: ComposerThreadDraftState = {
               ...retained,
               prompt: "",
@@ -4273,6 +4307,12 @@ export function useComposerDraftHasUserContent(threadRef: ComposerThreadTarget):
 export function useComposerTeamRequested(threadRef: ComposerThreadTarget): boolean {
   return useComposerDraftStore(
     (state) => getComposerDraftState(state, threadRef)?.teamRequested === true,
+  );
+}
+
+export function useComposerWorkflowRequested(threadRef: ComposerThreadTarget): boolean {
+  return useComposerDraftStore(
+    (state) => getComposerDraftState(state, threadRef)?.workflowRequested === true,
   );
 }
 

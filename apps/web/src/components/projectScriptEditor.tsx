@@ -219,7 +219,7 @@ export function ProjectScriptEditorDialog({
               onClick={() => {
                 if (!request?.scriptId) return;
                 if (!readEnvironmentScope(environmentId, editScope)) {
-                  setValidationError("This connection cannot change project actions.");
+                  setValidationError("This connection cannot change workspace actions.");
                   return;
                 }
                 setDeleteConfirmOpen(false);
@@ -313,7 +313,7 @@ function ProjectScriptEditorForm({
     event.preventDefault();
     if (pendingSubmissionRef.current !== null) return;
     if (!readEnvironmentScope(environmentId, editScope)) {
-      setValidationError("This connection cannot change project actions.");
+      setValidationError("This connection cannot change workspace actions.");
       return;
     }
     const changesKeybinding =
@@ -396,7 +396,7 @@ function ProjectScriptEditorForm({
       <DialogHeader>
         <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
         <DialogDescription>
-          Actions are project-scoped commands you can run from the top bar or keybindings.
+          Actions are workspace commands you can run from the top bar or keybindings.
         </DialogDescription>
       </DialogHeader>
       <DialogPanel>
@@ -465,7 +465,7 @@ function ProjectScriptEditorForm({
               />
               <p className="text-xs text-muted-foreground">
                 Press a shortcut. Use <code>Backspace</code> to clear. Shortcuts are
-                environment-wide. Projects using the same action share its shortcut.
+                environment-wide. Workspaces using the same action share its shortcut.
               </p>
             </div>
             <div className="space-y-1.5">

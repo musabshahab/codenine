@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -11,6 +12,7 @@ import { ProviderInteractionMode, RuntimeMode } from "@codenine/contracts";
 import packageJson from "../../package.json" with { type: "json" };
 import { parseBearerToken } from "../auth/EnvironmentAuth.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import { advertisedJsonSchema } from "./advertisedJsonSchema.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
@@ -32,6 +34,8 @@ import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
 import * as PullRequestsHandlers from "./toolkits/pullRequests/handlers.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
+import * as SkillsHandlers from "./toolkits/skills/handlers.ts";
+import { SkillsToolkit } from "./toolkits/skills/tools.ts";
 import { requestUrl } from "../requestUrl.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
@@ -226,6 +230,56 @@ const withToolSpans = Effect.fn("McpHttpServer.withToolSpans")(function* <A, E, 
   return yield* registration.pipe(Effect.provideService(McpServer.McpServer, tracingServer));
 });
 
+/** What an agent's chat may use: tools that act on that chat alone. */
+const AGENT_CHAT_TOOLS: ReadonlySet<string> = new Set([
+  "codenine_skill_read",
+  "codenine_skill_list",
+  "request_secret",
+  "codenine_background_wait",
+]);
+
+/**
+ * An agent's limits hold only in its own chat, so in it the tools that start, read or steer other
+ * chats, or change workspaces, refuse. The calling chat is read per call: its agent can change
+ * while its provider keeps the same MCP session.
+ */
+const withAgentChatLimit = Effect.fn("McpHttpServer.withAgentChatLimit")(function* <A, E, R>(
+  registration: Effect.Effect<A, E, R>,
+) {
+  const server = yield* McpServer.McpServer;
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const limitedServer = McpServer.McpServer.of({
+    ...server,
+    addTool: Effect.fn("McpServer.addTool")(function (options) {
+      if (AGENT_CHAT_TOOLS.has(options.tool.name)) return server.addTool(options);
+      return server.addTool({
+        ...options,
+        // Untraced: the tool's own span already covers the call.
+        handle: Effect.fnUntraced(function* (payload) {
+          const scope = yield* Effect.serviceOption(McpInvocationContext.McpInvocationContext);
+          const threadId = Option.isSome(scope) ? scope.value.thread?.threadId : undefined;
+          if (threadId === undefined) return yield* options.handle(payload);
+          // A chat that cannot be read is refused by the tool's own caller checks.
+          const caller = yield* Effect.exit(threads.getThreadShell(threadId));
+          if (!Exit.isSuccess(caller) || caller.value?.agent === undefined) {
+            return yield* options.handle(payload);
+          }
+          return new McpSchema.CallToolResult({
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: "This chat talks to an agent, which works within its own limits: it cannot start, read or steer other chats, or change workspaces. Do the task with your own tools, or tell the user it needs a chat without an agent.",
+              },
+            ],
+          });
+        }),
+      });
+    }),
+  });
+  return yield* registration.pipe(Effect.provideService(McpServer.McpServer, limitedServer));
+});
+
 /** `McpServer.registerToolkit` advertises the full codec schema; agents get the compact one. */
 const withAdvertisedSchemas = Effect.fn("McpHttpServer.withAdvertisedSchemas")(function* <
   Tools extends Record<string, Tool.Any>,
@@ -278,7 +332,9 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
 ) =>
   Layer.effectDiscard(
     withToolSpans(
-      withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+      withAgentChatLimit(
+        withAdvertisedSchemas(toolkit, McpServer.registerToolkit(decodeAsAdvertised(toolkit))),
+      ),
     ),
   ).pipe(
     Layer.provide(
@@ -319,6 +375,8 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 );
 
+const layerSkillsToolkit = toolkitRegistration(SkillsToolkit, SkillsHandlers.layer);
+
 /**
  * `McpServer` for in-process calls, which provide `McpInvocationContext`
  * around `callTool` as the auth middleware does for each /mcp request.
@@ -357,6 +415,7 @@ export const layerTools = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
+  layerSkillsToolkit,
 );
 
 export const layer = layerMcpTransport(layerTools);

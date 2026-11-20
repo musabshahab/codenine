@@ -20,7 +20,7 @@ checkout on each machine, so they stay on the same version.
 ## Before you update
 
 Restarting a server drops its connections and can interrupt active agents and
-terminal commands. Saved threads, settings, and project files remain.
+terminal commands. Saved threads, settings, and workspace files remain.
 
 **Settings → Maintenance → Continue threads after restarts** is on by default.
 It resumes supported active threads after an update, crash, or machine
@@ -58,7 +58,7 @@ directory and pair with the running server.
 
 ## Update providers
 
-**Settings → Providers** shows provider updates for the selected environment.
+**Settings → Accounts** shows provider updates for the selected environment.
 **Update all** updates every outdated provider on every connected environment
 at once. Hover it to see which providers it will update. A provider is left out
 when any of its enabled, outdated instances offers only a manual update command,

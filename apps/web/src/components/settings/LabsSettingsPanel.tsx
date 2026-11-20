@@ -24,7 +24,7 @@ function TwoLineRowsRow() {
   return (
     <SettingsRow
       {...searchableSetting("sidebar-two-line-rows")}
-      description="When chats are grouped by project, show each on two lines: the title, then the branch, pull request, and agent."
+      description="When chats are grouped by workspace, show each on two lines: the title, then the branch, pull request, and agent."
       control={
         <Switch
           checked={settings.sidebarTwoLineRows}

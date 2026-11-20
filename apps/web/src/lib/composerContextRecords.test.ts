@@ -159,6 +159,16 @@ describe("composerContextRecords", () => {
     expect(image).toMatchObject({ attachmentId: "uploaded-image" });
   });
 
+  it.each([
+    [{ teamRequested: true }, "team-request"],
+    [{ workflowRequested: true }, "workflow-request"],
+  ] as const)("sends %j as one message record that is never a chip", (request, kind) => {
+    const context = buildMessageContext({ terminalContexts: [], reviewComments: [], ...request });
+    const records = decodeMessageContext(context).records;
+    expect(records.map((record) => record.kind)).toEqual([kind]);
+    expect(asKnownContextRecord(records[0])).toBeUndefined();
+  });
+
   it("removes an expired terminal chip by its kind-scoped id, not the producer id", () => {
     const context = {
       id: "term-1",

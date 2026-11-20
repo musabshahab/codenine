@@ -302,7 +302,7 @@ async function mountSettings(search: SettingsScopeSearch) {
 }
 
 const nameInput = (screen: Screen) =>
-  screen.container.querySelector<HTMLInputElement>('[aria-label="Project name"]')!;
+  screen.container.querySelector<HTMLInputElement>('[aria-label="Workspace name"]')!;
 const removeCheckout = (screen: Screen, root: string) =>
   screen.container.querySelector<HTMLButtonElement>(`[aria-label="Remove checkout ${root}"]`)!;
 const removeAll = (screen: Screen) =>
@@ -326,7 +326,7 @@ async function expectProjectAccessDeniedToast(title: string) {
       expect.objectContaining({
         type: "error",
         title,
-        description: "This connection cannot change projects in remote.",
+        description: "This connection cannot change workspaces in remote.",
       }),
     ),
   );
@@ -386,7 +386,7 @@ describe("project settings permissions", () => {
       firstUpdate.resolve(AsyncResult.success(undefined));
       await firstUpdate.promise;
     });
-    await expectProjectAccessDeniedToast("Failed to rename project");
+    await expectProjectAccessDeniedToast("Failed to rename workspace");
     expect(state.update).toHaveBeenCalledOnce();
     expect(state.update.mock.calls[0]![0].environmentId).toBe(primaryId);
   });
@@ -430,7 +430,7 @@ describe("project settings permissions", () => {
       confirmed.resolve(true);
       await confirmed.promise;
     });
-    await expectProjectAccessDeniedToast("Failed to remove project");
+    await expectProjectAccessDeniedToast("Failed to remove workspace");
     expect(state.delete).not.toHaveBeenCalled();
     expect(state.releaseUploads).not.toHaveBeenCalled();
     expect(state.clearDraft).not.toHaveBeenCalled();
@@ -446,7 +446,7 @@ describe("project settings permissions", () => {
     await act(async () => {
       nameInput(screen).dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     });
-    await expectProjectAccessDeniedToast("Failed to rename project");
+    await expectProjectAccessDeniedToast("Failed to rename workspace");
     expect(state.update).not.toHaveBeenCalled();
     expect(nameInput(screen).disabled).toBe(true);
 
@@ -496,14 +496,14 @@ describe("project identity reset", () => {
     state.projects = [{ ...asScratch(state.projects[0]!), faviconPath: null, projectIcon: null }];
     await using screen = await mountPanel();
 
-    await userEvent.click(resetButton(screen, "project name")!);
+    await userEvent.click(resetButton(screen, "workspace name")!);
     await vi.waitFor(() =>
       expect(state.update).toHaveBeenCalledWith({
         environmentId: primaryId,
-        input: { projectId: state.projects[0]!.id, title: "No project" },
+        input: { projectId: state.projects[0]!.id, title: "Personal" },
       }),
     );
-    await userEvent.click(resetButton(screen, "project icon")!);
+    await userEvent.click(resetButton(screen, "workspace icon")!);
     await vi.waitFor(() =>
       expect(state.update).toHaveBeenLastCalledWith({
         environmentId: primaryId,
@@ -518,8 +518,8 @@ describe("project identity reset", () => {
     state.projects = [asScratch(primary!), { ...remote!, faviconPath: "logo.png" }];
     await using screen = await mountPanel();
 
-    expect(resetButton(screen, "project name")).toBeNull();
-    await userEvent.click(resetButton(screen, "project icon")!);
+    expect(resetButton(screen, "workspace name")).toBeNull();
+    await userEvent.click(resetButton(screen, "workspace icon")!);
     await vi.waitFor(() => expect(state.update).toHaveBeenCalledTimes(2));
     expect(state.update.mock.calls.map(([request]) => request)).toEqual([
       {
@@ -596,7 +596,7 @@ describe("project settings scope", () => {
     state.projects = state.projects.filter((project) => project.environmentId === primaryId);
     await using _screen = await mountSettings({ project: projectKey() });
 
-    await expect.element(page.getByRole("textbox", { name: "Project name" })).toBeVisible();
+    await expect.element(page.getByRole("textbox", { name: "Workspace name" })).toBeVisible();
     await userEvent.click(environmentMenu());
     await expect.element(primaryOption()).toBeVisible();
     await expect.element(remoteOption()).not.toBeInTheDocument();
@@ -620,10 +620,10 @@ describe("project settings scope", () => {
   });
 
   it.each([
-    [undefined, "This project has no checkout on this environment."],
+    [undefined, "This workspace has no checkout on this environment."],
     [
       "removed-checkout",
-      "This checkout is no longer available in the selected project and environment.",
+      "This checkout is no longer available in the selected workspace and environment.",
     ],
   ])("recovers a stale environment link with checkout %s", async (checkout, message) => {
     setup();
@@ -636,14 +636,14 @@ describe("project settings scope", () => {
     });
 
     await expect.element(page.getByText(message, { exact: true })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: /^Project scope:/ })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: /^Workspace scope:/ })).toBeVisible();
     await expect
       .element(page.getByRole("button", { name: "Environment scope: remote" }))
       .toBeVisible();
     await userEvent.click(page.getByRole("button", { name: "Show all environments" }));
 
     await expect
-      .element(page.getByRole("textbox", { name: "Project name" }))
+      .element(page.getByRole("textbox", { name: "Workspace name" }))
       .toHaveValue("Shared repo");
     expect(screen.router.state.location.search).toEqual({ project: key });
     await expect
@@ -651,7 +651,7 @@ describe("project settings scope", () => {
       .toBeVisible();
     await expect.element(page.getByText(message, { exact: true })).not.toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: "Remove project", exact: true }))
+      .element(page.getByRole("button", { name: "Remove workspace", exact: true }))
       .toBeEnabled();
   });
 });
@@ -661,7 +661,7 @@ it("returns to the project overview after removal, clearing the selection but ke
   state.projects = [state.projects[1]!];
   await using screen = await mountPanel({ machine: remoteId, checkout: "remote:/work/remote" });
   const removeProject = [...screen.container.querySelectorAll("button")].find(
-    (button) => button.textContent === "Remove project",
+    (button) => button.textContent === "Remove workspace",
   )!;
 
   await userEvent.click(removeProject);

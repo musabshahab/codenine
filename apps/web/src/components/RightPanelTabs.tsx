@@ -31,6 +31,7 @@ import {
   Plus,
   TerminalSquare,
   UsersIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -93,6 +94,8 @@ export interface RightPanelTabsProps {
   onAddSideChat?: (() => void) | undefined;
   /** Absent on a thread that is neither a team's lead nor one of its agents. */
   onAddTask?: (() => void) | undefined;
+  /** Absent on a chat where no lead drafted a workflow. */
+  onAddWorkflow?: (() => void) | undefined;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -104,10 +107,11 @@ export interface RightPanelTabsProps {
 
 // T, F, D and S are taken; K is the last letter of "task".
 const TASK_SURFACE_SHORTCUT = "K";
+const WORKFLOW_SURFACE_SHORTCUT = "W";
 
 const SURFACE_DISABLED_REASONS = {
-  terminal: "Terminal surfaces are only available from a project thread.",
-  files: "Files are only available when a project is open.",
+  terminal: "Terminal surfaces are only available from a workspace thread.",
+  files: "Files are only available when a workspace is open.",
   diff: "Diff is only available for server threads in Git repositories.",
   sideChat: "Side chats start after the first message.",
 } as const;
@@ -127,8 +131,8 @@ const LAUNCHER_SHORTCUT_BLOCKING_LAYERS = [
   .join(",");
 
 const SURFACE_UNAVAILABLE_HINTS = {
-  terminal: "Available when a project is open.",
-  files: "Available when a project is open.",
+  terminal: "Available when a workspace is open.",
+  files: "Available when a workspace is open.",
   diff: "Available for Git repositories.",
   sideChat: "Available after the first message.",
 } as const;
@@ -212,6 +216,7 @@ function RightPanelEmptyState(props: {
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   onAddTask: (() => void) | undefined;
+  onAddWorkflow: (() => void) | undefined;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -230,6 +235,18 @@ function RightPanelEmptyState(props: {
             available: true,
             disabledReason: "",
             onClick: props.onAddTask,
+          },
+        ]
+      : []),
+    ...(props.onAddWorkflow
+      ? [
+          {
+            label: "Workflow",
+            icon: WorkflowIcon,
+            shortcut: WORKFLOW_SURFACE_SHORTCUT,
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddWorkflow,
           },
         ]
       : []),
@@ -419,6 +436,8 @@ function surfaceTitle(
       return "Side chat";
     case "task":
       return "Task";
+    case "workflow":
+      return "Workflow";
   }
 }
 
@@ -451,6 +470,8 @@ function SurfaceIcon({
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "task":
       return <UsersIcon className="size-3 shrink-0" />;
+    case "workflow":
+      return <WorkflowIcon className="size-3 shrink-0" />;
   }
 }
 
@@ -682,6 +703,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             available: true,
             disabledReason: "",
             onClick: props.onAddTask,
+          },
+        ]
+      : []),
+    ...(props.onAddWorkflow
+      ? [
+          {
+            label: "Workflow",
+            icon: WorkflowIcon,
+            shortcut: WORKFLOW_SURFACE_SHORTCUT,
+            available: true,
+            disabledReason: "",
+            onClick: props.onAddWorkflow,
           },
         ]
       : []),
@@ -1005,6 +1038,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddFiles={props.onAddFiles}
             onAddSideChat={props.onAddSideChat}
             onAddTask={props.onAddTask}
+            onAddWorkflow={props.onAddWorkflow}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}

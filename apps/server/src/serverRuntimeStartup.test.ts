@@ -39,6 +39,7 @@ import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManag
 import * as ThreadLaunch from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import * as AgentAwarenessRelay from "./relay/AgentAwarenessRelay.ts";
 import { ServerActivation } from "./serverActivation.ts";
@@ -178,6 +179,8 @@ it.effect.each([
           countThreads: () => Effect.succeed(0),
           listActiveShellIndex: () => Effect.succeed([]),
         }),
+        // Activation never comes, so the parked startup work that makes Personal never runs.
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
         Layer.mock(ThreadLaunch.ThreadLaunchService)({
           launch: (input) => {
             assert.equal(input.modelSelection.instanceId, instanceId);

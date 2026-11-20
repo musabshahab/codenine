@@ -1,12 +1,7 @@
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
+import { PERSONAL_WORKSPACE_NAME } from "@codenine/client-runtime/state/projects";
 import { scopedThreadKey, scopeThreadRef } from "@codenine/client-runtime/environment";
-import {
-  ChevronDownIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  HistoryIcon,
-  SquarePenIcon,
-} from "lucide-react";
+import { ChevronDownIcon, SquarePenIcon } from "lucide-react";
 import { memo, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
@@ -58,6 +53,7 @@ function SidebarFolderHeaderRow(props: {
         })),
       )
     : null;
+  const startChat = !onOpen && props.empty ? props.onNewChat : null;
   const handleContextMenu = (event: ReactMouseEvent) => {
     if (props.onContextMenu === null) return;
     event.preventDefault();
@@ -87,14 +83,14 @@ function SidebarFolderHeaderRow(props: {
           type="button"
           data-sidebar-row={rowId}
           aria-expanded={props.empty ? undefined : !collapsed}
-          aria-label={onOpen ? `Show or hide ${props.label}` : undefined}
-          onClick={props.onToggle}
+          aria-label={startChat ? newChatLabel : onOpen ? `Show or hide ${props.label}` : undefined}
+          onClick={startChat ?? props.onToggle}
           onContextMenu={handleContextMenu}
           className={cn(
             "flex h-8 cursor-pointer items-center rounded-(--control-radius) outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             onOpen
               ? "w-6 shrink-0 justify-center ps-1"
-              : "min-w-0 flex-1 gap-2 ps-1.5 pe-(--sidebar-row-content-inset) text-left",
+              : "min-w-0 flex-1 gap-2 ps-2 pe-(--sidebar-row-content-inset) text-left",
           )}
         >
           <ChevronDownIcon
@@ -103,6 +99,7 @@ function SidebarFolderHeaderRow(props: {
               "size-3 shrink-0 text-sidebar-muted-foreground transition-transform",
               (collapsed || props.empty) && "-rotate-90",
               props.empty && "invisible",
+              !onOpen && "-me-1",
             )}
           />
           {onOpen ? null : name}
@@ -144,7 +141,7 @@ function SidebarFolderHeaderRow(props: {
   );
 }
 
-/** A project folder in the sidebar grouped by project. */
+/** A workspace's folder in the sidebar; Personal holds the chats started without a workspace. */
 export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHeader(props: {
   group: SidebarProjectSnapshot;
   collapsed: boolean;
@@ -161,10 +158,8 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
       testId="sidebar-project-folder"
       rowId={sidebarFolderRowId(group.projectKey)}
       icon={<ProjectFavicon project={group} className="size-4 shrink-0" />}
-      label={group.isScratch ? "Chats without a project" : group.displayName}
-      newChatLabel={
-        group.isScratch ? "New chat without a project" : `New chat in ${group.displayName}`
-      }
+      label={group.isScratch ? PERSONAL_WORKSPACE_NAME : group.displayName}
+      newChatLabel={`New chat in ${group.isScratch ? PERSONAL_WORKSPACE_NAME : group.displayName}`}
       collapsed={props.collapsed}
       empty={props.empty}
       hiddenThreads={props.hiddenThreads}
@@ -172,46 +167,6 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
       onOpen={group.isScratch ? null : () => props.onOpen(group)}
       onNewChat={() => props.onNewThread(group)}
       onContextMenu={(position) => props.onContextMenu(group, position)}
-    />
-  );
-});
-
-/** A folder of chats without a project; `name` is null for the chats in no folder. */
-export const SidebarChatFolderHeader = memo(function SidebarChatFolderHeader(props: {
-  folderKey: string;
-  name: string | null;
-  collapsed: boolean;
-  empty: boolean;
-  hiddenThreads: readonly EnvironmentThreadShell[];
-  onToggle: (folderKey: string) => void;
-  onNewChat: () => void;
-  onContextMenu: ((name: string, position: { x: number; y: number }) => void) | null;
-}) {
-  const { name, onContextMenu } = props;
-  const FolderGlyph = props.collapsed || props.empty ? FolderIcon : FolderOpenIcon;
-  return (
-    <SidebarFolderHeaderRow
-      testId="sidebar-chat-folder"
-      rowId={sidebarFolderRowId(props.folderKey)}
-      icon={
-        name === null ? (
-          <HistoryIcon aria-hidden className="size-4 shrink-0 text-(--sidebar-icon-color)" />
-        ) : (
-          <FolderGlyph aria-hidden className="size-4 shrink-0 text-(--sidebar-icon-color)" />
-        )
-      }
-      label={name ?? "Recent"}
-      newChatLabel="New chat"
-      collapsed={props.collapsed}
-      empty={props.empty}
-      hiddenThreads={props.hiddenThreads}
-      onToggle={() => props.onToggle(props.folderKey)}
-      onOpen={null}
-      // A new chat is a draft, which joins a folder only once it is sent and moved.
-      onNewChat={name === null ? props.onNewChat : null}
-      onContextMenu={
-        name === null || onContextMenu === null ? null : (position) => onContextMenu(name, position)
-      }
     />
   );
 });

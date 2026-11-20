@@ -4,8 +4,10 @@ import {
   TeamPlanId,
   TeamTaskId,
   type TeamAgent,
+  type TeamPlanRun,
   type TeamTask,
   type TeamTaskStatus,
+  WorkflowId,
 } from "@codenine/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -14,6 +16,7 @@ import {
   startableTeamTasks,
   teamPlanSummary,
   validateTeamDraft,
+  workflowStepsIssue,
 } from "./team.ts";
 
 const agent = (id: string, instanceId = "codex"): TeamAgent => ({
@@ -45,6 +48,8 @@ const task = (
   startedAt: null,
   completedAt: null,
 });
+
+const step = (id: string, dependsOn: ReadonlyArray<string> = []) => ({ id, dependsOn });
 
 const plan = (
   tasks: ReadonlyArray<TeamTask>,
@@ -161,16 +166,39 @@ describe("settledTeamPlanStatus", () => {
   });
 });
 
+describe("workflowStepsIssue", () => {
+  it.each([
+    ["a valid chain", [step("one"), step("two", ["one"])], null],
+    ["a repeated id", [step("one"), step("one")], 'Step id "one" is used twice.'],
+    [
+      "a dependency that is not a step",
+      [step("one", ["missing"])],
+      'Step "one" depends on "missing", which is not a step of this workflow.',
+    ],
+    [
+      "a cycle",
+      [step("one", ["two"]), step("two", ["one"])],
+      "Steps depend on each other in a cycle: one -> two -> one.",
+    ],
+  ] as const)("reports %s", (_name, steps, issue) => {
+    expect(workflowStepsIssue(steps)).toBe(issue);
+  });
+});
+
 describe("teamPlanSummary", () => {
+  const statuses = ["completed", "pending", "running", "failed", "cancelled", "completed"] as const;
+  const counts = {
+    planId: "plan",
+    status: "running",
+    revision: 2,
+    total: 6,
+    completed: 2,
+    failed: 1,
+    running: 1,
+    cancelled: 1,
+  };
+
   it("counts the tasks in each status but pending", () => {
-    const statuses = [
-      "completed",
-      "pending",
-      "running",
-      "failed",
-      "cancelled",
-      "completed",
-    ] as const;
     expect(
       teamPlanSummary({
         id: TeamPlanId.make("plan"),
@@ -178,15 +206,53 @@ describe("teamPlanSummary", () => {
         revision: 2,
         tasks: statuses.map((status, index) => task(`t${index}`, { status })),
       }),
+    ).toEqual(counts);
+  });
+
+  it("shows a workflow run, its hold and the steps awaiting review, without its inputs, limits or note", () => {
+    const run: TeamPlanRun = {
+      workflowId: WorkflowId.make("workflow-1"),
+      workflowName: "weekly-digest",
+      title: "Weekly digest",
+      run: 3,
+      trigger: "schedule",
+      scheduledFor: "2026-11-16T09:00:00.000Z",
+      inputs: [{ name: "Topic", value: "AI tooling" }],
+      approvals: "review",
+      limits: { spendUsd: 5, minutes: 60 },
+      startedAt: "2026-11-16T09:00:01.000Z",
+      costUsd: 1.25,
+      headline: null,
+      note: "Covered agents last week.",
+    };
+    const hold = { reason: "review", at: "2026-11-16T09:30:00.000Z" } as const;
+    const reviewed = (status: TeamTaskStatus, awaiting: boolean): TeamTask => ({
+      ...task("t", { status }),
+      review: { round: 1, awaiting, awaitingSince: awaiting ? "2026-11-16T09:20:00.000Z" : null },
+    });
+    const { inputs: _inputs, limits: _limits, note: _note, ...listed } = run;
+    expect(
+      teamPlanSummary({
+        id: TeamPlanId.make("plan"),
+        status: "running",
+        revision: 2,
+        tasks: [
+          ...statuses.map((status, index) => task(`t${index}`, { status })),
+          reviewed("running", true),
+          // A step that failed while its result waited is no longer awaiting review.
+          reviewed("failed", true),
+        ],
+        run,
+        hold,
+      }),
     ).toEqual({
-      planId: "plan",
-      status: "running",
-      revision: 2,
-      total: 6,
-      completed: 2,
-      failed: 1,
-      running: 1,
-      cancelled: 1,
+      ...counts,
+      total: 8,
+      running: 2,
+      failed: 2,
+      run: listed,
+      hold,
+      awaitingReview: 1,
     });
   });
 });

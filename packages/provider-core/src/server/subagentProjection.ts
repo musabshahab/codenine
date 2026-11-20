@@ -73,6 +73,10 @@ export function makeSubagentChildThread(input: {
     historyOrigin: undefined,
     team: null,
     teamTask: undefined,
+    // A child starts on the connectors on by default, no kept-on skills and no agent, whatever its parent chose.
+    connectors: undefined,
+    skills: undefined,
+    agent: undefined,
     providerInstanceId: input.providerInstanceId,
     modelSelection: input.modelSelection,
     activeProviderThreadId: input.activeProviderThreadId,

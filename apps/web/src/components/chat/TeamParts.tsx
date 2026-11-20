@@ -1,4 +1,4 @@
-import type { TeamAgentRole, TeamWorkspace } from "@codenine/contracts";
+import type { TeamAgent, TeamAgentRole, TeamWorkspace } from "@codenine/contracts";
 import {
   CircleCheckIcon,
   CircleDashedIcon,
@@ -19,6 +19,7 @@ import {
 import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
+import { ConnectorMark } from "../connectors/ConnectorMark";
 
 export const TEAM_ROLE_LABELS: Record<TeamAgentRole, string> = {
   plan: "Plan",
@@ -74,10 +75,10 @@ const AVATAR_SIZE = {
 } as const;
 
 /** An agent's role as a tinted glyph, so one agent looks the same wherever the tab names it. */
-export function TeamAgentAvatar(props: {
+function TeamAgentAvatar(props: {
   role: TeamAgentRole;
   size: keyof typeof AVATAR_SIZE;
-  className?: string;
+  className?: string | undefined;
 }) {
   const { Icon, surface, tone } = ROLE_LOOK[props.role];
   const size = AVATAR_SIZE[props.size];
@@ -92,6 +93,32 @@ export function TeamAgentAvatar(props: {
       )}
     >
       <Icon className={cn(size.icon, tone)} />
+    </span>
+  );
+}
+
+/**
+ * A team member's mark: its agent's, an outlined one while the lead's suggestion waits for an
+ * agent, or its role's glyph on plans from before agents.
+ */
+export function TeamMemberMark(props: {
+  member: Pick<TeamAgent, "role" | "label" | "agent" | "suggestion">;
+  /** The agent's title, when the member's label is not it. */
+  name?: string | undefined;
+  size: keyof typeof AVATAR_SIZE;
+  className?: string | undefined;
+}) {
+  const { member, size } = props;
+  if (member.agent === undefined && member.suggestion === undefined) {
+    return <TeamAgentAvatar role={member.role} size={size} className={props.className} />;
+  }
+  return (
+    <span aria-hidden className={cn("inline-flex shrink-0", props.className)}>
+      <ConnectorMark
+        name={props.name ?? member.suggestion?.title ?? member.label}
+        size={size === "lg" ? "default" : "sm"}
+        tone={member.agent === undefined ? "suggested" : "agent"}
+      />
     </span>
   );
 }

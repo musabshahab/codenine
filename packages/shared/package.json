@@ -63,6 +63,10 @@
       "types": "./src/agentAwareness.ts",
       "import": "./src/agentAwareness.ts"
     },
+    "./agentModel": {
+      "types": "./src/agentModel.ts",
+      "import": "./src/agentModel.ts"
+    },
     "./git": {
       "types": "./src/git.ts",
       "import": "./src/git.ts"

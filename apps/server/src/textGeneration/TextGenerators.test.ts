@@ -89,7 +89,7 @@ it.effect("a turned-off text generator fails instead of calling its API", () =>
     const failure = yield* Effect.flip(
       run!(request).pipe(Effect.provideService(FetchHttpClient.Fetch, upstream)),
     );
-    expect(failure.detail).toBe("OpenRouter is off. Turn it on in Settings → Providers.");
+    expect(failure.detail).toBe("OpenRouter is off. Turn it on in Settings → Accounts.");
     expect(upstream).not.toHaveBeenCalled();
   }),
 );

@@ -21,6 +21,7 @@ import { formatSubagentDisplayTitle } from "@codenine/client-runtime/state/subag
 import {
   ProviderDriverKind,
   type ModelSelection,
+  type OrchestrationV2AgentSwitch,
   type OrchestrationV2ModelSwitch,
   type OrchestrationV2Notification,
   type OrchestrationV2TurnItem,
@@ -56,6 +57,7 @@ import { getTriggerDisplayModelName } from "./providerIconUtils";
 import { ProviderInstanceIcon, providerTextColor } from "./ProviderInstanceIcon";
 import { cn } from "~/lib/utils";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
+import { agentTitle, useAgents } from "../agents/useAgents";
 import { subagentResumedSince } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { CodenineMark } from "../CodenineWordmark";
@@ -560,6 +562,27 @@ function EnvironmentHandoffRow({
 /** Marks where `/clear` or an automation started a new provider session in this thread. */
 export function FreshSessionRow() {
   return <TimelineSystemDivider label="New session" icon={EraserIcon} />;
+}
+
+/** Where the chat moved to an agent, or back to just the model. */
+export function AgentSwitchRow(props: {
+  readonly environmentId: EnvironmentId;
+  readonly agentSwitch: OrchestrationV2AgentSwitch;
+}) {
+  const { agents } = useAgents(props.environmentId);
+  const { from, to } = props.agentSwitch;
+  const named = to ?? from;
+  if (named === null) return null;
+  const title = agentTitle(
+    named,
+    agents.find((agent) => agent.name === named),
+  );
+  return (
+    <TimelineSystemDivider
+      icon={BotIcon}
+      label={to === null ? `Handed back from the ${title} agent` : `Handed to the ${title} agent`}
+    />
+  );
 }
 
 /** A same-harness model or effort change. Shows only what changed. */

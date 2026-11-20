@@ -40,17 +40,26 @@ import {
 } from "./baseSchemas.ts";
 import { AuthMcpClientAccess } from "./auth.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
+import { AgentName } from "./agents.ts";
+import { ConnectionId, ConnectorRisk } from "./connectors.ts";
+import { SkillName } from "./skills.ts";
 import { StoredThreadTags, ThreadFolderName, ThreadTag } from "./threadTags.ts";
 import {
   StoredTeamPlan,
+  TEAM_REVIEW_NOTES_MAX_CHARS,
+  TEAM_RUN_HEADLINE_MAX_CHARS,
+  TEAM_RUN_NOTE_MAX_CHARS,
   TeamAgentId,
   TeamDraft,
+  TeamPlanHoldReason,
   TeamPlanId,
+  TeamPlanRun,
   TeamPlanSummary,
   TeamTaskId,
   TeamTaskRef,
   TeamTaskUsage,
 } from "./team.ts";
+import { StoredWorkflowDraft, WorkflowDraft, WorkflowLimits } from "./workflows.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -489,6 +498,14 @@ export const OrchestrationV2AppThread = Schema.Struct({
   team: Schema.optional(StoredTeamPlan),
   /** On a team agent's thread: the task it runs. */
   teamTask: Schema.optional(TeamTaskRef),
+  /** Connectors this chat uses; absent until the chat picks its own, so it uses the ones on by default. */
+  connectors: Schema.optional(Schema.Array(ConnectionId)),
+  /** Skills kept on for this chat, by name; a workspace skill wins over a Codenine one of the same name. */
+  skills: Schema.optional(Schema.Array(SkillName)),
+  /** The agent this chat talks to; its connectors and skills replace the chat's own. */
+  agent: Schema.optional(AgentName),
+  /** The workflow a lead drafted in this chat with `propose_workflow`; never copied to a fork. */
+  workflowDraft: Schema.optional(StoredWorkflowDraft),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -664,6 +681,8 @@ export const OrchestrationV2Run = Schema.Struct({
   rootNodeId: Schema.NullOr(NodeId),
   activeAttemptId: Schema.NullOr(RunAttemptId),
   status: OrchestrationV2RunStatus,
+  /** The chat's agent the run started under; null is none. Unset until the run starts. */
+  agent: Schema.optional(Schema.NullOr(AgentName)),
   queuePosition: Schema.optional(Schema.NullOr(PositiveInt)),
   queueHeld: Schema.optional(Schema.Boolean),
   requestedAt: Schema.DateTimeUtc,
@@ -1457,6 +1476,13 @@ export const OrchestrationV2ModelSwitch = Schema.Struct({
 });
 export type OrchestrationV2ModelSwitch = typeof OrchestrationV2ModelSwitch.Type;
 
+/** A change of the chat's agent that took effect with this message; null is no agent. */
+export const OrchestrationV2AgentSwitch = Schema.Struct({
+  from: Schema.NullOr(AgentName),
+  to: Schema.NullOr(AgentName),
+});
+export type OrchestrationV2AgentSwitch = typeof OrchestrationV2AgentSwitch.Type;
+
 const OrchestrationV2TurnItemBaseFields = {
   /** Wire-only cursor for collapsed work; persisted items keep their complete history. */
   deferredWork: Schema.optionalKey(
@@ -1522,6 +1548,43 @@ const OrchestrationV2SecretRequestFields = {
   secretStatus: OrchestrationV2SecretRequestStatus,
 } as const;
 
+export const OrchestrationV2ConnectorApprovalStatus = Schema.Literals([
+  "pending",
+  "allowed",
+  "declined",
+  "cancelled",
+]);
+export type OrchestrationV2ConnectorApprovalStatus =
+  typeof OrchestrationV2ConnectorApprovalStatus.Type;
+
+/**
+ * A connector action that asks first, such as sending email. The call waits for the user's
+ * answer; the card shows what the action would do.
+ */
+const OrchestrationV2ConnectorApprovalFields = {
+  type: Schema.Literal("connector_approval"),
+  connectionId: ConnectionId,
+  connectorName: TrimmedNonEmptyString,
+  tool: TrimmedNonEmptyString,
+  risk: ConnectorRisk,
+  /** What it would do, finishing "Gmail wants to …", such as "send a draft". */
+  action: TrimmedNonEmptyString,
+  /** Labelled facts, such as To and Subject. */
+  details: Schema.Array(Schema.Struct({ label: Schema.String, value: Schema.String })),
+  /** A longer excerpt, such as the email's text. */
+  preview: Schema.optional(Schema.String),
+  approvalStatus: OrchestrationV2ConnectorApprovalStatus,
+  /**
+   * Allowed with "always": this action no longer asks on this connector, or with `agent`, no action
+   * of its group asks in that agent's chats.
+   */
+  remembered: Schema.optional(Schema.Boolean),
+  /** The chat's agent asked, by its own settings, so "always" changes the agent's choice. */
+  agent: Schema.optional(AgentName),
+  /** Auto's reviewer handed this action to the user, and why. */
+  autoReason: Schema.optional(Schema.String),
+} as const;
+
 export const OrchestrationV2LinkRequestStatus = Schema.Literals([
   "pending",
   "linked",
@@ -1580,6 +1643,9 @@ export const OrchestrationV2TurnItem = Schema.Union([
     context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
     modelSwitch: Schema.optional(OrchestrationV2ModelSwitch),
+    /** The agent the message went to. */
+    agent: Schema.optional(AgentName),
+    agentSwitch: Schema.optional(OrchestrationV2AgentSwitch),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -1754,6 +1820,10 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     ...OrchestrationV2LinkRequestFields,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemBaseFields,
+    ...OrchestrationV2ConnectorApprovalFields,
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2069,6 +2139,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   lastErrorCode: Schema.optional(Schema.NullOr(Schema.String)),
   usageLimitResetAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummary),
+  /** A connector action in this thread waits for the user's answer. */
+  pendingConnectorApproval: Schema.optional(Schema.Boolean),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummary),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtc),
   /** Excludes wakes and agent messages that advance latestUserMessageAt through the user role. */
@@ -2100,6 +2172,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   tags: Schema.optional(StoredThreadTags),
   /** The chat folder this thread sits in; absent or null when it is in none. */
   folder: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The agent the chat talks to. */
+  agent: Schema.optional(AgentName),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   opens: Schema.optional(LenientThreadOpens),
   titleRegeneration: Schema.optional(
@@ -2422,6 +2496,9 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     context: Schema.optional(OrchestrationMessageContext),
     attachments: Schema.Array(ChatAttachment),
     modelSwitch: Schema.optional(OrchestrationV2ModelSwitch),
+    /** The agent the message went to. */
+    agent: Schema.optional(AgentName),
+    agentSwitch: Schema.optional(OrchestrationV2AgentSwitch),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
@@ -2591,6 +2668,10 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     ...OrchestrationV2LinkRequestFields,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemJsonBaseFields,
+    ...OrchestrationV2ConnectorApprovalFields,
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
@@ -2901,6 +2982,8 @@ export const OrchestrationV2Command = Schema.Union([
     ),
     /** Set by the server when it launches a team task; dropped from a client's command. */
     teamTask: Schema.optional(TeamTaskRef),
+    /** The agent the new chat talks to, such as a team task's agent. */
+    agent: Schema.optional(AgentName),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.archive"),
@@ -3025,6 +3108,12 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+    /** The chat's own connectors; null goes back to the ones on by default. */
+    connectors: Schema.optional(Schema.NullOr(Schema.Array(ConnectionId))),
+    /** Skills kept on for the chat. */
+    skills: Schema.optional(Schema.Array(SkillName)),
+    /** The agent the chat talks to; null goes back to no agent. */
+    agent: Schema.optional(Schema.NullOr(AgentName)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),
@@ -3371,6 +3460,31 @@ export const OrchestrationV2Command = Schema.Union([
     taskId: TeamTaskId,
     agentId: Schema.optional(TeamAgentId),
   }),
+  /**
+   * A workflow run's lead, or the user, accepts a step's result or sends it back with notes into
+   * the same thread. `round` names the result being judged, so a late answer changes nothing.
+   */
+  Schema.Struct({
+    type: Schema.Literal("team.task.review"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    taskId: TeamTaskId,
+    attempt: PositiveInt,
+    round: PositiveInt,
+    verdict: Schema.Literals(["accept", "revise"]),
+    notes: Schema.optional(
+      TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_REVIEW_NOTES_MAX_CHARS)),
+    ),
+  }),
+  /** Ends a workflow run's wait and goes on; `limits` replaces the run's limits, as when raised. */
+  Schema.Struct({
+    type: Schema.Literal("team.resume"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    limits: Schema.optional(WorkflowLimits),
+  }),
 ]);
 export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
 
@@ -3460,6 +3574,26 @@ const OrchestrationV2InternalCommand = Schema.Union([
     delivery: Schema.optional(OrchestrationV2SecretRequestDelivery),
     secretStatus: OrchestrationV2SecretRequestStatus,
   }),
+  /** Internal so no client can mark an action allowed without the connector gateway. */
+  Schema.Struct({
+    type: Schema.Literal("connector_approval.record"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
+    nodeId: NodeId,
+    turnItemId: TurnItemId,
+    connectionId: ConnectionId,
+    connectorName: TrimmedNonEmptyString,
+    tool: TrimmedNonEmptyString,
+    risk: ConnectorRisk,
+    action: TrimmedNonEmptyString,
+    details: Schema.Array(Schema.Struct({ label: Schema.String, value: Schema.String })),
+    preview: Schema.optional(Schema.String),
+    approvalStatus: OrchestrationV2ConnectorApprovalStatus,
+    remembered: Schema.optional(Schema.Boolean),
+    agent: Schema.optional(AgentName),
+    autoReason: Schema.optional(Schema.String),
+  }),
   /** A team task's thread finished. Internal so no client can report a result for an agent. */
   Schema.Struct({
     type: Schema.Literal("team.task.settle"),
@@ -3471,6 +3605,45 @@ const OrchestrationV2InternalCommand = Schema.Union([
     status: Schema.Literals(["completed", "failed", "cancelled"]),
     result: Schema.String,
     usage: Schema.optional(TeamTaskUsage),
+    /** The run that ended; a workflow step's thread settles once per run. */
+    runId: Schema.optional(RunId),
+  }),
+  /** Starts a workflow run: the plan is made and approved at once, so it never reads as proposed. */
+  Schema.Struct({
+    type: Schema.Literal("team.start"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    goal: TrimmedNonEmptyString,
+    ...TeamDraft.fields,
+    run: TeamPlanRun,
+    maxParallelPerProvider: Schema.optional(PositiveInt),
+  }),
+  /** A workflow run reached a limit, or its lead left a step undecided: it waits for the user. */
+  Schema.Struct({
+    type: Schema.Literal("team.hold"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    reason: TeamPlanHoldReason,
+  }),
+  /** The run's estimated cost, or the lead's one-line outcome. */
+  Schema.Struct({
+    type: Schema.Literal("team.run.update"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    planId: TeamPlanId,
+    costUsd: Schema.optional(Schema.NullOr(Schema.Finite)),
+    headline: Schema.optional(
+      TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_RUN_HEADLINE_MAX_CHARS)),
+    ),
+    note: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(TEAM_RUN_NOTE_MAX_CHARS))),
+  }),
+  /** A lead drafted a workflow in this chat; a newer draft replaces it. */
+  Schema.Struct({
+    type: Schema.Literal("workflow.draft.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    draft: WorkflowDraft,
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;

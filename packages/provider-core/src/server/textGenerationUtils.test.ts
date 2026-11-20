@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { limitSection, sanitizeCommitSubject, sanitizeThreadTitle } from "./textGenerationUtils.ts";
+import {
+  cutMiddle,
+  limitSection,
+  sanitizeCommitSubject,
+  sanitizeThreadTitle,
+} from "./textGenerationUtils.ts";
 
 describe("limitSection", () => {
   it("cuts a long section without splitting an emoji", () => {
     expect(limitSection(`${"a".repeat(9)}🚀 more`, 10)).toBe(`${"a".repeat(9)}\n\n[truncated]`);
+  });
+});
+
+describe("cutMiddle", () => {
+  it("keeps both ends, counts what is left out, and does not split an emoji", () => {
+    expect(cutMiddle("short", 9)).toBe("short");
+    expect(cutMiddle("abcdefghijklmnopqrstuvwxyz", 9)).toBe(
+      "abcdef [… 17 characters not shown …] xyz",
+    );
+    expect(cutMiddle("ab😀cdefgh😀ij", 6)).toBe("ab😀 [… 8 characters not shown …] ij");
+    expect(cutMiddle("abc😀defghi😀j", 6)).toBe("abc [… 10 characters not shown …] j");
   });
 });
 

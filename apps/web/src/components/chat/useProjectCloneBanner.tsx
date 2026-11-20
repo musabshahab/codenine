@@ -109,7 +109,7 @@ export function useProjectCloneBanner(activeProjectRef: ScopedProjectRef | null)
             variant="ghost"
             onClick={() => void removeClonedProject({ environmentId, projectId })}
           >
-            Remove project
+            Remove workspace
           </Button>
           <Button
             size="xs"

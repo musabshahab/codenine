@@ -7,7 +7,7 @@ import { serverEnvironment } from "../../state/server";
 import { Alert, AlertDescription } from "../ui/alert";
 
 const MULTIPLE_ACCOUNTS_FAQ_URL = codenineDocsUrl(
-  "user/faq.md#can-i-add-a-bunch-of-accounts-for-one-provider",
+  "user/faq.md#can-i-use-more-than-one-account-for-a-provider",
 );
 
 const PROVIDER_NAMES = new Map<string, string>([
@@ -40,7 +40,8 @@ export function MultipleAccountsNote({
       <InfoIcon aria-hidden />
       <AlertDescription>
         <p>
-          We do not recommend managing multiple {providerName} accounts in Codenine.{" "}
+          One {providerName} account per purpose, such as work and personal, works well. Codenine
+          never switches accounts on its own.{" "}
           <a
             href={MULTIPLE_ACCOUNTS_FAQ_URL}
             target="_blank"

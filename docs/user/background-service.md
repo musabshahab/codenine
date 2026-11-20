@@ -23,7 +23,7 @@ run these commands on the machine that will host Codenine:
 | Restart                               | `codenine service restart`   |
 | Stop and remove from startup          | `codenine service uninstall` |
 
-Uninstalling the service leaves your projects, threads, and settings intact.
+Uninstalling the service leaves your workspaces, threads, and settings intact.
 Running `codenine service install` again repairs a service that `codenine service status`
 reports as broken.
 
@@ -41,7 +41,7 @@ Pass an exact version (`codenine update 0.0.42`) to pin one, or `--allow-downgra
 backwards.
 
 `codenine uninstall` removes the background service, the `codenine` launcher, and the
-downloaded versions after showing you the list and asking once. Your projects,
+downloaded versions after showing you the list and asking once. Your workspaces,
 threads, and settings under `~/.codenine/userdata` are kept, along with `service.env`
 under Codenine home. Pass `--yes` from a script.
 

@@ -42,7 +42,7 @@ export interface ProviderClientDefinition {
   readonly environmentFields?: ReadonlyArray<ProviderEnvironmentField>;
   readonly hasDefaultInstance?: boolean;
   readonly badgeLabel?: string;
-  /** `false` lists the provider under Add provider's "Show more" instead of up front. */
+  /** `false` lists the provider under Add account's "Show more" instead of up front. */
   readonly featured?: boolean;
 }
 

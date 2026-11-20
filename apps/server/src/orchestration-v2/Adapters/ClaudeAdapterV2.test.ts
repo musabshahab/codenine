@@ -518,6 +518,57 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       installPermissionCallback: true,
     });
   });
+
+  it("takes away the tools a chat's agent may not use and tells Claude who it is", () => {
+    const agent = {
+      instructions: "You are the Code reviewer agent. Reviews code.",
+      abilities: { readFiles: true, editFiles: false, runCommands: false, searchWeb: true },
+    };
+    const policyFor = (interactionMode: "default" | "plan", instructions = agent.instructions) =>
+      ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
+        ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode,
+          cwd: "/workspace",
+          agent: { ...agent, instructions },
+        }),
+      );
+    const disallowedTools = [
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "EnterWorktree",
+      "ExitWorktree",
+      "Bash",
+      "PowerShell",
+      "Monitor",
+    ];
+    for (const interactionMode of ["default", "plan"] as const) {
+      assert.deepInclude(policyFor(interactionMode), {
+        disallowedTools,
+        agentInstructions: agent.instructions,
+      });
+    }
+    // Changed instructions reopen the query, as a changed policy does.
+    assert.notEqual(
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(policyFor("default"), {}),
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(policyFor("default", "Be brief."), {}),
+    );
+
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "native-thread-agent",
+      resume: false,
+      cwd: "/workspace",
+      disallowedTools,
+      agentInstructions: agent.instructions,
+    });
+    assert.deepEqual(options.disallowedTools, disallowedTools);
+    assert.include(
+      (options.systemPrompt as { readonly append?: string }).append ?? "",
+      "You are the Code reviewer agent. Reviews code.",
+    );
+  });
 });
 
 describe("ClaudeAdapterV2 MCP query overrides", () => {
@@ -565,7 +616,7 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     );
   });
 
-  it("invalidates live-query reuse when MCP credentials rotate", () => {
+  it("invalidates live-query reuse when MCP credentials or connectors change", () => {
     const threadId = ThreadId.make("thread-claude-mcp-credential-rotation");
     const mcpSession = mcpSessionFor(threadId);
     const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
@@ -588,6 +639,23 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
       }),
     );
     assert.notEqual(rotatedKey, initialKey);
+
+    const withGmail = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession: { ...mcpSession, connectors: ["gmail"] },
+      readOnlySandbox: false,
+    });
+    // Codenine asks before a connector action, so Claude never does.
+    assert.include(withGmail.allowedTools ?? [], "mcp__gmail__*");
+    assert.deepEqual(withGmail.mcpServers?.["gmail"], {
+      type: "http",
+      url: "http://127.0.0.1:43123/mcp/connectors/gmail",
+      headers: { Authorization: "Bearer secret-claude-token" },
+      timeout: 604_800_000,
+    });
+    assert.notEqual(
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(queryPolicy, withGmail),
+      initialKey,
+    );
   });
 
   it("matches the read-only allowlist to the orchestrator toolkit annotations", () => {
@@ -666,6 +734,42 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
     const logged = ClaudeAdapterV2.loggedClaudeQueryOptions(options);
     assert.equal(logged.hasMcpServers, true);
     assert.notInclude(JSON.stringify(logged), "secret-claude-token");
+  });
+
+  it("lists Codenine's skills while its MCP server is attached and sends its context first", () => {
+    const append = (
+      mcpServers?: Parameters<typeof ClaudeAdapterV2.makeClaudeQueryOptions>[0]["mcpServers"],
+    ) => {
+      const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+        modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+        nativeThreadId: "native-thread-skills",
+        resume: false,
+        cwd: "/workspace",
+        skills: [{ name: "review-code", description: "Reviews a change." }],
+        ...(mcpServers === undefined ? {} : { mcpServers }),
+      });
+      return (options.systemPrompt as { readonly append?: string }).append ?? "";
+    };
+    assert.include(
+      append({ codenine: { type: "http", url: "http://127.0.0.1/mcp" } }),
+      "- review-code: Reviews a change.",
+    );
+    assert.notInclude(append(), "review-code");
+
+    const message = ClaudeAdapterV2.makeClaudeUserMessage({
+      text: "$review-code then $deploy",
+      context: ['<codenine_skill name="review-code">Review it.</codenine_skill>'],
+      skills: new Map([
+        ["review-code", { path: "/home/user/.claude/skills/review-code/SKILL.md" }],
+        ["deploy", { path: "/home/user/.claude/skills/deploy/SKILL.md" }],
+      ]),
+      codenineSkills: ["review-code"],
+    });
+    assert.deepEqual(message.message.content, [
+      { type: "text", text: '<codenine_skill name="review-code">Review it.</codenine_skill>' },
+      { type: "text", text: "$review-code then /deploy" },
+      { type: "text", text: "/deploy" },
+    ]);
   });
 
   it("logs --settings key names without their values", () => {
@@ -809,8 +913,12 @@ describe("ClaudeAdapterV2 session permissions", () => {
   });
 });
 
-describe("ClaudeAdapterV2 Auto-accept edits", () => {
-  it.effect("asks before a command instead of allowing it", () =>
+describe("ClaudeAdapterV2 approval callback", () => {
+  // In auto, Claude hands the callback what its classifier could not decide.
+  it.effect.each([
+    { runtimeMode: "auto-accept-edits", permissionMode: "acceptEdits" },
+    { runtimeMode: "auto", permissionMode: "auto" },
+  ] as const)("asks before a command in $runtimeMode instead of allowing it", (mode) =>
     Effect.scoped(
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -851,7 +959,7 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
           },
         });
         const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-          runtimeMode: "auto-accept-edits",
+          runtimeMode: mode.runtimeMode,
           interactionMode: "default",
           cwd: "/workspace",
         });
@@ -879,7 +987,7 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
             runtimePolicy,
           }),
         );
-        assert.equal(openedOptions?.permissionMode, "acceptEdits");
+        assert.equal(openedOptions?.permissionMode, mode.permissionMode);
         const canUseTool = openedOptions?.canUseTool;
         assert.isFunction(canUseTool);
 

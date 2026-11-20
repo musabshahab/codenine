@@ -29,6 +29,7 @@ export type SettingsPath =
   | "/settings/worktrees"
   | "/settings/connections"
   | "/settings/access"
+  | "/settings/backup"
   | "/settings/maintenance"
   | "/settings/labs"
   | "/settings/about"
@@ -84,18 +85,19 @@ export interface SettingsSearchAvailability {
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/diagnostics": "Diagnostics",
-  "/settings/projects": "Projects",
+  "/settings/projects": "Workspaces",
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
   "/settings/diffs": "Diffs & pull requests",
   "/settings/keybindings": "Keybindings",
-  "/settings/providers": "Providers",
+  "/settings/providers": "Accounts",
   "/settings/threads": "Threads",
   "/settings/source-control": "Source control",
   "/settings/worktrees": "Worktrees",
   "/settings/connections": "Environments",
   "/settings/access": "Sharing & access",
+  "/settings/backup": "Backup",
   "/settings/maintenance": "Maintenance",
   "/settings/labs": "Labs",
   "/settings/about": "About",
@@ -131,7 +133,13 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   },
   {
     heading: null,
-    paths: ["/settings/maintenance", "/settings/labs", "/settings/about", "/settings/archived"],
+    paths: [
+      "/settings/backup",
+      "/settings/maintenance",
+      "/settings/labs",
+      "/settings/about",
+      "/settings/archived",
+    ],
   },
 ];
 
@@ -220,7 +228,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/worktrees",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage automatic delete deleted archived threads old inactive merged done settled unchanged worktrees retention days project inherit off custom",
+      "disk storage automatic delete deleted archived threads old inactive merged done settled unchanged worktrees retention days workspace inherit off custom",
     ],
   },
   {
@@ -239,23 +247,23 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-defaults",
-    title: "Project defaults and overrides",
+    title: "Workspace defaults and overrides",
     to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: ["model workspace environments projects inheritance checkout"],
   },
   {
     id: "project-overview",
-    title: "Project overview",
+    title: "Workspace overview",
     to: "/settings/projects",
     searchTerms: ["name icon emoji image checkout remove delete"],
   },
   {
     id: "default-model",
-    title: "Default model",
+    title: "Default account and model",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["new thread project provider reasoning effort"],
+    searchTerms: ["new thread project workspace provider account reasoning effort"],
   },
   {
     id: "fallback-model",
@@ -396,13 +404,13 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "project-grouping",
-    title: "Project grouping",
+    title: "Workspace grouping",
     to: "/settings/general",
     searchTerms: ["combine matching repositories environments sidebar"],
   },
   {
     id: "project-order",
-    title: "Project order",
+    title: "Workspace order",
     to: "/settings/general",
     searchTerms: ["sort projects sidebar manual created recent"],
   },
@@ -428,7 +436,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "sidebar-group-by-project",
-    title: "Group chats by project",
+    title: "Group chats by workspace",
     to: "/settings/general",
     searchTerms: ["sidebar folders project tree flat list needs you tasks boring"],
   },
@@ -515,6 +523,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification sound alert completion input approval desktop"],
   },
   {
+    id: "codenine-folder",
+    title: "Codenine folder",
+    to: "/settings/general",
+    searchTerms: [
+      "data folder files location open finder explorer .codenine home workspaces accounts skills logs backup",
+    ],
+  },
+  {
     id: "in-app-notifications",
     title: "In-app notifications",
     to: "/settings/general",
@@ -582,6 +598,51 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["queue steer running turn send default behavior composer"],
   },
   {
+    id: "backup-status",
+    title: "Back up now",
+    to: "/settings/backup",
+    searchTerms: ["backup copy save recover move new computer migrate export last backup"],
+  },
+  {
+    id: "backup-restore",
+    title: "Restore from a backup",
+    to: "/settings/backup",
+    targetId: "backup-status",
+    searchTerms: ["restore recover import move new computer migrate backup file undo"],
+  },
+  {
+    id: "backup-schedule",
+    title: "Automatic backups",
+    to: "/settings/backup",
+    searchTerms: ["backup schedule how often daily weekly off time day keep last older"],
+  },
+  {
+    id: "backup-folder",
+    title: "Where to keep backups",
+    to: "/settings/backup",
+    searchTerms: [
+      "backup folder location path icloud dropbox onedrive google drive external drive open",
+    ],
+  },
+  {
+    id: "backup-password",
+    title: "Backup password",
+    to: "/settings/backup",
+    searchTerms: ["backup encryption encrypted protection change password"],
+  },
+  {
+    id: "backup-worktrees",
+    title: "Back up unfinished task copies",
+    to: "/settings/backup",
+    searchTerms: ["backup worktrees include what a backup holds contents size"],
+  },
+  {
+    id: "backup-recent",
+    title: "Recent backups",
+    to: "/settings/backup",
+    searchTerms: ["backup list history download delete restore show all"],
+  },
+  {
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/maintenance",
@@ -629,7 +690,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "add-project-starts-in",
-    title: "Add project starts in",
+    title: "Add workspace starts in",
     to: "/settings/threads",
     scope: "environment-defaults",
     searchTerms: ["base directory folder browser path home"],
@@ -735,10 +796,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   ...KEYBINDING_SEARCH_ITEMS,
   {
     id: "providers",
-    title: "Providers",
+    title: "Accounts",
     to: "/settings/providers",
     searchTerms: [
-      "agents cli codex claude sign in sign out install subscription instances authentication api key models configuration binary path config directory codex_home shadow home endpoint arguments environment variables display name accent color custom favorite hidden auto compact native sessions import resume",
+      "accounts providers add account sign in with claude chatgpt codex cli login command line fast agents codex claude sign in sign out install subscription instances authentication api key models configuration binary path config directory codex_home shadow home endpoint arguments environment variables display name accent color custom favorite hidden auto compact native sessions import resume",
     ],
   },
   {
@@ -871,7 +932,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "WSL backend",
     to: "/settings/access",
     searchTerms: [
-      "windows subsystem linux distro second server projects stop windows backend restart wsl only",
+      "windows subsystem linux distro second server workspaces stop windows backend restart wsl only",
     ],
     desktopOnly: true,
     windowsOnly: true,
@@ -926,7 +987,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Load balancing",
     to: "/settings/connections",
     searchTerms: [
-      "automatic machine environment resources cpu memory capacity preference weight shared projects",
+      "automatic machine environment resources cpu memory capacity preference weight shared workspaces",
     ],
   },
   {
@@ -963,6 +1024,8 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/worktrees": "project-defaults",
   "/settings/connections": "connections",
   "/settings/access": "connections",
+  // The page picks its machine itself.
+  "/settings/backup": null,
   "/settings/maintenance": null,
   "/settings/labs": null,
   "/settings/about": null,

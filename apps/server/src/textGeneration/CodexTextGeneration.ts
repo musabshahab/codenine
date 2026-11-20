@@ -41,6 +41,13 @@ const CODEX_NO_PLUGIN_ARGS = [
   "--config",
   "features.apps=false",
 ] as const;
+// A review judges only the text it is given; the action it reads could ask it to look elsewhere.
+const CODEX_NO_TOOL_ARGS = [
+  "--config",
+  "features.shell_tool=false",
+  "--config",
+  'web_search="disabled"',
+] as const;
 const CodexMcpServers = Schema.fromJsonString(
   Schema.Array(Schema.Struct({ name: Schema.String, enabled: Schema.Boolean })),
 );
@@ -302,6 +309,7 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
           // A user's MCP server could act on the text-generation prompt.
           ...CODEX_NO_PLUGIN_ARGS,
           ...(mcpServersOff ? ["--config", mcpServersOff] : []),
+          ...(operation === "reviewAction" ? CODEX_NO_TOOL_ARGS : []),
           "--ephemeral",
           "--skip-git-repo-check",
           "-s",

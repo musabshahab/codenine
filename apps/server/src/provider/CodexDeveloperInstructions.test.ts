@@ -4,15 +4,35 @@ import { describe, it } from "vite-plus/test";
 
 import {
   buildCodexAdditionalContext,
+  buildCodexAgentContext,
   CODEX_ADDITIONAL_CONTEXT_VALUE_MAX_BYTES,
+  replaceDroppedAgentContext,
 } from "./CodexDeveloperInstructions.ts";
+
+const longAgentInstructions = [
+  "You are the Release 🦊 manager agent. Ships releases.",
+  ...Array.from(
+    { length: 120 },
+    (_, index) => `${index + 1}. Check the 🦊 changelog line by line.`,
+  ),
+  "🦊".repeat(1_500),
+].join("\n");
 
 describe("buildCodexAdditionalContext", () => {
   describe.each([
     { model: "custom-model", modelName: "Custom 🦊 Model", reasoningEffort: "xhigh" },
   ])("with runtime $model", (runtime) => {
     it("keeps every entry within Codex's per-entry cap", () => {
-      const context = buildCodexAdditionalContext(runtime);
+      const agentContext = buildCodexAgentContext(longAgentInstructions);
+      // Codex emits entries in key order, so the agent's instructions come back whole.
+      NodeAssert.equal(
+        Object.keys(agentContext)
+          .toSorted()
+          .map((key) => agentContext[key]!.value)
+          .join(""),
+        longAgentInstructions,
+      );
+      const context = { ...buildCodexAdditionalContext(runtime), ...agentContext };
 
       for (const [key, entry] of Object.entries(context)) {
         // Codex counts ceil(UTF-8 bytes / 4) tokens, excluding keys and wrappers.
@@ -73,6 +93,29 @@ describe("Codex orchestration context", () => {
     NodeAssert.ok(!orchestration.includes("Prefer native"));
     // The ACP terminal fallback is ACP-only; Codex agents never need it.
     NodeAssert.ok(!orchestration.includes("acp-mcp-call"));
+  });
+});
+
+describe("Codex agent context", () => {
+  it("overwrites the agent entries a turn no longer sends", () => {
+    const longer = buildCodexAgentContext(longAgentInstructions);
+    const shorter = buildCodexAgentContext("You are the Triager agent. Sorts issues.");
+    NodeAssert.ok(Object.keys(longer).length > 2);
+
+    const switched = replaceDroppedAgentContext(shorter, longer);
+    NodeAssert.deepEqual(Object.keys(switched).toSorted(), Object.keys(longer).toSorted());
+    NodeAssert.equal(
+      switched.codenine_agent_001!.value,
+      "You are the Triager agent. Sorts issues.",
+    );
+    NodeAssert.equal(switched.codenine_agent_002!.value, "");
+
+    const none = replaceDroppedAgentContext({}, switched);
+    NodeAssert.match(none.codenine_agent_001!.value, /no longer talks to an agent/);
+    NodeAssert.equal(none.codenine_agent_002!.value, "");
+    // Unchanged on later turns, so Codex does not send it again.
+    NodeAssert.deepEqual(replaceDroppedAgentContext({}, none), none);
+    NodeAssert.deepEqual(replaceDroppedAgentContext({}, undefined), {});
   });
 });
 

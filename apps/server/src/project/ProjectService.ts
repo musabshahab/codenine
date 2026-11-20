@@ -54,6 +54,8 @@ export interface ProjectCreateInput extends ProjectCreatePayload {
 export interface ProjectUpdateInput extends ProjectUpdatePayload {
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
+  /** For a folder about to be filled, as a clone's is. A move otherwise needs the folder there. */
+  readonly createWorkspaceRootIfMissing?: boolean;
 }
 
 export interface ProjectBootstrapInput extends ProjectCreateInput {}
@@ -416,6 +418,7 @@ export const make = Effect.gen(function* () {
           : yield* normalizeWorkspaceRoot({
               projectId: input.projectId,
               workspaceRoot: input.workspaceRoot,
+              createIfMissing: input.createWorkspaceRootIfMissing ?? false,
             });
       yield* commit({
         type: "project.meta.update",
@@ -570,9 +573,12 @@ export const make = Effect.gen(function* () {
       ...(yield* pathForms(config.cwd)),
       ...(yield* pathForms(import.meta.dirname)),
     ];
-    // ManagedProjectFolders creates new projects' folders directly inside these.
+    // ManagedProjectFolders creates new projects' folders directly inside these. None is itself a
+    // project folder to delete: workspaces/personal holds every Personal chat.
     const managedParents = baseDirs.flatMap((baseDir) =>
-      ["projects", "scratch"].map((name) => key(path.join(baseDir, name))),
+      [["projects"], ["scratch"], ["workspaces"], ["workspaces", "personal"]].map((segments) =>
+        key(path.join(baseDir, ...segments)),
+      ),
     );
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.orElseSucceed(() => ({ worktreesDirectory: "", previousWorktreesDirectories: [] })),
@@ -600,7 +606,11 @@ export const make = Effect.gen(function* () {
       if (holds(serverDirs)) return "Codenine itself is running from it";
       if (holds(worktreeDirs)) return "it holds Codenine's worktrees";
       if (inside(worktreeDirs)) return "it is inside Codenine's worktrees folder";
-      if (inside(baseDirs) && !managedParents.includes(key(path.dirname(candidate)))) {
+      if (
+        inside(baseDirs) &&
+        (!managedParents.includes(key(path.dirname(candidate))) ||
+          managedParents.includes(key(candidate)))
+      ) {
         return "it is inside Codenine's data folder and is not a project folder Codenine created";
       }
       const contained = others.find((other) => other.forms.some((form) => within(form, candidate)));

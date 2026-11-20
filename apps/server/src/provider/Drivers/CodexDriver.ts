@@ -48,7 +48,7 @@ import {
 } from "@codenine/provider-core/server/snapshotSettings";
 import {
   codexContinuationIdentity,
-  materializeCodexShadowHome,
+  materializeCodexHome,
   resolveCodexHomeLayout,
 } from "./CodexHomeLayout.ts";
 import { makeManagedCodexProvider } from "./CodexManagedProvider.ts";
@@ -56,6 +56,7 @@ import { codexUsageReader } from "./codexUsage.ts";
 import * as CodexInstallation from "../CodexInstallation.ts";
 import * as CodexManagedTokenBroker from "../CodexManagedTokenBroker.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
+import { unlinkCodenineSkills } from "../../codenineHome.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as HostProcess from "@codenine/shared/HostProcess";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
@@ -154,6 +155,7 @@ export const CodexDriver: ProviderDriver<
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const installation = yield* CodexInstallation.CodexInstallation;
     const modelCatalog = yield* ModelCatalog.ModelCatalog;
+    const { baseDir } = yield* ServerConfig.ServerConfig;
     const currentCatalog = modelCatalog.current(DRIVER_KIND);
     const processEnv = yield* mergeProviderInstanceEnvironment(
       environment,
@@ -173,7 +175,7 @@ export const CodexDriver: ProviderDriver<
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
-    yield* materializeCodexShadowHome(homeLayout).pipe(
+    yield* materializeCodexHome(homeLayout).pipe(
       Effect.mapError(
         (cause) =>
           new ProviderDriverError({
@@ -229,6 +231,8 @@ export const CodexDriver: ProviderDriver<
       ),
     );
 
+    // Older versions linked skills through the shared home, which shadow homes read.
+    yield* unlinkCodenineSkills({ baseDir, accountHome: homeLayout.sharedHomePath });
     // Kick the TTL-gated manifest refresh in the background and classify with the in-memory
     // manifest, so a slow or hung fetch never delays the provider check.
     const checkProvider = modelCatalog.refreshInBackground.pipe(

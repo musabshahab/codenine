@@ -17,6 +17,8 @@ import {
   resolveFirstRunDecision,
   resolveHostedFirstRunDecision,
   transitionFirstRunGateState,
+  withoutPersonal,
+  withoutUnusedPersonalChats,
   type FirstRunGateState,
 } from "../../onboarding/firstRun.logic";
 import { useAllEnvironmentShellsBootstrapped, useProjects } from "../../state/entities";
@@ -54,14 +56,21 @@ const workspaceEvidenceLiveAtom = Atom.make((get) => {
   return true;
 }).pipe(Atom.withLabel("web-onboarding-workspace-evidence-live"));
 
+const firstRunThreadsAtom = Atom.make((get) =>
+  withoutUnusedPersonalChats(
+    get(environmentThreadShells.threadShellsAtom),
+    get(environmentProjects.projectsAtom),
+  ),
+).pipe(Atom.withLabel("web-onboarding-first-run-threads"));
+
 // Subscribe only to thread count and the sole thread so populated-workspace shell updates cannot rerender the
 // app root.
-const threadCountAtom = Atom.make(
-  (get) => get(environmentThreadShells.threadShellsAtom).length,
-).pipe(Atom.withLabel("web-onboarding-thread-count"));
+const threadCountAtom = Atom.make((get) => get(firstRunThreadsAtom).length).pipe(
+  Atom.withLabel("web-onboarding-thread-count"),
+);
 
 const soleThreadAtom = Atom.make((get) => {
-  const threads = get(environmentThreadShells.threadShellsAtom);
+  const threads = get(firstRunThreadsAtom);
   return threads.length === 1 ? threads[0]! : null;
 }).pipe(Atom.withLabel("web-onboarding-sole-thread"));
 
@@ -90,7 +99,7 @@ export function FirstRunGate({
   );
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const { isReady: environmentCatalogReady } = useEnvironments();
-  const projects = useProjects();
+  const projects = withoutPersonal(useProjects());
   const threadCount = useAtomValue(threadCountAtom);
   const soleThread = useAtomValue(soleThreadAtom);
   const serverConfig = useAtomValue(primaryServerConfigAtom);

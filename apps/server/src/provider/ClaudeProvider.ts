@@ -88,6 +88,8 @@ const CLAUDE_PRESENTATION = {
   displayName: "Claude",
   showInteractionModeToggle: true,
   reportsContextWindow: true,
+  agentAbilities: ["readFiles", "editFiles", "runCommands", "searchWeb"],
+  builtInModelInfo: { usesTools: true, readsImages: true, price: null },
 } as const;
 
 const OPENROUTER_PRESENTATION = { ...CLAUDE_PRESENTATION, displayName: "OpenRouter" } as const;
@@ -713,8 +715,8 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
         auth: { status: "unauthenticated", ...OPENROUTER_AUTH },
         message:
           openRouterKey.status === "rejected"
-            ? "OpenRouter rejected this API key. Check it in Settings → Providers."
-            : "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Providers.",
+            ? "OpenRouter rejected this API key. Check it in Settings → Accounts."
+            : "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Accounts.",
       },
     });
   }

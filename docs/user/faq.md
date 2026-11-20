@@ -3,8 +3,8 @@
 ## What is Codenine?
 
 Codenine runs coding agents on your codebase and gives you one place to direct them. It is built
-to run a team of agents on one task: a lead agent proposes a team, each agent on Codex or Claude
-Code with a recommended model and effort, and you adjust that team before it starts.
+to run a team of agents on one task: a lead agent proposes a team built from your agents, each on
+Codex or Claude Code with a recommended model and effort, and you adjust that team before it starts.
 [Run a team](./thread-sidebar.md#run-a-team)
 
 Codenine also runs single Codex and Claude threads, lets an agent delegate work to subagents, and
@@ -35,14 +35,15 @@ do.
 Yes. Codenine uses the provider login on the machine that runs the server. Whether your plan's
 terms allow a given use is between you and your provider.
 
-## Can I add a bunch of accounts for one provider?
+## Can I use more than one account for a provider?
 
-Codenine is not the place to manage a pool of accounts, and it has no automatic account switcher.
+Yes. Add each one in **Settings → Accounts** with **Add account**, then pick the account in a chat's
+model picker, or set it as a workspace's default. Codenine never switches accounts on its own.
+Details: [Claude](./providers-claude.md#use-more-than-one-account) ·
+[Codex](./providers-codex.md#use-multiple-accounts).
 
-A separate work account is fine. Setup for two:
-[Codex](./providers-codex.md#use-multiple-accounts) ·
-[Claude](./providers-claude.md#separate-accounts-or-configurations). For a bigger pool, manage the
-accounts outside Codenine with a self-hosted proxy such as
+Codenine is not the place to manage a pool of accounts. For a bigger pool, manage the accounts
+outside Codenine with a self-hosted proxy such as
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). After you set up a hub, Codenine can
 show its pooled limits under Usage. [Connect a hub](./usage.md#connect-a-cliproxyapi-hub)
 
@@ -74,6 +75,20 @@ No. Codenine has a desktop app and a web app.
 No. There are no Codenine servers. Your code and prompts go from your machine to your provider
 (Anthropic or OpenAI). [Diagnostics data](./telemetry.md) lists what can leave your machine and how
 to turn it off.
+
+## Where does Codenine keep its files?
+
+In one folder on the machine that runs the server: `~/.codenine`, or the folder you passed with
+`--base-dir`. Its `README.md` explains each folder inside. Your workspaces are in `workspaces/`,
+with Personal chats in `workspaces/personal/`; older installs use `projects/` and `scratch/`.
+Accounts you add in Codenine are in `accounts/`, and the database, settings, and logs are in
+`userdata/`. Put a skill's folder in `skills/` to give it to every Claude and Codex account.
+
+Logins you already had in `~/.claude` and `~/.codex` stay where they are. `userdata/` and
+`accounts/` hold your saved keys and sign-ins as plain files, so treat them like a password.
+`caches/` is safe to delete. To keep your setup, turn on backups in **Settings → Backup**: they
+are encrypted copies of what matters in this folder, and restore it here or on a new computer.
+[Backup and restore](./backup.md)
 
 ## Worktrees are eating my disk. How do I clean them up?
 

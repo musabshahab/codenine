@@ -6,6 +6,7 @@ import {
   ServerSelfUpdateMethod,
 } from "./environment.ts";
 import { ServerAuthDescriptor } from "./auth.ts";
+import { AgentAbility } from "./agents.ts";
 import {
   ForwardCompatibleArray,
   IsoDateTime,
@@ -70,6 +71,16 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+/** What a model can do and costs, as far as its account says. */
+export const ServerProviderModelInfo = Schema.Struct({
+  /** Null when the account does not say. */
+  usesTools: Schema.NullOr(Schema.Boolean),
+  readsImages: Schema.NullOr(Schema.Boolean),
+  /** US dollars per million tokens, for pay-per-use accounts. */
+  price: Schema.NullOr(Schema.Struct({ input: Schema.Number, output: Schema.Number })),
+});
+export type ServerProviderModelInfo = typeof ServerProviderModelInfo.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -81,6 +92,7 @@ export const ServerProviderModel = Schema.Struct({
   isDefault: Schema.optional(Schema.Boolean),
   isLegacy: Schema.optional(Schema.Boolean),
   capabilities: Schema.NullOr(ModelCapabilities),
+  info: Schema.optional(ServerProviderModelInfo),
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
 
@@ -216,6 +228,8 @@ export const ServerProvider = Schema.Struct({
   supportedRuntimeModes: Schema.optional(ForwardCompatibleArray(RuntimeMode)),
   supportsConversationRollback: Schema.optional(Schema.Boolean),
   supportsTextGeneration: Schema.optional(Schema.Boolean),
+  /** What this provider can turn off for an agent; an ability left out stays on. Absent when unknown. */
+  agentAbilities: Schema.optional(ForwardCompatibleArray(AgentAbility)),
   setup: Schema.optional(
     Schema.Struct({
       canAuthenticate: Schema.Boolean,
@@ -509,6 +523,10 @@ export const ServerConfig = Schema.Struct({
   newProjectsRoot: Schema.optionalKey(TrimmedNonEmptyString),
   /** The server user's home directory; absent from older servers. */
   homeDirectory: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Codenine's own folder on the server machine, such as ~/.codenine; absent from older servers. */
+  codenineHome: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Agents whose own login folder (such as ~/.claude or ~/.codex) already exists on the server machine. */
+  agentHomesFound: Schema.optionalKey(Schema.Array(ProviderDriverKind)),
   /**
    * The latest stall long enough to notice, sent only for a few minutes after
    * it. A client that reconnects reads it to say why the host stopped

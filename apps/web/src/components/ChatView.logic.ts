@@ -1107,6 +1107,8 @@ export interface ComposerSendContents {
   readonly environmentContexts: ReadonlyArray<EnvironmentContextRecord>;
   /** Team was on, where the composer offers it. */
   readonly teamRequested?: boolean;
+  /** Workflow was on, where the composer offers it. */
+  readonly workflowRequested?: boolean;
 }
 
 /**
@@ -1127,6 +1129,7 @@ export function snapshotComposerSend(contents: ComposerSendContents) {
     threadContexts: [...contents.threadContexts],
     environmentContexts: [...contents.environmentContexts],
     teamRequested: contents.teamRequested === true,
+    workflowRequested: contents.workflowRequested === true,
     messageText: contents.terminalContexts
       .filter((context) => !terminalContexts.includes(context))
       .reduce(

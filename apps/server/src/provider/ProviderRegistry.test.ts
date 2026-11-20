@@ -385,8 +385,11 @@ it.layer(
             name: "GPT Live Codex",
             isCustom: false,
             capabilities: codexModelCapabilities,
+            info: { usesTools: true, readsImages: true, price: null },
           },
         ]);
+        // An agent on Codex can lose its edits, commands and web search, not its reading.
+        assert.deepStrictEqual(status.agentAbilities, ["editFiles", "runCommands", "searchWeb"]);
         assert.deepStrictEqual(status.skills, [
           {
             name: "github:gh-fix-ci",
@@ -2711,7 +2714,7 @@ it.layer(
         reply: 401,
         status: "error",
         auth: { status: "unauthenticated", type: "openrouter", label: "OpenRouter" } as const,
-        message: "OpenRouter rejected this API key. Check it in Settings → Providers.",
+        message: "OpenRouter rejected this API key. Check it in Settings → Accounts.",
       },
       {
         key: "unreachable",
@@ -2727,7 +2730,7 @@ it.layer(
         reply: null,
         status: "error",
         auth: { status: "unauthenticated", type: "openrouter", label: "OpenRouter" } as const,
-        message: "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Providers.",
+        message: "Add your OpenRouter API key as ANTHROPIC_AUTH_TOKEN in Settings → Accounts.",
       },
     ])("checks an OpenRouter instance's key: $key", ({ token, reply, status, auth, message }) =>
       Effect.gen(function* () {

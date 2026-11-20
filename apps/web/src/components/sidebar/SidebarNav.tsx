@@ -1,11 +1,15 @@
 import {
-  FolderCodeIcon,
+  BlocksIcon,
+  BotIcon,
   FolderPlusIcon,
   InboxIcon,
   ListChecksIcon,
   MessageCircleIcon,
+  PlugIcon,
+  SparklesIcon,
   SquarePenIcon,
   UsersIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
@@ -13,15 +17,36 @@ import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { SidebarMenuButton } from "../ui/sidebar";
 
+/** The full pages the sidebar opens, each at `/<page>`. */
+const SIDEBAR_PAGES = [
+  "inbox",
+  "tasks",
+  "agents",
+  "workflows",
+  "skills",
+  "connectors",
+  "archive",
+] as const;
+export type SidebarPage = (typeof SIDEBAR_PAGES)[number];
+
+/** The page a path belongs to; a connector's or a skill's own page counts as its list's. */
+export function sidebarPageForPath(pathname: string): SidebarPage | null {
+  return (
+    SIDEBAR_PAGES.find((page) => pathname === `/${page}` || pathname.startsWith(`/${page}/`)) ??
+    null
+  );
+}
+
 /** Every way to start something new, behind one button. */
 export function SidebarNewMenu(props: {
   newChatShortcutLabel: string | null;
   newChatDisabled: boolean;
-  /** Shift-click starts the chat in the current project. */
+  /** Shift-click starts the chat in the current workspace. */
   onNewChat: (event: ReactMouseEvent) => void;
   onNewTeamTask: (() => void) | null;
-  onNewProject: () => void;
-  onNewFolder: () => void;
+  /** Starts a chat with Workflow on, for the lead to draft a workflow from what the user writes. */
+  onNewWorkflow: (() => void) | null;
+  onNewWorkspace: () => void;
 }) {
   return (
     <Menu>
@@ -38,33 +63,32 @@ export function SidebarNewMenu(props: {
         </MenuItem>
         <MenuItem disabled={props.onNewTeamTask === null} onClick={() => props.onNewTeamTask?.()}>
           <UsersIcon />
-          New task with a team
+          New task
+        </MenuItem>
+        <MenuItem disabled={props.onNewWorkflow === null} onClick={() => props.onNewWorkflow?.()}>
+          <WorkflowIcon />
+          New workflow
         </MenuItem>
         <MenuSeparator />
-        <MenuItem onClick={props.onNewProject}>
-          <FolderCodeIcon />
-          New project
-        </MenuItem>
-        <MenuItem onClick={props.onNewFolder}>
+        <MenuItem onClick={props.onNewWorkspace}>
           <FolderPlusIcon />
-          New chat folder
+          New workspace
         </MenuItem>
       </MenuPopup>
     </Menu>
   );
 }
 
-/** Inbox and Tasks: the pages for work across every project. */
+/** Inbox and Tasks: the pages for work across every workspace. */
 export function SidebarNavRows(props: {
-  current: "inbox" | "tasks" | null;
+  current: SidebarPage | null;
   inboxCount: number;
   openTaskCount: number;
-  onOpenInbox: () => void;
-  onOpenTasks: () => void;
+  onOpen: (page: SidebarPage) => void;
 }) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-px">
-      <SidebarMenuButton isActive={props.current === "inbox"} onClick={props.onOpenInbox}>
+      <SidebarMenuButton isActive={props.current === "inbox"} onClick={() => props.onOpen("inbox")}>
         <InboxIcon />
         <span className="min-w-0 flex-1 truncate">Inbox</span>
         {props.inboxCount > 0 ? (
@@ -76,7 +100,7 @@ export function SidebarNavRows(props: {
           </span>
         ) : null}
       </SidebarMenuButton>
-      <SidebarMenuButton isActive={props.current === "tasks"} onClick={props.onOpenTasks}>
+      <SidebarMenuButton isActive={props.current === "tasks"} onClick={() => props.onOpen("tasks")}>
         <ListChecksIcon />
         <span className="min-w-0 flex-1 truncate">Tasks</span>
         {props.openTaskCount > 0 ? (
@@ -85,6 +109,38 @@ export function SidebarNavRows(props: {
           </span>
         ) : null}
       </SidebarMenuButton>
+    </nav>
+  );
+}
+
+const BUILD_ROWS = [
+  { page: "agents", label: "Agents", icon: <BotIcon /> },
+  { page: "workflows", label: "Workflows", icon: <WorkflowIcon /> },
+  { page: "skills", label: "Skills", icon: <SparklesIcon /> },
+  { page: "connectors", label: "Connectors", icon: <PlugIcon /> },
+] as const satisfies ReadonlyArray<{ page: SidebarPage; label: string; icon: ReactNode }>;
+
+/** What agents are made of: the agents and workflows themselves, and their skills and connectors. */
+export function SidebarBuildRows(props: {
+  current: SidebarPage | null;
+  onOpen: (page: SidebarPage) => void;
+}) {
+  return (
+    <nav aria-label="Build" className="flex flex-col gap-px">
+      <div className="flex h-7 items-center gap-1.5 pl-(--sidebar-row-content-inset) text-xs font-medium text-sidebar-muted-foreground [&>svg]:size-3.5">
+        <BlocksIcon aria-hidden />
+        Build
+      </div>
+      {BUILD_ROWS.map((row) => (
+        <SidebarMenuButton
+          key={row.page}
+          isActive={props.current === row.page}
+          onClick={() => props.onOpen(row.page)}
+        >
+          {row.icon}
+          <span className="min-w-0 flex-1 truncate">{row.label}</span>
+        </SidebarMenuButton>
+      ))}
     </nav>
   );
 }

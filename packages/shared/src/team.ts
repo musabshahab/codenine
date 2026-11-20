@@ -3,11 +3,11 @@ import {
   TEAM_LABEL_MAX_CHARS,
   TEAM_MAX_AGENTS,
   TEAM_MAX_TASKS,
+  type TeamAgent,
   type TeamDraft,
   type TeamPlan,
   type TeamPlanSummary,
   type TeamTask,
-  type TeamTaskId,
 } from "@codenine/contracts";
 
 export interface TeamDraftIssue {
@@ -31,11 +31,18 @@ function duplicate(ids: ReadonlyArray<string>): string | undefined {
   return undefined;
 }
 
-function dependencyCycle(tasks: TeamDraft["tasks"]): ReadonlyArray<TeamTaskId> | undefined {
+interface DependencyNode<Id extends string> {
+  readonly id: Id;
+  readonly dependsOn: ReadonlyArray<Id>;
+}
+
+function dependencyCycle<Id extends string>(
+  tasks: ReadonlyArray<DependencyNode<Id>>,
+): ReadonlyArray<Id> | undefined {
   const dependencies = new Map(tasks.map((task) => [task.id, task.dependsOn]));
-  const settled = new Set<TeamTaskId>();
-  const path: Array<TeamTaskId> = [];
-  const visit = (id: TeamTaskId): ReadonlyArray<TeamTaskId> | undefined => {
+  const settled = new Set<Id>();
+  const path: Array<Id> = [];
+  const visit = (id: Id): ReadonlyArray<Id> | undefined => {
     if (settled.has(id)) return undefined;
     const start = path.indexOf(id);
     if (start !== -1) return [...path.slice(start), id];
@@ -128,6 +135,51 @@ export function validateTeamDraft(draft: TeamDraft): TeamDraftIssue | null {
   return null;
 }
 
+/** The first duplicate id, unknown dependency or cycle among a workflow's steps, or null. */
+export function workflowStepsIssue<Id extends string>(
+  steps: ReadonlyArray<DependencyNode<Id>>,
+): string | null {
+  const duplicateStep = duplicate(steps.map((step) => step.id));
+  if (duplicateStep !== undefined) return `Step id "${duplicateStep}" is used twice.`;
+  const stepIds = new Set<string>(steps.map((step) => step.id));
+  for (const step of steps) {
+    const missing = step.dependsOn.find((dependency) => !stepIds.has(dependency));
+    if (missing !== undefined) {
+      return `Step "${step.id}" depends on "${missing}", which is not a step of this workflow.`;
+    }
+  }
+  const cycle = dependencyCycle(steps);
+  return cycle === undefined
+    ? null
+    : `Steps depend on each other in a cycle: ${cycle.join(" -> ")}.`;
+}
+
+/** What a lead proposes work for: a team's member or a workflow's step. */
+type ProposedPart = "member" | "step";
+
+/** For a lead whose proposed member or step is not exactly one of the user's agents or a suggestion. */
+export function teamMemberChoiceMessage(id: string, part: ProposedPart = "member"): string {
+  return `${part === "member" ? "Member" : "Step"} "${id}" needs exactly one of \`agent\` (one of the user's agents, from \`orchestrator_capabilities\` \`agents\`) or \`suggestion\` (an agent for the user to create when none of theirs fits).`;
+}
+
+/** For a lead whose proposed member or step names an agent the user does not have. */
+export function unknownTeamAgentMessage(
+  id: string,
+  name: string,
+  part: ProposedPart = "member",
+): string {
+  return `The user has no agent named "${name}". Use a \`name\` from \`orchestrator_capabilities\` \`agents\`, or give ${part} "${id}" a \`suggestion\` for the user to create.`;
+}
+
+/** Members the lead suggested whose agent the user has not created or chosen; the team waits for them. */
+export function teamMembersWithoutAgent(
+  draft: Pick<TeamDraft, "agents">,
+): ReadonlyArray<TeamAgent> {
+  return draft.agents.filter(
+    (agent) => agent.suggestion !== undefined && agent.agent === undefined,
+  );
+}
+
 type SchedulablePlan = Pick<TeamPlan, "agents" | "tasks" | "maxParallelPerProvider">;
 
 /**
@@ -172,19 +224,35 @@ export function settledTeamPlanStatus(plan: SchedulablePlan): "running" | "compl
   return startableTeamTasks(plan).length > 0 ? "running" : "failed";
 }
 
-/** What a thread list shows of a plan: its state and how many tasks reached each status. */
+/** A workflow step whose run ended and whose result waits for the lead to accept or send back. */
+export function isAwaitingReview(task: Pick<TeamTask, "status" | "review">): boolean {
+  return task.status === "running" && task.review?.awaiting === true;
+}
+
+/**
+ * What a thread list shows of a plan: its state and how many tasks reached each status. A step
+ * awaiting review still counts as running.
+ */
 export function teamPlanSummary(
-  plan: Pick<TeamPlan, "id" | "status" | "revision" | "tasks">,
+  plan: Pick<TeamPlan, "id" | "status" | "revision" | "tasks" | "run" | "hold">,
 ): TeamPlanSummary {
   const counts = { completed: 0, failed: 0, running: 0, cancelled: 0 };
   for (const task of plan.tasks) {
     if (task.status !== "pending") counts[task.status] += 1;
   }
-  return {
+  const summary = {
     planId: plan.id,
     status: plan.status,
     revision: plan.revision,
     total: plan.tasks.length,
     ...counts,
+  };
+  if (plan.run === undefined) return summary;
+  const { inputs: _inputs, limits: _limits, note: _note, ...run } = plan.run;
+  return {
+    ...summary,
+    run,
+    ...(plan.hold === undefined ? {} : { hold: plan.hold }),
+    awaitingReview: plan.tasks.filter(isAwaitingReview).length,
   };
 }

@@ -1,4 +1,9 @@
-import { ClaudeSettings, ProviderDriverKind } from "@codenine/contracts";
+import {
+  ClaudeSettings,
+  ProviderDriverKind,
+  type ServerProviderModelInfo,
+} from "@codenine/contracts";
+import { OPENROUTER_AUTH_TYPE } from "@codenine/shared/openRouter";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -11,6 +16,7 @@ import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 
+import { unlinkCodenineSkills } from "../../codenineHome.ts";
 import { makeClaudeTextGeneration } from "../../textGeneration/ClaudeTextGeneration.ts";
 import * as ProviderLatestVersions from "@codenine/provider-core/server/ProviderLatestVersions";
 import * as ProviderHost from "@codenine/provider-core/server/ProviderHost";
@@ -35,8 +41,10 @@ import {
   type ClaudeCapabilitiesProbe,
 } from "../ClaudeProvider.ts";
 import { makeManagedServerProvider } from "@codenine/provider-core/server/managedProvider";
+import type { ServerProviderDraft } from "@codenine/provider-core/server/snapshotProbe";
 import * as ModelCatalog from "@codenine/provider-core/server/ModelCatalog";
 import { resolveClaudeModelCatalog } from "../ClaudeModelCatalog.ts";
+import { fetchOpenRouterModelInfo, withOpenRouterModelInfo } from "../OpenRouterModels.ts";
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
@@ -61,6 +69,7 @@ const decodeClaudeSettings = Schema.decodeSync(ClaudeSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 const CAPABILITIES_PROBE_TTL = Duration.minutes(5);
+const OPENROUTER_MODEL_INFO_TTL = Duration.days(1);
 
 const withoutUsage = (capabilities: ClaudeCapabilitiesProbe): ClaudeCapabilitiesProbe => {
   const result = { ...capabilities };
@@ -104,7 +113,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     const path = yield* Path.Path;
     // The server cwd is $HOME in packaged desktop builds, and `claude`
     // wrappers that scope themselves to their cwd refuse to run there.
-    const { stateDir } = yield* ServerConfig.ServerConfig;
+    const { stateDir, baseDir } = yield* ServerConfig.ServerConfig;
     const httpClient = yield* HttpClient.HttpClient;
     const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
     const resetCreditCoordinator = yield* ResetCreditCoordinator.ResetCreditCoordinator;
@@ -238,7 +247,28 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
     const resolveCapabilities = Cache.get(capabilitiesProbeCache, capabilitiesCacheKey).pipe(
       Effect.map((result) => result.capabilities),
     );
+    // Asked only for an OpenRouter account that is on; a failure is retried and leaves the models
+    // unknown.
+    const openRouterModelInfoCache = yield* Cache.makeWith(
+      () =>
+        fetchOpenRouterModelInfo().pipe(Effect.provideService(HttpClient.HttpClient, httpClient)),
+      {
+        capacity: 1,
+        timeToLive: (exit) => (Exit.isSuccess(exit) ? OPENROUTER_MODEL_INFO_TTL : Duration.zero),
+      },
+    );
+    const withModelInfo = (provider: ServerProviderDraft) =>
+      provider.auth.type !== OPENROUTER_AUTH_TYPE || !provider.enabled
+        ? Effect.succeed(provider)
+        : Cache.get(openRouterModelInfoCache, "models").pipe(
+            Effect.orElseSucceed((): ReadonlyMap<string, ServerProviderModelInfo> => new Map()),
+            Effect.map((info) => ({
+              ...provider,
+              models: withOpenRouterModelInfo(provider.models, info),
+            })),
+          );
 
+    yield* unlinkCodenineSkills({ baseDir, accountHome: configDir });
     const checkProvider = catalogService.refreshInBackground.pipe(
       Effect.andThen(
         modelCatalog.pipe(
@@ -263,6 +293,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
               ? Cache.invalidateAll(capabilitiesProbeCache)
               : Effect.void,
           ),
+          Effect.flatMap(withModelInfo),
           Effect.map(stampIdentity),
         ),
       ),

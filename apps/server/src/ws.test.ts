@@ -88,6 +88,12 @@ import * as SourceControlRepositoryService from "./sourceControl/SourceControlRe
 import * as SourceControlSignIn from "./sourceControl/SourceControlSignIn.ts";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as DatabaseStorage from "./persistence/DatabaseStorage.ts";
+import * as BackupService from "./backup/BackupService.ts";
+import * as Skills from "./skills/Skills.ts";
+import * as Agents from "./agents/Agents.ts";
+import * as Workflows from "./workflows/Workflows.ts";
+import * as ConnectorGateway from "./connectors/ConnectorGateway.ts";
+import * as Connectors from "./connectors/Connectors.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
@@ -789,6 +795,12 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(SourceControlSignIn.SourceControlSignIn)({}),
   Layer.mock(StorageCleanup.StorageCleanup)({}),
   Layer.mock(DatabaseStorage.DatabaseStorage)({}),
+  Layer.mock(BackupService.BackupService)({}),
+  Layer.mock(Skills.Skills)({}),
+  Layer.mock(Agents.Agents)({}),
+  Layer.mock(Workflows.Workflows)({}),
+  Layer.mock(Connectors.Connectors)({}),
+  Layer.mock(ConnectorGateway.ConnectorGateway)({}),
   Layer.mock(TerminalManager.TerminalManager)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
   Layer.mock(ThreadManagement.ThreadManagementService)({}),

@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  ConnectionId,
   MessageId,
   EventId,
   NodeId,
@@ -425,6 +426,9 @@ it.effect(
         commandId: CommandId.make("rename-control"),
         threadId,
         title: "After",
+        connectors: [ConnectionId.make("gmail"), ConnectionId.make("gmail")],
+        skills: ["review"],
+        agent: "code-reviewer",
       });
       yield* orchestrator.dispatch({
         type: "thread.runtime-mode.set",
@@ -622,6 +626,32 @@ it.effect(
       assert.equal(thread.title, "After");
       assert.equal(thread.modelSelection.model, "gpt-6");
       assert.equal(thread.runtimeMode, "approval-required");
+      // Updates that leave the chat's choices out keep them.
+      assert.deepEqual(thread.connectors, [ConnectionId.make("gmail")]);
+      assert.deepEqual(thread.skills, ["review"]);
+      assert.equal(thread.agent, "code-reviewer");
+      // Codenine's MCP tools read the chat's agent from its shell.
+      assert.equal((yield* projections.getThreadShell(threadId))?.agent, "code-reviewer");
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("connectors-default-control"),
+        threadId,
+        connectors: null,
+      });
+      const onDefaults = yield* projections.getThread(threadId);
+      assert.isFalse("connectors" in onDefaults);
+      assert.deepEqual(onDefaults.skills, ["review"]);
+      assert.equal(onDefaults.agent, "code-reviewer");
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("agent-none-control"),
+        threadId,
+        agent: null,
+      });
+      const withoutAgent = yield* projections.getThread(threadId);
+      assert.isFalse("agent" in withoutAgent);
+      assert.isUndefined((yield* projections.getThreadShell(threadId))?.agent);
+      assert.deepEqual(withoutAgent.skills, ["review"]);
       assert.deepEqual(
         (yield* projections.getThreadProviderContext(threadId)).providerSessions,
         [],
@@ -1630,6 +1660,88 @@ it.effect("keeps a snooze when a live question is cancelled or an approval is an
         "runtime-request.respond",
       );
     }
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("records a connector approval card and keeps the first answer", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:connector-approval");
+    const turnItemId = TurnItemId.make("turn-item:connector-approval:send");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("create-connector-approval"),
+      threadId,
+      projectId: ProjectId.make("project:connector-approval"),
+      title: "Send the release note",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("start-connector-approval"),
+      threadId,
+      messageId: MessageId.make("message:connector-approval"),
+      text: "Send it",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const run = (yield* projections.getThreadProjection(threadId)).runs[0]!;
+    const record = (
+      status: "pending" | "allowed" | "declined" | "cancelled",
+      nodeId = run.rootNodeId!,
+    ) =>
+      orchestrator.dispatch({
+        type: "connector_approval.record",
+        commandId: CommandId.make(`connector-approval:${status}:${nodeId}`),
+        threadId,
+        runId: run.id,
+        nodeId,
+        turnItemId,
+        connectionId: ConnectionId.make("gmail"),
+        connectorName: "Gmail",
+        tool: "send_draft",
+        risk: "irreversible",
+        action: "send a draft",
+        details: [{ label: "To", value: "sam@example.com" }],
+        preview: "The release is on Friday.",
+        approvalStatus: status,
+        ...(status === "allowed" ? { remembered: true } : {}),
+        autoReason: "Auto's review took too long, so it asks you.",
+      });
+    const card = Effect.gen(function* () {
+      const item = (yield* projections.getThreadProjection(threadId)).turnItems.find(
+        (candidate) => candidate.id === turnItemId,
+      );
+      assert.ok(item?.type === "connector_approval");
+      return item;
+    });
+
+    yield* record("pending");
+    assert.deepInclude(yield* card, {
+      status: "waiting",
+      title: "Gmail wants to send a draft",
+      approvalStatus: "pending",
+      completedAt: null,
+      autoReason: "Auto's review took too long, so it asks you.",
+    });
+    yield* record("allowed");
+    yield* record("cancelled");
+    assert.deepInclude(yield* card, {
+      status: "completed",
+      approvalStatus: "allowed",
+      remembered: true,
+    });
+    const elsewhere = yield* record("pending", NodeId.make("node:not-the-root")).pipe(Effect.flip);
+    assert.equal(elsewhere._tag, "OrchestratorDispatchError");
   }).pipe(Effect.provide(layerTest)),
 );
 

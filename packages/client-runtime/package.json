@@ -27,6 +27,10 @@
       "types": "./src/composerModelMentions.ts",
       "default": "./src/composerModelMentions.ts"
     },
+    "./composer-agent-mentions": {
+      "types": "./src/composerAgentMentions.ts",
+      "default": "./src/composerAgentMentions.ts"
+    },
     "./model-search": {
       "types": "./src/modelSearch.ts",
       "default": "./src/modelSearch.ts"
@@ -130,6 +134,26 @@
     "./relay": {
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
+    },
+    "./state/backup": {
+      "types": "./src/state/backup.ts",
+      "default": "./src/state/backup.ts"
+    },
+    "./state/agents": {
+      "types": "./src/state/agents.ts",
+      "default": "./src/state/agents.ts"
+    },
+    "./state/savedWorkflows": {
+      "types": "./src/state/savedWorkflows.ts",
+      "default": "./src/state/savedWorkflows.ts"
+    },
+    "./state/connectors": {
+      "types": "./src/state/connectors.ts",
+      "default": "./src/state/connectors.ts"
+    },
+    "./state/skills": {
+      "types": "./src/state/skills.ts",
+      "default": "./src/state/skills.ts"
     },
     "./state/auth": {
       "types": "./src/state/auth.ts",

@@ -148,6 +148,21 @@ const numericDateWithYearFormatter = new Intl.DateTimeFormat(
   numericDateWithYearOptions,
 );
 
+const monthDayFormatter = new Intl.DateTimeFormat(timestampLocale, {
+  month: "short",
+  day: "numeric",
+});
+const monthDayYearFormatter = new Intl.DateTimeFormat(timestampLocale, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+/** "Nov 14", or "Nov 14, 2025" with the year. */
+export function formatMonthDay(date: Date, withYear: boolean): string {
+  return (withYear ? monthDayYearFormatter : monthDayFormatter).format(date);
+}
+
 interface CalendarDay {
   year: number;
   /** Days since the epoch, so differences are whole days across DST shifts. */

@@ -74,6 +74,7 @@ import {
 } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { Button } from "../ui/button";
+import { CodenineFolderSettings } from "./CodenineFolderSettings";
 import { DraftInput } from "../ui/draft-input";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -453,13 +454,13 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["In-app notifications"]
       : []),
     ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
-      ? ["Project Grouping"]
+      ? ["Workspace Grouping"]
       : []),
     ...(settings.sidebarProjectSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder
-      ? ["Project order"]
+      ? ["Workspace order"]
       : []),
     ...(settings.sidebarGroupByProject !== DEFAULT_UNIFIED_SETTINGS.sidebarGroupByProject
-      ? ["Group chats by project"]
+      ? ["Group chats by workspace"]
       : []),
     ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
       ? ["Working section"]
@@ -531,7 +532,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ? ["New worktrees start from remote"]
       : []),
     ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
-      ? ["Add project base directory"]
+      ? ["Add workspace base directory"]
       : []),
     ...(settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout
       ? ["Clone into host folders"]
@@ -721,11 +722,13 @@ export function GeneralSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <CodenineFolderSettings />
       <SettingsSection id="notifications" title="Notifications">
         <NotificationSettings />
         <SettingsRow
           {...searchableSetting("in-app-notifications")}
           description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.inAppNotificationsEnabled}
@@ -739,7 +742,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection id="sidebar" title="Sidebar">
         <SettingsRow
           {...searchableSetting("sidebar-group-by-project")}
-          description="Show chats in a folder for each project. Pinned chats stay above the folders and Snoozed below them; finished chats move to Completed & archived. Off shows one list, with its own Done shelf."
+          description="Show chats in a folder for each workspace. Pinned chats stay above the folders and Snoozed below them; finished chats move to Completed & archived. Off shows one list, with its own Done shelf."
           resetAction={
             settings.sidebarGroupByProject !== DEFAULT_UNIFIED_SETTINGS.sidebarGroupByProject ? (
               <SettingResetButton
@@ -752,13 +755,14 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.sidebarGroupByProject}
               onCheckedChange={(checked) =>
                 updateSettings({ sidebarGroupByProject: Boolean(checked) })
               }
-              aria-label="Group chats by project"
+              aria-label="Group chats by workspace"
             />
           }
         />
@@ -769,7 +773,7 @@ export function GeneralSettingsPanel() {
             settings.sidebarProjectGroupingMode !==
             DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode ? (
               <SettingResetButton
-                label="project grouping"
+                label="workspace grouping"
                 onClick={() =>
                   updateSettings({
                     sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
@@ -778,6 +782,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={isProjectGroupingEnabled(settings.sidebarProjectGroupingMode)}
@@ -793,18 +798,18 @@ export function GeneralSettingsPanel() {
                   ),
                 });
               }}
-              aria-label="Project grouping"
+              aria-label="Workspace grouping"
             />
           }
         />
         <SettingsRow
           {...searchableSetting("project-order")}
-          description="Order of projects in the sidebar project picker and command palette."
+          description="Order of workspaces in the sidebar workspace picker and command palette."
           resetAction={
             settings.sidebarProjectSortOrder !==
             DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder ? (
               <SettingResetButton
-                label="project order"
+                label="workspace order"
                 onClick={() =>
                   updateSettings({
                     sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
@@ -822,7 +827,7 @@ export function GeneralSettingsPanel() {
                 }
               }}
             >
-              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Project order">
+              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Workspace order">
                 <SelectValue>
                   {SIDEBAR_PROJECT_SORT_ORDER_LABELS[settings.sidebarProjectSortOrder]}
                 </SelectValue>
@@ -839,7 +844,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("working-shelf")}
-          description="In the single list, fold working and monitoring threads into a Working section. They return to the top of the list when they need you. Chats grouped by project have no Working section."
+          description="In the single list, fold working and monitoring chats into a Working section. They return to the top of the list when they need you. Chats grouped by workspace have no Working section."
           resetAction={
             settings.sidebarWorkingShelfEnabled !==
             DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
@@ -853,6 +858,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.sidebarWorkingShelfEnabled}
@@ -881,6 +887,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.confirmThreadUnpin}
@@ -906,6 +913,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.confirmThreadArchive}
@@ -931,6 +939,7 @@ export function GeneralSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.confirmThreadDelete}
@@ -1060,6 +1069,7 @@ export function ChatSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.composerRichTextEnabled}
@@ -1132,6 +1142,7 @@ export function ChatSettingsPanel() {
                 />
               ) : null
             }
+            controlPlacement="inline"
             control={
               <Switch
                 checked={settings.showSkillsInSlashMenu}
@@ -1354,6 +1365,7 @@ export function DiffsSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.diffIgnoreWhitespace}
@@ -1425,6 +1437,7 @@ export function DiffsSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <Switch
               checked={settings.proactivePanelsEnabled}
@@ -1563,17 +1576,17 @@ export function ThreadsSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="new-projects" title="New projects">
+      <SettingsSection id="new-projects" title="New workspaces">
         <SettingsRow
           serverScoped
           settingKeys={["addProjectBaseDirectory"]}
           {...searchableSetting("add-project-starts-in")}
-          description='Leave empty to use "~/" when the Add Project browser opens.'
+          description='Where browsing for a folder starts, and where Clone into host folders puts clones. Leave empty to use "~/".'
           resetAction={
             settings.addProjectBaseDirectory !==
             DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
               <SettingResetButton
-                label="add project base directory"
+                label="add workspace base directory"
                 onClick={() =>
                   updateSettings({
                     addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
@@ -1591,7 +1604,7 @@ export function ThreadsSettingsPanel() {
               normalizeDraft={resolvePastedPath}
               placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
               spellCheck={false}
-              aria-label="Add project base directory"
+              aria-label="Add workspace base directory"
             />
           }
         />
@@ -1610,6 +1623,7 @@ export function ThreadsSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["ghqCloneLayout"]}
@@ -1635,6 +1649,7 @@ export function ThreadsSettingsPanel() {
           {...searchableSetting("auto-resume-limited-threads")}
           description="Automatically resume threads when their usage limits reset. You can cancel auto-resume in each thread."
           settingKeys={["autoResumeLimitedThreads"]}
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["autoResumeLimitedThreads"]}
@@ -1651,6 +1666,7 @@ export function ThreadsSettingsPanel() {
           {...searchableSetting("snooze-limited-threads")}
           description="Snooze threads until their usage limits reset. Enable auto-resume to continue the agent after the reset."
           settingKeys={["snoozeLimitedThreads"]}
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["snoozeLimitedThreads"]}
@@ -1684,6 +1700,7 @@ export function ThreadsSettingsPanel() {
                 />
               ) : null
             }
+            controlPlacement="inline"
             control={
               <ScopedSwitch
                 settingKeys={["sidebarAutoSettleOnMerge"]}
@@ -1715,6 +1732,7 @@ export function ThreadsSettingsPanel() {
                 />
               ) : null
             }
+            controlPlacement="inline"
             control={
               <ScopedSwitch
                 settingKeys={["sidebarAutoSettleAfterDays"]}
@@ -1748,6 +1766,7 @@ export function ThreadsSettingsPanel() {
               settingKeys={["sidebarAutoSettleKeepPullRequests"]}
               title="Keep threads with a PR"
               description="Inactivity does not mark threads with a pull request done. Merge and close still do."
+              controlPlacement="inline"
               control={
                 <ScopedSwitch
                   settingKeys={["sidebarAutoSettleKeepPullRequests"]}
@@ -1954,6 +1973,7 @@ export function MaintenanceSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["enableProviderUpdateChecks"]}
@@ -1990,6 +2010,7 @@ export function MaintenanceSettingsPanel() {
               />
             ) : null
           }
+          controlPlacement="inline"
           control={
             <ScopedSwitch
               settingKeys={["continueThreadsAfterServerUpdate"]}

@@ -1,0 +1,32 @@
+/* React Flow draws its edges, handles, minimap and background itself; these follow the app's theme. */
+[data-workflow-canvas] {
+  --xy-edge-stroke: color-mix(in srgb, var(--contrast-muted-foreground) 70%, transparent);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: var(--primary);
+  --xy-connectionline-stroke: var(--primary);
+  --xy-connectionline-stroke-width: 1.5;
+  --xy-background-color: var(--background);
+  --xy-background-pattern-color: var(--contrast-border);
+  --xy-handle-background-color: var(--background);
+  --xy-minimap-background-color: var(--card);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--background) 55%, transparent);
+  --xy-minimap-mask-stroke-color: var(--contrast-border);
+  --xy-minimap-node-background-color: color-mix(
+    in srgb,
+    var(--contrast-muted-foreground) 30%,
+    transparent
+  );
+  --xy-selection-background-color: color-mix(in srgb, var(--primary) 6%, transparent);
+  --xy-selection-border: 1px dotted var(--primary);
+}
+
+[data-workflow-canvas] .react-flow__minimap-node.workflow-minimap-lead {
+  fill: color-mix(in srgb, var(--primary) 5%, transparent);
+  stroke: color-mix(in srgb, var(--primary) 45%, transparent);
+  stroke-dasharray: 6 4;
+  stroke-width: 2;
+}
+
+[data-workflow-canvas] .react-flow__minimap-node.workflow-minimap-selected {
+  fill: var(--primary);
+}

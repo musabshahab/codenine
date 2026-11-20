@@ -55,6 +55,8 @@ export const ProjectCloneStartInput = Schema.Struct({
   remoteUrl: Schema.optional(TrimmedNonEmptyString),
   destinationPath: TrimmedNonEmptyString,
   protocol: Schema.optional(SourceControlCloneProtocol),
+  /** `projectId` is a project that lost its folder: the clone becomes its folder. */
+  repointExisting: Schema.optional(Schema.Boolean),
 });
 export type ProjectCloneStartInput = typeof ProjectCloneStartInput.Type;
 

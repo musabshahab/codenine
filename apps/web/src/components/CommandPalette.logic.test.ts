@@ -8,10 +8,8 @@ import {
   resolveCommandPaletteProject,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
-  filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
   reduceCommandPaletteUiState,
-  resolveAddProjectEntry,
   createCommandPaletteSearchState,
   reduceCommandPaletteSearchState,
   type CommandPaletteUiState,
@@ -100,47 +98,19 @@ describe("reduceCommandPaletteUiState", () => {
     expect(state).toMatchObject({ open: true, openIntent: { kind: "new-thread-in" }, session: 1 });
     state = reduceCommandPaletteUiState(state, { _tag: "ToggleMode", mode: "files" });
     expect(state).toMatchObject({ mode: "files", openIntent: null, session: 1 });
-    state = reduceCommandPaletteUiState(state, { _tag: "OpenAddProject" });
+    state = reduceCommandPaletteUiState(state, { _tag: "OpenChangeTheme" });
     expect(state).toMatchObject({
       mode: "command",
-      openIntent: { kind: "add-project" },
+      openIntent: { kind: "change-theme" },
       session: 2,
     });
-    const source = { environmentId: EnvironmentId.make("local"), source: "clone" } as const;
-    state = reduceCommandPaletteUiState(state, { _tag: "OpenAddProject", source });
-    expect(state).toMatchObject({ openIntent: { kind: "add-project", source }, session: 3 });
     state = reduceCommandPaletteUiState(state, { _tag: "ToggleMode", mode: "content" });
-    state = reduceCommandPaletteUiState(state, { _tag: "OpenNewProject" });
+    state = reduceCommandPaletteUiState(state, { _tag: "OpenNewThreadIn" });
     expect(state).toEqual({
       open: true,
       mode: "command",
-      openIntent: { kind: "new-project" },
-      session: 4,
-    });
-  });
-});
-
-describe("resolveAddProjectEntry", () => {
-  const local = EnvironmentId.make("local");
-  const remote = EnvironmentId.make("remote");
-
-  it("sends the user to connect an environment when none can add a project", () => {
-    expect(resolveAddProjectEntry([], null)).toEqual({ kind: "connect-environment" });
-  });
-
-  it("asks for an environment when there is a choice or no connected default", () => {
-    expect(
-      resolveAddProjectEntry([{ environmentId: local }, { environmentId: remote }], local),
-    ).toEqual({ kind: "choose-environment" });
-    expect(resolveAddProjectEntry([{ environmentId: local }], null)).toEqual({
-      kind: "choose-environment",
-    });
-  });
-
-  it("goes straight to sources for the only environment", () => {
-    expect(resolveAddProjectEntry([{ environmentId: local }], local)).toEqual({
-      kind: "choose-source",
-      environmentId: local,
+      openIntent: { kind: "new-thread-in" },
+      session: 3,
     });
   });
 });
@@ -307,9 +277,9 @@ describe("buildThreadActionItems", () => {
     const before = filter([]);
     // The server matched both; the title match stays where it was.
     const after = filter([items[0]!, items[1]!].toReversed());
-    expect(before).toEqual([["Threads", ["thread:environment-local:title"]]]);
+    expect(before).toEqual([["Chats", ["thread:environment-local:title"]]]);
     expect(after).toEqual([
-      ["Threads", ["thread:environment-local:title"]],
+      ["Chats", ["thread:environment-local:title"]],
       ["In messages", ["thread:environment-local:message"]],
     ]);
   });
@@ -352,7 +322,7 @@ describe("buildThreadActionItems", () => {
       })[0]?.label;
 
     for (const query of ["comp", "compa", "compac", "compact", "compacti", "compaction"]) {
-      expect(firstGroup(query), query).toBe("Threads");
+      expect(firstGroup(query), query).toBe("Chats");
     }
   });
 
@@ -382,7 +352,7 @@ describe("buildThreadActionItems", () => {
         threadSearchItems,
       }).map((group) => group.label);
 
-    expect(labels("upgrade")).toEqual(["Threads"]);
+    expect(labels("upgrade")).toEqual(["Chats"]);
     expect(labels("upl")).toEqual(["Actions"]);
     // A short query still finds a command by a keyword it equals.
     const prGroups = filterCommandPaletteGroups({
@@ -412,8 +382,8 @@ describe("buildThreadActionItems", () => {
       "action:open-prs",
       "action:project",
     ]);
-    expect(labels("up")).toEqual(["Actions", "Threads"]);
-    expect(labels("pnpm up")).toEqual(["Threads"]);
+    expect(labels("up")).toEqual(["Actions", "Chats"]);
+    expect(labels("pnpm up")).toEqual(["Chats"]);
   });
 
   it("runs the command for its whole name over a thread with that title, and lists the open thread last", () => {
@@ -451,7 +421,7 @@ describe("buildThreadActionItems", () => {
       projectSearchItems: [],
       threadSearchItems,
     });
-    expect(groups.map((group) => group.label)).toEqual(["Actions", "Threads"]);
+    expect(groups.map((group) => group.label)).toEqual(["Actions", "Chats"]);
     expect(groups[1]?.items.at(-1)?.title).toBe("New thread layout");
   });
 
@@ -480,8 +450,8 @@ describe("buildThreadActionItems", () => {
         projectSearchItems,
         threadSearchItems,
       }).map((group) => group.label);
-    expect(labels("lakebed")).toEqual(["Projects", "Threads"]);
-    expect(labels("lake")).toEqual(["Threads", "Projects"]);
+    expect(labels("lakebed")).toEqual(["Workspaces", "Chats"]);
+    expect(labels("lake")).toEqual(["Chats", "Workspaces"]);
   });
 
   it("keeps a command first over a thread in daily use that matches as well", () => {
@@ -521,7 +491,7 @@ describe("buildThreadActionItems", () => {
       threadSearchItems,
       now,
     });
-    expect(groups.map((group) => group.label)).toEqual(["Actions", "Threads"]);
+    expect(groups.map((group) => group.label)).toEqual(["Actions", "Chats"]);
   });
 
   it("ranks an order-independent setting title match above a split context match", () => {
@@ -789,26 +759,6 @@ describe("buildThreadActionItems", () => {
       "thread:environment-local:word-fresh",
       "thread:environment-local:prefix-stale",
     ]);
-  });
-});
-
-describe("filterPinnedBrowseEntries", () => {
-  it("matches an existing pinned destination without Windows casing", () => {
-    const windowsEntries = [
-      { name: "Repo", fullPath: "C:\\projects\\Repo" },
-      { name: "work", fullPath: "C:\\projects\\work" },
-    ];
-    expect(
-      filterPinnedBrowseEntries({
-        browseEntries: windowsEntries,
-        filterQuery: "repo",
-        pinnedDirectoryName: "repo",
-        caseSensitive: false,
-      }),
-    ).toEqual({
-      visibleEntries: windowsEntries,
-      exactEntry: windowsEntries[0],
-    });
   });
 });
 

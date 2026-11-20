@@ -63,6 +63,7 @@ it("stamps authoritative provenance on commands that create threads or messages"
       taskId: TeamTaskId.make("task"),
       attempt: 1,
     },
+    agent: "triager",
   };
 
   const stamped = ThreadManagementService.withCreationProvenance(command, {
@@ -72,6 +73,7 @@ it("stamps authoritative provenance on commands that create threads or messages"
   expect(stamped).toMatchObject({
     createdBy: "user",
     creationSource: "web",
+    agent: "triager",
   });
   // Only the server ties a thread to a team task; a client's thread could report its result.
   expect(stamped).not.toHaveProperty("teamTask");

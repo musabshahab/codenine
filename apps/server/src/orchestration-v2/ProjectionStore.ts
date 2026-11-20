@@ -1039,6 +1039,7 @@ type ShellThreadRow = {
   readonly pending_request_payload_json: string | null;
   readonly pending_secret_request_payload_json: string | null;
   readonly pending_link_request_payload_json: string | null;
+  readonly pending_connector_approval: number;
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
@@ -1599,6 +1600,13 @@ export function threadShellFromProjection(
     }
   }
   const latestUserMessage = userMessages[0] ?? null;
+  const pendingConnectorApproval = projection.turnItems.some(
+    (item) =>
+      item.type === "connector_approval" &&
+      item.approvalStatus === "pending" &&
+      item.runId !== null &&
+      liveRunIds.has(item.runId),
+  );
   const pendingBackgroundTasks = derivePendingBackgroundWork({
     latestRun,
     providerThreads: projection.providerThreads,
@@ -1655,6 +1663,7 @@ export function threadShellFromProjection(
       providerSession?.lastError ?? null,
     ),
     pendingRuntimeRequest,
+    ...(pendingConnectorApproval ? { pendingConnectorApproval: true } : {}),
     // Thread detail owns message bodies. Keeping them out of shell rows makes
     // initial hydration and streaming updates independent of transcript size.
     latestVisibleMessage: null,
@@ -1688,6 +1697,7 @@ export function threadShellFromProjection(
     pinOrderKey: projection.thread.pinOrderKey ?? null,
     ...(projection.thread.tags?.length ? { tags: projection.thread.tags } : {}),
     ...(projection.thread.folder ? { folder: projection.thread.folder } : {}),
+    ...(projection.thread.agent === undefined ? {} : { agent: projection.thread.agent }),
     lastVisitedAt: projection.thread.lastVisitedAt,
     opens: projection.thread.opens ?? null,
     titleRegeneration: projection.thread.titleRegeneration ?? null,
@@ -1774,6 +1784,7 @@ type ShellThreadState = {
   readonly lastErrorCode: OrchestrationV2ThreadShell["lastErrorCode"];
   readonly usageLimitResetAt: OrchestrationV2ThreadShell["usageLimitResetAt"];
   readonly pendingRuntimeRequest: OrchestrationV2PendingRuntimeRequestSummary | null;
+  readonly pendingConnectorApproval: boolean;
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
@@ -1929,6 +1940,7 @@ function shellFromState(input: {
     lastErrorCode: input.state.lastErrorCode,
     usageLimitResetAt: input.state.usageLimitResetAt,
     pendingRuntimeRequest: input.state.pendingRuntimeRequest,
+    ...(input.state.pendingConnectorApproval ? { pendingConnectorApproval: true } : {}),
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
@@ -1952,6 +1964,7 @@ function shellFromState(input: {
     pinOrderKey: input.state.thread.pinOrderKey ?? null,
     ...(input.state.thread.tags?.length ? { tags: input.state.thread.tags } : {}),
     ...(input.state.thread.folder ? { folder: input.state.thread.folder } : {}),
+    ...(input.state.thread.agent === undefined ? {} : { agent: input.state.thread.agent }),
     lastVisitedAt: input.state.thread.lastVisitedAt,
     opens: input.state.thread.opens ?? null,
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
@@ -6288,6 +6301,18 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ORDER BY link.updated_at DESC, link.turn_item_id DESC
                 LIMIT 1
               ) AS pending_link_request_payload_json,
+              EXISTS (
+                SELECT 1
+                -- A restart leaves an unanswered card pending, but only a live run waits on it.
+                FROM orchestration_v2_projection_runs r
+                CROSS JOIN orchestration_v2_projection_turn_items approval
+                  INDEXED BY orchestration_v2_projection_turn_items_thread_run_idx
+                WHERE r.thread_id = t.thread_id
+                  AND r.status IN ('preparing', 'starting', 'running', 'waiting')
+                  AND approval.thread_id = t.thread_id AND approval.run_id = r.run_id
+                  AND approval.type = 'connector_approval'
+                  AND json_extract(approval.payload_json, '$.approvalStatus') = 'pending'
+              ) AS pending_connector_approval,
               (
                 SELECT message.updated_at
                 FROM orchestration_v2_projection_messages message
@@ -6580,7 +6605,6 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND json_extract(t.payload_json, '$.settledOverride') IS NULL
               AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
               AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL
-              AND json_extract(t.payload_json, '$.folder') IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runs active
                 WHERE active.thread_id = t.thread_id
@@ -6907,6 +6931,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             row.last_error,
           ),
           pendingRuntimeRequest,
+          pendingConnectorApproval: row.pending_connector_approval === 1,
           latestUserMessageAt:
             row.latest_user_message_at === null
               ? null

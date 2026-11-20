@@ -5,6 +5,7 @@ import { resolveNewThreadModelSelection } from "@codenine/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@codenine/client-runtime/queued-run-edit";
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
 import { usePasteToFocusComposer } from "./chat/usePasteToFocusComposer";
+import { useComposerSkills } from "./chat/useComposerSkills";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { announcedRun, isDetailBehindShell } from "./chat/threadActivityAnnouncement";
 import {
@@ -55,8 +56,9 @@ import {
   teamHandoffNowItem,
   useTeamAgentThread,
 } from "./chat/TeamAgentThread";
-import { teamToggleAvailable } from "./chat/composerTeam.logic";
-import { ComposerTeamNote, DraftHeroExamples } from "./chat/DraftHeroExamples";
+import { teamToggleAvailable, workflowToggleAvailable } from "./chat/composerTeam.logic";
+import { ComposerRequestNote, DraftHeroExamples } from "./chat/DraftHeroExamples";
+import { useWorkflowDraft, workflowDraftBannerItem } from "./chat/WorkflowDraftPanel";
 import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
@@ -146,6 +148,7 @@ import {
 import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { useDiffPanelStore } from "../diffPanelStore";
+import { useDraftChatChoicesStore } from "../draftChatChoicesStore";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
 import { composerRequiresModifier } from "../composer-logic";
 import {
@@ -216,6 +219,7 @@ import {
   type DraftThreadEnvMode,
   useComposerDraftStore,
   useComposerTeamRequested,
+  useComposerWorkflowRequested,
   DraftId,
 } from "../composerDraftStore";
 import { type TerminalContextDraft } from "../lib/terminalContext";
@@ -256,7 +260,9 @@ import { DraftHeroHeadline, DraftProjectPicker } from "./chat/DraftHeroHeadline"
 import { DraftRecentChats } from "./chat/DraftRecentChats";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
+  AccountSwitchHost,
   BranchRestoreConfirmHost,
+  openAccountSwitch,
   openBranchRestoreConfirm,
   PullRequestThreadDialogHost,
   RevertConfirmHost,
@@ -303,7 +309,7 @@ import {
 import { QueuedRunsControl, type QueuedRunsControlHandle } from "./chat/QueuedRunsControl";
 import { useThreadLinkedPullRequest } from "./pullRequest/useThreadLinkedPullRequest";
 import { useProactivePanels } from "../hooks/useProactivePanels";
-import { useProactiveTaskPanel } from "../hooks/useProactiveTaskPanel";
+import { useProactiveLeadPanels } from "../hooks/useProactiveLeadPanels";
 import { useIncrementalTimelineEntries } from "../hooks/useIncrementalTimelineEntries";
 import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
@@ -1896,11 +1902,13 @@ export default function ChatView(props: ChatViewProps) {
     onDiffPanelOpen,
   });
   const threadTeamInfo = useThreadTeam(embedded ? null : serverThreadShell);
-  useProactiveTaskPanel({
+  const workflowDraft = useWorkflowDraft(isServerThread && !embedded ? activeThreadRef : null);
+  useProactiveLeadPanels({
     threadRef: isServerThread && !embedded && !shouldUsePlanSidebarSheet ? activeThreadRef : null,
     planId: threadTeamInfo?.planId ?? null,
     awaitingApproval:
       threadTeamInfo?.role === "lead" && threadTeamInfo.summary?.status === "proposed",
+    workflowDraftAt: workflowDraft?.proposedAt ?? null,
     runningTurnId: activeRunningTurnId,
   });
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- consumes a pending maximize request from the right panel store once the panel can maximize
@@ -2237,6 +2245,7 @@ export default function ChatView(props: ChatViewProps) {
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
     openTaskSurfaceStable,
+    openWorkflowSurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
@@ -2426,13 +2435,17 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
-  // The strip is the way back to the Task tab, and the way in where the panel is a sheet.
-  const taskTabInView =
-    rightPanelOpen && !shouldUsePlanSidebarSheet && activeRightPanelSurface?.kind === "task";
+  // The strips are the way back to the Task and Workflow tabs, and the way in where the panel is
+  // a sheet.
+  const tabInView = (kind: "task" | "workflow") =>
+    rightPanelOpen && !shouldUsePlanSidebarSheet && activeRightPanelSurface?.kind === kind;
   const teamBannerItems = [
-    ...(threadTeamInfo === null || taskTabInView
+    ...(threadTeamInfo === null || tabInView("task")
       ? []
       : [taskStripBannerItem(threadTeamInfo, openTaskSurfaceStable)]),
+    ...(workflowDraft === null || tabInView("workflow")
+      ? []
+      : [workflowDraftBannerItem(workflowDraft, openWorkflowSurfaceStable)]),
     ...(teamAgentThread === null
       ? []
       : [teamAgentHintBannerItem(teamAgentThread.header?.label ?? null)]),
@@ -2569,9 +2582,15 @@ export default function ChatView(props: ChatViewProps) {
     isDesktop: isElectron,
   });
   const getShortcutContextStable = useStableCallback(getShortcutContext);
-  const timelineSkills = activeProviderStatus
+  const providerTimelineSkills = activeProviderStatus
     ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
     : EMPTY_PROVIDER_SKILLS;
+  // Sent `$` tokens for Codenine skills show as the same chips the composer inserted.
+  const timelineSkills = useComposerSkills(
+    environmentId,
+    activeProject?.id ?? null,
+    providerTimelineSkills,
+  );
   const threadFindEnabled = isServerThread && serverConfig?.threadFind === true;
   const isThreadFindActive = useThreadFindOpen(activeThreadRef, threadFindEnabled);
   const openThreadFindStable = useStableCallback((threadRef: ScopedThreadRef) => {
@@ -2648,20 +2667,36 @@ export default function ChatView(props: ChatViewProps) {
   usePasteToFocusComposer(embedded ? null : activeThreadId, composerRef);
   // A delegated task is a remote thread's subagent.
   const isSubagentThread = activeThread?.lineage.relationshipToParent === "subagent";
+  // A new chat's agent waits with its draft until the first send creates the thread.
+  const draftAgent = useDraftChatChoicesStore((state) => state.byThread[threadId]?.agent);
+  const hasAgent = (serverProjection?.thread.agent ?? draftAgent) !== undefined;
   const teamOffered =
     canOperateThread &&
     activeThread !== undefined &&
     teamToggleAvailable({
       lineage: activeThread.lineage,
       inTeam: threadTeamInfo !== null,
+      hasAgent,
       inProject: !activeProjectIsScratch,
     });
+  const workflowOffered =
+    canOperateThread &&
+    activeThread !== undefined &&
+    workflowToggleAvailable({
+      lineage: activeThread.lineage,
+      inTeam: threadTeamInfo !== null,
+      hasAgent,
+    });
   const draftTeamRequested = useComposerTeamRequested(composerDraftTarget);
-  const draftHeroKind = activeProjectIsScratch
-    ? "chat"
-    : teamOffered && draftTeamRequested
-      ? "team"
-      : "project";
+  const draftWorkflowRequested = useComposerWorkflowRequested(composerDraftTarget);
+  const draftHeroKind =
+    workflowOffered && draftWorkflowRequested
+      ? "workflow"
+      : activeProjectIsScratch
+        ? "chat"
+        : teamOffered && draftTeamRequested
+          ? "team"
+          : "project";
   // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
   const sideChatsOffered =
     !embedded &&
@@ -2755,6 +2790,11 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadEnvModeEntry,
     setPendingServerThreadStartFromOriginByThreadId,
     scheduleComposerFocus,
+    // The picker stays open after a pick for effort; it would sit over the dialog.
+    onSwitchToAccountWithOwnHistory: (request) => {
+      composerRef.current?.closeModelPicker();
+      openAccountSwitch(routeThreadKey, request);
+    },
   });
   const { onResume, isResuming } = useComposerResume({
     environmentId,
@@ -2812,6 +2852,7 @@ export default function ChatView(props: ChatViewProps) {
     sendQueuesBehindSetup,
     isDraftHeroState,
     teamToggleAvailable: teamOffered,
+    workflowToggleAvailable: workflowOffered,
     panelAnimationsActive,
     panelAnimationDurationMs,
     keepFullHistory,
@@ -3216,7 +3257,13 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadId={activeThread.id}
               isServerThread={isServerThread}
               activeThreadTitle={
-                !isServerThread && draftHeroKind === "team" ? "New task" : activeThread.title
+                isServerThread
+                  ? activeThread.title
+                  : draftHeroKind === "team"
+                    ? "New task"
+                    : draftHeroKind === "workflow"
+                      ? "New workflow"
+                      : activeThread.title
               }
               activeProject={activeProject ?? null}
               parentThreadLink={headerParentThreadLink}
@@ -3526,6 +3573,7 @@ export default function ChatView(props: ChatViewProps) {
                                 sideChatAvailable={sideChat.available}
                                 sideChatDisabledReason={sideChatDisabledReason}
                                 teamOffered={teamOffered}
+                                workflowOffered={workflowOffered}
                                 projectPicker={
                                   isDraftHeroState &&
                                   isLocalDraftThread &&
@@ -3541,10 +3589,12 @@ export default function ChatView(props: ChatViewProps) {
                                   !isDraftHeroState
                                     ? null
                                     : draftHeroKind === "chat"
-                                      ? "Ask anything. Chats here are not tied to a project."
+                                      ? "Ask anything. Each Personal chat gets a folder of its own."
                                       : draftHeroKind === "team"
                                         ? "Describe the task. A lead agent will propose a team for you to approve."
-                                        : "Ask anything about this project."
+                                        : draftHeroKind === "workflow"
+                                          ? "Describe what should happen each time, and when. A lead agent will draft a workflow for you to review."
+                                          : "Ask anything about this workspace."
                                 }
                                 onFreshSession={
                                   freshSessionCommandAvailable ? armFreshSessionStable : undefined
@@ -3724,9 +3774,10 @@ export default function ChatView(props: ChatViewProps) {
                           )}
                         </div>
                       ) : (
-                        <ComposerTeamNote
+                        <ComposerRequestNote
                           target={composerDraftTarget}
-                          offered={teamOffered}
+                          teamOffered={teamOffered}
+                          workflowOffered={workflowOffered}
                           className="pt-1.5"
                         />
                       )}
@@ -3886,6 +3937,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           onAddTask={threadTeamInfo === null ? undefined : openTaskSurfaceStable}
+          onAddWorkflow={workflowDraft === null ? undefined : openWorkflowSurfaceStable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}
@@ -3897,6 +3949,11 @@ export default function ChatView(props: ChatViewProps) {
       ) : null}
 
       <RevertConfirmHost threadKey={routeThreadKey} onConfirm={onConfirmRevertStable} />
+      <AccountSwitchHost
+        threadKey={routeThreadKey}
+        threadRef={routeThreadRef}
+        providerStatuses={providerStatuses}
+      />
       {embedded ? null : <LinkPullRequestDialogHost />}
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />

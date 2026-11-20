@@ -10,7 +10,7 @@ change your permission mode, branch, or worktree. Your own defaults apply.
 
 Open the command palette and choose **Copy prompt link**. It copies the draft in the composer. The link is a
 `codenine://new?…` link that opens the desktop app.
-When the project is on GitHub, **Copy prompt link with repo and model** also adds the repository
+When the workspace is on GitHub, **Copy prompt link with repo and model** also adds the repository
 and the model you picked. Sent messages have a **Copy prompt link** button too.
 
 You can also write a link by hand:
@@ -33,10 +33,10 @@ Encode the prompt for a URL. In JavaScript, use `encodeURIComponent`.
 
 ## Open a link
 
-- **No `repo`**: the draft opens without a project, on the machine you used last.
-- **`repo`**: the draft opens in your most recently used project for that repository. A fork
+- **No `repo`**: the draft opens in Personal, on the machine you used last.
+- **`repo`**: the draft opens in your most recently used workspace for that repository. A fork
   counts only for its own owner. When you do not have the repository, choose **Clone** or **Use
-  without project**.
+  without workspace**.
 - **`provider` and `model`**: used when you have that provider set up. Otherwise your default
   model is used, and Codenine tells you.
 - **`pr`**: opens the thread linked to that pull request on any connected machine, with the prompt

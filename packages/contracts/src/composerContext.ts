@@ -24,7 +24,7 @@ export const COMPOSER_CONTEXT_KINDS = [
 ] as const;
 export type KnownComposerContextKind = (typeof COMPOSER_CONTEXT_KINDS)[number];
 /** Kinds about the whole message, which its text never links. */
-const MESSAGE_CONTEXT_KINDS = ["team-request"] as const;
+const MESSAGE_CONTEXT_KINDS = ["team-request", "workflow-request"] as const;
 
 const CONTEXT_ID_MAX_CHARS = 128;
 const CONTEXT_ID_PATTERN = /^[a-z0-9_-]+$/i;
@@ -201,6 +201,13 @@ export const TeamRequestContextRecord = Schema.Struct({
 });
 export type TeamRequestContextRecord = typeof TeamRequestContextRecord.Type;
 
+/** The user turned on Workflow for this message, so the agent drafts a workflow instead of working. */
+export const WorkflowRequestContextRecord = Schema.Struct({
+  ...recordBase,
+  kind: Schema.Literal("workflow-request"),
+});
+export type WorkflowRequestContextRecord = typeof WorkflowRequestContextRecord.Type;
+
 const isJson = Schema.is(Schema.Json);
 
 /** Excludes known discriminators so malformed known records fail their own schema. */
@@ -237,6 +244,7 @@ export type KnownComposerContextRecord = typeof KnownComposerContextRecord.Type;
 export const ComposerContextRecord = Schema.Union([
   ...KnownComposerContextRecord.members,
   TeamRequestContextRecord,
+  WorkflowRequestContextRecord,
   UnknownContextRecord,
 ]);
 export type ComposerContextRecord = typeof ComposerContextRecord.Type;
