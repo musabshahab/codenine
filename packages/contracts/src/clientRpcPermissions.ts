@@ -46,6 +46,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // A workflow runs agents unattended, on a schedule, so making one is a settings change.
   [WS_METHODS.workflowsSave]: AuthSettingsWriteScope,
   [WS_METHODS.workflowsDelete]: AuthSettingsWriteScope,
+  [WS_METHODS.workflowsSetEnabled]: AuthSettingsWriteScope,
   [WS_METHODS.workflowsRun]: AuthOrchestrationOperateScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
   // Listing models spends the stored API key, so only those who can choose a model may.

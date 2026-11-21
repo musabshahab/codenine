@@ -196,14 +196,27 @@ export const WorkflowsEmptyResult = Schema.Struct({});
 export const WorkflowsListResult = Schema.Struct({ workflows: Schema.Array(WorkflowSummary) });
 export const WorkflowNameInput = Schema.Struct({ name: WorkflowName });
 
+/** A chat's draft as a save names it: the chat, and which of its drafts. */
+export const WorkflowDraftRef = Schema.Struct({ threadId: ThreadId, proposedAt: IsoDateTime });
+export type WorkflowDraftRef = typeof WorkflowDraftRef.Type;
+
 export const WorkflowSaveInput = Schema.Struct({
   workflow: WorkflowDefinition,
   /** Editing: the workflow's current name. Leave out to create; taken names fail. */
   previousName: Schema.optionalKey(WorkflowName),
   /** Replaces the lead's notes; leave out to keep them. */
   notes: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(WORKFLOW_NOTES_MAX_CHARS))),
+  /** The chat draft this saves; the chat then shows the saved workflow. */
+  fromDraft: Schema.optionalKey(WorkflowDraftRef),
 });
 export type WorkflowSaveInput = typeof WorkflowSaveInput.Type;
+
+/** Turns scheduled runs on or off without touching the rest of the workflow. */
+export const WorkflowSetEnabledInput = Schema.Struct({
+  name: WorkflowName,
+  enabled: Schema.Boolean,
+});
+export type WorkflowSetEnabledInput = typeof WorkflowSetEnabledInput.Type;
 
 export const WorkflowRunInput = Schema.Struct({
   name: WorkflowName,
@@ -244,6 +257,15 @@ export type WorkflowDraft = typeof WorkflowDraft.Type;
 
 /** A draft this build cannot read becomes null instead of failing the whole thread. */
 export const StoredWorkflowDraft = Schema.NullOr(WorkflowDraft).pipe(
+  Schema.catchDecoding(() => Effect.succeedSome(null)),
+);
+
+/** The workflow a chat's draft was saved as; `proposedAt` names the draft that was saved. */
+export const SavedWorkflowLink = Schema.Struct({ id: WorkflowId, proposedAt: IsoDateTime });
+export type SavedWorkflowLink = typeof SavedWorkflowLink.Type;
+
+/** A link this build cannot read becomes null instead of failing the whole thread. */
+export const StoredSavedWorkflowLink = Schema.NullOr(SavedWorkflowLink).pipe(
   Schema.catchDecoding(() => Effect.succeedSome(null)),
 );
 

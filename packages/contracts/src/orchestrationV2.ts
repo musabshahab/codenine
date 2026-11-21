@@ -59,7 +59,13 @@ import {
   TeamTaskRef,
   TeamTaskUsage,
 } from "./team.ts";
-import { StoredWorkflowDraft, WorkflowDraft, WorkflowLimits } from "./workflows.ts";
+import {
+  StoredSavedWorkflowLink,
+  StoredWorkflowDraft,
+  WorkflowDraft,
+  WorkflowId,
+  WorkflowLimits,
+} from "./workflows.ts";
 import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
@@ -506,6 +512,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   agent: Schema.optional(AgentName),
   /** The workflow a lead drafted in this chat with `propose_workflow`; never copied to a fork. */
   workflowDraft: Schema.optional(StoredWorkflowDraft),
+  /** The workflow this chat's draft was saved as; never copied to a fork. */
+  savedWorkflow: Schema.optional(StoredSavedWorkflowLink),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -3644,6 +3652,14 @@ const OrchestrationV2InternalCommand = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     draft: WorkflowDraft,
+  }),
+  /** The user saved this chat's draft as a workflow; `proposedAt` names the draft saved. */
+  Schema.Struct({
+    type: Schema.Literal("workflow.draft.saved"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    workflowId: WorkflowId,
+    proposedAt: IsoDateTime,
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;
