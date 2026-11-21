@@ -11,6 +11,8 @@ import {
 import { AgentModel, AgentModelStatus, AgentName, AgentSuggestion } from "./agents.ts";
 
 const WORKFLOW_MAX_STEPS = 12;
+/** A run's result as its workflow's chat shows it and the chat's agent reads it. */
+export const WORKFLOW_RUN_RESULT_MAX_CHARS = 8_000;
 const WORKFLOW_MAX_INPUTS = 12;
 const WORKFLOW_GOAL_MAX_CHARS = 2_000;
 const WORKFLOW_STEP_INSTRUCTIONS_MAX_CHARS = 4_000;

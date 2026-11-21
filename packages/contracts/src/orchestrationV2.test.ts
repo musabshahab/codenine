@@ -202,6 +202,18 @@ describe("orchestration V2 contracts", () => {
       kind: "event",
       event: { type: "turn-item.updated", payload: { id: "item-known", type: "system_notice" } },
     });
+    // A runless workflow result decodes; the snapshot's thread above has none of its thread fields.
+    expect(
+      decodeOrchestrationV2TurnItemJson(
+        item("item-result", "workflow_run", {
+          workflowId: "workflow-1",
+          run: 2,
+          leadThreadId: "thread:workflow:workflow-1:2",
+          headline: "Posted the briefing",
+          result: "# Briefing",
+        }),
+      ),
+    ).toMatchObject({ type: "workflow_run", run: 2, result: "# Briefing" });
     expect(
       decodeHistoryPage({
         snapshotSequence: 1,

@@ -65,6 +65,7 @@ import {
   WorkflowDraft,
   WorkflowId,
   WorkflowLimits,
+  WORKFLOW_RUN_RESULT_MAX_CHARS,
 } from "./workflows.ts";
 import {
   OrchestrationSearchThreadsInput,
@@ -514,6 +515,10 @@ export const OrchestrationV2AppThread = Schema.Struct({
   workflowDraft: Schema.optional(StoredWorkflowDraft),
   /** The workflow this chat's draft was saved as; never copied to a fork. */
   savedWorkflow: Schema.optional(StoredSavedWorkflowLink),
+  /** When a workflow run last reported a new result here; the chat's unread and activity time. */
+  workflowResultAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  /** `workflow_run` items the chat's agent has not been given yet, oldest first; never copied to a fork. */
+  pendingWorkflowResults: Schema.optional(Schema.Array(TurnItemId)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtc),
 });
 export type OrchestrationV2AppThread = typeof OrchestrationV2AppThread.Type;
@@ -1858,6 +1863,16 @@ export const OrchestrationV2TurnItem = Schema.Union([
     /** Set on the wire when output was withheld; fetch it with getTurnItem. */
     outputOmitted: Schema.optional(Schema.Boolean),
   }),
+  /** A workflow run's result in its workflow's chat; runless, one per run, updated in place. */
+  Schema.Struct({
+    ...OrchestrationV2TurnItemBaseFields,
+    type: Schema.Literal("workflow_run"),
+    workflowId: WorkflowId,
+    run: PositiveInt,
+    leadThreadId: ThreadId,
+    headline: Schema.NullOr(Schema.String),
+    result: Schema.NullOr(Schema.String),
+  }),
 ]);
 export type OrchestrationV2TurnItem = typeof OrchestrationV2TurnItem.Type;
 
@@ -2169,6 +2184,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   settledOverride: Schema.NullOr(Schema.Literals(["settled", "active"])),
   settledAt: Schema.NullOr(Schema.DateTimeUtc),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  /** When a workflow run last reported a new result in this chat. */
+  workflowResultAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
@@ -2326,6 +2343,7 @@ export type OrchestrationV2StoredEvent = typeof OrchestrationV2StoredEvent.Type;
 
 export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((fields) => ({
   ...fields,
+  workflowResultAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
   archivedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -2703,6 +2721,15 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     /** Set on the wire when output was withheld; fetch it with getTurnItem. */
     outputOmitted: Schema.optional(Schema.Boolean),
   }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemJsonBaseFields,
+    type: Schema.Literal("workflow_run"),
+    workflowId: WorkflowId,
+    run: PositiveInt,
+    leadThreadId: ThreadId,
+    headline: Schema.NullOr(Schema.String),
+    result: Schema.NullOr(Schema.String),
+  }),
 ]);
 export type OrchestrationV2TurnItemJson = typeof OrchestrationV2TurnItemJson.Type;
 
@@ -2763,6 +2790,7 @@ export type OrchestrationV2LatestVisibleMessageSummaryJson =
 
 export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFields((fields) => ({
   ...fields,
+  workflowResultAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   latestRunRequestedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   latestRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   latestRunCompletedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
@@ -3660,6 +3688,20 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     workflowId: WorkflowId,
     proposedAt: IsoDateTime,
+  }),
+  /** A workflow run ended: its card in the workflow's chat. Internal, so no client puts a result in a prompt. */
+  Schema.Struct({
+    type: Schema.Literal("workflow.run.report"),
+    commandId: CommandId,
+    /** The workflow's chat. */
+    threadId: ThreadId,
+    workflowId: WorkflowId,
+    run: PositiveInt,
+    title: TeamPlanRun.fields.title,
+    leadThreadId: ThreadId,
+    status: Schema.Literals(["completed", "failed", "cancelled"]),
+    headline: Schema.NullOr(Schema.String.check(Schema.isMaxLength(TEAM_RUN_HEADLINE_MAX_CHARS))),
+    result: Schema.NullOr(Schema.String.check(Schema.isMaxLength(WORKFLOW_RUN_RESULT_MAX_CHARS))),
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;
