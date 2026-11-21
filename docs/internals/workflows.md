@@ -18,8 +18,8 @@ every workspace sees it, as with agents.
   edit it. Every run's brief carries all of it, so it stays under 8,000 characters by dropping
   its oldest lines.
 - `state.json` is the server's alone: the run counter, the schedule it last saw, the runs owed,
-  the skipped times and the runs whose note is in. The editor never writes it, so saving a
-  definition cannot undo the scheduler's bookkeeping.
+  the skipped times, the runs whose note is in and the chat its runs report to. The editor never
+  writes it, so saving a definition cannot undo the scheduler's bookkeeping.
 
 A run's lead thread is `thread:workflow:<id>:<run>`, and the web app derives the same id, so run
 numbers never repeat. The counter is written before the run starts, and a counter that went
@@ -36,6 +36,39 @@ reach even its first turn. There is one member per pair of agent and model acros
 within `TEAM_MAX_AGENTS`, and every member works in the workspace's checkout. The lead runs in
 `auto` when approvals are `review` and in the default mode otherwise; step threads take the lead's
 mode as their ceiling.
+
+## Where results go
+
+Each workflow has one chat its runs report to. `startRun` resolves it under the workflow's lock:
+the chat `state.json` names while it is not deleted (an archived chat stays linked), else the
+newest live chat whose `savedWorkflow` is this workflow, else a new chat named after the workflow
+in its workspace, launched like any server chat and linked with the same `workflow.draft.saved` a
+save from a chat sends. The lookup scans thread payloads, which the no-scan rule below forbids on
+the scheduler's tick; it is allowed here because it runs once per run start, and an `instr`
+prefilter keeps `json_extract` to the few threads that mention the id. Each run carries the chat
+as `TeamPlanRun.chatThreadId`. When none can be had, the run starts without one and reports
+nowhere.
+
+A run's result is a runless `workflow_run` turn item in that chat, one per run, posted with the
+internal `workflow.run.report` only when the run has ended. Runless items normally sort before
+every run, so the position store gives this one the band of the chat's newest run: it lands at
+the bottom and keeps that place. The result is the terminal steps' results, else the lead's last
+reply, cut to `WORKFLOW_RUN_RESULT_MAX_CHARS`.
+
+Only a new ending is news. A report that changes the card's status sets `workflowResultAt`, seeds
+a null `lastVisitedAt` so the result reads as unread everywhere, unsettles a chat marked Done
+(a snooze stays, as for other automatic wakes) and adds the item to `pendingWorkflowResults`. A
+changed headline or result only updates the card, and an identical report emits nothing. Report
+command ids hash what is reported, because the server's memory of ended runs does not survive a
+restart. The chat record holds pointers only: every thread event carries the whole thread, so the
+text stays on the card.
+
+The next prompt that reaches the chat's provider carries the pending results inline, and they are
+cleared only once the provider accepts it; `/compact` and `/goal` leave them waiting. Results given
+before a provider switch are not in the new provider's history, though `codenine_thread_read` on
+the chat still shows the cards. Once its result is in the chat, the run's lead is marked read, so
+finished runs nested under the chat do not light unread dots. Deleting a workflow reports the runs
+it stops before their folder, and with it their supervision, goes away.
 
 ## Schedule and missed runs
 
@@ -69,6 +102,8 @@ A hold's command id names the plan, the reason and the limit, so each limit hold
 raising it can hold again.
 
 The lead saves its note in its final turn, after the plan has ended, so an ended run is settled
-only once its lead has no turn left: the server prices it one last time, appends its note to
-`notes.md`, and then records the run in `state.json`. An ended run is read again only when its
-lead thread has changed, at most once a minute.
+only once its lead has no turn left: the server prices it one last time, reports its result to the
+workflow's chat, appends its note to `notes.md`, and then records the run in `state.json`. The
+report comes first because a noted run is never looked at again; a failed report leaves both for
+the next check. An ended run is read again only when its lead thread has changed, at most once a
+minute.
