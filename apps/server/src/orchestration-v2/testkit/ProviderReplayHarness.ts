@@ -414,6 +414,7 @@ export function layerWithRegistry<Error>(
         layerRuntime,
         layerServerConfig,
         layerServerSettings,
+        ThreadCommandExecutor.layer,
       ),
     ),
   );

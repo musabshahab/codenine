@@ -21,7 +21,10 @@ import {
   ThreadId,
   ProjectId,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2TurnItem,
   OrchestrationV2DomainEvent,
+  TurnItemId,
+  WorkflowId,
 } from "@codenine/contracts";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -55,6 +58,8 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnStart from "./ProviderTurnStartService.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import { workflowResultsContext } from "./WorkflowResultsContext.ts";
 
 const isDomainEvent = Schema.is(OrchestrationV2DomainEvent);
 
@@ -198,6 +203,7 @@ function startWithMissingWorktree(
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
         Layer.mock(Agents.Agents)({}),
+        ThreadCommandExecutor.layer,
       ),
     ),
   );
@@ -272,6 +278,18 @@ it.each([
   expect(harness.createWorktree).toHaveBeenCalledTimes(input.recreated ? 1 : 0);
 });
 
+const workflowResult = {
+  id: TurnItemId.make("workflow-run:workflow-digest:3"),
+  type: "workflow_run",
+  status: "completed",
+  title: "Weekly digest",
+  workflowId: WorkflowId.make("workflow-digest"),
+  run: 3,
+  leadThreadId: ThreadId.make("thread:workflow:workflow-digest:3"),
+  headline: "Sent the digest",
+  result: "The week's three stories.",
+} as Extract<OrchestrationV2TurnItem, { readonly type: "workflow_run" }>;
+
 function makeLocalCommandHarness(input: {
   readonly text: string;
   readonly worktreePath?: string;
@@ -313,6 +331,8 @@ function makeLocalCommandHarness(input: {
   readonly skills?: { readonly baseDir: string; readonly keptOn: ReadonlyArray<string> };
   /** The agent the chat talks to; without a definition its file is gone. */
   readonly agent?: { readonly name: string; readonly definition?: AgentDefinition };
+  /** A workflow result posted in the chat that its agent has not been given yet. */
+  readonly pendingWorkflowResult?: boolean;
 }) {
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
   const threadId = ThreadId.make("thread-native-account-command");
@@ -488,6 +508,12 @@ function makeLocalCommandHarness(input: {
     checkpoints: [],
     updatedAt: now,
   };
+  if (input.pendingWorkflowResult === true) {
+    projection = {
+      ...projection,
+      thread: { ...projection.thread, pendingWorkflowResults: [workflowResult.id] },
+    };
+  }
   const parentThreadId = ThreadId.make("side-chat-parent");
   const parentRunId = RunId.make("side-chat-parent-run");
   const parentProviderThread = {
@@ -805,6 +831,7 @@ function makeLocalCommandHarness(input: {
   const forkThread = vi.fn((_fork: ProviderAdapter.ProviderAdapterV2ForkThreadInput) =>
     Effect.succeed(sideChatThread),
   );
+  const compactThread = vi.fn((_turn: ProviderAdapter.ProviderAdapterV2TurnInput) => Effect.void);
   const sideChatSession = {
     driver: providerThread.driver,
     providerSession,
@@ -812,6 +839,7 @@ function makeLocalCommandHarness(input: {
     resumeThread: () => Effect.succeed(sideChatThread),
     forkThread,
     startTurn,
+    ...(input.pendingWorkflowResult === true ? { compactThread } : {}),
   };
   const open = vi.fn(() =>
     input.sideChat !== undefined
@@ -849,7 +877,10 @@ function makeLocalCommandHarness(input: {
     (input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) => Effect.Effect<void>
   >((runInput) =>
     input.sideChat !== undefined
-      ? runInput.session.startTurn(runInput as never).pipe(Effect.orDie)
+      ? (runInput.message.text === "/compact" && runInput.session.compactThread !== undefined
+          ? runInput.session.compactThread(runInput as never)
+          : runInput.session.startTurn(runInput as never)
+        ).pipe(Effect.orDie)
       : input.failReadsAfterRunning === true || input.previousTurn !== undefined
         ? Effect.suspend(() =>
             providerBusy ? Effect.die("The previous provider turn is still running.") : Effect.void,
@@ -971,6 +1002,9 @@ function makeLocalCommandHarness(input: {
         Layer.mock(ProjectionStore.ProjectionStoreV2)({
           getThreadRecords,
           getTurnStartContext,
+          getThread: () => Effect.sync(() => projection.thread),
+          getTurnItem: ({ itemId }) =>
+            Effect.succeed(itemId === workflowResult.id ? workflowResult : null),
           getRuntimeRecoveryProjection: () =>
             Effect.as(failReadIfRunning, {
               ...projection,
@@ -1011,12 +1045,14 @@ function makeLocalCommandHarness(input: {
         Layer.mock(Agents.Agents)({
           find: () => Effect.succeed(Option.fromUndefinedOr(input.agent?.definition)),
         }),
+        ThreadCommandExecutor.layer,
       ),
     ),
   );
   return {
     getThreadRecords,
     getTurnStartContext,
+    compactThread,
     setProjection: (next: OrchestrationV2ThreadProjection) => {
       projection = next;
     },
@@ -1308,6 +1344,69 @@ effectIt.effect.each([
           delivery: { nativeThreadId: "side-chat-native", status: "inline" },
         },
       ]);
+    }),
+);
+
+effectIt.effect(
+  "gives the chat's agent its pending workflow results once, with a prompt the provider accepts",
+  () =>
+    Effect.gen(function* () {
+      const pendingAfter = (harness: ReturnType<typeof makeLocalCommandHarness>) =>
+        harness.projection().thread.pendingWorkflowResults;
+
+      const delivered = makeLocalCommandHarness({
+        text: "Summarize the latest result",
+        sideChat: { contextRun: "delivered" },
+        pendingWorkflowResult: true,
+      });
+      yield* delivered.start;
+      const context = workflowResultsContext([workflowResult]);
+      expect(context).toContain('Workflow "Weekly digest", run 3, completed: Sent the digest');
+      expect(delivered.startTurn.mock.calls.map(([turn]) => turn.message.text)).toEqual([
+        withInlineContext(context, "Summarize the latest result"),
+      ]);
+      expect(pendingAfter(delivered)).toEqual([]);
+
+      // A prompt the provider refused keeps them for the next one.
+      const refused = makeLocalCommandHarness({
+        text: "Summarize the latest result",
+        sideChat: { contextRun: "delivered" },
+        pendingWorkflowResult: true,
+      });
+      refused.startTurn.mockImplementationOnce(() =>
+        Effect.fail(
+          new ProviderAdapter.ProviderAdapterEventStreamError({
+            driver: ProviderDriverKind.make("codex"),
+            providerSessionId: ProviderSessionId.make("refused-session"),
+            cause: "refused",
+          }) as never,
+        ),
+      );
+      yield* Effect.exit(refused.start);
+      expect(pendingAfter(refused)).toEqual([workflowResult.id]);
+
+      // /compact and /goal send no prompt of their own, so the results wait.
+      for (const text of ["/compact", "/goal Ship the digest"]) {
+        const command = makeLocalCommandHarness({
+          text,
+          previousMessages: ["Earlier work"],
+          sideChat: { contextRun: "delivered" },
+          pendingWorkflowResult: true,
+        });
+        command.tryHandlePromptCommand.mockImplementation(() => Effect.succeed(false));
+        yield* command.start;
+        const sent = [...command.startTurn.mock.calls, ...command.compactThread.mock.calls];
+        expect(sent.map(([turn]) => turn.message.text)).toEqual([text]);
+        expect(pendingAfter(command)).toEqual([workflowResult.id]);
+      }
+
+      // With none pending, the turn goes to the provider's own session untouched.
+      const plain = makeLocalCommandHarness({
+        text: "Summarize the latest result",
+        sideChat: { contextRun: "delivered" },
+      });
+      yield* plain.start;
+      expect(plain.startRootRun.mock.calls[0]?.[0].session.startTurn).toBe(plain.startTurn);
     }),
 );
 

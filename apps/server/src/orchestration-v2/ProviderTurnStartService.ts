@@ -60,6 +60,8 @@ import {
 } from "@codenine/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import { workflowResultsContext } from "./WorkflowResultsContext.ts";
 import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
@@ -158,6 +160,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | ThreadCommandExecutor.ThreadCommandExecutor
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -174,6 +177,7 @@ export const layer: Layer.Layer<
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const agents = yield* Agents.Agents;
+    const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
     const messageSkills = yield* makeMessageSkills;
 
@@ -1577,6 +1581,32 @@ export const layer: Layer.Layer<
           ],
         });
       });
+      const pendingWorkflowIds = projection.thread.pendingWorkflowResults ?? [];
+      const pendingWorkflowItems = (yield* Effect.forEach(pendingWorkflowIds, (itemId) =>
+        projectionStore.getTurnItem({ threadId: projection.thread.id, itemId }),
+      )).filter((item) => item?.type === "workflow_run");
+      // Clears only what this prompt carried; a result reported meanwhile waits for the next one.
+      const clearDeliveredWorkflowResults = threadCommands.withLock(
+        projection.thread.id,
+        Effect.gen(function* () {
+          const fresh = yield* projectionStore.getThread(projection.thread.id);
+          const pending = fresh.pendingWorkflowResults ?? [];
+          const remaining = pending.filter((itemId) => !pendingWorkflowIds.includes(itemId));
+          if (remaining.length === pending.length) return;
+          yield* eventSink.write({
+            events: [
+              {
+                id: yield* idAllocator.allocate.event({ threadId: fresh.id }),
+                type: "thread.metadata-updated",
+                threadId: fresh.id,
+                providerInstanceId: fresh.providerInstanceId,
+                occurredAt: yield* DateTime.now,
+                payload: { ...fresh, pendingWorkflowResults: remaining },
+              },
+            ],
+          });
+        }),
+      );
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           const delivery = yield* deliverContextHandoffs({
@@ -1603,7 +1633,9 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
-          const context = [delivery.context, sideChatContext, restartNote]
+          const workflowContext =
+            compact || goalCommand ? "" : workflowResultsContext(pendingWorkflowItems);
+          const context = [delivery.context, sideChatContext, workflowContext, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
@@ -1641,6 +1673,7 @@ export const layer: Layer.Layer<
                       delivery: { nativeThreadId, status: "inline" as const, itemIds: [] },
                     }),
                   ]),
+              ...(workflowContext === "" ? [] : [clearDeliveredWorkflowResults]),
             ],
             (record) =>
               record.pipe(
@@ -1679,7 +1712,8 @@ export const layer: Layer.Layer<
         retryHandoff.length === 0 &&
         sideChatHandoff === undefined &&
         restartNote === "" &&
-        !noteContinuation
+        !noteContinuation &&
+        pendingWorkflowItems.length === 0
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       return runExecution.startRootRun({
