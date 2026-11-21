@@ -79,6 +79,7 @@ it.each([
       title: "Child",
       hasPendingApprovals: approval,
       lineage: { sideChat: false },
+      source: {},
     } as EnvironmentThreadShell,
   ];
   await using screen = await render(
