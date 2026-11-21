@@ -6,6 +6,7 @@ import { cn } from "~/lib/utils";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
 import { RunStatusBadge } from "../workflows/RunStatusBadge";
+import { workflowResultExcerpt } from "./WorkflowRunCard.logic";
 import type { WorkflowRunStatus } from "../workflows/workflows.logic";
 
 type WorkflowRunItem = Extract<OrchestrationV2TurnItem, { type: "workflow_run" }>;
@@ -38,6 +39,7 @@ export function WorkflowRunCard(props: {
   const { item } = props;
   const [expanded, setExpanded] = useState(false);
   const status = runStatusOf(item.status);
+  const excerpt = item.result === null ? null : workflowResultExcerpt(item.result);
   return (
     <article
       aria-label="Workflow result"
@@ -65,14 +67,14 @@ export function WorkflowRunCard(props: {
       {item.headline === null ? null : (
         <p className="mb-1.5 break-words font-medium">{item.headline}</p>
       )}
-      {item.result === null ? null : expanded ? (
+      {item.result === null || excerpt === null ? null : expanded ? (
         <ChatMarkdown text={item.result} cwd={undefined} threadRef={props.threadRef} />
       ) : (
-        <p className="line-clamp-4 whitespace-pre-wrap break-words text-muted-foreground">
-          {item.result}
+        <p className="line-clamp-4 whitespace-pre-line break-words text-muted-foreground">
+          {excerpt.text}
         </p>
       )}
-      {item.result === null ? null : (
+      {excerpt === null || !excerpt.more ? null : (
         <Button
           size="xs"
           variant="link"
