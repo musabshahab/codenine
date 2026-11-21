@@ -706,6 +706,7 @@ type ThreadStatusInput = Pick<
   | "runtime"
 > & {
   lastVisitedAt?: string | null | undefined;
+  workflowResultAt?: string | null | undefined;
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
   blockedOnThreadWait?: boolean | undefined;
 };
@@ -735,15 +736,24 @@ export function resolveThreadLastVisitedAt(
   return serverLastVisitedAt ?? undefined;
 }
 
+function parsedOrNever(timestamp: string | null | undefined): number {
+  const parsed = timestamp ? Date.parse(timestamp) : NaN;
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+/** A finished turn or a new workflow result the user has not seen yet. */
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestRun?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestRun.completedAt);
-  if (Number.isNaN(completedAt)) return false;
+  const newsAt = Math.max(
+    parsedOrNever(thread.latestRun?.completedAt),
+    parsedOrNever(thread.workflowResultAt),
+  );
+  if (newsAt === Number.NEGATIVE_INFINITY) return false;
+  // A thread never visited is not unread; the server seeds the watermark when news arrives.
   if (!thread.lastVisitedAt) return false;
 
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
   if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
+  return newsAt > lastVisitedAt;
 }
 
 /** Unopened threads' failures still count as unseen, unlike completions. */

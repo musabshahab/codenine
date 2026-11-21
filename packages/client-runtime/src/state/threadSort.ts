@@ -21,7 +21,8 @@ export function toSortableTimestamp(iso: string | undefined): number | null {
 export type SettledThreadTimestampInput = Pick<
   EnvironmentThreadShell,
   "settledAt" | "latestUserMessageAt" | "latestRun" | "updatedAt"
->;
+> &
+  Partial<Pick<EnvironmentThreadShell, "workflowResultAt">>;
 
 export function resolveSettledThreadTimestamp(thread: SettledThreadTimestampInput): string | null {
   if (thread.settledAt != null && toSortableTimestamp(thread.settledAt) !== null) {
@@ -31,7 +32,8 @@ export function resolveSettledThreadTimestamp(thread: SettledThreadTimestampInpu
 }
 
 export function resolveThreadActivityTimestamp(
-  thread: Pick<EnvironmentThreadShell, "latestUserMessageAt" | "latestRun" | "updatedAt">,
+  thread: Pick<EnvironmentThreadShell, "latestUserMessageAt" | "latestRun" | "updatedAt"> &
+    Partial<Pick<EnvironmentThreadShell, "workflowResultAt">>,
 ): string | null {
   let latest: string | null = null;
   let latestMs = Number.NEGATIVE_INFINITY;
@@ -40,6 +42,7 @@ export function resolveThreadActivityTimestamp(
     thread.latestRun?.requestedAt,
     thread.latestRun?.startedAt,
     thread.latestRun?.completedAt,
+    thread.workflowResultAt,
   ]) {
     const parsed = toSortableTimestamp(candidate ?? undefined);
     if (candidate != null && parsed !== null && parsed > latestMs) {

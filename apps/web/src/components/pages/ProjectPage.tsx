@@ -1,6 +1,6 @@
 import { scopeProjectRef, scopeThreadRef } from "@codenine/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
-import { withoutWorkflowRuns } from "@codenine/client-runtime/state/team-threads";
+import { withoutUnlinkedWorkflowRuns } from "@codenine/client-runtime/state/team-threads";
 import {
   FolderIcon,
   GitBranchIcon,
@@ -95,7 +95,9 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
   const inProject = (thread: Pick<EnvironmentThreadShell, "environmentId" | "projectId">) =>
     memberKeys.has(`${thread.environmentId}:${thread.projectId}`);
   const tasks = useTeamTasks().filter(inProject);
-  const chats = withoutWorkflowRuns(openWorkThreads(useQuietThreadShells(), `${nowMinute}Z`))
+  const chats = withoutUnlinkedWorkflowRuns(
+    openWorkThreads(useQuietThreadShells(), `${nowMinute}Z`),
+  )
     .filter((thread) => inProject(thread) && thread.source.teamSummary == null)
     .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   const machines = [

@@ -541,8 +541,10 @@ type SidebarThreadRowProps = {
   // "compact" is a one-line row outside any folder, such as a pinned chat.
   variant: "card" | "slim" | "folder" | "folder-multiline" | "team" | "compact";
   navigationParent?: string | undefined;
-  /** On a team lead: how many task rows it holds, which it draws below itself. */
+  /** On a team lead or a workflow's chat: how many rows it holds, which it draws below itself. */
   teamTaskCount: number;
+  /** How many of those rows are workflow runs. */
+  teamRunCount: number;
   teamExpanded: boolean;
   teamAttention: TeamThreadAttention | null;
   onToggleTeam: (threadKey: string) => void;
@@ -1068,6 +1070,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     props.teamTaskCount > 0 ? (
       <SidebarTeamToggle
         count={props.teamTaskCount}
+        runs={props.teamRunCount}
         expanded={props.teamExpanded}
         attention={props.teamAttention}
         showIcon={teamSummary === null}

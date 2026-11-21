@@ -37,7 +37,8 @@ import {
 import { sortSettledThreads } from "@codenine/client-runtime/state/thread-sort";
 import {
   groupTeamThreads,
-  withoutWorkflowRuns,
+  type TeamThreadRunState,
+  withoutUnlinkedWorkflowRuns,
   withTeamTaskRows,
 } from "@codenine/client-runtime/state/team-threads";
 import {
@@ -395,14 +396,23 @@ function scrollSidebarToTop(content: HTMLElement | null) {
   content?.closest("[data-slot=scroll-area-viewport]")?.scrollTo({ top: 0 });
 }
 
-/** The lead's row key for a team task thread, which the sidebar draws under that lead. */
+/**
+ * The row key a thread nests under: a team task's lead, or the chat a workflow run reports to.
+ */
 function teamLeadKey(
   thread: Pick<SidebarThreadSummary, "environmentId" | "source">,
 ): string | null {
-  const teamTask = thread.source.teamTask;
-  return teamTask === undefined
+  const parentId =
+    thread.source.teamTask?.rootThreadId ?? thread.source.teamSummary?.run?.chatThreadId;
+  return parentId === undefined
     ? null
-    : scopedThreadKey(scopeThreadRef(thread.environmentId, teamTask.rootThreadId));
+    : scopedThreadKey(scopeThreadRef(thread.environmentId, parentId));
+}
+
+function workflowRunState(thread: Pick<SidebarThreadSummary, "source">): TeamThreadRunState | null {
+  const summary = thread.source.teamSummary;
+  if (summary?.run === undefined) return null;
+  return summary.status === "running" ? "running" : "ended";
 }
 
 function threadShellKey(thread: Pick<SidebarThreadSummary, "environmentId" | "id">): string {
@@ -547,6 +557,7 @@ function useSidebarThreads(input: {
     },
     keyOf: threadShellKey,
     leadKeyOf: teamLeadKey,
+    runOf: workflowRunState,
     openKey: routeRowThreadKey,
     expandedByLead: teamExpandedByLead,
     attentionOf: (thread) => resolveSidebarFolderDot([thread]),
@@ -559,10 +570,12 @@ function useSidebarThreads(input: {
     settled: listedSettledThreads,
   } = teams.sections;
   const settledThreads =
-    teams.leadKeyByTaskKey.size === 0
+    teams.leadKeyByTaskKey.size === 0 && teams.droppedRunKeys.size === 0
       ? partition.settledThreads
       : partition.settledThreads.filter(
-          (thread) => !teams.leadKeyByTaskKey.has(threadShellKey(thread)),
+          (thread) =>
+            !teams.leadKeyByTaskKey.has(threadShellKey(thread)) &&
+            !teams.droppedRunKeys.has(threadShellKey(thread)),
         );
   // The row that holds the open thread, which a closed shelf or folder still shows.
   const openRowKey = teams.openRowKey;
@@ -1457,8 +1470,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     serverConfigs,
     connectedEnvironmentIds,
     optimisticDrop,
-    // Workflow runs live on the Workflows pages.
-    threads: withoutWorkflowRuns(threads),
+    // Runs nest under their workflow's chat; their steps live on the run's page.
+    threads: withoutUnlinkedWorkflowRuns(threads),
     routeRowThreadKey,
     folders: groupByProject
       ? {
@@ -3529,6 +3542,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               ? `shelf:${section}`
                               : undefined),
                           teamTaskCount: team?.tasks.length ?? 0,
+                          teamRunCount: team?.runs ?? 0,
                           teamExpanded: team?.expanded ?? false,
                           teamAttention: team?.attention ?? null,
                           onToggleTeam: toggleTeamStable,

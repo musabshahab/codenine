@@ -128,9 +128,12 @@ export function threadCanSettleNow(thread: EnvironmentThreadShell, now: string):
   );
 }
 
-/** The server marks a chat unread only once its latest run has finished. */
-export function threadCanMarkUnread(thread: Pick<EnvironmentThreadShell, "latestRun">): boolean {
-  return thread.latestRun?.completedAt != null;
+/** The server marks a chat unread only once its latest run has finished or a result has arrived. */
+export function threadCanMarkUnread(
+  thread: Pick<EnvironmentThreadShell, "latestRun"> &
+    Partial<Pick<EnvironmentThreadShell, "workflowResultAt">>,
+): boolean {
+  return thread.latestRun?.completedAt != null || thread.workflowResultAt != null;
 }
 
 /** What the chat's own record decides, read the same way by the header and the sidebar. */

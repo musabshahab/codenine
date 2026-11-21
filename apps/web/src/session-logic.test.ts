@@ -11,6 +11,7 @@ import {
   RunId,
   ThreadId,
   TurnItemId,
+  WorkflowId,
   type OrchestrationV2ProjectedTurnItem,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2RunAttempt,
@@ -495,6 +496,17 @@ describe("V2 session presentation", () => {
       output: "Workspace preparation completed.",
       exitCode: 0,
     } satisfies OrchestrationV2TurnItem;
+    const workflowRunItem = {
+      ...base("workflow-run:workflow-1:2", 8),
+      runId: null,
+      type: "workflow_run" as const,
+      title: "Morning briefing",
+      workflowId: WorkflowId.make("workflow-1"),
+      run: 2,
+      leadThreadId: ThreadId.make("thread:workflow:workflow-1:2"),
+      headline: "Posted the briefing",
+      result: "# Briefing",
+    } satisfies OrchestrationV2TurnItem;
     const visibleTurnItems: ReadonlyArray<OrchestrationV2ProjectedTurnItem> = [
       userItem,
       requestItem,
@@ -504,6 +516,7 @@ describe("V2 session presentation", () => {
       errorItem,
       threadCreatedItem,
       workspacePreparationItem,
+      workflowRunItem,
     ].map((item, position) => ({
       position,
       visibility: "local" as const,
@@ -525,6 +538,7 @@ describe("V2 session presentation", () => {
       ["work", todoItem.id],
       ["work", errorItem.id],
       ["work", threadCreatedItem.id],
+      ["event", workflowRunItem.id],
     ]);
     const commandEntry = entries[2];
     const userEntry = entries[0];

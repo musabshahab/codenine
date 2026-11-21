@@ -593,6 +593,29 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Completed", pulse: false });
   });
 
+  it("counts a workflow result as unseen until the chat is visited after it", () => {
+    const chat = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      runtime: null,
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+    };
+    expect(hasUnseenCompletion({ ...chat, workflowResultAt: "2026-03-09T10:05:00.000Z" })).toBe(
+      true,
+    );
+    expect(hasUnseenCompletion({ ...chat, workflowResultAt: "2026-03-09T10:03:00.000Z" })).toBe(
+      false,
+    );
+    expect(
+      hasUnseenCompletion({
+        ...chat,
+        latestRun: makeLatestRun(),
+        lastVisitedAt: "2026-03-09T10:06:00.000Z",
+        workflowResultAt: "2026-03-09T10:07:00.000Z",
+      }),
+    ).toBe(true);
+  });
+
   it("shows failed, not completed, when the unseen run failed", () => {
     expect(
       resolveThreadStatusPill({

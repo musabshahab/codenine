@@ -28,7 +28,7 @@ export function useNeedsYouEntries() {
 
 /**
  * Task threads, which lead a team: every thread with a team plan, newest first. Workflow runs are
- * left out; they live on the Workflows pages.
+ * left out; they live under their workflow's chat and on the Workflows pages.
  */
 export function useTeamTasks(): ReadonlyArray<EnvironmentThreadShell> {
   const threads = useQuietThreadShells();
@@ -47,10 +47,13 @@ export function useCompletedThreads(visibleCount: number, expanded: boolean) {
     visibleCount,
   });
   const visible = filterSidebarV2VisibleThreads(threads, null);
-  // A team agent's thread stays under its task, so the page lists the task, not each agent.
+  // A team agent's thread stays under its task, and a run under its workflow's chat.
   const settled = sortSettledThreads(
     visible.filter(
-      (thread) => thread.settledOverride === "settled" && thread.source.teamTask === undefined,
+      (thread) =>
+        thread.settledOverride === "settled" &&
+        thread.source.teamTask === undefined &&
+        thread.source.teamSummary?.run === undefined,
     ),
   );
   const listed = settled.filter(shelf.isListed);

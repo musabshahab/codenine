@@ -1,5 +1,5 @@
 import type { TeamThreadAttention } from "@codenine/client-runtime/state/team-threads";
-import { ChevronRightIcon, UsersIcon } from "lucide-react";
+import { ChevronRightIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 import { createContext, type ReactNode, use } from "react";
 
 import { cn } from "~/lib/utils";
@@ -51,16 +51,26 @@ export function SidebarTeamTasks(props: { leadKey: string }) {
   );
 }
 
-/** The lead row's quiet team count, which shows or hides the team's task rows. */
+function teamToggleLabel(count: number, runs: number, expanded: boolean): string {
+  const verb = expanded ? "Hide" : "Show";
+  if (runs === count) return `${verb} ${count} ${count === 1 ? "run" : "runs"}`;
+  if (runs > 0) return `${verb} ${count} chats`;
+  return `${verb} the team's ${count} ${count === 1 ? "thread" : "threads"}`;
+}
+
+/** The lead row's quiet count, which shows or hides the team task and workflow run rows. */
 export function SidebarTeamToggle(props: {
   count: number;
+  /** How many of the rows are workflow runs. */
+  runs: number;
   expanded: boolean;
   attention: TeamThreadAttention | null;
   /** Off when the row already shows the team icon. */
   showIcon: boolean;
   onToggle: () => void;
 }) {
-  const label = `${props.expanded ? "Hide" : "Show"} the team's ${props.count} ${props.count === 1 ? "thread" : "threads"}`;
+  const label = teamToggleLabel(props.count, props.runs, props.expanded);
+  const Icon = props.runs === props.count ? WorkflowIcon : UsersIcon;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -79,7 +89,7 @@ export function SidebarTeamToggle(props: {
           />
         }
       >
-        {props.showIcon ? <UsersIcon aria-hidden className="size-3" /> : null}
+        {props.showIcon ? <Icon aria-hidden className="size-3" /> : null}
         {props.count}
         {props.attention !== null ? <SidebarAttentionDot attention={props.attention} /> : null}
         <ChevronRightIcon aria-hidden className={cn("size-3", props.expanded && "rotate-90")} />

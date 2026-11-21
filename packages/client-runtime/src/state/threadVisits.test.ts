@@ -14,6 +14,7 @@ interface Shell {
   readonly updatedAt: string;
   readonly lastVisitedAt?: string | null;
   readonly latestRun: { readonly completedAt: string | null } | null;
+  readonly workflowResultAt?: string | null;
   readonly wokeAt?: string | null;
 }
 
@@ -81,14 +82,17 @@ it("records the open once, then throttles streaming visits", () => {
   expect(t.visits.slice(1)).toEqual([{ threadId: t.ref.threadId, visitedAt: at(12) }]);
 });
 
-it("sends an unseen completion without waiting for the throttle", () => {
-  using t = setup("thread-completion", {
+it.each([
+  ["a finished turn", { latestRun: { completedAt: at(20) } }],
+  ["a workflow result", { workflowResultAt: at(20) }],
+])("sends %s without waiting for the throttle", (name, news: Partial<Shell>) => {
+  using t = setup(`thread-completion-${name}`, {
     updatedAt: at(10),
     lastVisitedAt: at(0),
     latestRun: null,
   });
   t.mount();
-  t.update({ updatedAt: at(20), latestRun: { completedAt: at(20) } });
+  t.update({ updatedAt: at(20), ...news });
   expect(t.visits.slice(1)).toEqual([{ threadId: t.ref.threadId, visitedAt: at(20) }]);
 });
 

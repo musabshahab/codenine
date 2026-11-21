@@ -230,13 +230,21 @@ describe("threadActionMenuThreadState", () => {
   });
 
   it.each([
-    ["no run", null, false],
-    ["a running run", { ...finishedRun, status: "running" as const, completedAt: null }, false],
-    ["a finished run", finishedRun, true],
-  ])("offers Mark unread after %s", (_case, latestRun, canMarkUnread) => {
+    ["no run", null, null, false],
+    [
+      "a running run",
+      { ...finishedRun, status: "running" as const, completedAt: null },
+      null,
+      false,
+    ],
+    ["a finished run", finishedRun, null, true],
+    ["a workflow result alone", null, now, true],
+  ])("offers Mark unread after %s", (_case, latestRun, workflowResultAt, canMarkUnread) => {
     expect(
-      threadActionMenuThreadState(makeThreadFixture({ latestRun }), { now, configLoaded: true })
-        .canMarkUnread,
+      threadActionMenuThreadState(makeThreadFixture({ latestRun, workflowResultAt }), {
+        now,
+        configLoaded: true,
+      }).canMarkUnread,
     ).toBe(canMarkUnread);
   });
 

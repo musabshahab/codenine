@@ -3,9 +3,10 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   groupTeamThreads,
   type TeamThreadAttention,
+  type TeamThreadRunState,
   type TeamThreadSection,
   teamTaskStatusLabel,
-  withoutWorkflowRuns,
+  withoutUnlinkedWorkflowRuns,
   withTeamTaskRows,
 } from "./teamThreads.ts";
 
@@ -14,6 +15,7 @@ interface Row {
   readonly lead: string | null;
   readonly createdAt: string;
   readonly attention: TeamThreadAttention | null;
+  readonly run?: TeamThreadRunState;
 }
 
 const row = (
@@ -43,6 +45,7 @@ function group(
     },
     keyOf: (thread) => thread.key,
     leadKeyOf: (thread) => thread.lead,
+    runOf: (thread) => thread.run ?? null,
     openKey: options.openKey ?? null,
     expandedByLead: options.expandedByLead ?? new Map(),
     attentionOf: (thread) => thread.attention,
@@ -50,6 +53,11 @@ function group(
 }
 
 const keys = (rows: ReadonlyArray<Row>) => rows.map((thread) => thread.key);
+
+const runRow = (key: string, chat: string, minute: number, run: TeamThreadRunState) => ({
+  ...row(key, chat, minute),
+  run,
+});
 
 describe("groupTeamThreads", () => {
   it("draws a lead's task threads under it, oldest first, and leaves the rest alone", () => {
@@ -138,6 +146,56 @@ describe("groupTeamThreads", () => {
     expect(attentionOf(undefined, [row("quiet", "lead")])).toBeNull();
     expect(group({ active: [row("lead"), ...tasks] }).groups.get("lead")?.attention).toBeNull();
   });
+
+  it.each([
+    ["active", "active"],
+    ["settled", "active"],
+    ["snoozed", "active"],
+    ["active", "settled"],
+    ["pinned", "settled"],
+  ] as const)("nests an ended run under its %s chat from %s", (chatSection, runSection) => {
+    const sections: Partial<Record<TeamThreadSection, Row[]>> = { [chatSection]: [row("chat")] };
+    (sections[runSection] ??= []).push(runRow("run", "chat", 1, "ended"));
+    const grouping = group(sections);
+    expect(grouping.leadKeyByTaskKey.get("run")).toBe("chat");
+    expect(keys(grouping.sections[runSection])).not.toContain("run");
+  });
+
+  it("leaves a running run under a settled chat on its own, and drops a run with no chat", () => {
+    const grouping = group({
+      active: [runRow("running", "chat", 1, "running"), runRow("orphan", "gone", 2, "ended")],
+      settled: [row("chat"), runRow("lost", "gone", 3, "running")],
+    });
+    expect(grouping.groups.size).toBe(0);
+    expect(keys(grouping.sections.active)).toEqual(["running"]);
+    expect(keys(grouping.sections.settled)).toEqual(["chat"]);
+  });
+
+  it("opens a chat's runs only while one is running", () => {
+    const ended = { active: [row("chat"), runRow("run-1", "chat", 1, "ended")] };
+    expect(group(ended).groups.get("chat")).toMatchObject({ expanded: false, shown: [], runs: 1 });
+    const running = { active: [...ended.active, runRow("run-2", "chat", 2, "running")] };
+    expect(group(running).groups.get("chat")).toMatchObject({ expanded: true, runs: 2 });
+  });
+
+  it("draws team tasks oldest first, then the newest ten runs and the open one", () => {
+    const runs = Array.from({ length: 12 }, (_, index) =>
+      runRow(`run-${index + 1}`, "chat", index + 1, index === 11 ? "running" : "ended"),
+    );
+    const sections = {
+      active: [row("chat"), row("task-b", "chat", 30), row("task-a", "chat", 20)],
+    };
+    const grouping = group({ ...sections, settled: runs }, { openKey: "run-1" });
+    const chat = grouping.groups.get("chat")!;
+    expect(chat.runs).toBe(12);
+    expect(keys(chat.tasks).slice(0, 4)).toEqual(["task-a", "task-b", "run-12", "run-11"]);
+    expect(keys(chat.shown)).toEqual([
+      "task-a",
+      "task-b",
+      ...Array.from({ length: 10 }, (_, index) => `run-${12 - index}`),
+      "run-1",
+    ]);
+  });
 });
 
 it("draws each lead's shown tasks right after it", () => {
@@ -167,16 +225,17 @@ it.each([
   },
 );
 
-it("leaves out workflow runs, their leads and every thread working for one", () => {
+it("leaves out every step of a workflow run, and a run's lead that has no chat", () => {
   const shell = (
     environmentId: string,
     id: string,
-    source: Parameters<typeof withoutWorkflowRuns>[0][number]["source"] = {},
+    source: Parameters<typeof withoutUnlinkedWorkflowRuns>[0][number]["source"] = {},
   ) => ({ environmentId, id, source });
-  const run = { teamSummary: { run: { run: 1 } } };
   const threads = [
-    shell("env", "run-lead", run),
+    shell("env", "run-lead", { teamSummary: { run: {} } }),
     shell("env", "run-step", { teamTask: { rootThreadId: "run-lead" } }),
+    shell("env", "linked-lead", { teamSummary: { run: { chatThreadId: "chat" } } }),
+    shell("env", "linked-step", { teamTask: { rootThreadId: "linked-lead" } }),
     shell("env", "team-lead", { teamSummary: {} }),
     shell("env", "team-step", { teamTask: { rootThreadId: "team-lead" } }),
     shell("env", "chat"),
@@ -184,8 +243,8 @@ it("leaves out workflow runs, their leads and every thread working for one", () 
     shell("other", "run-step", { teamTask: { rootThreadId: "run-lead" } }),
   ];
   expect(
-    withoutWorkflowRuns(threads).map((thread) => `${thread.environmentId}:${thread.id}`),
-  ).toEqual(["env:team-lead", "env:team-step", "env:chat", "other:run-step"]);
-  const noRuns = threads.slice(2);
-  expect(withoutWorkflowRuns(noRuns)).toBe(noRuns);
+    withoutUnlinkedWorkflowRuns(threads).map((thread) => `${thread.environmentId}:${thread.id}`),
+  ).toEqual(["env:linked-lead", "env:team-lead", "env:team-step", "env:chat", "other:run-step"]);
+  const noRuns = threads.slice(4);
+  expect(withoutUnlinkedWorkflowRuns(noRuns)).toBe(noRuns);
 });
