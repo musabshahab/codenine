@@ -3,6 +3,7 @@ import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
   OrchestrationV2ThreadHistoryPage,
+  WorkflowId,
 } from "@codenine/contracts";
 import {
   latestExecutedRun,
@@ -719,6 +720,10 @@ function legacyPullRequestLink(
 }
 
 const DELEGATED_RESULT_INLINE_BYTES = 16_000;
+
+/** The one card a workflow run keeps in its chat. */
+export const workflowRunItemId = (workflowId: WorkflowId, run: number) =>
+  TurnItemId.make(`workflow-run:${workflowId}:${run}`);
 // The chat's agent is given at most this many workflow results at once, the newest.
 const WORKFLOW_RESULTS_PENDING_MAX = 5;
 
@@ -3246,7 +3251,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Thread ${threadId} is deleted.`,
         });
       }
-      const itemId = TurnItemId.make(`workflow-run:${workflowId}:${run}`);
+      const itemId = workflowRunItemId(workflowId, run);
       const stored = yield* projectionStore
         .getTurnItem({ threadId, itemId })
         .pipe(Effect.mapError(toProjectionError));

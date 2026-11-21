@@ -41,34 +41,47 @@ mode as their ceiling.
 
 Each workflow has one chat its runs report to. `startRun` resolves it under the workflow's lock:
 the chat `state.json` names while it is not deleted (an archived chat stays linked), else the
-newest live chat whose `savedWorkflow` is this workflow, else a new chat named after the workflow
-in its workspace, launched like any server chat and linked with the same `workflow.draft.saved` a
-save from a chat sends. The lookup scans thread payloads, which the no-scan rule below forbids on
-the scheduler's tick; it is allowed here because it runs once per run start, and an `instr`
-prefilter keeps `json_extract` to the few threads that mention the id. Each run carries the chat
-as `TeamPlanRun.chatThreadId`. When none can be had, the run starts without one and reports
-nowhere.
+newest live chat whose `savedWorkflow` is this workflow, else the live chat the previous run
+reported to, else a new chat named after the workflow in its workspace, launched like any server
+chat and linked with the same `workflow.draft.saved` a save from a chat sends. A launched chat is
+the run's chat even when linking it or writing `state.json` fails; the previous-run step finds it
+again, so such a failure does not leave a second chat. The lookup scans thread payloads, which the
+no-scan rule below forbids on the scheduler's tick; it is allowed here because it runs once per run
+start, and an `instr` prefilter keeps `json_extract` to the few threads that mention the id. Each
+run carries the chat as `TeamPlanRun.chatThreadId`. When none can be had, the run starts without
+one and reports nowhere.
 
 A run's result is a runless `workflow_run` turn item in that chat, one per run, posted with the
 internal `workflow.run.report` only when the run has ended. Runless items normally sort before
 every run, so the position store gives this one the band of the chat's newest run: it lands at
-the bottom and keeps that place. The result is the terminal steps' results, else the lead's last
-reply, cut to `WORKFLOW_RUN_RESULT_MAX_CHARS`.
+the bottom and keeps that place. That band takes the newest run's later items too, so a report
+waits while the chat has a turn running or queued, or the card would split that turn. The result
+is the terminal steps' results, else the lead's last reply, cut to `WORKFLOW_RUN_RESULT_MAX_CHARS`.
+Once a card holds a lead reply for a status, later reports reuse it: the user may talk to the lead
+afterwards, and its newer replies are not the run's outcome.
 
 Only a new ending is news. A report that changes the card's status sets `workflowResultAt`, seeds
 a null `lastVisitedAt` so the result reads as unread everywhere, unsettles a chat marked Done
 (a snooze stays, as for other automatic wakes) and adds the item to `pendingWorkflowResults`. A
 changed headline or result only updates the card, and an identical report emits nothing. Report
 command ids hash what is reported, because the server's memory of ended runs does not survive a
-restart. The chat record holds pointers only: every thread event carries the whole thread, so the
+restart. A deleted chat counts as reported. Any other failure leaves the run for the next check;
+a refusal recorded under the same id while the chat is live was a failure on the way, since the
+decider refuses only a deleted chat, so the report goes out once more under a fresh id. The chat
+record holds pointers only: every thread event carries the whole thread, so the
 text stays on the card.
 
 The next prompt that reaches the chat's provider carries the pending results inline, and they are
-cleared only once the provider accepts it; `/compact` and `/goal` leave them waiting. Results given
+cleared only once the provider accepts it. The clear compares each card's status and `updatedAt`
+with what the prompt carried, because a run reported again keeps its item id; a result reported
+meanwhile stays pending. A message starting with `/` leaves them waiting, since a provider reads a
+command only at the start of the prompt. Results given
 before a provider switch are not in the new provider's history, though `codenine_thread_read` on
 the chat still shows the cards. Once its result is in the chat, the run's lead is marked read, so
 finished runs nested under the chat do not light unread dots. Deleting a workflow reports the runs
-it stops before their folder, and with it their supervision, goes away.
+it stops before their folder, and with it their supervision, goes away. That cannot wait, so it
+posts even into a chat mid-turn, and a lead still mid-turn gets no reply as its result and is not
+marked read: it may stay unread until the user opens it.
 
 ## Schedule and missed runs
 
@@ -104,6 +117,6 @@ raising it can hold again.
 The lead saves its note in its final turn, after the plan has ended, so an ended run is settled
 only once its lead has no turn left: the server prices it one last time, reports its result to the
 workflow's chat, appends its note to `notes.md`, and then records the run in `state.json`. The
-report comes first because a noted run is never looked at again; a failed report leaves both for
-the next check. An ended run is read again only when its lead thread has changed, at most once a
-minute.
+report comes first because a noted run is never looked at again; a failed or waiting report leaves
+both for the next check. An ended run is read again only when its lead thread has changed, at most
+once a minute.

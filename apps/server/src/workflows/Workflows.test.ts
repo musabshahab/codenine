@@ -6,6 +6,7 @@ import {
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadShell,
+  type OrchestrationV2TurnItem,
   ProjectId,
   ProviderInstanceId,
   RunId,
@@ -32,8 +33,10 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Agents from "../agents/Agents.ts";
 import * as ServerConfig from "../config.ts";
 import {
+  OrchestratorCommandPreviouslyRejectedError,
   OrchestratorDispatchError,
   OrchestratorProjectionError,
+  workflowRunItemId,
 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -126,6 +129,8 @@ interface FakeThread {
   deleted?: boolean;
   latestRunId?: RunId;
   messages?: Array<{ readonly role: "user" | "assistant"; readonly text: string }>;
+  /** Where the thread's own latest turn stands. */
+  status?: OrchestrationV2ThreadShell["status"];
 }
 
 const fakeThread = (id: ThreadId, model: string): FakeThread => ({
@@ -160,6 +165,10 @@ const makeWorld = () => ({
   refused: new Set<OrchestrationV2ServerCommand["type"]>(),
   /** Command types that fail without a refusal, as when the database is busy. */
   failing: new Set<OrchestrationV2ServerCommand["type"]>(),
+  /** Command ids whose refusal the orchestrator recorded earlier. */
+  rejected: new Set<string>(),
+  /** The workflow run cards each chat holds, by thread and item id. */
+  cards: new Map<string, OrchestrationV2TurnItem>(),
   priced: [] as Array<{ readonly tokens: number; readonly download: boolean }>,
   /** Dollars per token; null for a model nobody has a price for. */
   pricePerToken: 0.001 as number | null,
@@ -172,11 +181,17 @@ const shellOf = (thread: FakeThread) =>
     deletedAt: thread.deleted === true ? DateTime.makeUnsafe(0) : null,
     updatedAt: DateTime.makeUnsafe(thread.updatedAt),
     latestRunId: thread.latestRunId ?? null,
+    activeRunId: null,
+    status: thread.status ?? "idle",
     ...(thread.team === null
       ? {}
       : {
           // As teamPlanSummary makes it: a run is found by its lead thread's id, not its summary.
-          teamSummary: { planId: thread.team.id, status: thread.team.status },
+          teamSummary: {
+            planId: thread.team.id,
+            status: thread.team.status,
+            ...(thread.team.run === undefined ? {} : { run: thread.team.run }),
+          },
         }),
   }) as unknown as OrchestrationV2ThreadShell;
 
@@ -199,6 +214,16 @@ function apply(world: World, command: OrchestrationV2ServerCommand) {
     const thread = world.threads.get(command.threadId);
     if (thread !== undefined && command.connectors != null) thread.connectors = command.connectors;
     if (thread !== undefined && command.skills !== undefined) thread.skills = command.skills;
+    return;
+  }
+  if (command.type === "workflow.run.report") {
+    const { type: _type, commandId: _commandId, threadId, ...card } = command;
+    const id = workflowRunItemId(command.workflowId, command.run);
+    world.cards.set(`${threadId}|${id}`, {
+      ...card,
+      id,
+      type: "workflow_run",
+    } as unknown as OrchestrationV2TurnItem);
     return;
   }
   if (command.type === "workflow.draft.saved") {
@@ -308,6 +333,8 @@ const fakes = (baseDir: string, world: World) => {
           return thread === undefined ? null : shellOf(thread);
         }),
       getThread: (threadId) => find(threadId).pipe(Effect.map(appThreadOf)),
+      getTurnItem: ({ threadId, itemId }) =>
+        Effect.sync(() => world.cards.get(`${threadId}|${itemId}`) ?? null),
       findThreadBySavedWorkflow: (workflowId) =>
         Effect.sync(
           () =>
@@ -327,9 +354,20 @@ const fakes = (baseDir: string, world: World) => {
         Effect.suspend(
           (): Effect.Effect<
             { readonly sequence: number; readonly storedEvents: ReadonlyArray<never> },
-            OrchestratorDispatchError | OrchestratorProjectionError
+            | OrchestratorCommandPreviouslyRejectedError
+            | OrchestratorDispatchError
+            | OrchestratorProjectionError
           > => {
             world.attempted.push(command);
+            if (world.rejected.has(command.commandId)) {
+              return Effect.fail(
+                new OrchestratorCommandPreviouslyRejectedError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                  detail: "Refused before.",
+                }),
+              );
+            }
             if (world.refused.has(command.type)) {
               return Effect.fail(
                 new OrchestratorDispatchError({
@@ -666,9 +704,13 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         yield* workflows.superviseRuns;
         expect(plan().hold?.reason).toBe("time");
 
+        // The lead and the chat are both mid-turn when the workflow is deleted.
+        lead.runs = [{ status: "running" }];
+        world.threads.get(chat)!.status = "running";
         yield* workflows.remove({ name: "weekly-digest" });
-        // The folder and its supervision go away, so the stopped run reports to its chat now.
-        expect(world.dispatched.slice(-3)).toMatchObject([
+        // The folder and its supervision go away, so the stopped run reports to its chat now. The
+        // lead's last message may still be streaming, so it is not the result, and it stays unread.
+        expect(world.dispatched.slice(-2)).toMatchObject([
           { type: "team.cancel", threadId },
           {
             type: "workflow.run.report",
@@ -676,10 +718,10 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
             run: 1,
             leadThreadId: threadId,
             status: "cancelled",
-            result: "Stopped before the draft.",
+            result: null,
           },
-          { type: "thread.visit", threadId },
         ]);
+        expect(sentOfType(world.dispatched, "thread.visit")).toEqual([]);
         expect(plan().status).toBe("cancelled");
         expect(yield* fileSystem.exists(saved.path)).toBe(false);
       }),
@@ -822,6 +864,21 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
             (command) => command.workflowId === briefing.id,
           ),
         ).toEqual([expect.objectContaining({ threadId: briefingChat })]);
+
+        // A chat whose link failed still takes its run's result, and when state.json lost it too,
+        // the next run finds it through the run before.
+        const standup = yield* workflows.save({
+          workflow: { ...digest, name: "standup", title: "Standup" },
+        });
+        world.refused.add("workflow.draft.saved");
+        yield* workflows.run({ name: "standup" });
+        world.refused.clear();
+        const standupChat = teamStarts(world)[6]!.run.chatThreadId;
+        expect(world.threads.has(standupChat!)).toBe(true);
+        yield* fileSystem.remove(path.join(standup.path, "state.json"));
+        yield* workflows.run({ name: "standup" });
+        expect(teamStarts(world)[7]!.run.chatThreadId).toBe(standupChat);
+        expect(world.launched.filter(({ input }) => input.title === "Standup")).toHaveLength(1);
 
         world.agents = [agent("researcher", "Researcher")];
         const launchedBeforeRefusal = world.launched.length;
@@ -1002,12 +1059,19 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         lead.turns.push(turn(1_000));
         lead.runs = [];
         lead.updatedAt = 2;
-        // The result is reported before the note is kept, so a failed report keeps both for later.
-        world.failing.add("workflow.run.report");
+        // The chat has a turn going, which a card posted now would split; the result waits for it.
+        const chat = world.threads.get(teamStarts(world)[0]!.run.chatThreadId!)!;
+        chat.status = "running";
         yield* TestClock.adjust("2 minutes");
         yield* workflows.superviseRuns;
         expect(sent().at(-1)).toBe(`server:workflow-cost:${planId}:final:72000`);
         expect(plan().run?.costUsd).toBe(7.2);
+        expect(sentOfType(world.attempted, "workflow.run.report")).toEqual([]);
+        // The result is reported before the note is kept, so a refused report keeps both for later.
+        chat.status = "completed";
+        world.refused.add("workflow.run.report");
+        yield* TestClock.adjust("2 minutes");
+        yield* workflows.superviseRuns;
         expect((yield* workflows.read({ name: "weekly-digest" })).notes).toBe("");
         const [report] = sentOfType(world.attempted, "workflow.run.report");
         expect(report).toMatchObject({
@@ -1022,15 +1086,19 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         });
         expect(sentOfType(world.dispatched, "thread.visit")).toEqual([]);
 
-        // After a restart the same report goes out under the same id, then the lead is marked read.
-        world.failing.clear();
+        // After a restart the same report goes out under the same id. Its refusal was recorded while
+        // the chat is live, so it goes out once more under a new id; then the lead is marked read.
+        world.refused.clear();
+        world.rejected.add(report!.commandId);
         yield* (yield* restarted).superviseRuns;
+        const retryId = expect.stringMatching(new RegExp(`^${report!.commandId}:retry:`, "u"));
         expect(sentOfType(world.attempted, "workflow.run.report").map((c) => c.commandId)).toEqual([
           report!.commandId,
           report!.commandId,
+          retryId,
         ]);
         expect(world.dispatched.slice(-2)).toMatchObject([
-          { type: "workflow.run.report", commandId: report!.commandId },
+          { type: "workflow.run.report", commandId: retryId },
           {
             type: "thread.visit",
             commandId: `server:workflow-run-read:${threadId}:1970-01-01T00:00:00.002Z`,
@@ -1042,5 +1110,55 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         );
       }),
     ),
+  );
+
+  it.effect(
+    "keeps a posted result when the run's lead talks on, and posts none to a gone chat",
+    () =>
+      withWorkflows((world) =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(at("2026-11-18T10:00:00Z"));
+          const workflows = yield* Workflows.Workflows;
+          yield* workflows.save({ workflow: digest });
+          const { threadId } = yield* workflows.run({ name: "weekly-digest" });
+          const chat = teamStarts(world)[0]!.run.chatThreadId!;
+          const lead = world.threads.get(threadId)!;
+          const reports = () => sentOfType(world.attempted, "workflow.run.report");
+          // It failed before any step finished, so the lead's last message is its result.
+          lead.team = { ...lead.team!, status: "failed" };
+          lead.latestRunId = RunId.make("run-lead-1");
+          lead.messages = [
+            { role: "assistant", text: "The research step could not reach the site." },
+          ];
+          lead.updatedAt = 1;
+          yield* workflows.superviseRuns;
+          expect(reports().map((report) => report.result)).toEqual([
+            "The research step could not reach the site.",
+          ]);
+
+          // The user asks the lead why; its answer is not the run's result, but a new headline is news.
+          lead.latestRunId = RunId.make("run-lead-2");
+          lead.messages = [{ role: "assistant", text: "The site was down for maintenance." }];
+          lead.team = { ...lead.team, run: { ...lead.team.run!, headline: "Site unreachable" } };
+          lead.updatedAt = 2;
+          yield* TestClock.adjust("2 minutes");
+          yield* workflows.superviseRuns;
+          expect(reports().map(({ headline, result }) => [headline, result])).toEqual([
+            [null, "The research step could not reach the site."],
+            ["Site unreachable", "The research step could not reach the site."],
+          ]);
+
+          // Its chat was deleted, so nothing is posted and the run counts as reported.
+          world.threads.get(chat)!.deleted = true;
+          lead.team = { ...lead.team, run: { ...lead.team.run!, headline: "Site down" } };
+          lead.updatedAt = 3;
+          yield* TestClock.adjust("2 minutes");
+          yield* workflows.superviseRuns;
+          expect(reports()).toHaveLength(2);
+          expect(sentOfType(world.dispatched, "thread.visit").at(-1)?.commandId).toBe(
+            `server:workflow-run-read:${threadId}:1970-01-01T00:00:00.003Z`,
+          );
+        }),
+      ),
   );
 });
