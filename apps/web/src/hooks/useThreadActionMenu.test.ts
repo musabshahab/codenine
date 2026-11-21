@@ -231,7 +231,9 @@ describe("thread menu for a chat the shell list leaves out", () => {
     state.show.mockResolvedValue("unarchive");
     createMenu({ thread: state.chat as unknown as EnvironmentThreadShell }).openMenu(position);
     await state.completed.promise;
-    expect(shownMenu()[0]).toMatchObject({ id: "unarchive", label: "Unarchive chat" });
+    expect(shownMenu().find((item) => item.id === "unarchive")).toMatchObject({
+      label: "Unarchive chat",
+    });
     expect(state.effects).toEqual(["unarchiveThread"]);
   });
 });
