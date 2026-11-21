@@ -1766,6 +1766,42 @@ describe("resolveSidebarFolderDot", () => {
     expect(resolveSidebarFolderDot([working, lead("proposed")])).toBe("attention");
     expect(resolveSidebarFolderDot([unread, lead("failed")])).toBe("failed");
     expect(resolveSidebarFolderDot([lead("running"), lead("completed")])).toBeNull();
+    // A failed workflow run stops flagging once seen after it ended, or once done; a held one flags.
+    const failedRun = (overrides: object) => {
+      const base = lead("failed");
+      return {
+        ...base,
+        source: {
+          teamSummary: {
+            ...base.source.teamSummary,
+            run: { chatThreadId: ThreadId.make("chat") } as never,
+          },
+        },
+        ...overrides,
+      };
+    };
+    expect(resolveSidebarFolderDot([failedRun({ lastVisitedAt: null })])).toBe("failed");
+    expect(
+      resolveSidebarFolderDot([failedRun({ lastVisitedAt: "2026-03-09T10:04:00.000Z" })]),
+    ).toBe("failed");
+    expect(resolveSidebarFolderDot([failedRun({})])).toBeNull();
+    expect(
+      resolveSidebarFolderDot([failedRun({ lastVisitedAt: null, settledOverride: "settled" })]),
+    ).toBeNull();
+    const held = failedRun({});
+    expect(
+      resolveSidebarFolderDot([
+        {
+          ...held,
+          source: {
+            teamSummary: {
+              ...held.source.teamSummary,
+              hold: { reason: "spend" as const, at: "2026-03-09T10:05:00.000Z" },
+            },
+          },
+        },
+      ]),
+    ).toBe("attention");
   });
 });
 

@@ -883,14 +883,38 @@ export function shouldRecedeSidebarThread(input: {
 }
 
 /**
+ * A workflow run's plan stays failed for good, so its failure flags only until the user has put
+ * the run away or opened it after its lead's last turn ended.
+ */
+function workflowRunFailureSeen(
+  thread: ThreadStatusInput &
+    NeedsYouInput & { readonly settledOverride?: SidebarThreadSummary["settledOverride"] },
+): boolean {
+  if (thread.source?.teamSummary?.run === undefined) return false;
+  if (thread.settledOverride === "settled") return true;
+  if (!thread.lastVisitedAt) return false;
+  if (thread.latestRun == null) return true;
+  const endedAt = parsedOrNever(thread.latestRun.completedAt);
+  return endedAt !== Number.NEGATIVE_INFINITY && Date.parse(thread.lastVisitedAt) >= endedAt;
+}
+
+/**
  * The dot on a closed project folder: the most urgent state among its hidden
  * threads, a lead's team included. Waiting threads stay quiet, like their rows.
  */
 export function resolveSidebarFolderDot(
-  threads: ReadonlyArray<ThreadStatusInput & NeedsYouInput>,
+  threads: ReadonlyArray<
+    ThreadStatusInput &
+      NeedsYouInput & { readonly settledOverride?: SidebarThreadSummary["settledOverride"] }
+  >,
 ): "attention" | "failed" | "unread" | "working" | null {
   const statuses = new Set(threads.map(resolveSidebarThreadStatus));
-  const reasons = new Set(threads.map(needsYouReason));
+  const reasons = new Set(
+    threads.map((thread) => {
+      const reason = needsYouReason(thread);
+      return reason === "failed" && workflowRunFailureSeen(thread) ? null : reason;
+    }),
+  );
   if (
     reasons.has("approval") ||
     reasons.has("question") ||
