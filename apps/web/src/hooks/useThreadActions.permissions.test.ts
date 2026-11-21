@@ -337,7 +337,7 @@ describe("thread action permissions", () => {
     state.confirm.mockResolvedValue(false);
     await useThreadActions().confirmAndDeleteThread(target, "Archived release notes");
     expect(state.confirm).toHaveBeenCalledWith(
-      expect.stringContaining('Delete thread "Archived release notes"?'),
+      expect.stringContaining('Delete chat "Archived release notes"?'),
       { variant: "destructive" },
     );
     expect(state.requests).toEqual([]);

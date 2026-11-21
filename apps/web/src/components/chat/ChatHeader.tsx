@@ -5,6 +5,7 @@ import {
   type ThreadId,
 } from "@codenine/contracts";
 import { scopeThreadRef } from "@codenine/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import type { EnvironmentProject } from "@codenine/client-runtime/state/shell";
 import type { TeamAgentHeader } from "@codenine/client-runtime/team";
 import {
@@ -28,7 +29,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { useThreadActions } from "~/hooks/useThreadActions";
-import { useQuietThreadShell } from "../../state/entities";
 import { Button } from "../ui/button";
 import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
@@ -56,6 +56,8 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   isServerThread: boolean;
+  /** The server thread ChatView shows, including one the shell list leaves out. */
+  threadShell: EnvironmentThreadShell | null;
   activeProject: EnvironmentProject | null;
   /** A subagent's parent, or the task (lead thread) a team agent works for. */
   parentThreadLink: { threadId: ThreadId; title: string; task: boolean } | null;
@@ -127,6 +129,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
   isServerThread,
+  threadShell,
   activeProject,
   parentThreadLink,
   teamAgent,
@@ -139,7 +142,6 @@ export const ChatHeader = memo(function ChatHeader({
 }: ChatHeaderProps) {
   const isChat = activeProject?.isScratch === true;
   const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
-  const threadShell = useQuietThreadShell(isServerThread ? activeThreadRef : null);
   const projectGroupOf = useThreadProjectGroup();
   const projectGroup =
     activeProject === null || isChat
@@ -242,7 +244,7 @@ export const ChatHeader = memo(function ChatHeader({
       originalTitle: renamingTitle ?? activeThreadTitle,
     });
     if (resolution.action === "reject-empty") {
-      toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
+      toastManager.add({ type: "warning", title: "Chat title cannot be empty" });
       return;
     }
     if (resolution.action === "noop") return;
@@ -254,7 +256,7 @@ export const ChatHeader = memo(function ChatHeader({
         const error = squashAtomCommandFailure(result);
         toastManager.add({
           type: "error",
-          title: "Failed to rename thread",
+          title: "Failed to rename chat",
           description: error instanceof Error ? error.message : "An error occurred.",
         });
       }
@@ -262,6 +264,7 @@ export const ChatHeader = memo(function ChatHeader({
   };
   const { openMenu, closeMenu } = useThreadActionMenu({
     threadRef: isServerThread ? activeThreadRef : null,
+    thread: threadShell,
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
     onFind: onFindInThread,
@@ -438,7 +441,7 @@ export const ChatHeader = memo(function ChatHeader({
               <input
                 autoFocus
                 dir="auto"
-                aria-label="Thread title"
+                aria-label="Chat title"
                 className="min-w-0 flex-1 rounded-sm bg-transparent text-sm font-medium text-foreground outline-none ring-1 ring-inset ring-ring/50 focus:ring-ring"
                 defaultValue={renamingTitle}
                 onBlur={(event) => {
@@ -462,7 +465,7 @@ export const ChatHeader = memo(function ChatHeader({
                     <button
                       ref={titleButtonRef}
                       type="button"
-                      aria-label={`Thread actions for ${crumbTitle}`}
+                      aria-label={`Chat actions for ${crumbTitle}`}
                       aria-haspopup="menu"
                       onClick={openMenuFromTitle}
                       onDoubleClick={canOperateThread ? handleTitleDoubleClick : undefined}
@@ -507,7 +510,10 @@ export const ChatHeader = memo(function ChatHeader({
                 />
               </span>
             ) : null}
-            {isChat && threadShell !== null && renamingTitle === null ? (
+            {isChat &&
+            threadShell !== null &&
+            threadShell.archivedAt === null &&
+            renamingTitle === null ? (
               <span className="hidden @md/header-actions:flex">
                 <ChatPinToggle
                   threadRef={activeThreadRef}

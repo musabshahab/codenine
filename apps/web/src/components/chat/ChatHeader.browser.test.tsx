@@ -31,6 +31,7 @@ function header(title: string) {
         activeThreadId={ThreadId.make("thread")}
         activeThreadTitle={title}
         isServerThread
+        threadShell={null}
         activeProject={null}
         parentThreadLink={null}
         teamAgent={null}
@@ -47,8 +48,8 @@ it.each(["blur", "Enter"] as const)(
   async (finish) => {
     persisted.title = "New thread";
     await using screen = await render(header(persisted.title));
-    await screen.getByRole("button", { name: "Thread actions for New thread" }).dblClick();
-    const input = screen.getByRole("textbox", { name: "Thread title" });
+    await screen.getByRole("button", { name: "Chat actions for New thread" }).dblClick();
+    const input = screen.getByRole("textbox", { name: "Chat title" });
     await expect.element(input).toHaveValue("New thread");
 
     persisted.title = "Fix login redirect";
@@ -60,13 +61,13 @@ it.each(["blur", "Enter"] as const)(
     expect(persisted.title).toBe("Fix login redirect");
 
     await screen.rerender(header(persisted.title));
-    await screen.getByRole("button", { name: "Thread actions for Fix login redirect" }).dblClick();
-    await screen.getByRole("textbox", { name: "Thread title" }).fill("My edited title");
+    await screen.getByRole("button", { name: "Chat actions for Fix login redirect" }).dblClick();
+    await screen.getByRole("textbox", { name: "Chat title" }).fill("My edited title");
     persisted.title = "Another concurrent title";
     await screen.rerender(header(persisted.title));
     await userEvent.keyboard("{Enter}");
     await expect
-      .element(screen.getByRole("textbox", { name: "Thread title" }))
+      .element(screen.getByRole("textbox", { name: "Chat title" }))
       .not.toBeInTheDocument();
     expect(persisted.title).toBe("My edited title");
   },

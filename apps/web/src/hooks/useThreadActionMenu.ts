@@ -1,4 +1,5 @@
 import { scopeProjectRef } from "@codenine/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import {
   type AtomCommandResult,
@@ -6,7 +7,6 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@codenine/client-runtime/state/runtime";
-import { canSnooze, effectiveSnoozed } from "@codenine/client-runtime/state/thread-settled";
 import {
   AuthOrchestrationOperateScope,
   type ScopedThreadRef,
@@ -17,6 +17,7 @@ import { useRouter } from "@tanstack/react-router";
 import { pickSnoozePreset, resolveSnoozePresets } from "../components/Sidebar.snooze";
 import {
   buildThreadActionMenuItems,
+  threadActionMenuThreadState,
   threadActionRequiresOperate,
   type ThreadActionMenuId,
 } from "../components/threadActionMenu.logic";
@@ -41,7 +42,6 @@ import {
   selectProjectGroupingSettings,
 } from "@codenine/client-runtime/state/project-grouping";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
-import { threadRuntimeCanArchive } from "@codenine/client-runtime/state/models";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
@@ -59,11 +59,13 @@ function failureToast(title: string, error: unknown) {
 
 export function useThreadActionMenu(input: {
   readonly threadRef: ScopedThreadRef | null;
+  /** The chat as shown, for one the shell list leaves out, such as an older done chat. */
+  readonly thread: EnvironmentThreadShell | null;
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
   readonly onFind?: ((threadRef: ScopedThreadRef) => void) | undefined;
 }) {
-  const { threadRef, projectCwd, onStartRename, onFind } = input;
+  const { threadRef, thread: shownThread, projectCwd, onStartRename, onFind } = input;
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -82,7 +84,8 @@ export function useThreadActionMenu(input: {
     confirmAndUnpinThread,
     setThreadAutoSettle,
     archiveThread,
-    deleteThread,
+    unarchiveThread,
+    confirmAndDeleteThread,
     markThreadUnread,
     turnThreadIntoProject,
   } = useThreadActions();
@@ -90,7 +93,6 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
-  const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
@@ -118,34 +120,37 @@ export function useThreadActionMenu(input: {
     void (async () => {
       const api = readLocalApi();
       if (!api) return;
-      const thread = readThreadShell(threadRef);
+      const thread = readThreadShell(threadRef) ?? shownThread;
       if (!thread) return;
       const now = new Date();
       const configLoaded = readEnvironmentServerConfigLoaded(threadRef.environmentId);
-      const supports = {
-        settlement: configLoaded,
-        autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
-        snooze: configLoaded,
-        pinning: configLoaded,
-        titleRegeneration: configLoaded,
-      };
-      const isRegeneratingTitle = thread.titleRegeneration != null;
+      const threadState = threadActionMenuThreadState(thread, {
+        now: now.toISOString(),
+        configLoaded,
+      });
+      const project =
+        projects.find(
+          (candidate) =>
+            candidate.environmentId === thread.environmentId && candidate.id === thread.projectId,
+        ) ?? null;
+      const workspacePath = thread.worktreePath ?? projectCwd;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
       const items = buildThreadActionMenuItems({
+        ...threadState,
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
-        branch: thread.branch ?? null,
         projectFilter: null,
-        isPinned: thread.pinnedAt != null,
-        isSettled: supports.settlement && thread.settledOverride === "settled",
-        autoSettleEnabled: thread.autoSettleDisabledAt == null,
-        isSnoozed: supports.snooze && effectiveSnoozed(thread, { now: now.toISOString() }),
-        canSnoozeNow: canSnooze(thread, { now: now.toISOString() }),
-        isRegeneratingTitle,
-        isRunning: !threadRuntimeCanArchive(thread.runtime),
-        supports,
+        hasPath: workspacePath !== null,
+        hasProject: project !== null,
+        supports: {
+          settlement: configLoaded,
+          autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
+          snooze: configLoaded,
+          pinning: configLoaded,
+          titleRegeneration: configLoaded,
+        },
         snoozePresets,
-        canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        canTurnIntoProject: canTurnThreadIntoProject(thread),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -191,11 +196,7 @@ export function useThreadActionMenu(input: {
           onFind?.(threadRef);
           return;
         case "project-settings": {
-          const project = projects.find(
-            (candidate) =>
-              candidate.environmentId === thread.environmentId && candidate.id === thread.projectId,
-          );
-          if (!project) return;
+          if (project === null) return;
           const projectKey =
             logicalProjectKeyByPhysicalKey.get(derivePhysicalProjectKey(project)) ??
             deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings);
@@ -229,15 +230,15 @@ export function useThreadActionMenu(input: {
           await reportFailure("Failed to wake thread", () => unsnoozeThread(threadRef));
           return;
         case "pin":
-          await reportFailure("Failed to pin thread", () => pinThread(threadRef));
+          await reportFailure("Failed to pin chat", () => pinThread(threadRef));
           return;
         case "unpin": {
-          await reportFailure("Failed to unpin thread", () => confirmAndUnpinThread(threadRef));
+          await reportFailure("Failed to unpin chat", () => confirmAndUnpinThread(threadRef));
           return;
         }
         case "auto-settle:enabled":
         case "auto-settle:disabled":
-          await reportFailure("Failed to update when this thread is marked done", () =>
+          await reportFailure("Could not change when this chat is marked done", () =>
             setThreadAutoSettle(threadRef, action === "auto-settle:enabled"),
           );
           return;
@@ -245,7 +246,7 @@ export function useThreadActionMenu(input: {
           onStartRename();
           return;
         case "regenerate-title":
-          if (isRegeneratingTitle) return;
+          if (threadState.isRegeneratingTitle) return;
           await reportFailure("Failed to regenerate thread title", () =>
             updateThreadMetadata({
               environmentId: threadRef.environmentId,
@@ -272,21 +273,11 @@ export function useThreadActionMenu(input: {
           }
           return;
         }
-        case "copy-path": {
-          const workspacePath = thread.worktreePath ?? projectCwd;
-          if (!workspacePath) {
-            toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Path unavailable",
-                description: "This thread does not have a workspace path to copy.",
-              }),
-            );
-            return;
+        case "copy-path":
+          if (workspacePath !== null) {
+            copyPathToClipboard(workspacePath, { path: workspacePath });
           }
-          copyPathToClipboard(workspacePath, { path: workspacePath });
           return;
-        }
         case "copy-branch":
           if (thread.branch) {
             copyBranchToClipboard(thread.branch, { branch: thread.branch });
@@ -300,51 +291,36 @@ export function useThreadActionMenu(input: {
         case "copy-thread-id":
           copyThreadIdToClipboard(thread.id, { threadId: thread.id });
           return;
+        case "unarchive":
+          await reportFailure("Could not unarchive the chat", () => unarchiveThread(threadRef));
+          return;
         case "archive": {
           if (confirmThreadArchive) {
             const confirmed = await settlePromise(() =>
-              api.dialogs.confirm(`Archive thread "${thread.title}"?`),
+              api.dialogs.confirm(`Archive chat "${thread.title}"?`),
             );
             if (confirmed._tag === "Failure" || !confirmed.value) return;
           }
           let didArchive = false;
           const result = await archiveThread(threadRef, {
+            thread,
             onArchived: () => {
               didArchive = true;
             },
           });
           if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
             failureToast(
-              didArchive ? "Thread archived, but navigation failed" : "Failed to archive thread",
+              didArchive ? "Chat archived, but navigation failed" : "Failed to archive chat",
               squashAtomCommandFailure(result),
             );
           }
           return;
         }
-        case "delete": {
-          if (confirmThreadDelete) {
-            const confirmed = await settlePromise(() =>
-              api.dialogs.confirm(
-                [
-                  `Delete thread "${thread.title}"?`,
-                  "This permanently clears conversation history for this thread.",
-                ].join("\n"),
-                { variant: "destructive" },
-              ),
-            );
-            if (confirmed._tag === "Failure" || !confirmed.value) return;
-          }
-          const deleted = await deleteThread(threadRef);
-          if (
-            deleted._tag === "Failure" &&
-            !isAtomCommandInterrupted(deleted) &&
-            // A missing thread means cleanup failed after deletion; deleteThread already toasted that failure.
-            readThreadShell(threadRef) !== null
-          ) {
-            failureToast("Failed to delete thread", squashAtomCommandFailure(deleted));
-          }
+        case "delete":
+          await reportFailure("Failed to delete chat", () =>
+            confirmAndDeleteThread(threadRef, thread.title),
+          );
           return;
-        }
         default:
           return;
       }

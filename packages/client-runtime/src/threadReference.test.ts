@@ -57,7 +57,7 @@ describe("resolveThreadReferenceCopyTarget", () => {
     expect(target).toMatchObject({
       kind: "thread",
       description: "Fix the login flow",
-      successTitle: "Thread copied",
+      successTitle: "Chat link copied",
     });
     const pasted = decodeComposerContextFragment(encodeComposerContextFragment(target!.fragment!));
     expect(pasted).toEqual({

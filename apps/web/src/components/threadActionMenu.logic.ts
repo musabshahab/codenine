@@ -1,5 +1,13 @@
 import type { ContextMenuItem } from "@codenine/contracts";
-import type { SnoozePreset } from "@codenine/client-runtime/state/thread-settled";
+import {
+  threadRuntimeCanArchive,
+  type EnvironmentThreadShell,
+} from "@codenine/client-runtime/state/models";
+import {
+  canSnooze,
+  effectiveSnoozed,
+  type SnoozePreset,
+} from "@codenine/client-runtime/state/thread-settled";
 
 export type ThreadActionMenuId =
   | "find"
@@ -26,6 +34,7 @@ export type ThreadActionMenuId =
   | "copy-thread"
   | "copy-thread-id"
   | "archive"
+  | "unarchive"
   | "delete";
 
 export type DraftActionMenuId =
@@ -74,11 +83,18 @@ export interface ThreadActionMenuState {
     readonly label: string;
     readonly isActive: boolean;
   } | null;
+  /** The chat has a folder to copy: its worktree, else its workspace's. */
+  readonly hasPath: boolean;
+  /** The chat's workspace is known, so its settings can open. */
+  readonly hasProject: boolean;
+  readonly isArchived: boolean;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
+  readonly isTeamTask: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
+  readonly canMarkUnread: boolean;
   readonly isRegeneratingTitle: boolean;
   /** Archive rejects attached providers, so disable it while running. */
   readonly isRunning: boolean;
@@ -94,13 +110,36 @@ export interface ThreadActionMenuState {
   readonly canTurnIntoProject?: boolean;
 }
 
-/** Local navigation, read markers, and copying remain available to read-only clients. */
+/** What the chat's own record decides, read the same way by the header and the sidebar. */
+export function threadActionMenuThreadState(
+  thread: EnvironmentThreadShell,
+  options: { readonly now: string; readonly configLoaded: boolean },
+) {
+  return {
+    branch: thread.branch,
+    isArchived: thread.archivedAt !== null,
+    isPinned: thread.pinnedAt != null,
+    // Snoozing a done chat leaves it done, so it still offers Mark not done.
+    isSettled: options.configLoaded && thread.settledOverride === "settled",
+    autoSettleEnabled: thread.autoSettleDisabledAt == null,
+    // A team marks its agents' chats done when it ends, whatever each chat is set to.
+    isTeamTask: thread.source.teamTask !== undefined,
+    isSnoozed: options.configLoaded && effectiveSnoozed(thread, { now: options.now }),
+    canSnoozeNow: canSnooze(thread, { now: options.now }),
+    // The server marks a chat unread only once its latest run has finished.
+    canMarkUnread: thread.latestRun?.completedAt != null,
+    isRegeneratingTitle: thread.titleRegeneration != null,
+    isRunning: !threadRuntimeCanArchive(thread.runtime),
+  } satisfies Partial<ThreadActionMenuState>;
+}
+
+/** Read-only clients keep what stays on this client: finding, copying, filtering, opening. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "find",
     "new-thread-on-branch",
+    "filter-by-project",
     "project-settings",
-    "mark-unread",
     "copy",
     "copy-path",
     "copy-branch",
@@ -109,27 +148,15 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
   ].includes(action);
 }
 
-export function buildThreadActionMenuItems(
-  state: ThreadActionMenuState,
-): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
-  const items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> = [
-    ...(state.canFind
-      ? [{ id: "find" as const, label: "Find in thread", icon: "text-search" }]
-      : []),
-    ...(state.branch
-      ? [
-          {
-            id: "new-thread-on-branch" as const,
-            label: `New chat on ${state.branch}`,
-            icon: "message-square-plus",
-          },
-        ]
-      : []),
+type ThreadActionMenuItem = ContextMenuItem<ThreadActionMenuId>;
+
+function stateGroup(state: ThreadActionMenuState): ReadonlyArray<ThreadActionMenuItem> {
+  return [
     ...(state.supports.pinning
       ? [
           state.isPinned
-            ? { id: "unpin" as const, label: "Unpin thread", icon: "pin-off" }
-            : { id: "pin" as const, label: "Pin thread", icon: "pin" },
+            ? { id: "unpin" as const, label: "Unpin chat", icon: "pin-off" }
+            : { id: "pin" as const, label: "Pin chat", icon: "pin" },
         ]
       : []),
     ...(state.supports.settlement
@@ -142,7 +169,7 @@ export function buildThreadActionMenuItems(
     ...(state.supports.snooze
       ? [
           state.isSnoozed
-            ? { id: "unsnooze" as const, label: "Wake thread", icon: "clock" }
+            ? { id: "unsnooze" as const, label: "Wake now", icon: "clock" }
             : {
                 id: "snooze" as const,
                 label: "Snooze",
@@ -162,40 +189,8 @@ export function buildThreadActionMenuItems(
               },
         ]
       : []),
-    { id: "rename", label: "Rename thread", icon: "pencil", separatorBefore: true },
-    ...(state.supports.titleRegeneration
-      ? [
-          {
-            id: "regenerate-title" as const,
-            label: state.isRegeneratingTitle ? "Regenerating…" : "Regenerate title",
-            icon: "refresh-cw",
-            disabled: state.isRegeneratingTitle,
-          },
-        ]
-      : []),
-    { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
-    ...(state.projectFilter
-      ? [
-          {
-            id: "filter-by-project" as const,
-            label: state.projectFilter.isActive
-              ? "Show all workspaces"
-              : `Filter by ${state.projectFilter.label}`,
-            icon: "folder-tree",
-          },
-        ]
-      : []),
-    ...(state.canTurnIntoProject
-      ? [
-          {
-            id: "turn-into-project" as const,
-            label: "Turn into workspace",
-            icon: "folder-plus",
-            disabled: state.isRunning,
-          },
-        ]
-      : []),
-    ...(state.supports.autoSettleOptOut
+    { id: "mark-unread", label: "Mark unread", icon: "mail-open", disabled: !state.canMarkUnread },
+    ...(state.supports.autoSettleOptOut && !state.isTeamTask
       ? [
           {
             id: "auto-settle" as const,
@@ -204,7 +199,7 @@ export function buildThreadActionMenuItems(
             children: [
               {
                 id: "auto-settle:enabled" as const,
-                label: "Follow settings",
+                label: "As set in Settings",
                 checked: state.autoSettleEnabled,
               },
               {
@@ -216,35 +211,118 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
-    {
-      id: "copy",
-      label: "Copy",
-      icon: "copy",
-      separatorBefore: true,
-      children: [
-        { id: "copy-path", label: "Path", icon: "folder" },
-        ...(state.branch
-          ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
-          : []),
-        { id: "copy-thread", label: "Thread", icon: "message-square" },
-        { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
-      ],
-    },
-    { id: "project-settings", label: "Workspace settings", icon: "settings" },
-    {
-      id: "archive",
-      label: "Archive thread",
-      icon: "archive",
-      disabled: state.isRunning,
-      separatorBefore: true,
-    },
-    {
-      id: "delete",
-      label: "Delete",
-      destructive: true,
-      icon: "trash",
-    },
   ];
+}
+
+function copyItem(state: ThreadActionMenuState): ThreadActionMenuItem {
+  return {
+    id: "copy",
+    label: "Copy",
+    icon: "copy",
+    children: [
+      { id: "copy-thread", label: "Chat link", icon: "message-square" },
+      { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+      ...(state.hasPath ? [{ id: "copy-path" as const, label: "Path", icon: "folder" }] : []),
+      ...(state.branch
+        ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
+        : []),
+    ],
+  };
+}
+
+function projectSettingsItems(state: ThreadActionMenuState): ReadonlyArray<ThreadActionMenuItem> {
+  return state.hasProject
+    ? [{ id: "project-settings", label: "Workspace settings", icon: "settings" }]
+    : [];
+}
+
+const DELETE_ITEM: ThreadActionMenuItem = {
+  id: "delete",
+  label: "Delete chat",
+  destructive: true,
+  icon: "trash",
+};
+
+function threadActionMenuGroups(
+  state: ThreadActionMenuState,
+): ReadonlyArray<ReadonlyArray<ThreadActionMenuItem>> {
+  // An archived chat has no place in the lists to change, only a way back.
+  if (state.isArchived) {
+    return [
+      [{ id: "unarchive", label: "Unarchive chat", icon: "archive-restore" }],
+      [copyItem(state), ...projectSettingsItems(state)],
+      [DELETE_ITEM],
+    ];
+  }
+  return [
+    stateGroup(state),
+    [
+      ...(state.canFind
+        ? [{ id: "find" as const, label: "Find in chat", icon: "text-search" }]
+        : []),
+      { id: "rename", label: "Rename chat", icon: "pencil" },
+      ...(state.supports.titleRegeneration
+        ? [
+            {
+              id: "regenerate-title" as const,
+              label: state.isRegeneratingTitle ? "Regenerating…" : "Regenerate title",
+              icon: "refresh-cw",
+              disabled: state.isRegeneratingTitle,
+            },
+          ]
+        : []),
+      copyItem(state),
+    ],
+    [
+      ...(state.branch
+        ? [
+            {
+              id: "new-thread-on-branch" as const,
+              label: `New chat on ${state.branch}`,
+              icon: "message-square-plus",
+            },
+          ]
+        : []),
+      ...(state.canTurnIntoProject
+        ? [
+            {
+              id: "turn-into-project" as const,
+              label: "Turn into workspace",
+              icon: "folder-plus",
+              disabled: state.isRunning,
+            },
+          ]
+        : []),
+      ...(state.projectFilter
+        ? [
+            {
+              id: "filter-by-project" as const,
+              label: state.projectFilter.isActive
+                ? "Show all workspaces"
+                : `Filter by ${state.projectFilter.label}`,
+              icon: "folder-tree",
+            },
+          ]
+        : []),
+      ...projectSettingsItems(state),
+    ],
+    [
+      { id: "archive", label: "Archive chat", icon: "archive", disabled: state.isRunning },
+      DELETE_ITEM,
+    ],
+  ];
+}
+
+export function buildThreadActionMenuItems(
+  state: ThreadActionMenuState,
+): ReadonlyArray<ThreadActionMenuItem> {
+  const items = threadActionMenuGroups(state)
+    .filter((group) => group.length > 0)
+    .flatMap((group, groupIndex) =>
+      group.map((item, index) =>
+        index === 0 && groupIndex > 0 ? { ...item, separatorBefore: true } : item,
+      ),
+    );
   return state.canOperate
     ? items
     : items.map((item) =>

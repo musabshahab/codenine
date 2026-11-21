@@ -3256,6 +3256,7 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadEnvironmentId={activeThread.environmentId}
               activeThreadId={activeThread.id}
               isServerThread={isServerThread}
+              threadShell={activeThreadShell}
               activeThreadTitle={
                 isServerThread
                   ? activeThread.title

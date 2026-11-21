@@ -48,10 +48,7 @@ import {
 } from "@codenine/client-runtime/state/thread-search";
 import { foldSearchQuery, rankMessageMatches } from "@codenine/shared/paletteSearch";
 import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
-import {
-  threadRuntimeCanArchive,
-  type EnvironmentThreadShell,
-} from "@codenine/client-runtime/state/models";
+import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import {
   parseScopedThreadKey,
   scopeProjectRef,
@@ -183,6 +180,7 @@ import { ProjectRowActions } from "./ProjectComboboxRow";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
+  threadActionMenuThreadState,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
 import {
@@ -1019,6 +1017,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     markThreadUnread,
     archiveThread,
     deleteThread,
+    confirmAndDeleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -1661,7 +1660,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const trimmed = title.trim();
       setRenamingThreadRef(null);
       if (trimmed.length === 0) {
-        toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
+        toastManager.add({ type: "warning", title: "Chat title cannot be empty" });
         return;
       }
       if (trimmed === originalTitle) return;
@@ -1674,7 +1673,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to rename thread",
+            title: "Failed to rename chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1996,7 +1995,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to pin thread",
+            title: "Failed to pin chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2011,7 +2010,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to unpin thread",
+            title: "Failed to unpin chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2307,7 +2306,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           return;
         }
         case "move-active":
-          if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin thread"))) return;
+          if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin chat"))) return;
           if (
             plan.unsettle &&
             !(await run(unsettleThread(threadRef), "Failed to mark thread not done"))
@@ -2320,7 +2319,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           if (
             !(await run(
               pinThread(threadRef, plan.orderKey === undefined ? {} : { orderKey: plan.orderKey }),
-              "Failed to pin thread",
+              "Failed to pin chat",
             ))
           )
             return;
@@ -2730,15 +2729,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const supportsAutoSettleOptOut =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadAutoSettleOptOut === true;
-        const isRegeneratingTitle = thread.titleRegeneration != null;
-        const isSettled = settledThreadKeysRef.current.has(threadKey);
-        const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
-        const isPinned = thread.pinnedAt != null;
-        const snoozePresets = resolveSnoozePresets(
-          new Date(),
-          timestampFormat,
-          thread.environmentId,
-        );
+        const now = new Date();
+        const threadState = threadActionMenuThreadState(thread, {
+          now: now.toISOString(),
+          configLoaded,
+        });
+        const snoozePresets = resolveSnoozePresets(now, timestampFormat, thread.environmentId);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -2750,11 +2746,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
+              ...threadState,
               canOperate: readEnvironmentScope(
                 threadRef.environmentId,
                 AuthOrchestrationOperateScope,
               ),
-              branch: thread.branch ?? null,
               // An archived workspace is not a filter choice.
               projectFilter:
                 threadProjectGroup && !threadProjectGroup.archived
@@ -2763,14 +2759,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       isActive: projectScopeKeys.includes(threadProjectGroup.projectKey),
                     }
                   : null,
-              isPinned,
-              isSettled,
-              autoSettleEnabled: thread.autoSettleDisabledAt == null,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning: !threadRuntimeCanArchive(thread.runtime),
-              canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              hasPath: threadWorkspacePath !== null,
+              hasProject: threadProjectGroup !== null,
+              canTurnIntoProject: canTurnThreadIntoProject(thread),
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -2882,7 +2873,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to update when this thread is marked done",
+                  title: "Could not change when this chat is marked done",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2893,7 +2884,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             startThreadRename(threadRef, thread.title);
             return;
           case "regenerate-title": {
-            if (isRegeneratingTitle) return;
+            if (threadState.isRegeneratingTitle) return;
             const result = await updateThreadMetadata({
               environmentId: threadRef.environmentId,
               input: { threadId: threadRef.threadId, regenerateTitle: true },
@@ -2914,17 +2905,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             markThreadUnread(threadRef);
             return;
           case "copy-path":
-            if (!threadWorkspacePath) {
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Path unavailable",
-                  description: "This thread does not have a workspace path to copy.",
-                }),
-              );
-              return;
+            if (threadWorkspacePath !== null) {
+              copyPathToClipboard(threadWorkspacePath, { path: threadWorkspacePath });
             }
-            copyPathToClipboard(threadWorkspacePath, { path: threadWorkspacePath });
             return;
           case "copy-branch":
             if (thread.branch) {
@@ -2942,7 +2925,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(`Archive thread "${thread.title}"?`),
+                api.dialogs.confirm(`Archive chat "${thread.title}"?`),
               );
               if (confirmed._tag === "Failure" || !confirmed.value) return;
             }
@@ -2958,8 +2941,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 stackedThreadToast({
                   type: "error",
                   title: didArchive
-                    ? "Thread archived, but navigation failed"
-                    : "Failed to archive thread",
+                    ? "Chat archived, but navigation failed"
+                    : "Failed to archive chat",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2968,25 +2951,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           }
           case "delete": {
-            if (confirmThreadDelete) {
-              const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(
-                  [
-                    `Delete thread "${thread.title}"?`,
-                    "This permanently clears conversation history for this thread.",
-                  ].join("\n"),
-                  { variant: "destructive" },
-                ),
-              );
-              if (confirmed._tag === "Failure" || !confirmed.value) return;
-            }
-            const result = await deleteThread(threadRef);
+            const result = await confirmAndDeleteThread(threadRef, thread.title);
             if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
               const error = squashAtomCommandFailure(result);
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to delete thread",
+                  title: "Failed to delete chat",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );

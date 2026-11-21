@@ -6,7 +6,10 @@ import {
 } from "@codenine/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@codenine/client-runtime/state/runtime";
 import { canSnooze, threadWokeAt } from "@codenine/client-runtime/state/thread-settled";
-import { threadRuntimeCanArchive } from "@codenine/client-runtime/state/models";
+import {
+  threadRuntimeCanArchive,
+  type EnvironmentThreadShell,
+} from "@codenine/client-runtime/state/models";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
@@ -175,10 +178,9 @@ async function requestThreadUnpinConfirmation(input: {
 
   return settlePromise(() =>
     confirm(
-      [
-        `Unpin thread "${input.title}"?`,
-        "This will move the thread out of your pinned section.",
-      ].join("\n"),
+      [`Unpin chat "${input.title}"?`, "This will move the chat out of your pinned section."].join(
+        "\n",
+      ),
     ),
   );
 }
@@ -243,14 +245,15 @@ function clearDeletedThreadPanelState(ref: ScopedThreadRef) {
 }
 
 /** A No project thread that already has its own folder, on a server that can promote it. */
-export function canTurnThreadIntoProject(threadRef: ScopedThreadRef): boolean {
-  const thread = readThreadShell(threadRef);
-  const config = appAtomRegistry.get(environmentServerConfigsAtom).get(threadRef.environmentId);
-  if (!thread?.worktreePath || config?.environment.capabilities.threadProjectFromScratch !== true) {
+export function canTurnThreadIntoProject(
+  thread: Pick<EnvironmentThreadShell, "environmentId" | "projectId" | "worktreePath">,
+): boolean {
+  const config = appAtomRegistry.get(environmentServerConfigsAtom).get(thread.environmentId);
+  if (!thread.worktreePath || config?.environment.capabilities.threadProjectFromScratch !== true) {
     return false;
   }
   const project = readProject({
-    environmentId: threadRef.environmentId,
+    environmentId: thread.environmentId,
     projectId: thread.projectId,
   });
   return project !== null && isScratchProject(project, config.scratchWorkspaceRoot);
@@ -376,60 +379,73 @@ export function useThreadActions() {
     return result;
   };
 
-  const archiveThread = async (target: ScopedThreadRef, opts: { onArchived?: () => void } = {}) => {
-    const resolved = resolveThreadTarget(target);
-    if (!resolved) return AsyncResult.success(undefined);
-    const { thread, threadRef } = resolved;
-    if (!threadRuntimeCanArchive(thread.runtime)) {
+  const archiveThread = async (
+    target: ScopedThreadRef,
+    opts: {
+      /** The chat as shown, for one the shell list leaves out. */
+      thread?: EnvironmentThreadShell | null;
+      onArchived?: () => void;
+    } = {},
+  ) => {
+    const thread = readThreadShell(target) ?? opts.thread ?? null;
+    if (thread !== null && !threadRuntimeCanArchive(thread.runtime)) {
       return AsyncResult.failure(
         Cause.fail(
           new ThreadArchiveBlockedError({
-            environmentId: threadRef.environmentId,
-            threadId: threadRef.threadId,
+            environmentId: target.environmentId,
+            threadId: target.threadId,
           }),
         ),
       );
     }
 
-    const requestingRouteHref = router.state.location.href;
     const currentRouteThreadRef = getCurrentRouteThreadRef();
-    const shouldNavigateToDraft =
-      currentRouteThreadRef?.threadId === threadRef.threadId &&
-      currentRouteThreadRef.environmentId === threadRef.environmentId;
-    const action = ThreadUndo.begin("archive", scopedThreadKey(threadRef));
+    const archivingOpenThread =
+      currentRouteThreadRef?.threadId === target.threadId &&
+      currentRouteThreadRef.environmentId === target.environmentId;
+    // Open the draft first: once archived, the chat's route redirects home, which opens the
+    // most recently updated workspace instead of this one.
+    const opened =
+      archivingOpenThread && thread !== null
+        ? await settlePromise(() =>
+            handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId)),
+          )
+        : null;
+    const draftHref =
+      opened?._tag === "Success" && opened.value !== null ? router.state.location.href : null;
+    const action = ThreadUndo.begin("archive", scopedThreadKey(target));
     const archiveResult = await archiveThreadMutation({
-      environmentId: threadRef.environmentId,
-      input: { threadId: threadRef.threadId },
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId },
     });
     if (archiveResult._tag === "Failure") {
       action.finish();
+      // The chat stays, so go back to it from the draft opened in its place.
+      if (draftHref !== null && router.state.location.href === draftHref) {
+        await settlePromise(() =>
+          router.navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(target),
+            replace: true,
+          }),
+        );
+      }
       return archiveResult;
     }
-    expireThreadUndos(threadRef, LIST_PLACEMENT_UNDO_KINDS);
-    const wokeAt = threadWokeAt(thread, { now: new Date().toISOString() });
+    expireThreadUndos(target, LIST_PLACEMENT_UNDO_KINDS);
+    const wokeAt = thread === null ? null : threadWokeAt(thread, { now: new Date().toISOString() });
     if (wokeAt !== null) {
-      markThreadVisited(scopedThreadKey(threadRef), wokeAt);
+      markThreadVisited(scopedThreadKey(target), wokeAt);
     }
-    refreshArchivedThreadsForEnvironment(threadRef.environmentId);
+    refreshArchivedThreadsForEnvironment(target.environmentId);
     opts.onArchived?.();
     showThreadUndoNotice({
       action: "Archived",
       claim: action,
-      undo: () => unarchiveThread(threadRef, { navigate: shouldNavigateToDraft }),
+      undo: () => unarchiveThread(target, { navigate: archivingOpenThread }),
       failureTitle: "Failed to undo archive",
     });
-
-    if (shouldNavigateToDraft && router.state.location.href === requestingRouteHref) {
-      const navigationResult = await settlePromise(() =>
-        handleNewThread(scopeProjectRef(thread.environmentId, thread.projectId)),
-      );
-      if (navigationResult._tag === "Failure") {
-        return navigationResult;
-      }
-      return archiveResult;
-    }
-
-    return archiveResult;
+    return opened?._tag === "Failure" ? opened : archiveResult;
   };
 
   const deleteThread = async (
@@ -827,7 +843,7 @@ export function useThreadActions() {
     const resolved = resolveThreadTarget(target);
     const confirmationResult = await requestThreadUnpinConfirmation({
       enabled: confirmThreadUnpin,
-      title: resolved?.thread.title ?? "this thread",
+      title: resolved?.thread.title ?? "this chat",
       confirm: localApi ? (message) => localApi.dialogs.confirm(message) : null,
     });
     if (confirmationResult._tag === "Failure") {
@@ -964,12 +980,12 @@ export function useThreadActions() {
     const resolved = resolveThreadTarget(target);
 
     if (confirmThreadDelete && localApi) {
-      const title = resolved?.thread.title ?? knownTitle ?? "this thread";
+      const title = resolved?.thread.title ?? knownTitle ?? "this chat";
       const confirmationResult = await settlePromise(() =>
         localApi.dialogs.confirm(
           [
-            `Delete thread "${title}"?`,
-            "This permanently clears conversation history for this thread.",
+            `Delete chat "${title}"?`,
+            "This permanently clears this chat's conversation history.",
           ].join("\n"),
           { variant: "destructive" },
         ),

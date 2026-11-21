@@ -39,9 +39,9 @@ export function threadChipCopyTarget(
         : hostedThreadLink(threadRef, hostedAppUrl),
     description: record.title,
     fragment: { version: 1, source: { environmentId: threadRef.environmentId }, records: [record] },
-    clipboardTarget: "thread",
-    successTitle: "Thread copied",
-    failureTitle: "Failed to copy thread",
+    clipboardTarget: "chat link",
+    successTitle: "Chat link copied",
+    failureTitle: "Failed to copy chat link",
   };
 }
 

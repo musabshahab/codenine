@@ -1,3 +1,4 @@
+import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import {
   AuthOrchestrationOperateScope,
   EnvironmentId,
@@ -17,17 +18,38 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-const state = vi.hoisted(() => ({
-  granted: new Set<string>(),
-  effects: [] as string[],
-  completed: deferred<void>(),
-  show: vi.fn<
-    (
-      items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>,
-      position: { x: number; y: number },
-    ) => Promise<ThreadActionMenuId | null>
-  >(),
-}));
+const state = vi.hoisted(() => {
+  const chat = {
+    id: "thread",
+    environmentId: "secondary",
+    projectId: "project",
+    title: "Thread",
+    branch: "main",
+    worktreePath: null,
+    runtime: null,
+    latestRun: null,
+    archivedAt: null as string | null,
+    pinnedAt: null,
+    settledOverride: null,
+    autoSettleDisabledAt: null,
+    snoozedUntil: null,
+    titleRegeneration: null,
+    source: {},
+  };
+  return {
+    chat,
+    listed: true,
+    granted: new Set<string>(),
+    effects: [] as string[],
+    completed: deferred<void>(),
+    show: vi.fn<
+      (
+        items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>,
+        position: { x: number; y: number },
+      ) => Promise<ThreadActionMenuId | null>
+    >(),
+  };
+});
 
 function recordEffect(action: string) {
   state.effects.push(action);
@@ -49,16 +71,7 @@ vi.mock("../state/session", () => ({
 vi.mock("../state/entities", () => ({
   readEnvironmentServerConfigLoaded: () => true,
   readEnvironmentSupportsAutoSettleOptOut: () => true,
-  readThreadShell: () => ({
-    id: "thread",
-    environmentId: "secondary",
-    projectId: "project",
-    title: "Thread",
-    branch: "main",
-    worktreePath: null,
-    runtime: null,
-    latestRun: null,
-  }),
+  readThreadShell: () => (state.listed ? state.chat : null),
   useProjects: () => [{ id: "project", environmentId: "secondary" }],
 }));
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "primary" }));
@@ -131,7 +144,8 @@ vi.mock("./useThreadActions", () => ({
         "pinThread",
         "confirmAndUnpinThread",
         "archiveThread",
-        "deleteThread",
+        "unarchiveThread",
+        "confirmAndDeleteThread",
       ].map((action) => [
         action,
         async () => {
@@ -149,15 +163,24 @@ const target = {
   threadId: ThreadId.make("thread"),
 };
 const position = { x: 10, y: 20 };
-const createMenu = (options: { readonly onFind?: (threadRef: typeof target) => void } = {}) =>
+const createMenu = (
+  options: {
+    readonly onFind?: (threadRef: typeof target) => void;
+    readonly thread?: EnvironmentThreadShell;
+  } = {},
+) =>
   useThreadActionMenu({
     threadRef: target,
+    thread: options.thread ?? null,
     projectCwd: "/project",
     onStartRename: () => recordEffect("rename"),
     onFind: options.onFind,
   });
+const shownMenu = (call = 0) => state.show.mock.calls[call]![0];
 
 beforeEach(() => {
+  state.chat.archivedAt = null;
+  state.listed = true;
   state.granted = new Set(["primary"]);
   state.effects = [];
   state.completed = deferred<void>();
@@ -181,15 +204,34 @@ describe("thread menu permissions", () => {
 
   it("offers find only to a header that can open it, without task permission", async () => {
     createMenu().openMenu(position);
-    expect(state.show.mock.calls[0]![0].some((item) => item.id === "find")).toBe(false);
+    expect(shownMenu().some((item) => item.id === "find")).toBe(false);
     state.show.mockResolvedValue("find");
     const onFind = vi.fn(() => recordEffect("find"));
     createMenu({ onFind }).openMenu(position);
     await state.completed.promise;
-    const items = state.show.mock.calls[1]![0];
-    expect(items[0]).toMatchObject({ id: "find", label: "Find in thread" });
-    expect(items[0]?.disabled).not.toBe(true);
+    const find = shownMenu(1).find((item) => item.id === "find");
+    expect(find).toMatchObject({ label: "Find in chat" });
+    expect(find?.disabled).not.toBe(true);
     expect(state.effects).toEqual(["find"]);
     expect(onFind).toHaveBeenCalledExactlyOnceWith(target);
+  });
+});
+
+describe("thread menu for a chat the shell list leaves out", () => {
+  it("opens from the chat the header shows", () => {
+    state.listed = false;
+    createMenu({ thread: state.chat as unknown as EnvironmentThreadShell }).openMenu(position);
+    expect(shownMenu().some((item) => item.id === "archive")).toBe(true);
+  });
+
+  it("unarchives an archived chat with the Archive page's action", async () => {
+    state.listed = false;
+    state.chat.archivedAt = "2026-08-07T12:00:00.000Z";
+    state.granted.add("secondary");
+    state.show.mockResolvedValue("unarchive");
+    createMenu({ thread: state.chat as unknown as EnvironmentThreadShell }).openMenu(position);
+    await state.completed.promise;
+    expect(shownMenu()[0]).toMatchObject({ id: "unarchive", label: "Unarchive chat" });
+    expect(state.effects).toEqual(["unarchiveThread"]);
   });
 });
