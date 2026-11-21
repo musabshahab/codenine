@@ -71,7 +71,7 @@ scheduled runs that were skipped.
 Each workflow has a chat its runs report to: the chat you drafted it in, or, for a workflow made in
 the editor, a chat named after it that its first run starts in the workflow's workspace. When a run
 finishes, fails or is stopped, its result appears at the bottom of that chat with **Open run**, and
-the chat shows **New result** in the sidebar. A chat marked done comes back. The chat's agent reads
+the chat is marked unread in the sidebar. A chat marked done comes back. The chat's agent reads
 the result with your next message, so you can ask about it or build on it. If you switch the chat
 to another provider, results it read before are not in the new agent's history; ask it to read the
 chat.
