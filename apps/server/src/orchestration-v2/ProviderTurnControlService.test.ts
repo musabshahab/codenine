@@ -243,6 +243,7 @@ it.effect(
           getMessageCount: () => Effect.die("unused message count"),
           getSubagentCount: () => Effect.die("unused subagent count"),
           listAppOwnedChildThreadIds: () => Effect.die("unused listAppOwnedChildThreadIds"),
+          findThreadBySavedWorkflow: () => Effect.die("unused findThreadBySavedWorkflow"),
           getNextTurnItemOrdinal: () => Effect.die("unused ordinal read"),
           getTurnItem: () => Effect.die("unused turn item read"),
           getMessagesById: () => Effect.die("unused getMessagesById"),

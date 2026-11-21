@@ -1,8 +1,10 @@
 import {
+  type AgentModel,
   CommandId,
   DEFAULT_RUNTIME_MODE,
   type OrchestrationV2AppThread,
   type OrchestrationV2ServerCommand,
+  type OrchestrationV2ThreadShell,
   type ProjectId,
   type ServerProvider,
   type TeamPlan,
@@ -26,6 +28,8 @@ import {
   type WorkflowSummary,
 } from "@codenine/contracts";
 import { randomUuidV4 } from "@codenine/provider-core/server/randomUuid";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- A plain sync hash names a report; nothing here needs Effect's Digest service.
+import * as NodeCrypto from "node:crypto";
 import { writeFileStringAtomically } from "@codenine/shared/atomicWrite";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -66,8 +70,10 @@ import {
   EMPTY_WORKFLOW_STATE,
 } from "./WorkflowFile.ts";
 import {
+  capRunResult,
   noteLine,
   reachedLimit,
+  runResult,
   staleReview,
   turnUsage,
   type WorkflowAgent,
@@ -603,6 +609,95 @@ const make = Effect.gen(function* () {
     }
   });
 
+  /**
+   * Posts an ended run's result to its workflow's chat and marks its lead read, since the chat is
+   * where the result is seen. Ids follow what is reported, so a repeat after a restart is a no-op.
+   */
+  const reportRun = Effect.fn("Workflows.reportRun")(function* (
+    lead: OrchestrationV2AppThread,
+    shell: OrchestrationV2ThreadShell,
+  ) {
+    const plan = lead.team;
+    const chatThreadId = plan?.run?.chatThreadId;
+    if (plan == null || plan.run === undefined || chatThreadId === undefined) return;
+    const { status } = plan;
+    if (status !== "completed" && status !== "failed" && status !== "cancelled") return;
+    const { workflowId, run, title, headline } = plan.run;
+    let result = runResult(plan);
+    if (result === null && shell.latestRunId !== null) {
+      const { messages } = yield* projections.getThreadRecords(lead.id, ["messages"], {
+        messageRoles: ["assistant"],
+        messageRunIds: [shell.latestRunId],
+      });
+      result = messages.findLast((message) => message.text.trim() !== "")?.text ?? null;
+    }
+    result = result === null ? null : capRunResult(result);
+    const hash = NodeCrypto.createHash("sha256")
+      .update(`${status}\0${headline ?? ""}\0${result ?? ""}`)
+      .digest("hex")
+      .slice(0, 16);
+    yield* threads
+      .dispatch({
+        type: "workflow.run.report",
+        commandId: CommandId.make(
+          `server:workflow-report:${workflowId}:${run}:${chatThreadId}:${hash}`,
+        ),
+        threadId: chatThreadId,
+        workflowId,
+        run,
+        title,
+        leadThreadId: lead.id,
+        status,
+        headline,
+        result,
+      })
+      .pipe(
+        // The chat was deleted; there is nowhere left to report to.
+        Effect.catchTags({
+          OrchestratorDispatchError: (cause) =>
+            Effect.logInfo("A workflow run's chat is gone, so its result was not posted.", {
+              chatThreadId,
+              cause,
+            }),
+          OrchestratorCommandPreviouslyRejectedError: () => Effect.void,
+        }),
+      );
+    yield* threads
+      .dispatch({
+        type: "thread.visit",
+        commandId: CommandId.make(
+          `server:workflow-run-read:${lead.id}:${DateTime.formatIso(shell.updatedAt)}`,
+        ),
+        threadId: lead.id,
+        visitedAt: DateTime.formatIso(yield* DateTime.now),
+      })
+      .pipe(Effect.ignore);
+  });
+
+  // Once the folder is gone its runs are no longer supervised, so their results are posted now.
+  const reportUnwatchedRuns = Effect.fn("Workflows.reportUnwatchedRuns")(function* (
+    id: WorkflowId,
+    folder: string,
+  ) {
+    const { runs, noted } = yield* readState(folder);
+    for (let run = runs; run > Math.max(0, runs - WATCHED_RUNS); run -= 1) {
+      if (noted.includes(run)) continue;
+      const threadId = workflowRunThreadId(id, run);
+      yield* Effect.gen(function* () {
+        const shell = yield* projections.getThreadShell(threadId);
+        if (shell === null || shell.deletedAt !== null) return;
+        yield* reportRun(yield* projections.getThread(threadId), shell);
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not post a deleted workflow's run result.", {
+            threadId,
+            cause,
+          }),
+        ),
+      );
+    }
+  });
+
   const remove: Workflows["Service"]["remove"] = Effect.fn("Workflows.remove")(function* (input) {
     const target = path.join(root, input.name);
     const couldNotDelete = failed("Could not delete the workflow.");
@@ -636,8 +731,67 @@ const make = Effect.gen(function* () {
     // A state write in progress finishes first, so it cannot bring the folder back.
     yield* id === undefined
       ? removeFolder
-      : withLock(id, cancelLiveRuns(id, target).pipe(Effect.andThen(removeFolder)));
+      : withLock(
+          id,
+          cancelLiveRuns(id, target).pipe(
+            Effect.andThen(reportUnwatchedRuns(id, target)),
+            Effect.andThen(removeFolder),
+          ),
+        );
   });
+
+  /**
+   * The chat `found`'s runs report to: the one state.json names while it is not deleted, else the
+   * chat it was saved from, else a new one. Null when none can be had; the run still starts.
+   */
+  const resolveChat = Effect.fn("Workflows.resolveChat")(
+    function* (
+      found: FoundWorkflow,
+      lead: { readonly model: AgentModel; readonly projectId: ProjectId },
+      providerList: ReadonlyArray<ServerProvider>,
+    ) {
+      const { id, workflow } = found;
+      const stored = (yield* readState(found.folder)).chatThreadId ?? null;
+      const storedShell = stored === null ? null : yield* projections.getThreadShell(stored);
+      let chatThreadId =
+        storedShell?.deletedAt === null ? stored : yield* projections.findThreadBySavedWorkflow(id);
+      if (chatThreadId === null) {
+        const launched = yield* launches.launch({
+          commandId: CommandId.make(`server:workflow-chat:${id}:${yield* randomUuidV4}`),
+          projectId: lead.projectId,
+          title: workflow.title,
+          modelSelection: workflowModelSelection(lead.model, providerList),
+          runtimeMode: DEFAULT_RUNTIME_MODE,
+          interactionMode: "default",
+          createdBy: "system",
+          creationSource: "server",
+          workspaceStrategy: { type: "root" },
+        });
+        chatThreadId = launched.threadId;
+        yield* threads.dispatch({
+          type: "workflow.draft.saved",
+          commandId: CommandId.make(`server:workflow-chat-link:${id}:${yield* randomUuidV4}`),
+          threadId: chatThreadId,
+          workflowId: id,
+          proposedAt: DateTime.formatIso(yield* DateTime.now),
+        });
+      }
+      if (chatThreadId !== stored) {
+        const fresh = yield* readState(found.folder);
+        yield* writeState(found.folder, { ...fresh, chatThreadId });
+      }
+      return chatThreadId;
+    },
+    (effect, found) =>
+      effect.pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("A workflow run starts without a chat to report to.", {
+            workflowId: found.id,
+            cause,
+          }).pipe(Effect.as(null)),
+        ),
+      ),
+  );
 
   /** Starts a run of `found`, whose lock the caller holds. */
   const startRun = Effect.fn("Workflows.startRun")(function* (
@@ -669,6 +823,7 @@ const make = Effect.gen(function* () {
     yield* writeState(found.folder, { ...state, runs: run, workflowId: id }).pipe(
       Effect.catchTags({ PlatformError: failed("Could not save the workflow's run count.") }),
     );
+    const chatThreadId = yield* resolveChat(found, { model, projectId }, context.providers);
     const threadId = workflowRunThreadId(id, run);
     const couldNotStart = (cause: unknown) =>
       Effect.logWarning("A workflow run could not start.", { workflowId: id, run, cause }).pipe(
@@ -753,6 +908,7 @@ const make = Effect.gen(function* () {
           costUsd: null,
           headline: null,
           note: null,
+          ...(chatThreadId === null ? {} : { chatThreadId }),
         },
       })
       .pipe(Effect.catch(couldNotStart));
@@ -997,6 +1153,20 @@ const make = Effect.gen(function* () {
             costUsd: estimate,
           });
         }
+      }
+      // Reported before the note: a noted run is not looked at again.
+      const reported = yield* reportRun(lead, shell).pipe(
+        Effect.tapCause((cause) =>
+          Effect.logWarning("Could not post a workflow run's result to its chat.", {
+            threadId,
+            cause,
+          }),
+        ),
+        Effect.result,
+      );
+      if (reported._tag === "Failure") {
+        endedRuns.set(threadId, { checkedAt: nowMs, updatedAt: "" });
+        return;
       }
       if (planRun?.note != null) {
         const note = planRun.note;

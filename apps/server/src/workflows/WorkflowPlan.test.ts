@@ -1,6 +1,9 @@
 import {
   type AgentModel,
   ProjectId,
+  type TeamTask,
+  TeamTaskId,
+  WORKFLOW_RUN_RESULT_MAX_CHARS,
   ProviderInstanceId,
   type ServerProvider,
   type WorkflowDefinition,
@@ -10,6 +13,8 @@ import {
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  capRunResult,
+  runResult,
   turnUsage,
   type WorkflowAgent,
   workflowProblems,
@@ -289,5 +294,62 @@ describe("turnUsage", () => {
       turnUsage({ turnTokenUsage: { ...partial, localCommand: true } }, "claude-x"),
     ).toBeUndefined();
     expect(turnUsage({}, "claude-x")).toBeUndefined();
+  });
+});
+
+describe("runResult", () => {
+  const task = (
+    id: string,
+    dependsOn: ReadonlyArray<string>,
+    status: TeamTask["status"],
+    result: string | null,
+  ) =>
+    ({
+      id: TeamTaskId.make(id),
+      title: id.charAt(0).toUpperCase() + id.slice(1),
+      dependsOn: dependsOn.map((dependency) => TeamTaskId.make(dependency)),
+      status,
+      result,
+    }) as unknown as TeamTask;
+
+  it.each([
+    {
+      label: "the one last step's result",
+      tasks: [
+        task("research", [], "completed", "Notes"),
+        task("draft", ["research"], "completed", "Draft"),
+      ],
+      expected: "Draft",
+    },
+    {
+      label: "each last step under its title, in plan order",
+      tasks: [
+        task("research", [], "completed", "Notes"),
+        task("post", ["research"], "completed", "Posted"),
+        task("email", ["research"], "completed", "Sent"),
+      ],
+      expected: "## Post\n\nPosted\n\n## Email\n\nSent",
+    },
+    {
+      label: "nothing when no last step completed with a result",
+      tasks: [
+        task("research", [], "completed", "Notes"),
+        task("draft", ["research"], "failed", null),
+        task("check", ["research"], "completed", null),
+      ],
+      expected: null,
+    },
+  ])("is $label", ({ tasks, expected }) => {
+    expect(runResult({ tasks })).toBe(expected);
+  });
+
+  it("cuts a result to the limit, marker included, without splitting a character", () => {
+    const marker = "\n\n[Result cut short. Open the run for the rest.]";
+    const fits = "a".repeat(WORKFLOW_RUN_RESULT_MAX_CHARS);
+    expect(capRunResult(fits)).toBe(fits);
+    const kept = "a".repeat(WORKFLOW_RUN_RESULT_MAX_CHARS - marker.length);
+    expect(capRunResult(`${fits}b`)).toBe(`${kept}${marker}`);
+    // The emoji would straddle the cut, so it goes whole.
+    expect(capRunResult(`${kept.slice(1)}😀${fits}`)).toBe(`${kept.slice(1)}${marker}`);
   });
 });

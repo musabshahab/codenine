@@ -574,6 +574,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "team.run.update":
     case "workflow.draft.set":
     case "workflow.draft.saved":
+    case "workflow.run.report":
       return command.threadId;
     case "delegated_task.request":
     case "delegated_task.wake-policy":
@@ -718,6 +719,8 @@ function legacyPullRequestLink(
 }
 
 const DELEGATED_RESULT_INLINE_BYTES = 16_000;
+// The chat's agent is given at most this many workflow results at once, the newest.
+const WORKFLOW_RESULTS_PENDING_MAX = 5;
 
 function delegatedCompletionWakeDetail(
   taskIds: ReadonlyArray<string>,
@@ -3222,6 +3225,113 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
   });
 
+  const dispatchWorkflowRunReport = Effect.fn("orchestrationV2.dispatch.workflowRunReport")(
+    function* (
+      command: Extract<OrchestrationV2InternalCommand, { readonly type: "workflow.run.report" }>,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    ) {
+      const { threadId, workflowId, run } = command;
+      const toProjectionError = (cause: unknown) =>
+        new OrchestratorProjectionError({ threadId, cause });
+      const thread = yield* projectionStore
+        .getThread(threadId)
+        .pipe(
+          Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+          Effect.mapError(toProjectionError),
+        );
+      if (thread === null || thread.deletedAt !== null) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${threadId} is deleted.`,
+        });
+      }
+      const itemId = TurnItemId.make(`workflow-run:${workflowId}:${run}`);
+      const stored = yield* projectionStore
+        .getTurnItem({ threadId, itemId })
+        .pipe(Effect.mapError(toProjectionError));
+      const existing = stored?.type === "workflow_run" ? stored : null;
+      if (
+        existing !== null &&
+        existing.status === command.status &&
+        existing.headline === command.headline &&
+        existing.result === command.result &&
+        existing.title === command.title
+      ) {
+        return;
+      }
+      const now = yield* DateTime.now;
+      // Only a new terminal status is news; a changed headline or result updates the card quietly.
+      const isNews = existing === null || existing.status !== command.status;
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "turn-item.updated",
+        threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: {
+          id: itemId,
+          threadId,
+          runId: null,
+          nodeId: null,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          // The position store gives the card its place after the chat's newest run.
+          ordinal: existing?.ordinal ?? 0,
+          status: command.status,
+          title: command.title,
+          startedAt: isNews ? now : existing.startedAt,
+          completedAt: isNews ? now : existing.completedAt,
+          updatedAt: now,
+          type: "workflow_run",
+          workflowId,
+          run,
+          leadThreadId: command.leadThreadId,
+          headline: command.headline,
+          result: command.result,
+        },
+      });
+      if (!isNews) return;
+      const reported: OrchestrationV2AppThread = {
+        ...thread,
+        workflowResultAt: now,
+        pendingWorkflowResults: [
+          ...(thread.pendingWorkflowResults ?? []).filter((id) => id !== itemId),
+          itemId,
+        ].slice(-WORKFLOW_RESULTS_PENDING_MAX),
+        // Seeded like a first message, so this result reads as unread on every client.
+        lastVisitedAt: thread.lastVisitedAt ?? DateTime.subtract(now, { milliseconds: 1 }),
+        updatedAt: now,
+      };
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: reported,
+      });
+      // Brought back from Done like a message would; a snooze stays, as for other automatic wakes.
+      if (thread.settledOverride !== "settled") return;
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.unsettled",
+        threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...reported, settledOverride: null, settledAt: null, unsettledAt: now },
+      });
+    },
+  );
+
   const dispatchThreadVisit = Effect.fn("orchestrationV2.dispatch.threadVisit")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.visit" }>,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
@@ -3782,14 +3892,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ),
         );
       const latestRunCompletedAt = shell?.latestRunCompletedAt ?? null;
-      if (latestRunCompletedAt === null) {
+      const workflowResultAt = shell?.workflowResultAt ?? null;
+      const latestNewsAt =
+        latestRunCompletedAt === null
+          ? workflowResultAt
+          : workflowResultAt === null
+            ? latestRunCompletedAt
+            : DateTime.max(latestRunCompletedAt, workflowResultAt);
+      if (latestNewsAt === null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} has no completed run to mark unread.`,
+          cause: `Thread ${command.threadId} has no completed run or workflow result to mark unread.`,
         });
       }
-      markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
+      markUnreadVisitedAt = DateTime.subtract(latestNewsAt, { milliseconds: 1 });
     }
     const updatedThread: OrchestrationV2AppThread = (() => {
       switch (command.type) {
@@ -13363,6 +13480,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "workflow.draft.saved":
         yield* dispatchWorkflowDraft(command, events);
         break;
+      case "workflow.run.report":
+        yield* dispatchWorkflowRunReport(command, events);
+        break;
       default:
         return yield* dispatchUnsupported(command);
     }
@@ -13473,6 +13593,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "team.task.settle" ||
           command.type === "team.hold" ||
           command.type === "team.run.update" ||
+          command.type === "workflow.run.report" ||
           (command.type === "thread.delete" && command.onlyIfUnused === true),
         (_planned) =>
           new OrchestratorDispatchError({

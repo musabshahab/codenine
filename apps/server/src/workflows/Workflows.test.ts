@@ -8,6 +8,7 @@ import {
   type OrchestrationV2ThreadShell,
   ProjectId,
   ProviderInstanceId,
+  RunId,
   type ServerProvider,
   type TeamPlan,
   TeamPlanId,
@@ -24,12 +25,16 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import type * as PlatformError from "effect/PlatformError";
 import * as Result from "effect/Result";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Agents from "../agents/Agents.ts";
 import * as ServerConfig from "../config.ts";
-import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
+import {
+  OrchestratorDispatchError,
+  OrchestratorProjectionError,
+} from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { teamTaskThreadId } from "../orchestration-v2/TeamPlan.ts";
@@ -118,6 +123,9 @@ interface FakeThread {
   connectors?: ReadonlyArray<string>;
   skills?: ReadonlyArray<string>;
   savedWorkflow?: OrchestrationV2AppThread["savedWorkflow"];
+  deleted?: boolean;
+  latestRunId?: RunId;
+  messages?: Array<{ readonly role: "user" | "assistant"; readonly text: string }>;
 }
 
 const fakeThread = (id: ThreadId, model: string): FakeThread => ({
@@ -146,8 +154,12 @@ const makeWorld = () => ({
       | undefined;
   }>,
   dispatched: [] as Array<OrchestrationV2ServerCommand>,
+  /** Every command sent, including those that failed. */
+  attempted: [] as Array<OrchestrationV2ServerCommand>,
   /** Command types the fake orchestrator refuses. */
   refused: new Set<OrchestrationV2ServerCommand["type"]>(),
+  /** Command types that fail without a refusal, as when the database is busy. */
+  failing: new Set<OrchestrationV2ServerCommand["type"]>(),
   priced: [] as Array<{ readonly tokens: number; readonly download: boolean }>,
   /** Dollars per token; null for a model nobody has a price for. */
   pricePerToken: 0.001 as number | null,
@@ -157,8 +169,9 @@ type World = ReturnType<typeof makeWorld>;
 const shellOf = (thread: FakeThread) =>
   ({
     id: thread.id,
-    deletedAt: null,
+    deletedAt: thread.deleted === true ? DateTime.makeUnsafe(0) : null,
     updatedAt: DateTime.makeUnsafe(thread.updatedAt),
+    latestRunId: thread.latestRunId ?? null,
     ...(thread.team === null
       ? {}
       : {
@@ -173,7 +186,7 @@ const appThreadOf = (thread: FakeThread) =>
     modelSelection: { instanceId: claude, model: thread.model },
     team: thread.team,
     savedWorkflow: thread.savedWorkflow,
-    deletedAt: null,
+    deletedAt: thread.deleted === true ? DateTime.makeUnsafe(0) : null,
   }) as unknown as OrchestrationV2AppThread;
 
 /** What the orchestrator does with the commands under test, as far as these tests look. */
@@ -252,11 +265,18 @@ const fakes = (baseDir: string, world: World) => {
   const getThreadRecords = (
     threadId: ThreadId,
     _fields: ReadonlyArray<string>,
-    filter?: { readonly runStatuses?: ReadonlyArray<string> },
+    filter?: {
+      readonly runStatuses?: ReadonlyArray<string>;
+      readonly messageRoles?: ReadonlyArray<string>;
+    },
   ) =>
     find(threadId).pipe(
       Effect.map((thread) => ({
         thread: appThreadOf(thread),
+        messages: (thread.messages ?? []).filter(
+          (message) =>
+            filter?.messageRoles === undefined || filter.messageRoles.includes(message.role),
+        ),
         providerTurns: thread.turns,
         runs: thread.runs.filter(
           (run) => filter?.runStatuses === undefined || filter.runStatuses.includes(run.status),
@@ -288,28 +308,51 @@ const fakes = (baseDir: string, world: World) => {
           return thread === undefined ? null : shellOf(thread);
         }),
       getThread: (threadId) => find(threadId).pipe(Effect.map(appThreadOf)),
+      findThreadBySavedWorkflow: (workflowId) =>
+        Effect.sync(
+          () =>
+            [...world.threads.values()]
+              .filter(
+                (thread) => thread.deleted !== true && thread.savedWorkflow?.id === workflowId,
+              )
+              .sort((left, right) =>
+                right.savedWorkflow!.proposedAt.localeCompare(left.savedWorkflow!.proposedAt),
+              )[0]?.id ?? null,
+        ),
       getThreadRecords:
         getThreadRecords as unknown as ProjectionStore.ProjectionStoreV2["Service"]["getThreadRecords"],
     }),
     Layer.mock(ThreadManagement.ThreadManagementService)({
       dispatch: (command) =>
-        world.refused.has(command.type)
-          ? Effect.fail(
-              new OrchestratorDispatchError({
-                commandId: command.commandId,
-                commandType: command.type,
-              }),
-            )
-          : Effect.sync(() => {
-              world.dispatched.push(command);
-              apply(world, command);
-              return { sequence: world.dispatched.length, storedEvents: [] };
-            }),
+        Effect.suspend(
+          (): Effect.Effect<
+            { readonly sequence: number; readonly storedEvents: ReadonlyArray<never> },
+            OrchestratorDispatchError | OrchestratorProjectionError
+          > => {
+            world.attempted.push(command);
+            if (world.refused.has(command.type)) {
+              return Effect.fail(
+                new OrchestratorDispatchError({
+                  commandId: command.commandId,
+                  commandType: command.type,
+                }),
+              );
+            }
+            if (world.failing.has(command.type)) {
+              return Effect.fail(
+                new OrchestratorProjectionError({ threadId: ThreadId.make("thread-busy") }),
+              );
+            }
+            world.dispatched.push(command);
+            apply(world, command);
+            return Effect.succeed({ sequence: world.dispatched.length, storedEvents: [] });
+          },
+        ),
     }),
     Layer.mock(ThreadLaunch.ThreadLaunchService)({
       launch: (input) =>
         Effect.sync(() => {
-          const threadId = input.threadId!;
+          const threadId = input.threadId ?? ThreadId.make(`thread-chat-${world.launched.length}`);
           const existing = world.threads.get(threadId);
           world.launched.push({
             input,
@@ -364,10 +407,25 @@ const failure = <A>(effect: Effect.Effect<A, WorkflowError>) =>
 const teamStarts = (world: World) =>
   world.dispatched.filter((command): command is TeamStart => command.type === "team.start");
 
+const sentOfType = <T extends OrchestrationV2ServerCommand["type"]>(
+  commands: ReadonlyArray<OrchestrationV2ServerCommand>,
+  type: T,
+) =>
+  commands.filter(
+    (command): command is Extract<OrchestrationV2ServerCommand, { readonly type: T }> =>
+      command.type === type,
+  );
+
 it.layer(NodeServices.layer)("Workflows", (it) => {
   const withWorkflows = <A, E>(
     test: (
       world: World,
+      /** A fresh service on the same files and threads, as after a restart. */
+      restarted: Effect.Effect<
+        Workflows.Workflows["Service"],
+        PlatformError.PlatformError,
+        FileSystem.FileSystem | Path.Path
+      >,
     ) => Effect.Effect<A, E, Workflows.Workflows | FileSystem.FileSystem | Path.Path>,
   ) =>
     Effect.gen(function* () {
@@ -376,8 +434,13 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-workflows-" }),
       );
       const world = makeWorld();
-      return yield* test(world).pipe(
-        Effect.provide(Workflows.layer.pipe(Layer.provide(fakes(baseDir, world)))),
+      const fakeLayer = fakes(baseDir, world);
+      // Fresh, or the memoized service and what it holds in memory would come back.
+      const restarted = Effect.service(Workflows.Workflows).pipe(
+        Effect.provide(Layer.fresh(Workflows.layer).pipe(Layer.provide(fakeLayer))),
+      );
+      return yield* test(world, restarted).pipe(
+        Effect.provide(Workflows.layer.pipe(Layer.provide(fakeLayer))),
       );
     }).pipe(Effect.scoped);
 
@@ -590,6 +653,13 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         });
         const { threadId } = yield* workflows.run({ name: "weekly-digest" });
         const plan = () => world.threads.get(threadId)!.team!;
+        const chat = teamStarts(world)[0]!.run.chatThreadId!;
+        const lead = world.threads.get(threadId)!;
+        lead.latestRunId = RunId.make("run-lead-last");
+        lead.messages = [
+          { role: "user", text: "Stop." },
+          { role: "assistant", text: "Stopped before the draft." },
+        ];
         yield* lose(fileSystem, path.join(saved.path, "workflow.json"));
 
         yield* TestClock.setTime(at("2026-11-18T11:00:00Z"));
@@ -597,7 +667,19 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         expect(plan().hold?.reason).toBe("time");
 
         yield* workflows.remove({ name: "weekly-digest" });
-        expect(world.dispatched.at(-1)).toMatchObject({ type: "team.cancel", threadId });
+        // The folder and its supervision go away, so the stopped run reports to its chat now.
+        expect(world.dispatched.slice(-3)).toMatchObject([
+          { type: "team.cancel", threadId },
+          {
+            type: "workflow.run.report",
+            threadId: chat,
+            run: 1,
+            leadThreadId: threadId,
+            status: "cancelled",
+            result: "Stopped before the draft.",
+          },
+          { type: "thread.visit", threadId },
+        ]);
         expect(plan().status).toBe("cancelled");
         expect(yield* fileSystem.exists(saved.path)).toBe(false);
       }),
@@ -611,8 +693,18 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         const workflows = yield* Workflows.Workflows;
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const saved = yield* workflows.save({ workflow: digest });
+        // Saved from a chat, so its runs report to that chat.
+        const chat = ThreadId.make("thread-chat");
+        world.threads.set(chat, fakeThread(chat, "claude-x"));
+        const saved = yield* workflows.save({
+          workflow: digest,
+          fromDraft: { threadId: chat, proposedAt: "2026-11-18T09:00:00.000Z" },
+        });
         const leadOf = (run: number) => ThreadId.make(`thread:workflow:${saved.id}:${run}`);
+        const chatOfState = () =>
+          fileSystem
+            .readFileString(path.join(saved.path, "state.json"))
+            .pipe(Effect.map((contents) => JSON.parse(contents).chatThreadId));
 
         expect(yield* workflows.run({ name: "weekly-digest" })).toEqual({
           threadId: leadOf(1),
@@ -628,7 +720,7 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
           createdBy: "system",
           creationSource: "server",
         };
-        const created = world.dispatched[0]!;
+        const created = world.dispatched.find((command) => command.type === "thread.create")!;
         expect(created).toMatchObject({
           type: "thread.create",
           commandId: `server:workflow-lead:${saved.id}:1`,
@@ -666,8 +758,10 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
             costUsd: null,
             headline: null,
             note: null,
+            chatThreadId: chat,
           },
         });
+        expect(yield* chatOfState()).toBe(chat);
         expect(start.agents.map((member) => member.id)).toEqual([
           "researcher",
           "writer",
@@ -686,12 +780,55 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         // A state file that went missing must not hand out a number whose lead exists.
         yield* fileSystem.remove(path.join(saved.path, "state.json"));
         expect((yield* workflows.run({ name: "weekly-digest" })).run).toBe(3);
+        expect(teamStarts(world)[2]?.run.chatThreadId).toBe(chat);
+        expect(yield* chatOfState()).toBe(chat);
+
+        // Its chat was deleted, so the next run starts a new chat named after the workflow.
+        world.threads.get(chat)!.deleted = true;
+        yield* workflows.run({ name: "weekly-digest" });
+        const madeChat = world.launched.at(-2)!;
+        expect(madeChat.input).toEqual({
+          commandId: expect.stringMatching(`^server:workflow-chat:${saved.id}:`),
+          projectId,
+          title: "Weekly digest",
+          modelSelection: { instanceId: claude, model: "claude-x" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdBy: "system",
+          creationSource: "server",
+          workspaceStrategy: { type: "root" },
+        });
+        const newChat = teamStarts(world)[3]!.run.chatThreadId!;
+        expect(newChat).not.toBe(chat);
+        expect(world.threads.get(newChat)?.savedWorkflow?.id).toBe(saved.id);
+        expect(yield* chatOfState()).toBe(newChat);
+
+        // An editor-made workflow gets one chat on its first run, and keeps it.
+        const briefing = yield* workflows.save({
+          workflow: { ...digest, name: "briefing", title: "Briefing" },
+        });
+        const launchedBefore = world.launched.length;
+        yield* workflows.run({ name: "briefing" });
+        yield* workflows.run({ name: "briefing" });
+        expect(world.launched.slice(launchedBefore).map(({ input }) => input.title)).toEqual([
+          "Briefing",
+          "Briefing · run 1",
+          "Briefing · run 2",
+        ]);
+        const briefingChat = teamStarts(world)[4]!.run.chatThreadId!;
+        expect(teamStarts(world)[5]!.run.chatThreadId).toBe(briefingChat);
+        expect(
+          sentOfType(world.dispatched, "workflow.draft.saved").filter(
+            (command) => command.workflowId === briefing.id,
+          ),
+        ).toEqual([expect.objectContaining({ threadId: briefingChat })]);
 
         world.agents = [agent("researcher", "Researcher")];
+        const launchedBeforeRefusal = world.launched.length;
         const refused = yield* Effect.flip(workflows.run({ name: "weekly-digest" }));
         expect(refused.reason).toBe("cannot-run");
         expect(refused.detail).toContain('The agent "writer" no longer exists.');
-        expect(world.launched).toHaveLength(3);
+        expect(world.launched).toHaveLength(launchedBeforeRefusal);
       }),
     ),
   );
@@ -760,7 +897,7 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
   );
 
   it.effect("prices a running run, holds it at each limit, and adds its note once", () =>
-    withWorkflows((world) =>
+    withWorkflows((world, restarted) =>
       Effect.gen(function* () {
         yield* TestClock.setTime(at("2026-11-18T10:00:00Z"));
         const workflows = yield* Workflows.Workflows;
@@ -845,7 +982,16 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         lead.team = {
           ...plan(),
           status: "completed",
-          run: { ...plan().run!, note: "Readers liked\n  the charts." },
+          tasks: plan().tasks.map((task) => ({
+            ...task,
+            status: "completed",
+            result: `${task.title} done.`,
+          })),
+          run: {
+            ...plan().run!,
+            headline: "Sent the digest",
+            note: "Readers liked\n  the charts.",
+          },
         };
         // The lead's last turn comes after the plan ends: its note and cost wait for it.
         lead.runs = [{ status: "running" }];
@@ -856,10 +1002,41 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         lead.turns.push(turn(1_000));
         lead.runs = [];
         lead.updatedAt = 2;
+        // The result is reported before the note is kept, so a failed report keeps both for later.
+        world.failing.add("workflow.run.report");
         yield* TestClock.adjust("2 minutes");
         yield* workflows.superviseRuns;
         expect(sent().at(-1)).toBe(`server:workflow-cost:${planId}:final:72000`);
         expect(plan().run?.costUsd).toBe(7.2);
+        expect((yield* workflows.read({ name: "weekly-digest" })).notes).toBe("");
+        const [report] = sentOfType(world.attempted, "workflow.run.report");
+        expect(report).toMatchObject({
+          threadId: teamStarts(world)[0]!.run.chatThreadId,
+          title: "Weekly digest",
+          run: 1,
+          leadThreadId: threadId,
+          status: "completed",
+          headline: "Sent the digest",
+          // Only the last step's result: the others fed into it.
+          result: "Check done.",
+        });
+        expect(sentOfType(world.dispatched, "thread.visit")).toEqual([]);
+
+        // After a restart the same report goes out under the same id, then the lead is marked read.
+        world.failing.clear();
+        yield* (yield* restarted).superviseRuns;
+        expect(sentOfType(world.attempted, "workflow.run.report").map((c) => c.commandId)).toEqual([
+          report!.commandId,
+          report!.commandId,
+        ]);
+        expect(world.dispatched.slice(-2)).toMatchObject([
+          { type: "workflow.run.report", commandId: report!.commandId },
+          {
+            type: "thread.visit",
+            commandId: `server:workflow-run-read:${threadId}:1970-01-01T00:00:00.002Z`,
+            threadId,
+          },
+        ]);
         expect((yield* workflows.read({ name: "weekly-digest" })).notes).toBe(
           "- 2026-11-18 run 1: Readers liked the charts.",
         );

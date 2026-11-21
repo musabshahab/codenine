@@ -10,6 +10,7 @@ import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
   OrchestrationV2ThreadHistoryPage,
+  WorkflowId,
 } from "@codenine/contracts";
 import {
   latestRootProviderFailure,
@@ -215,6 +216,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "latestRunStartedAt"
   | "latestRunCompletedAt"
   | "latestUserMessageAt"
+  | "workflowResultAt"
   | "status"
   | "activityRunStartedAt"
   | "activityRunStatus"
@@ -541,6 +543,10 @@ export interface ProjectionStoreV2Shape {
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2AppThread, ProjectionStoreV2Error>;
+  /** The live chat a workflow was saved from or made for, newest link first. */
+  readonly findThreadBySavedWorkflow: (
+    workflowId: WorkflowId,
+  ) => Effect.Effect<ThreadId | null, ProjectionStoreV2Error>;
   readonly getLimitRecoveryCandidates: (options: {
     readonly now: DateTime.Utc;
     readonly autoResume: boolean;
@@ -1689,6 +1695,7 @@ export function threadShellFromProjection(
     settledOverride: projection.thread.settledOverride,
     settledAt: projection.thread.settledAt,
     unsettledAt: projection.thread.unsettledAt ?? null,
+    workflowResultAt: projection.thread.workflowResultAt ?? null,
     snoozedUntil: projection.thread.snoozedUntil ?? null,
     snoozedAt: projection.thread.snoozedAt ?? null,
     pinnedAt: projection.thread.pinnedAt ?? null,
@@ -1956,6 +1963,7 @@ function shellFromState(input: {
     settledOverride: input.state.thread.settledOverride,
     settledAt: input.state.thread.settledAt,
     unsettledAt: input.state.thread.unsettledAt ?? null,
+    workflowResultAt: input.state.thread.workflowResultAt ?? null,
     snoozedUntil: input.state.thread.snoozedUntil ?? null,
     snoozedAt: input.state.thread.snoozedAt ?? null,
     pinnedAt: input.state.thread.pinnedAt ?? null,
@@ -5562,6 +5570,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.map((rows) => [...new Set(rows.map((row) => ThreadId.make(row.child_thread_id)))]),
         Effect.mapError(controlReadError(threadId)),
       );
+    // `instr` keeps json_extract to the few threads that mention the workflow at all.
+    const findThreadBySavedWorkflow: ProjectionStoreV2Shape["findThreadBySavedWorkflow"] = (
+      workflowId,
+    ) =>
+      sql<{ readonly thread_id: string }>`SELECT thread_id
+        FROM orchestration_v2_projection_threads
+        WHERE deleted_at IS NULL
+          AND instr(payload_json, ${workflowId}) > 0
+          AND json_extract(payload_json, '$.savedWorkflow.id') = ${workflowId}
+        ORDER BY json_extract(payload_json, '$.savedWorkflow.proposedAt') DESC
+        LIMIT 1`.pipe(
+        Effect.map((rows) => (rows[0] === undefined ? null : ThreadId.make(rows[0].thread_id))),
+        Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+      );
     const getNextTurnItemOrdinal: ProjectionStoreV2Shape["getNextTurnItemOrdinal"] = (threadId) =>
       sql<{ ordinal: number | null }>`SELECT MAX(ordinal) AS ordinal
         FROM orchestration_v2_projection_turn_items WHERE thread_id = ${threadId}`.pipe(
@@ -7508,6 +7530,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getMessageCount: readOnReader(getMessageCount),
       getSubagentCount: readOnReader(getSubagentCount),
       listAppOwnedChildThreadIds: readOnReader(listAppOwnedChildThreadIds),
+      findThreadBySavedWorkflow: readOnReader(findThreadBySavedWorkflow),
       getNextTurnItemOrdinal: readOnReader(getNextTurnItemOrdinal),
       getTurnItem: readOnReader(getTurnItem),
       getMessagesById: readOnReader(getMessagesById),

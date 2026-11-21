@@ -290,6 +290,13 @@ describe("resolveAutoSettlementAt", () => {
     expect(
       ThreadSettlementService.resolveAutoSettlementAt({ ...input, autoSettleAfterDays: null }),
     ).toBeNull();
+    // A workflow result posted later is activity too.
+    expect(
+      ThreadSettlementService.resolveAutoSettlementAt({
+        ...input,
+        thread: { ...idle, workflowResultAt: at(-2.5 * DAY_MS) },
+      }),
+    ).toEqual(at(-2.5 * DAY_MS));
   });
 
   it("anchors an empty thread's inactivity at its creation time", () => {

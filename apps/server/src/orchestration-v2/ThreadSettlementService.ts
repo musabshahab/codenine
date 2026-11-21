@@ -221,6 +221,7 @@ export function resolveAutoSettlementAt(input: {
       toMillis(thread.latestRunRequestedAt),
       toMillis(thread.latestRunStartedAt),
       toMillis(thread.latestRunCompletedAt),
+      toMillis(thread.workflowResultAt),
     ]) ?? DateTime.toEpochMillis(thread.createdAt);
   if (pullRequest !== null && pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
     return DateTime.makeUnsafe(activityAtMs);
