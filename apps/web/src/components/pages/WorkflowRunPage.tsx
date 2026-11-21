@@ -212,6 +212,10 @@ function WorkflowRunView(props: {
   const plan = useAtomValue(environmentThreadDetails.teamAtom(leadRef));
   const status = useThreadStatus(leadRef);
   const leadShell = useQuietThreadShell(leadRef);
+  const chatThreadId = plan?.run?.chatThreadId;
+  const chat = useQuietThreadShell(
+    chatThreadId === undefined ? null : scopeThreadRef(environmentId, chatThreadId),
+  );
   const shells = useQuietThreadShells();
   const catalog = useAgentModelCatalog(environmentId);
   const openThread = (threadId: ThreadId) =>
@@ -249,7 +253,6 @@ function WorkflowRunView(props: {
   }
 
   const run = plan.run;
-  const chatThreadId = run.chatThreadId;
   const stepShells = new Map(
     shells.flatMap((shell) =>
       shell.environmentId === environmentId &&
@@ -346,7 +349,7 @@ function WorkflowRunView(props: {
             leadRef={leadRef}
             clock={clock}
             onOpen={() => openThread(leadRef.threadId)}
-            onOpenChat={chatThreadId === undefined ? null : () => openThread(chatThreadId)}
+            onOpenChat={chat === null || chat.deletedAt !== null ? null : () => openThread(chat.id)}
           />
         </div>
         <aside
