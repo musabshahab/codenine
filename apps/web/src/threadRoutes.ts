@@ -50,9 +50,8 @@ export function resolveThreadRouteRenderState(input: {
   if (projection === null) {
     return "loading";
   }
-  return projection.thread.deletedAt !== null || projection.thread.archivedAt !== null
-    ? "missing"
-    : "ready";
+  // An archived thread stays off the shell but still opens, read-only.
+  return projection.thread.deletedAt !== null ? "missing" : "ready";
 }
 
 export function buildThreadRouteParams(ref: ScopedThreadRef): {

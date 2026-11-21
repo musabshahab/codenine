@@ -187,6 +187,7 @@ import { cn } from "~/lib/utils";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { toastManager } from "./ui/toast";
+import { ArchivedThreadNotice, UnarchiveThreadStep } from "./chat/ArchivedThread";
 import { projectScriptIdFromCommand } from "~/projectScripts";
 import { isInSideChatPane, type SideChatParentPanel } from "~/lib/sideChatPane";
 import {
@@ -1672,7 +1673,12 @@ export default function ChatView(props: ChatViewProps) {
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
   // Provider-native subagents cannot take messages; approvals and questions go to the top-level parent.
   const showProviderSubagentBar = isProviderSubagent;
-  const composerMounted = !showProviderSubagentBar;
+  // Off the shell, an archived thread opens read-only; the orchestrator starts no runs for it.
+  const isArchivedThread =
+    routeKind === "server" &&
+    serverThreadShell === null &&
+    serverProjection?.thread.archivedAt != null;
+  const composerMounted = !showProviderSubagentBar && !isArchivedThread;
   const providerSubagentModels = selectedProviderEntry?.models ?? EMPTY_PROVIDER_MODELS;
   // Providers can report dated model ids or aliases.
   const providerSubagentModelSlug = selectedProviderEntry
@@ -1701,7 +1707,7 @@ export default function ChatView(props: ChatViewProps) {
     shouldShowComposerContextStrip({
       isDraftHeroState,
       persistInActiveThreads: settings.persistComposerContextStrip,
-      hasActiveProject: activeProject !== null && !showProviderSubagentBar,
+      hasActiveProject: activeProject !== null && composerMounted,
       isGitRepo,
       showEnvironmentIndicator: showComposerEnvironmentIndicator,
     });
@@ -3185,7 +3191,9 @@ export default function ChatView(props: ChatViewProps) {
     />
   );
   const headerNextStep =
-    isServerThread && activeThreadRef !== null && !isChatThread ? (
+    isArchivedThread && activeThreadRef !== null ? (
+      <UnarchiveThreadStep threadRef={activeThreadRef} canOperate={canOperateThread} />
+    ) : isServerThread && activeThreadRef !== null && !isChatThread ? (
       <ThreadNextStep
         threadRef={activeThreadRef}
         team={threadTeamInfo}
@@ -3505,6 +3513,7 @@ export default function ChatView(props: ChatViewProps) {
                                 onOpenParent={parentThreadLink?.open ?? null}
                               />
                             ) : null}
+                            {isArchivedThread ? <ArchivedThreadNotice /> : null}
                             {!composerMounted ? null : (
                               <ChatComposer
                                 canOperateThread={canOperateThread}

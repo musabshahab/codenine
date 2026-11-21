@@ -66,8 +66,9 @@ needs you, is running, or is done. Workflow runs and their steps' chats are on t
 page, not in Tasks or the workspaces.
 
 Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
-sidebar, where **Restore** brings one back. An agent's thread is not listed there; open it from its
-task.
+sidebar, where **Mark not done** or **Unarchive** brings one back. An agent's thread is not listed
+there; open it from its task. Click an archived chat to read it. It can't take messages while
+archived, so **Unarchive** in its header brings it back to continue.
 
 ## Build
 
