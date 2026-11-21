@@ -48,10 +48,15 @@ export interface TeamThreadGroup<T> {
    */
   readonly shown: ReadonlyArray<T>;
   readonly expanded: boolean;
-  /** The most urgent state among the tasks a collapsed group hides, for the lead row to show. */
+  /**
+   * The most urgent state among the rows expanding would draw that are not drawn yet, for the lead
+   * row to show.
+   */
   readonly attention: TeamThreadAttention | null;
   /** How many of `tasks` are workflow runs. */
   readonly runs: number;
+  /** Whether the chat has more runs than an expanded group draws; the rest are on the runs page. */
+  readonly moreRuns: boolean;
 }
 
 export interface TeamThreadGrouping<T> {
@@ -117,8 +122,13 @@ export function groupTeamThreads<T extends { readonly createdAt: string }>(input
     if (lead === undefined && run !== null) droppedRuns.add(taskKey);
     // Teams do not nest, so a lead that is itself a team task holds no rows.
     if (lead === undefined || leadKeyOf(lead) !== null) continue;
-    if (run !== "ended" && !followsLead(sectionByKey.get(taskKey)!, sectionByKey.get(leadKey)!))
-      continue;
+    const section = sectionByKey.get(taskKey)!;
+    // An ended run follows its chat anywhere, unless the user pinned or snoozed it.
+    const nests =
+      run === "ended"
+        ? section !== "pinned" && section !== "snoozed"
+        : followsLead(section, sectionByKey.get(leadKey)!);
+    if (!nests) continue;
     leadKeyByTaskKey.set(taskKey, leadKey);
     const tasks = tasksByLead.get(leadKey);
     if (tasks === undefined) tasksByLead.set(leadKey, [task]);
@@ -140,19 +150,18 @@ export function groupTeamThreads<T extends { readonly createdAt: string }>(input
         const run = runOf(task);
         return run === null ? sectionByKey.get(keyOf(task)) !== "settled" : run === "running";
       });
-    const shown = expanded
-      ? tasks.filter(
-          (task, index) =>
-            index < teamTasks.length + SHOWN_RUNS_MAX || keyOf(task) === input.openKey,
-        )
-      : tasks.filter((task) => keyOf(task) === input.openKey);
-    const hidden = new Set(tasks.filter((task) => !shown.includes(task)).map(input.attentionOf));
+    const drawable = tasks.filter(
+      (task, index) => index < teamTasks.length + SHOWN_RUNS_MAX || keyOf(task) === input.openKey,
+    );
+    const shown = expanded ? drawable : drawable.filter((task) => keyOf(task) === input.openKey);
+    const hidden = new Set(drawable.filter((task) => !shown.includes(task)).map(input.attentionOf));
     groups.set(leadKey, {
       tasks,
       shown,
       expanded,
       attention: ATTENTION_ORDER.find((attention) => hidden.has(attention)) ?? null,
       runs: runs.length,
+      moreRuns: runs.length > SHOWN_RUNS_MAX,
     });
   }
 

@@ -63,8 +63,8 @@ questions, teams waiting for your approval, and teams that failed. A workflow ru
 you or failed is there too, and opens on the run's page. An entry leaves once you act on it, mark
 the thread done, or snooze it. **Tasks** lists every task a team works on, grouped by whether it
 needs you, is running, or is done. Workflow runs are not in Tasks: a workflow's runs are listed
-under its chat (**Show 3 runs**), open while one is running, and a run's step chats are on the run's
-page.
+under its chat (**Show 3 runs**), open while one is running. The newest 10 show there, and
+**All 12 runs** opens the rest on the workflow's page. A run's step chats are on the run's page.
 
 Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
 sidebar, where **Mark not done** brings back a done thread and **Unarchive** an archived one. An

@@ -112,6 +112,7 @@ import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
+import { workflowRunsHref } from "../workflowLinks";
 import {
   pickableProjectGroups,
   selectProjectGroupingSettings,
@@ -273,7 +274,7 @@ import {
   type SidebarSweepAction,
 } from "./sidebar/SidebarThreadRow";
 import { SidebarDraftBlock } from "./sidebar/SidebarDraftBlock";
-import { SidebarTeamTasksContext } from "./sidebar/SidebarTeamTasks";
+import { SidebarAllRunsRow, SidebarTeamTasksContext } from "./sidebar/SidebarTeamTasks";
 import {
   SidebarBuildRows,
   SidebarNavRows,
@@ -2135,7 +2136,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const listMotionLayoutKey = [
     sidebarListItemsKey,
     sidebarFolders?.map((folder) => `${folder.key}:${folder.threads.length}`).join("\n") ?? "",
-    [...teamGroups].map(([leadKey, group]) => `${leadKey}:${group.shown.length}`).join("\n"),
+    [...teamGroups]
+      .map(([leadKey, group]) => `${leadKey}:${group.shown.length}:${group.moreRuns}`)
+      .join("\n"),
     visibleDraftSessionCount,
     routeDraftIdForRows ?? "",
   ].join("\0");
@@ -3813,14 +3816,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         }
                       }
                       // A thread's own section decides its actions, also under its lead.
-                      const renderTeamTasks = (leadKey: string) =>
-                        (teamGroups.get(leadKey)?.shown ?? []).map((task) =>
+                      const renderTeamTasks = (leadKey: string) => {
+                        const group = teamGroups.get(leadKey);
+                        if (group === undefined) return [];
+                        const rows = group.shown.map((task) =>
                           renderThreadRow(
                             task,
                             sectionByThreadKey.get(threadShellKey(task)) ?? "active",
                             { kind: "team", id: leadKey },
                           ),
                         );
+                        if (!group.expanded || !group.moreRuns) return rows;
+                        const newest = group.tasks.find(
+                          (task) => task.source.teamSummary?.run !== undefined,
+                        );
+                        const workflowName = newest?.source.teamSummary?.run?.workflowName;
+                        return [
+                          ...rows,
+                          <SidebarAllRunsRow
+                            key={`${leadKey}:all-runs`}
+                            leadKey={leadKey}
+                            count={group.runs}
+                            onOpen={() =>
+                              void router.navigate({
+                                href:
+                                  newest === undefined || workflowName === undefined
+                                    ? "/workflows"
+                                    : workflowRunsHref(newest.environmentId, workflowName),
+                              })
+                            }
+                          />,
+                        ];
+                      };
                       return (
                         <SidebarTeamTasksContext value={renderTeamTasks}>
                           {items}

@@ -98,3 +98,21 @@ export function SidebarTeamToggle(props: {
     </Tooltip>
   );
 }
+
+/** The last row of a chat with more runs than it draws, for the workflow's runs page. */
+export function SidebarAllRunsRow(props: { leadKey: string; count: number; onOpen: () => void }) {
+  return (
+    <li className="list-none">
+      <button
+        type="button"
+        data-sidebar-row={`${props.leadKey}:all-runs`}
+        data-sidebar-parent={props.leadKey}
+        onClick={props.onOpen}
+        className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+      >
+        <WorkflowIcon aria-hidden className="size-3.5 shrink-0" />
+        All {props.count} runs
+      </button>
+    </li>
+  );
+}

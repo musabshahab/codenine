@@ -161,27 +161,38 @@ describe("groupTeamThreads", () => {
     expect(keys(grouping.sections[runSection])).not.toContain("run");
   });
 
-  it("leaves a running run under a settled chat on its own, and drops a run with no chat", () => {
+  it("leaves a running run under a settled chat and a pinned or snoozed run on their own, and drops a run with no chat", () => {
     const grouping = group({
+      pinned: [runRow("pinned", "chat", 4, "ended")],
       active: [runRow("running", "chat", 1, "running"), runRow("orphan", "gone", 2, "ended")],
+      snoozed: [runRow("snoozed", "chat", 5, "ended")],
       settled: [row("chat"), runRow("lost", "gone", 3, "running")],
     });
     expect(grouping.groups.size).toBe(0);
+    expect(keys(grouping.sections.pinned)).toEqual(["pinned"]);
     expect(keys(grouping.sections.active)).toEqual(["running"]);
+    expect(keys(grouping.sections.snoozed)).toEqual(["snoozed"]);
     expect(keys(grouping.sections.settled)).toEqual(["chat"]);
   });
 
   it("opens a chat's runs only while one is running", () => {
     const ended = { active: [row("chat"), runRow("run-1", "chat", 1, "ended")] };
-    expect(group(ended).groups.get("chat")).toMatchObject({ expanded: false, shown: [], runs: 1 });
+    expect(group(ended).groups.get("chat")).toMatchObject({
+      expanded: false,
+      shown: [],
+      runs: 1,
+      moreRuns: false,
+    });
     const running = { active: [...ended.active, runRow("run-2", "chat", 2, "running")] };
     expect(group(running).groups.get("chat")).toMatchObject({ expanded: true, runs: 2 });
   });
 
   it("draws team tasks oldest first, then the newest ten runs and the open one", () => {
-    const runs = Array.from({ length: 12 }, (_, index) =>
-      runRow(`run-${index + 1}`, "chat", index + 1, index === 11 ? "running" : "ended"),
-    );
+    const runs = Array.from({ length: 12 }, (_, index) => ({
+      ...runRow(`run-${index + 1}`, "chat", index + 1, index === 11 ? "running" : "ended"),
+      // Past the newest ten and not open, so no expanded or collapsed group draws it.
+      attention: index === 1 ? ("failed" as const) : null,
+    }));
     const sections = {
       active: [row("chat"), row("task-b", "chat", 30), row("task-a", "chat", 20)],
     };
@@ -195,6 +206,12 @@ describe("groupTeamThreads", () => {
       ...Array.from({ length: 10 }, (_, index) => `run-${12 - index}`),
       "run-1",
     ]);
+    expect(chat).toMatchObject({ moreRuns: true, attention: null });
+    const collapsed = group(
+      { ...sections, settled: runs },
+      { expandedByLead: new Map([["chat", false]]) },
+    );
+    expect(collapsed.groups.get("chat")?.attention).toBeNull();
   });
 });
 
