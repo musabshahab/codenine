@@ -189,6 +189,7 @@ import {
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
   buildBulkMarkUnread,
+  buildBulkSettle,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
@@ -2342,8 +2343,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               assignment.orderKey,
             ),
             plan.kind === "move-active"
-              ? "Failed to reorder active threads"
-              : "Failed to reorder pinned threads",
+              ? "Failed to reorder chats"
+              : "Failed to reorder pinned chats",
           ))
         )
           return;
@@ -2419,8 +2420,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
-      const settlingThreads = selectedThreads.filter(
-        (thread) => thread.settledOverride !== "settled",
+      const markDone = buildBulkSettle(
+        selectedThreads,
+        selectionNow.toISOString(),
+        canOperateThreads,
       );
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
@@ -2457,11 +2460,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ...(unpinMenuItem
               ? [{ ...unpinMenuItem, disabled: !canOperateThreads(pinnedSelectedThreads) }]
               : []),
-            {
-              id: "settle",
-              label: `Mark done (${count})`,
-              disabled: settlingThreads.length === 0 || !canOperateThreads(settlingThreads),
-            },
+            markDone.item,
             ...(canSnoozeSelection
               ? [
                   {
@@ -2514,7 +2513,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             : clicked.value === "mark-unread"
               ? markUnread.targets
               : clicked.value === "settle"
-                ? settlingThreads.flatMap((thread) => {
+                ? markDone.targets.flatMap((thread) => {
                     const current = threadByKeyRef.current.get(
                       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
                     );
@@ -2526,7 +2525,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       if (clicked.value?.startsWith("snooze:")) {
         const preset =
           clicked.value === "snooze:custom"
-            ? await requestCustomSnooze()
+            ? await requestCustomSnooze(selectedThreads.length)
             : pickSnoozePreset(
                 snoozePresets,
                 clicked.value.slice("snooze:".length),

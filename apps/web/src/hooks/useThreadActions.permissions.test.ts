@@ -46,6 +46,11 @@ const state = vi.hoisted(() => ({
   toasts: [] as string[],
   afterRequest: undefined as ((action: string) => void) | undefined,
   sessionLookupFails: false,
+  routeThreadRef: null as ScopedThreadRef | null,
+  worktreeThreadIds: [] as ThreadId[],
+  fallbackThreadId: null as ThreadId | null,
+  fallbackCandidates: [] as ThreadId[][],
+  navigate: vi.fn<(options: unknown) => Promise<void>>(),
 }));
 
 vi.mock("react", () => ({
@@ -54,7 +59,10 @@ vi.mock("react", () => ({
   useRef: (current: unknown) => ({ current }),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useRouter: () => ({ state: { location: { href: "/" }, matches: [] }, navigate: async () => {} }),
+  useRouter: () => ({
+    state: { location: { href: "/" }, matches: [] },
+    navigate: (options: unknown) => state.navigate(options),
+  }),
 }));
 vi.mock("../state/session", () => ({
   environmentSession: { sessionStateAtom: "session" },
@@ -77,20 +85,25 @@ vi.mock("../state/use-atom-command", () => ({
 }));
 vi.mock("../state/use-atom-query-runner", () => ({
   useAtomQueryRunner: (family: unknown) => async (environmentId: string) =>
-    family === "threadFamily"
-      ? state.familyLookupFails
-        ? AsyncResult.failure(Cause.fail(new Error("Family lookup failed")))
-        : AsyncResult.success({ threads: state.familyThreads })
-      : state.sessionLookupFails
-        ? AsyncResult.failure(Cause.fail(new Error("Session lookup failed")))
-        : AsyncResult.success({
-            authenticated: true,
-            scopes: [...(state.scopes.get(environmentId) ?? [])],
-            auth: { serverUpdateScope: "environment:maintain" },
-          }),
+    family === "worktreeThreadIds"
+      ? AsyncResult.success({ threadIds: state.worktreeThreadIds })
+      : family === "threadFamily"
+        ? state.familyLookupFails
+          ? AsyncResult.failure(Cause.fail(new Error("Family lookup failed")))
+          : AsyncResult.success({ threads: state.familyThreads })
+        : state.sessionLookupFails
+          ? AsyncResult.failure(Cause.fail(new Error("Session lookup failed")))
+          : AsyncResult.success({
+              authenticated: true,
+              scopes: [...(state.scopes.get(environmentId) ?? [])],
+              auth: { serverUpdateScope: "environment:maintain" },
+            }),
 }));
 vi.mock("../state/orchestration", () => ({
-  orchestrationEnvironment: { threadFamily: "threadFamily" },
+  orchestrationEnvironment: {
+    threadFamily: "threadFamily",
+    worktreeThreadIds: "worktreeThreadIds",
+  },
 }));
 vi.mock("../state/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../state/server")>();
@@ -134,7 +147,10 @@ vi.mock("../state/entities", () => ({
   readProject: () => ({ workspaceRoot: "/project" }),
 }));
 vi.mock("../components/Sidebar.logic", () => ({
-  getFallbackThreadIdAfterDelete: () => null,
+  getFallbackThreadIdAfterDelete: (input: { threads: ReadonlyArray<{ id: ThreadId }> }) => {
+    state.fallbackCandidates.push(input.threads.map((thread) => thread.id));
+    return state.fallbackThreadId;
+  },
   pinOrderKeyBetween: () => "a",
 }));
 vi.mock("../composerDraftStore", () => ({
@@ -168,7 +184,7 @@ vi.mock("../localApi", () => ({
   readLocalApi: () => ({ dialogs: { confirm: state.confirm } }),
 }));
 vi.mock("../threadRoutes", () => ({
-  resolveThreadRouteRef: () => null,
+  resolveThreadRouteRef: () => state.routeThreadRef,
   buildThreadRouteParams: (ref: ScopedThreadRef) => ref,
 }));
 vi.mock("../components/ui/toast", () => ({
@@ -273,6 +289,11 @@ beforeEach(() => {
   state.toasts = [];
   state.afterRequest = undefined;
   state.sessionLookupFails = false;
+  state.routeThreadRef = null;
+  state.worktreeThreadIds = [];
+  state.fallbackThreadId = null;
+  state.fallbackCandidates = [];
+  state.navigate.mockReset().mockResolvedValue(undefined);
   useRightPanelStore.setState(useRightPanelStore.getInitialState(), true);
   useDiffPanelStore.setState(useDiffPanelStore.getInitialState(), true);
 });
@@ -416,27 +437,42 @@ describe("thread action permissions", () => {
     expect(threadPanelStatePresence(target)).toEqual(panelStateCleared);
   });
 
-  it("offers to delete the worktree of a chat the shell list leaves out, from the chat as shown", async () => {
-    state.scopes
-      .get(secondary)!
-      .add(AuthOrchestrationOperateScope)
-      .add(AuthSourceControlWriteScope);
-    const shown = { ...state.threads[0]!, worktreePath: "/worktrees/thread" };
-    state.threads = [];
-    expect((await useThreadActions().deleteThread(target, { thread: shown as never }))._tag).toBe(
-      "Success",
-    );
-    expect(state.confirm).toHaveBeenCalledExactlyOnceWith(
-      expect.stringContaining("This chat is the only one linked to this worktree:"),
-      { variant: "destructive" },
-    );
-    expect(state.requests.map((request) => request.action)).toEqual([
-      "stopSession",
-      "delete",
-      "removeWorktree",
-      "refreshStatus",
-    ]);
-  });
+  it.each([false, true])(
+    "deletes a chat the shell list leaves out like a listed one, from the chat as shown (families: %s)",
+    async (shellThreadFamilies) => {
+      state.serverConfig.shellThreadFamilies = shellThreadFamilies;
+      state.worktreeThreadIds = [target.threadId];
+      state.scopes
+        .get(secondary)!
+        .add(AuthOrchestrationOperateScope)
+        .add(AuthSourceControlWriteScope);
+      const shown = { ...state.threads[0]!, worktreePath: "/worktrees/thread" };
+      const next = { ...state.threads[0]!, id: ThreadId.make("next") };
+      state.threads = [next];
+      state.routeThreadRef = target;
+      state.fallbackThreadId = next.id;
+      expect((await useThreadActions().deleteThread(target, { thread: shown as never }))._tag).toBe(
+        "Success",
+      );
+      expect(state.confirm).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining("This chat is the only one linked to this worktree:"),
+        { variant: "destructive" },
+      );
+      expect(state.requests.map((request) => request.action)).toEqual([
+        "stopSession",
+        "delete",
+        "removeWorktree",
+        "refreshStatus",
+      ]);
+      // The next chat is picked from a list that includes the deleted one.
+      expect(state.fallbackCandidates).toEqual([[next.id, target.threadId]]);
+      expect(state.navigate).toHaveBeenCalledExactlyOnceWith({
+        to: "/$environmentId/$threadId",
+        params: { environmentId: secondary, threadId: next.id },
+        replace: true,
+      });
+    },
+  );
 
   it("clears the drafts of the side chats deleted with it", async () => {
     state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);

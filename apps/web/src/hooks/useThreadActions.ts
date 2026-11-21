@@ -150,7 +150,7 @@ export class ThreadPinReorderUnsupportedError extends Schema.TaggedError<ThreadP
   },
 ) {
   override get message(): string {
-    return "This environment's server does not support reordering pinned threads yet. Update the server to reorder pins.";
+    return "This environment's server does not support reordering pinned chats yet. Update the server to reorder pins.";
   }
 }
 
@@ -162,7 +162,7 @@ export class ThreadActiveReorderUnsupportedError extends Schema.TaggedError<Thre
   },
 ) {
   override get message(): string {
-    return "Update this environment's server to reorder active threads.";
+    return "Update this environment's server to reorder chats.";
   }
 }
 

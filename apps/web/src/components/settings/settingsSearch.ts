@@ -706,19 +706,19 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "unpin-confirmation",
     title: "Unpin confirmation",
     to: "/settings/general",
-    searchTerms: ["ask before thread pinned section"],
+    searchTerms: ["ask before chat thread pinned section"],
   },
   {
     id: "archive-confirmation",
     title: "Archive confirmation",
     to: "/settings/general",
-    searchTerms: ["ask before thread second click inline action"],
+    searchTerms: ["ask before chat thread"],
   },
   {
     id: "delete-confirmation",
     title: "Delete confirmation",
     to: "/settings/general",
-    searchTerms: ["ask before thread chat history"],
+    searchTerms: ["ask before chat thread conversation history"],
   },
   {
     id: "quit-confirmation",

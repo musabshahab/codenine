@@ -157,8 +157,8 @@ environment. Pinned and active reordering require server support. Threads from o
 their default order until the server is updated.
 
 To generate a fresh title from the conversation, open a thread's menu and choose
-**Regenerate title**. The action is unavailable while title generation is in progress
-or when the connected environment needs a server update.
+**Regenerate title**. It is unavailable while a title is being generated, and does not appear
+until the environment is connected.
 
 To change how titles are written, add **Thread title instructions** in **Settings → Threads →
 Text generation**, under Advanced, such as a length limit or an identifier to put first. They apply to new and
@@ -190,8 +190,8 @@ cannot drag or move threads within it. Your saved order returns when you turn it
 
 Choose **Mark done** from a thread's menu to move finished work out of the active list
 without deleting the conversation. Grouped by workspace, it goes to **Completed & archived**; the
-single list keeps it on its **Done** shelf. **Mark done** is unavailable while the thread is
-working, waiting on an approval, or has a message queued. **Mark not done** restores it to
+single list keeps it on its **Done** shelf. **Mark done** is unavailable while the chat is
+working, waiting on an approval or an answer, or has a message queued. **Mark not done** restores it to
 active work and keeps it from being marked done automatically until new activity resumes the
 usual rules. Marking an idle thread done by hand dismisses unanswered async questions without
 sending an answer or restarting the agent. It also closes the thread's
@@ -228,8 +228,8 @@ To keep one thread from being marked done automatically, open its menu, choose *
 automatically**, and pick **Never**. The current option is checked. Pick **As set in Settings** to
 return to the rules in **Settings → Threads**. While those rules are off, a thread on **As set in
 Settings** is not marked done automatically either. **Mark done**, snooze, and archive still work
-while it is set to **Never**. When a team finishes or is cancelled, its agents' threads are marked
-done whatever this is set to.
+while it is set to **Never**. On a team agent's thread the option reads **Never (until the team
+ends)**: when a team finishes or is cancelled, its agents' threads are marked done anyway.
 
 Change these rules in **Settings → Threads**.
 They continue to run when your apps are closed. Choose an environment at the

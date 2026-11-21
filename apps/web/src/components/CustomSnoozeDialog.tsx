@@ -35,12 +35,15 @@ import {
 } from "./ui/dialog";
 
 type SnoozeChoice = { readonly snoozedUntil: string };
-type Request = { readonly resolve: (choice: SnoozeChoice | null) => void };
+type Request = {
+  readonly chatCount: number;
+  readonly resolve: (choice: SnoozeChoice | null) => void;
+};
 const useRequest = create<{ request: Request | null }>(() => ({ request: null }));
 
-export function requestCustomSnooze(): Promise<SnoozeChoice | null> {
+export function requestCustomSnooze(chatCount = 1): Promise<SnoozeChoice | null> {
   useRequest.getState().request?.resolve(null);
-  return new Promise((resolve) => useRequest.setState({ request: { resolve } }));
+  return new Promise((resolve) => useRequest.setState({ request: { chatCount, resolve } }));
 }
 
 function finish(choice: SnoozeChoice | null) {
@@ -59,10 +62,10 @@ export function CustomSnoozeDialogHost() {
   const request = useRequest((state) => state.request);
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- resolves any pending snooze request promise with null when the dialog host unmounts
   useEffect(() => () => finish(null), []);
-  return request ? <CustomSnoozeDialog /> : null;
+  return request ? <CustomSnoozeDialog chatCount={request.chatCount} /> : null;
 }
 
-function CustomSnoozeDialog() {
+function CustomSnoozeDialog(props: { readonly chatCount: number }) {
   const id = useId();
   const navigate = useNavigate();
   const [initial] = useState(() => new Date(Date.now() + 3_600_000));
@@ -104,7 +107,11 @@ function CustomSnoozeDialog() {
         >
           <DialogHeader>
             <DialogTitle>Custom snooze</DialogTitle>
-            <DialogDescription>Choose when snoozed threads return to your inbox.</DialogDescription>
+            <DialogDescription>
+              {props.chatCount === 1
+                ? "Choose when the chat comes back to its place in the sidebar."
+                : "Choose when the chats come back to their places in the sidebar."}
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <div className="flex flex-col gap-4">

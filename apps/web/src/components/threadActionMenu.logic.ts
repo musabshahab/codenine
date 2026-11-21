@@ -91,6 +91,8 @@ export interface ThreadActionMenuState {
   readonly isSettled: boolean;
   readonly canSettleNow: boolean;
   readonly autoSettleEnabled: boolean;
+  /** A team agent's chat, which its team marks done when the team finishes or is cancelled. */
+  readonly isTeamTask: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly canMarkUnread: boolean;
@@ -115,7 +117,7 @@ const SETTLE_BLOCKING_RUN_STATUSES = new Set(["preparing", "starting", "running"
  * Mirrors the server's refusal to mark a chat done while it runs, waits on an approval, or has a
  * message queued. A blocking question holds its run open, so the run status covers it.
  */
-function canSettleNow(thread: EnvironmentThreadShell, now: string): boolean {
+export function threadCanSettleNow(thread: EnvironmentThreadShell, now: string): boolean {
   const request = thread.source.pendingRuntimeRequest;
   return (
     !SETTLE_BLOCKING_RUN_STATUSES.has(
@@ -141,8 +143,9 @@ export function threadActionMenuThreadState(
     isPinned: thread.pinnedAt != null,
     // Snoozing a done chat leaves it done, so it still offers Mark not done.
     isSettled: options.configLoaded && thread.settledOverride === "settled",
-    canSettleNow: canSettleNow(thread, options.now),
+    canSettleNow: threadCanSettleNow(thread, options.now),
     autoSettleEnabled: thread.autoSettleDisabledAt == null,
+    isTeamTask: thread.source.teamTask !== undefined,
     isSnoozed: options.configLoaded && effectiveSnoozed(thread, { now: options.now }),
     canSnoozeNow: canSnooze(thread, { now: options.now }),
     canMarkUnread: threadCanMarkUnread(thread),
@@ -213,7 +216,6 @@ function stateGroup(state: ThreadActionMenuState): ReadonlyArray<ThreadActionMen
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open", disabled: !state.canMarkUnread },
-    // A team that finishes or is cancelled marks its agents' chats done whatever this is set to.
     ...(state.supports.autoSettleOptOut
       ? [
           {
@@ -228,7 +230,7 @@ function stateGroup(state: ThreadActionMenuState): ReadonlyArray<ThreadActionMen
               },
               {
                 id: "auto-settle:disabled" as const,
-                label: "Never",
+                label: state.isTeamTask ? "Never (until the team ends)" : "Never",
                 checked: !state.autoSettleEnabled,
               },
             ],

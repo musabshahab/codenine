@@ -8,6 +8,7 @@ import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
   buildBulkMarkUnread,
+  buildBulkSettle,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
@@ -187,6 +188,49 @@ describe("buildBulkMarkUnread", () => {
     expect(item).toEqual({
       id: "mark-unread",
       label: `Mark unread (${row.marked.length})`,
+      disabled: row.disabled,
+    });
+  });
+});
+
+describe("buildBulkSettle", () => {
+  const now = "2026-08-07T12:00:00.000Z";
+  const idle = (id: string) => makeThreadFixture({ id: ThreadId.make(id) });
+  const running = (id: string) => {
+    const thread = idle(id);
+    return { ...thread, source: { ...thread.source, activityRunStatus: "running" as const } };
+  };
+  const done = (id: string) =>
+    makeThreadFixture({ id: ThreadId.make(id), settledOverride: "settled" });
+
+  it.each([
+    {
+      selection: "a mixed selection",
+      threads: [idle("a"), running("b"), done("c"), idle("d")],
+      canOperate: true,
+      settled: ["a", "d"],
+      disabled: false,
+    },
+    {
+      selection: "chats that are working or done",
+      threads: [running("b"), done("c")],
+      canOperate: true,
+      settled: [],
+      disabled: true,
+    },
+    {
+      selection: "a read-only connection",
+      threads: [idle("a")],
+      canOperate: false,
+      settled: ["a"],
+      disabled: true,
+    },
+  ])("marks done only chats the server would accept: $selection", (row) => {
+    const { targets, item } = buildBulkSettle(row.threads, now, () => row.canOperate);
+    expect(targets.map((thread) => thread.id)).toEqual(row.settled);
+    expect(item).toEqual({
+      id: "settle",
+      label: `Mark done (${row.settled.length})`,
       disabled: row.disabled,
     });
   });

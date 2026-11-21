@@ -114,8 +114,8 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
     if (action === "snooze" && !snoozed && Date.parse(resetAt) <= Date.now()) {
       toastManager.add({
         type: "error",
-        title: "Could not snooze thread",
-        description: "The reset time has passed. Retry the thread manually.",
+        title: "Could not snooze chat",
+        description: "The reset time has passed. Retry the chat manually.",
       });
       // The deadline timer can lag after a throttled tab or sleep; disable now.
       deadlineStore(Date.parse(resetAt)).refresh();
@@ -131,7 +131,12 @@ function RecoveryActions({ runId, resetAt, recovery, snoozedUntil, onChange }: R
     } catch (cause) {
       toastManager.add({
         type: "error",
-        title: action === "resume" ? "Could not change auto-resume" : "Could not snooze thread",
+        title:
+          action === "resume"
+            ? "Could not change auto-resume"
+            : snoozed
+              ? "Failed to wake chat"
+              : "Could not snooze chat",
         description: cause instanceof Error ? cause.message : "An error occurred.",
       });
     }

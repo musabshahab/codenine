@@ -21,6 +21,7 @@ const baseState: ThreadActionMenuState = {
   isSettled: false,
   canSettleNow: true,
   autoSettleEnabled: true,
+  isTeamTask: false,
   isSnoozed: false,
   canSnoozeNow: true,
   canMarkUnread: true,
@@ -163,6 +164,16 @@ describe("buildThreadActionMenuItems", () => {
     expect(items.find((item) => item.id === id)?.disabled).toBe(true);
   });
 
+  it("says on a team agent's chat that Never lasts until the team ends", () => {
+    const autoSettle = buildThreadActionMenuItems({ ...baseState, isTeamTask: true }).find(
+      (item) => item.id === "auto-settle",
+    );
+    expect(autoSettle?.children).toEqual([
+      { id: "auto-settle:enabled", label: "As set in Settings", checked: true },
+      { id: "auto-settle:disabled", label: "Never (until the team ends)", checked: false },
+    ]);
+  });
+
   it("leaves out what has nothing to act on", () => {
     expect(
       outline(buildThreadActionMenuItems({ ...baseState, hasPath: false, hasProject: false })),
@@ -235,6 +246,8 @@ describe("threadActionMenuThreadState", () => {
     ["a chat waiting in its run", withSource({ activityRunStatus: "waiting" }), false],
     ["a pending approval", withSource(pendingRequest("command", true)), false],
     ["a question the run went on past", withSource(pendingRequest("user_input", false)), true],
+    // The shell reports a waiting link card as a blocking question after its run ended.
+    ["a link card left after its run", withSource(pendingRequest("user_input", true)), true],
     [
       "a message queued a moment ago",
       makeThreadFixture({ latestUserMessageAt: "2026-08-07T11:59:30.000Z" }),

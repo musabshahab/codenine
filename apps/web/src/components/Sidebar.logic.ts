@@ -45,7 +45,7 @@ import {
   type ThreadSortInput,
 } from "@codenine/client-runtime/state/thread-sort";
 import type { SidebarThreadSummary, Thread } from "../types";
-import { threadCanMarkUnread } from "./threadActionMenu.logic";
+import { threadCanMarkUnread, threadCanSettleNow } from "./threadActionMenu.logic";
 import { normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
 import { observeIntersection } from "../lib/observeIntersection";
@@ -636,20 +636,48 @@ export function buildBulkUnpinContextMenuItem(input: {
   return { id: "unpin", label: `Unpin (${input.pinnedCount})` };
 }
 
-/** Mark unread for the selected chats whose latest run finished, as the single-chat menu allows. */
-export function buildBulkMarkUnread<T extends Pick<Thread, "latestRun">>(
-  threads: ReadonlyArray<T>,
+/** A bulk item that counts and acts on only the selected chats the single-chat menu allows. */
+function buildBulkAction<Id extends string, T>(
+  id: Id,
+  label: string,
+  targets: ReadonlyArray<T>,
   canOperate: (threads: ReadonlyArray<T>) => boolean,
-): { readonly targets: ReadonlyArray<T>; readonly item: ContextMenuItem<"mark-unread"> } {
-  const targets = threads.filter(threadCanMarkUnread);
+): { readonly targets: ReadonlyArray<T>; readonly item: ContextMenuItem<Id> } {
   return {
     targets,
     item: {
-      id: "mark-unread",
-      label: `Mark unread (${targets.length})`,
+      id,
+      label: `${label} (${targets.length})`,
       disabled: targets.length === 0 || !canOperate(targets),
     },
   };
+}
+
+export function buildBulkMarkUnread<T extends Pick<Thread, "latestRun">>(
+  threads: ReadonlyArray<T>,
+  canOperate: (threads: ReadonlyArray<T>) => boolean,
+) {
+  return buildBulkAction(
+    "mark-unread",
+    "Mark unread",
+    threads.filter(threadCanMarkUnread),
+    canOperate,
+  );
+}
+
+export function buildBulkSettle<T extends Thread>(
+  threads: ReadonlyArray<T>,
+  now: string,
+  canOperate: (threads: ReadonlyArray<T>) => boolean,
+) {
+  return buildBulkAction(
+    "settle",
+    "Mark done",
+    threads.filter(
+      (thread) => thread.settledOverride !== "settled" && threadCanSettleNow(thread, now),
+    ),
+    canOperate,
+  );
 }
 
 export interface ThreadStatusPill {
