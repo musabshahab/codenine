@@ -26,6 +26,8 @@ import {
   RuntimeRequestId,
   RunAttemptId,
   RunId,
+  type TeamPlan,
+  TeamPlanId,
   ThreadId,
   TurnItemId,
   type ThreadPullRequestLink,
@@ -2012,6 +2014,32 @@ it.effect("SQL list older settled threads below a cursor", () =>
     const now = yield* DateTime.now;
     const id = (name: string) => ThreadId.make(`thread:older:${name}`);
     const at = (day: number) => DateTime.makeUnsafe(Date.UTC(2026, 9, day));
+    const workflowRunPlan: TeamPlan = {
+      id: TeamPlanId.make("team-plan:older-run"),
+      revision: 1,
+      status: "completed",
+      goal: "Send the digest.",
+      agents: [],
+      tasks: [],
+      maxParallelPerProvider: 2,
+      proposedAt: "2026-10-01T09:00:00.000Z",
+      updatedAt: "2026-10-01T09:00:00.000Z",
+      run: {
+        workflowId: WorkflowId.make("workflow-older"),
+        workflowName: "digest",
+        title: "Digest",
+        run: 1,
+        trigger: "manual",
+        scheduledFor: null,
+        inputs: [],
+        approvals: "review",
+        limits: { spendUsd: null, minutes: null },
+        startedAt: "2026-10-01T09:00:00.000Z",
+        costUsd: null,
+        headline: null,
+        note: null,
+      },
+    };
     const createThread = (input: {
       readonly name: string;
       readonly settledDay: number | null;
@@ -2019,6 +2047,7 @@ it.effect("SQL list older settled threads below a cursor", () =>
       readonly subagent?: boolean;
       readonly archived?: boolean;
       readonly snoozedUntilDay?: number;
+      readonly workflowRun?: boolean;
     }) =>
       store.apply({
         id: EventId.make(`event:older:${input.name}`),
@@ -2052,6 +2081,7 @@ it.effect("SQL list older settled threads below a cursor", () =>
           snoozedUntil: input.snoozedUntilDay === undefined ? null : at(input.snoozedUntilDay),
           lastVisitedAt: null,
           deletedAt: null,
+          ...(input.workflowRun === true ? { team: workflowRunPlan } : {}),
         },
       });
     yield* createThread({ name: "a", settledDay: 5 });
@@ -2063,6 +2093,8 @@ it.effect("SQL list older settled threads below a cursor", () =>
     yield* createThread({ name: "unsettled", settledDay: null });
     yield* createThread({ name: "child", settledDay: 1, subagent: true });
     yield* createThread({ name: "archived", settledDay: 1, archived: true });
+    // A workflow run's lead is listed under its chat, never as a Completed row of its own.
+    yield* createThread({ name: "run-lead", settledDay: 2, workflowRun: true });
 
     const list = (
       before: { readonly settledAt: string; readonly threadId?: ThreadId },
