@@ -9,6 +9,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { RunStatusBadge } from "../workflows/RunStatusBadge";
 import { RunWorkflowButton } from "../workflows/RunWorkflowButton";
 import { WorkflowBreadcrumb, WorkflowViewSwitch } from "../workflows/WorkflowHeader";
 import { useWorkflowClock, useWorkflowRuns } from "../workflows/workflowHooks";
@@ -16,22 +17,12 @@ import {
   formatCost,
   formatDuration,
   formatWhen,
-  RUN_STATUS_LABELS,
   runDurationMs,
   runStartLine,
   runsSummaryLine,
-  type WorkflowRunStatus,
   workflowHistoryRows,
 } from "../workflows/workflows.logic";
 import { WorkspacePage } from "./WorkspacePage";
-
-const STATUS_BADGE = {
-  running: "info",
-  waiting: "warning",
-  done: "success",
-  failed: "error",
-  stopped: "outline",
-} as const satisfies Record<WorkflowRunStatus, string>;
 
 /** A workflow's runs, newest first, with the scheduled runs Codenine skipped. */
 export function WorkflowRunsPage(props: {
@@ -215,9 +206,7 @@ function RunsTable(props: {
                       </TableCell>
                       <TableCell>
                         <span className="flex flex-wrap items-center gap-2 whitespace-normal">
-                          <Badge variant={STATUS_BADGE[run.status]}>
-                            {RUN_STATUS_LABELS[run.status]}
-                          </Badge>
+                          <RunStatusBadge status={run.status} />
                           {run.headline === null ? null : <span>{run.headline}</span>}
                         </span>
                       </TableCell>

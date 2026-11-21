@@ -1,3 +1,4 @@
+import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import { isAtomCommandInterrupted, settlePromise } from "@codenine/client-runtime/state/runtime";
 import type { AgentSummary, EnvironmentId, WorkflowSummary } from "@codenine/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -6,8 +7,10 @@ import { useState } from "react";
 
 import { commandErrorMessage } from "../../lib/commandError";
 import { ensureLocalApi } from "../../localApi";
+import { useQuietThreadShell } from "../../state/entities";
 import { savedWorkflowsEnvironment } from "../../state/savedWorkflows";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { buildThreadRouteParams } from "../../threadRoutes";
 import { type AgentModelCatalog, agentTitle, describeAgentModel } from "../agents/useAgents";
 import { workflowScheduleText } from "../chat/workflowDraft.logic";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
@@ -74,6 +77,9 @@ export function WorkflowCard(props: {
   const schedule = workflow.trigger.schedule;
   const titleId = `workflow-${workflow.name}`;
   const search = { machine: environmentId };
+  const chatRef =
+    latest?.chatThreadId == null ? null : scopeThreadRef(environmentId, latest.chatThreadId);
+  const chat = useQuietThreadShell(chatRef);
 
   const steps =
     workflow.steps.length === 0
@@ -227,6 +233,20 @@ export function WorkflowCard(props: {
         >
           Runs
         </Button>
+        {chatRef === null || chat === null || chat.deletedAt !== null ? null : (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              void navigate({
+                to: "/$environmentId/$threadId",
+                params: buildThreadRouteParams(chatRef),
+              })
+            }
+          >
+            Open chat
+          </Button>
+        )}
         <Menu>
           <MenuTrigger
             render={

@@ -1269,6 +1269,8 @@ export interface WorkflowRun {
   readonly hold: TeamPlanHold | null;
   /** When it finished; null while it runs. */
   readonly endedAt: string | null;
+  /** The chat the run reports to; null on runs started before runs had a chat. */
+  readonly chatThreadId: ThreadId | null;
 }
 
 type RunShell = Pick<
@@ -1339,6 +1341,7 @@ export function workflowRunsOf(
           status,
           hold: summary.hold ?? null,
           endedAt: finished ? (shell.latestRun?.completedAt ?? shell.updatedAt) : null,
+          chatThreadId: run.chatThreadId ?? null,
         },
       ];
     })

@@ -11,8 +11,9 @@ import {
   type WorkflowSchedule,
   type WorkflowSummary,
 } from "@codenine/contracts";
+import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { useRouter } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { WorkflowIcon } from "lucide-react";
 import { type ReactNode, useContext, useEffect, useState } from "react";
@@ -25,6 +26,7 @@ import { savedWorkflowsEnvironment } from "../../state/savedWorkflows";
 import { environmentThreadDetails } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
+import { buildThreadRouteParams } from "../../threadRoutes";
 import { newWorkflowHref, workflowHref } from "../../workflowLinks";
 import { agentTitle, useAgents } from "../agents/useAgents";
 import { ConnectorMark } from "../connectors/ConnectorMark";
@@ -32,14 +34,20 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { RunStatusBadge } from "../workflows/RunStatusBadge";
 import { RunWorkflowButton } from "../workflows/RunWorkflowButton";
 import { readWorkflowEdit, setWorkflowEdit, workflowEditKey } from "../workflows/workflowEditStore";
-import { useWorkflowClock } from "../workflows/workflowHooks";
+import { useWorkflowClock, useWorkflowRuns } from "../workflows/workflowHooks";
 import {
   CARD_STATUS_LABELS,
   definitionOf,
+  formatCost,
+  formatDuration,
   formatWhen,
   resolveWorkflowEdit,
+  runDurationMs,
+  type WorkflowRun,
+  type WorkflowRunStatus,
   workflowCardStatus,
   workflowWithDraft,
 } from "../workflows/workflows.logic";
@@ -162,20 +170,27 @@ function WorkflowDraftStatusView(props: {
       );
     case "unsaved":
       return draft === null ? (
-        <PanelMessage>
-          The workflow saved from this chat was deleted, and the chat has no draft any more.
-        </PanelMessage>
+        <TaskPanelLayout label="Workflow" footer={null}>
+          <p className="text-muted-foreground">
+            The workflow saved from this chat was deleted, and the chat has no draft any more.
+          </p>
+          <ChatWorkflowRuns threadRef={threadRef} link={link} workflowName={null} />
+        </TaskPanelLayout>
       ) : (
-        <UnsavedDraftView threadRef={threadRef} draft={draft} deleted={status.deleted} />
+        <UnsavedDraftView
+          threadRef={threadRef}
+          draft={draft}
+          deleted={status.deleted}
+          link={link}
+        />
       );
     case "saved":
-      return (
-        <SavedWorkflowView environmentId={threadRef.environmentId} workflow={status.workflow} />
-      );
+      return <SavedWorkflowView threadRef={threadRef} link={link} workflow={status.workflow} />;
     case "changed":
       return draft === null ? null : (
         <ChangedWorkflowView
           threadRef={threadRef}
+          link={link}
           draft={draft}
           workflow={status.workflow}
           onReadFailed={refresh}
@@ -210,6 +225,7 @@ function UnsavedDraftView(props: {
   threadRef: ScopedThreadRef;
   draft: WorkflowDraft;
   deleted: boolean;
+  link: SavedWorkflowLink | null;
 }) {
   const { threadRef, draft } = props;
   const router = useRouter();
@@ -253,6 +269,9 @@ function UnsavedDraftView(props: {
         goal={draft.goal}
       />
       <WorkflowSteps environmentId={threadRef.environmentId} steps={draft.steps} />
+      {props.deleted ? (
+        <ChatWorkflowRuns threadRef={threadRef} link={props.link} workflowName={null} />
+      ) : null}
     </TaskPanelLayout>
   );
 }
@@ -293,8 +312,11 @@ function useWorkflowSwitch(environmentId: EnvironmentId, listed: WorkflowSummary
   return { workflow, busy: busy || shown.settling, toggle };
 }
 
-function WorkflowStatusBadge(props: { workflow: WorkflowSummary }) {
-  const status = workflowCardStatus(props.workflow, null);
+function WorkflowStatusBadge(props: {
+  workflow: WorkflowSummary;
+  latestRun: WorkflowRunStatus | null;
+}) {
+  const status = workflowCardStatus(props.workflow, props.latestRun);
   return (
     <Badge variant={status === "on" ? "success" : "secondary"}>{CARD_STATUS_LABELS[status]}</Badge>
   );
@@ -340,6 +362,7 @@ function SavedWorkflowControls(props: {
         disabledReason={workflow.problems[0]?.message ?? null}
         variant="outline"
         size="xs"
+        navigateOnStart={false}
       />
       <Button
         size="xs"
@@ -353,9 +376,15 @@ function SavedWorkflowControls(props: {
 }
 
 /** What the saved workflow does now and whether it runs, as the workflow list reports it. */
-function SavedWorkflowView(props: { environmentId: EnvironmentId; workflow: WorkflowSummary }) {
-  const { environmentId } = props;
+function SavedWorkflowView(props: {
+  threadRef: ScopedThreadRef;
+  link: SavedWorkflowLink | null;
+  workflow: WorkflowSummary;
+}) {
+  const { threadRef } = props;
+  const { environmentId } = threadRef;
   const clock = useWorkflowClock();
+  const runs = useChatWorkflowRuns(threadRef, props.link);
   const { workflow, busy, toggle } = useWorkflowSwitch(environmentId, props.workflow);
   const schedule = workflow.trigger.schedule;
   const note =
@@ -384,12 +413,13 @@ function SavedWorkflowView(props: { environmentId: EnvironmentId; workflow: Work
     <TaskPanelLayout label="Workflow" footer={footer}>
       <WorkflowHeading
         title={workflow.title}
-        badge={<WorkflowStatusBadge workflow={workflow} />}
+        badge={<WorkflowStatusBadge workflow={workflow} latestRun={runs[0]?.status ?? null} />}
         description={workflow.description}
         schedule={schedule}
         goal=""
       />
       <WorkflowSteps environmentId={environmentId} steps={workflow.steps} />
+      <ChatWorkflowRuns threadRef={threadRef} link={props.link} workflowName={workflow.name} />
     </TaskPanelLayout>
   );
 }
@@ -397,6 +427,7 @@ function SavedWorkflowView(props: { environmentId: EnvironmentId; workflow: Work
 /** A newer draft from the lead over the workflow saved from this chat. */
 function ChangedWorkflowView(props: {
   threadRef: ScopedThreadRef;
+  link: SavedWorkflowLink | null;
   draft: WorkflowDraft;
   workflow: WorkflowSummary;
   /** Reads the list again, so a workflow deleted elsewhere shows as deleted. */
@@ -414,6 +445,7 @@ function ChangedWorkflowView(props: {
   const save = useAtomCommand(savedWorkflowsEnvironment.save, { reportFailure: false });
   const switcher = useWorkflowSwitch(environmentId, props.workflow);
   const { workflow } = switcher;
+  const runs = useChatWorkflowRuns(threadRef, props.link);
   const [busy, setBusy] = useState(false);
   const fromDraft = { threadId: threadRef.threadId, proposedAt: draft.proposedAt };
 
@@ -533,7 +565,7 @@ function ChangedWorkflowView(props: {
         badge={
           <>
             <Badge variant="info">Changes</Badge>
-            <WorkflowStatusBadge workflow={workflow} />
+            <WorkflowStatusBadge workflow={workflow} latestRun={runs[0]?.status ?? null} />
           </>
         }
         description={draft.description}
@@ -541,7 +573,98 @@ function ChangedWorkflowView(props: {
         goal={draft.goal}
       />
       <WorkflowSteps environmentId={environmentId} steps={draftStepsOver(draft, workflow.steps)} />
+      <ChatWorkflowRuns threadRef={threadRef} link={props.link} workflowName={workflow.name} />
     </TaskPanelLayout>
+  );
+}
+
+/** The runs that report to this chat, and those of the workflow it saved, newest first. */
+function useChatWorkflowRuns(
+  threadRef: ScopedThreadRef,
+  link: SavedWorkflowLink | null,
+): ReadonlyArray<WorkflowRun> {
+  return useWorkflowRuns(threadRef.environmentId).filter(
+    (run) =>
+      run.chatThreadId === threadRef.threadId || (link !== null && run.workflowId === link.id),
+  );
+}
+
+const CHAT_RUNS_SHOWN = 10;
+
+/** The workflow's latest runs; each opens its lead's chat. */
+function ChatWorkflowRuns(props: {
+  threadRef: ScopedThreadRef;
+  link: SavedWorkflowLink | null;
+  /** The workflow's name while it exists, for its runs page. */
+  workflowName: string | null;
+}) {
+  const { threadRef, workflowName } = props;
+  const { environmentId } = threadRef;
+  const navigate = useNavigate();
+  const clock = useWorkflowClock();
+  const runs = useChatWorkflowRuns(threadRef, props.link).slice(0, CHAT_RUNS_SHOWN);
+  return (
+    <section aria-label="Runs" className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <TeamSectionHeading>Runs</TeamSectionHeading>
+        {workflowName === null ? null : (
+          <Button
+            size="xs"
+            variant="link"
+            onClick={() =>
+              void navigate({
+                to: "/workflows/$name/runs",
+                params: { name: workflowName },
+                search: { machine: environmentId },
+              })
+            }
+          >
+            All runs
+          </Button>
+        )}
+      </div>
+      {runs.length === 0 ? (
+        <p className="text-muted-foreground text-xs">No runs yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-px">
+          {runs.map((run) => {
+            const duration = runDurationMs(run, clock.nowMs);
+            const detail = [
+              formatWhen(Date.parse(run.startedAt), clock),
+              duration === null ? null : formatDuration(duration),
+              run.costUsd === null ? null : formatCost(run.costUsd),
+            ]
+              .filter((part) => part !== null)
+              .join(" · ");
+            return (
+              <li key={run.threadId}>
+                <button
+                  type="button"
+                  className="flex w-full min-w-0 flex-col gap-0.5 rounded-md px-2 py-1.5 text-start outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  onClick={() =>
+                    void navigate({
+                      to: "/$environmentId/$threadId",
+                      params: buildThreadRouteParams(scopeThreadRef(environmentId, run.threadId)),
+                    })
+                  }
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="font-medium">Run {run.run}</span>
+                    <RunStatusBadge status={run.status} />
+                    <span className="min-w-0 truncate text-muted-foreground text-xs">{detail}</span>
+                  </span>
+                  {run.headline === null ? null : (
+                    <span className="line-clamp-2 break-words text-muted-foreground text-xs">
+                      {run.headline}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

@@ -23,8 +23,8 @@ import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 /**
- * Runs a saved workflow now and opens the run. A workflow with inputs asks for this run's values
- * first, starting from the workflow's own.
+ * Runs a saved workflow now and opens the run, or offers to. A workflow with inputs asks for this
+ * run's values first, starting from the workflow's own.
  */
 export function RunWorkflowButton(props: {
   readonly environmentId: EnvironmentId;
@@ -35,6 +35,8 @@ export function RunWorkflowButton(props: {
   readonly disabledReason: string | null;
   readonly variant?: "secondary" | "outline" | undefined;
   readonly size?: "xs" | "sm" | undefined;
+  /** Off where the user should stay put, such as a chat: a toast offers the run instead. */
+  readonly navigateOnStart?: boolean | undefined;
 }) {
   const { environmentId, workflow } = props;
   const navigate = useNavigate();
@@ -63,10 +65,20 @@ export function RunWorkflowButton(props: {
       return;
     }
     setAsking(null);
-    void navigate({
-      to: "/workflows/$name/runs/$run",
-      params: { name: workflow.name, run: String(result.value.run) },
-      search: { machine: environmentId },
+    const openRun = () =>
+      void navigate({
+        to: "/workflows/$name/runs/$run",
+        params: { name: workflow.name, run: String(result.value.run) },
+        search: { machine: environmentId },
+      });
+    if (props.navigateOnStart ?? true) {
+      openRun();
+      return;
+    }
+    toastManager.add({
+      type: "success",
+      title: `Started run ${result.value.run}`,
+      actionProps: { children: "Open run", onClick: openRun },
     });
   };
 

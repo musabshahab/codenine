@@ -674,7 +674,12 @@ describe("runs", () => {
 
   it("reads a machine's runs from shells, waiting while a step asks, newest first", () => {
     const environmentId = EnvironmentId.make("machine");
-    const lead = (run: number, status: TeamPlanSummary["status"], startedAt: string) => ({
+    const lead = (
+      run: number,
+      status: TeamPlanSummary["status"],
+      startedAt: string,
+      chat?: string,
+    ) => ({
       environmentId,
       id: ThreadId.make(`thread:workflow:wf-1:${run}`),
       deletedAt: null,
@@ -703,6 +708,7 @@ describe("runs", () => {
             startedAt,
             costUsd: 0.34,
             headline: null,
+            ...(chat === undefined ? {} : { chatThreadId: ThreadId.make(chat) }),
           },
         },
       },
@@ -728,16 +734,16 @@ describe("runs", () => {
     const runs = workflowRunsOf(
       [
         lead(1, "completed", "2026-11-09T09:00:00Z"),
-        lead(2, "running", "2026-11-16T09:00:00Z"),
+        lead(2, "running", "2026-11-16T09:00:00Z", "thread:chat"),
         asking,
         { ...lead(3, "running", "2026-11-17T09:00:00Z"), deletedAt: "2026-11-17T10:00:00Z" },
         { ...lead(4, "running", "2026-11-17T09:00:00Z"), environmentId: EnvironmentId.make("x") },
       ],
       environmentId,
     );
-    expect(runs.map((run) => [run.run, run.status, run.endedAt])).toEqual([
-      [2, "waiting", null],
-      [1, "done", "2026-11-18T12:00:00Z"],
+    expect(runs.map((run) => [run.run, run.status, run.endedAt, run.chatThreadId])).toEqual([
+      [2, "waiting", null, "thread:chat"],
+      [1, "done", "2026-11-18T12:00:00Z", null],
     ]);
     expect(
       workflowHistoryRows(runs, [{ scheduledFor: "2026-11-02T09:00:00Z" }]).map((row) =>
