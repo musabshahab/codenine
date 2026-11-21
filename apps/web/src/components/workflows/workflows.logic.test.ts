@@ -46,6 +46,7 @@ import {
   workflowNameFor,
   workflowRunsOf,
   workflowRunStatus,
+  workflowSaveDraft,
 } from "./workflows.logic";
 
 const id = (value: string) => value as WorkflowStepId;
@@ -502,6 +503,16 @@ describe("resolveWorkflowEdit", () => {
     expect(changeWorkflowEdit(fresh, null, clean, { notes: "Herbs." }, newer).fromDraft).toEqual(
       newer,
     );
+
+    // A save records the draft the shown edits began on, never a newer one they gave way to.
+    expect(workflowSaveDraft(fresh, clean, newer)).toEqual(newer);
+    expect(workflowSaveDraft(overtaken, dirty, newer)).toEqual(older);
+    const blank = changeWorkflowEdit(resolveWorkflowEdit(null, start, null), null, null, {
+      notes: "Skip herbs.",
+    });
+    const blankOvertaken = resolveWorkflowEdit(null, newerStart, blank, newer);
+    expect(blankOvertaken).toMatchObject({ dirty: true, overtaken: true });
+    expect(workflowSaveDraft(blankOvertaken, blank, newer)).toBeNull();
   });
 
   it("starts a new workflow from its starting point", () => {

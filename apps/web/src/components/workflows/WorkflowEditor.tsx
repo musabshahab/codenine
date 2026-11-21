@@ -57,6 +57,7 @@ import {
   updateStep,
   upcomingRuns,
   WORKFLOW_NOTES_MAX,
+  workflowSaveDraft,
   workflowSaveName,
   wouldCreateCycle,
 } from "./workflows.logic";
@@ -172,11 +173,7 @@ export function WorkflowEditor(props: {
     setChecking(false);
     setFailure(null);
     setBusy(true);
-    // Edits that gave way to a newer draft show that draft, so they save it.
-    const savedDraft =
-      current.dirty || current.overtaken
-        ? (edited?.fromDraft ?? fromDraft)
-        : (fromDraft ?? edited?.fromDraft ?? null);
+    const savedDraft = workflowSaveDraft(current, edited, fromDraft);
     const result = await saveCommand({
       environmentId,
       input: {

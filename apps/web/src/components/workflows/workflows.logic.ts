@@ -753,6 +753,20 @@ export function resolveWorkflowEdit(
 }
 
 /**
+ * The chat draft a save records. Edits that changed something, or gave way to a newer version,
+ * record only the draft they began on, so a newer draft is never marked saved.
+ */
+export function workflowSaveDraft(
+  shown: ResolvedWorkflowEdit,
+  edit: WorkflowEdit | null,
+  draft: WorkflowDraftRef | null,
+): WorkflowDraftRef | null {
+  return shown.dirty || shown.overtaken
+    ? (edit?.fromDraft ?? null)
+    : (draft ?? edit?.fromDraft ?? null);
+}
+
+/**
  * Applies a change to the edits, starting them from what is shown when there are none yet. Edits
  * begun on a chat's draft keep naming that draft, so saving them never marks a newer one saved.
  */
