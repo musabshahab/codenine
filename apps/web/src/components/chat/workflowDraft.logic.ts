@@ -112,3 +112,15 @@ export function draftStepsOver(
     return { ...rest, agent };
   });
 }
+
+/**
+ * The runs a chat's Workflow tab lists: while the chat links a workflow, only that workflow's, as
+ * an earlier workflow saved from the chat still names it on its runs.
+ */
+export function chatWorkflowRuns<
+  T extends { readonly workflowId: string; readonly chatThreadId: string | null },
+>(runs: ReadonlyArray<T>, chatThreadId: string, link: SavedWorkflowLink | null): ReadonlyArray<T> {
+  return runs.filter((run) =>
+    link !== null ? run.workflowId === link.id : run.chatThreadId === chatThreadId,
+  );
+}

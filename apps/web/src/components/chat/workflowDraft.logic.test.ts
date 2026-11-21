@@ -10,6 +10,7 @@ import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  chatWorkflowRuns,
   draftStepsOver,
   listAnsweredSince,
   switchedWorkflow,
@@ -156,5 +157,25 @@ describe("switchedWorkflow", () => {
     expect(switchedWorkflow(caughtUp, turnedOn)).toEqual({ workflow: caughtUp, settling: false });
     const other = { ...listed, id: WorkflowId.make("wf-2") };
     expect(switchedWorkflow(other, turnedOn)).toEqual({ workflow: other, settling: false });
+  });
+});
+
+describe("chatWorkflowRuns", () => {
+  const runs = [
+    { name: "earlier workflow, this chat", workflowId: "wf-old", chatThreadId: "chat" },
+    { name: "linked workflow, this chat", workflowId: "wf-new", chatThreadId: "chat" },
+    { name: "linked workflow, before runs had a chat", workflowId: "wf-new", chatThreadId: null },
+    { name: "other chat", workflowId: "wf-other", chatThreadId: "other" },
+  ];
+  const names = (link: Parameters<typeof chatWorkflowRuns>[2]) =>
+    chatWorkflowRuns(runs, "chat", link).map((run) => run.name);
+
+  it("lists only the linked workflow's runs, or the chat's own without a link", () => {
+    const link = { id: WorkflowId.make("wf-new"), proposedAt: "2026-11-21T08:00:00.000Z" };
+    expect(names(link)).toEqual([
+      "linked workflow, this chat",
+      "linked workflow, before runs had a chat",
+    ]);
+    expect(names(null)).toEqual(["earlier workflow, this chat", "linked workflow, this chat"]);
   });
 });

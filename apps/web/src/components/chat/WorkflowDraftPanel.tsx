@@ -55,6 +55,7 @@ import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { TaskPanelFooter, TaskPanelLayout, TaskPanelNote } from "./TaskPanel";
 import { TeamSectionHeading, TeamStepFlow, TeamStepRow } from "./TeamParts";
 import {
+  chatWorkflowRuns,
   draftStepsOver,
   listAnsweredSince,
   type SwitchedWorkflow,
@@ -171,9 +172,7 @@ function WorkflowDraftStatusView(props: {
     case "unsaved":
       return draft === null ? (
         <TaskPanelLayout label="Workflow" footer={null}>
-          <p className="text-muted-foreground">
-            The workflow saved from this chat was deleted, and the chat has no draft any more.
-          </p>
+          <p className="text-muted-foreground">This chat's workflow was deleted.</p>
           <ChatWorkflowRuns threadRef={threadRef} link={link} workflowName={null} />
         </TaskPanelLayout>
       ) : (
@@ -578,15 +577,12 @@ function ChangedWorkflowView(props: {
   );
 }
 
-/** The runs that report to this chat, and those of the workflow it saved, newest first. */
+/** The runs of the chat's workflow, newest first. */
 function useChatWorkflowRuns(
   threadRef: ScopedThreadRef,
   link: SavedWorkflowLink | null,
 ): ReadonlyArray<WorkflowRun> {
-  return useWorkflowRuns(threadRef.environmentId).filter(
-    (run) =>
-      run.chatThreadId === threadRef.threadId || (link !== null && run.workflowId === link.id),
-  );
+  return chatWorkflowRuns(useWorkflowRuns(threadRef.environmentId), threadRef.threadId, link);
 }
 
 const CHAT_RUNS_SHOWN = 10;
