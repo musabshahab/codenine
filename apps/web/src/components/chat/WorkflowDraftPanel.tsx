@@ -11,11 +11,11 @@ import {
   type WorkflowSchedule,
   type WorkflowSummary,
 } from "@codenine/contracts";
-import { useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { WorkflowIcon } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useContext, useEffect, useState } from "react";
 
 import { commandErrorMessage } from "../../lib/commandError";
 import { ensureLocalApi } from "../../localApi";
@@ -46,10 +46,18 @@ import {
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 import { TaskPanelFooter, TaskPanelLayout, TaskPanelNote } from "./TaskPanel";
 import { TeamSectionHeading, TeamStepFlow, TeamStepRow } from "./TeamParts";
-import { draftStepsOver, workflowDraftStatus, workflowScheduleText } from "./workflowDraft.logic";
+import {
+  draftStepsOver,
+  listAnsweredSince,
+  type SwitchedWorkflow,
+  switchedWorkflow,
+  workflowDraftStatus,
+  workflowScheduleText,
+} from "./workflowDraft.logic";
 
 const NO_WORKFLOW_DRAFT_ATOM = Atom.make<WorkflowDraft | null>(null);
 const NO_SAVED_WORKFLOW_ATOM = Atom.make<SavedWorkflowLink | null>(null);
+const NO_LIST_ATOM = Atom.make<AsyncResult.AsyncResult<unknown, unknown>>(AsyncResult.initial());
 
 /** The workflow a lead drafted in a chat, read from its thread detail; null without one. */
 export function useWorkflowDraft(threadRef: ScopedThreadRef | null): WorkflowDraft | null {
@@ -104,27 +112,35 @@ function WorkflowDraftStatusView(props: {
   link: SavedWorkflowLink | null;
 }) {
   const { threadRef, draft, link } = props;
-  const list = useEnvironmentQuery(
+  const registry = useContext(RegistryContext);
+  const listAtom =
     link === null
       ? null
-      : savedWorkflowsEnvironment.list({ environmentId: threadRef.environmentId, input: {} }),
+      : savedWorkflowsEnvironment.list({ environmentId: threadRef.environmentId, input: {} });
+  const list = useEnvironmentQuery(listAtom);
+  const listResult = useAtomValue<AsyncResult.AsyncResult<unknown, unknown>>(
+    listAtom ?? NO_LIST_ATOM,
   );
   const workflows = list.data?.workflows ?? null;
   const linkKey = link === null ? null : `${link.id}:${link.proposedAt}`;
   const unlisted =
     link !== null && workflows !== null && !workflows.some((entry) => entry.id === link.id);
-  // When this client asked again for a list that misses the linked workflow.
-  const [asked, setAsked] = useState<{ readonly key: string; readonly at: number } | null>(null);
+  // The list as it was when this client asked again for a list that misses the linked workflow.
+  const [asked, setAsked] = useState<{
+    readonly key: string;
+    readonly before: AsyncResult.AsyncResult<unknown, unknown>;
+  } | null>(null);
   const { refresh } = list;
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- refetch the list once when the thread names a workflow this client has not listed
   useEffect(() => {
-    if (!unlisted || linkKey === null || asked?.key === linkKey) return;
-    // oxlint-disable-next-line react/set-state-in-effect -- records when the list was asked again, which only this refetch knows
-    setAsked({ key: linkKey, at: Date.now() });
+    if (!unlisted || linkKey === null || listAtom === null || asked?.key === linkKey) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- records the list this refetch replaces, which only this refetch knows
+    setAsked({ key: linkKey, before: registry.get(listAtom) });
     refresh();
-  }, [unlisted, linkKey, asked?.key, refresh]);
-  // A refresh restarts a fetch in flight, so only an answer to this ask is newer than it.
-  const listedAfterLink = asked !== null && asked.key === linkKey && list.dataUpdatedAt > asked.at;
+  }, [unlisted, linkKey, listAtom, asked?.key, registry, refresh]);
+  // A refresh restarts a fetch in flight, so only an answer to this ask settles after it.
+  const listedAfterLink =
+    asked !== null && asked.key === linkKey && listAnsweredSince(listResult, asked.before);
   const status = workflowDraftStatus({ draft, link, workflows, listedAfterLink });
 
   switch (status.kind) {
@@ -158,7 +174,12 @@ function WorkflowDraftStatusView(props: {
       );
     case "changed":
       return draft === null ? null : (
-        <ChangedWorkflowView threadRef={threadRef} draft={draft} workflow={status.workflow} />
+        <ChangedWorkflowView
+          threadRef={threadRef}
+          draft={draft}
+          workflow={status.workflow}
+          onReadFailed={refresh}
+        />
       );
   }
 }
@@ -169,6 +190,19 @@ function stepFlows(steps: ReadonlyArray<Pick<WorkflowDraftStep, "id" | "dependsO
       id: TeamTaskId.make(step.id),
       dependsOn: step.dependsOn.map((id) => TeamTaskId.make(id)),
     })),
+  );
+}
+
+const CANNOT_CHANGE = "This connection can see workflows but cannot change them.";
+
+/** A control, with why it is disabled on hover when something stops it. */
+function WithReason(props: { reason: string | null; children: ReactNode }) {
+  if (props.reason === null) return props.children;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex" />}>{props.children}</TooltipTrigger>
+      <TooltipPopup>{props.reason}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -193,17 +227,19 @@ function UnsavedDraftView(props: {
     <TaskPanelFooter>
       <TaskPanelNote>{note}</TaskPanelNote>
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="xs"
-          disabled={!canSave}
-          onClick={() =>
-            void router.navigate({
-              href: newWorkflowHref(threadRef.environmentId, { fromThread: threadRef.threadId }),
-            })
-          }
-        >
-          Review and save
-        </Button>
+        <WithReason reason={canSave ? null : CANNOT_CHANGE}>
+          <Button
+            size="xs"
+            disabled={!canSave}
+            onClick={() =>
+              void router.navigate({
+                href: newWorkflowHref(threadRef.environmentId, { fromThread: threadRef.threadId }),
+              })
+            }
+          >
+            Review and save
+          </Button>
+        </WithReason>
       </div>
     </TaskPanelFooter>
   );
@@ -221,30 +257,18 @@ function UnsavedDraftView(props: {
   );
 }
 
-/** What the saved workflow does now and whether it runs, as the workflow list reports it. */
-function SavedWorkflowView(props: { environmentId: EnvironmentId; workflow: WorkflowSummary }) {
-  const { environmentId, workflow } = props;
-  const router = useRouter();
-  const clock = useWorkflowClock();
-  const canSetEnabled = useAtomValue(
-    savedWorkflowsEnvironment.setEnabled.permissionAtom(environmentId),
-  );
+/**
+ * Turns the saved workflow on or off. It shows the answer at once and stays busy until the list
+ * catches up, so a second press cannot send the old state again.
+ */
+function useWorkflowSwitch(environmentId: EnvironmentId, listed: WorkflowSummary) {
   const setEnabled = useAtomCommand(savedWorkflowsEnvironment.setEnabled, {
     reportFailure: false,
   });
   const [busy, setBusy] = useState(false);
-  const schedule = workflow.trigger.schedule;
-  const status = workflowCardStatus(workflow, null);
-  const note =
-    workflow.problems.length > 0
-      ? `It can't run yet. ${workflow.problems.map((problem) => problem.message).join(" ")}`
-      : schedule === null
-        ? "It runs when you start it."
-        : !workflow.enabled
-          ? "It's off, so it won't run on its schedule until you turn it on."
-          : workflow.nextRunAt === null
-            ? "It's on, so it runs on its schedule."
-            : `Next run ${formatWhen(Date.parse(workflow.nextRunAt), { ...clock, timeZone: schedule.timeZone })}.`;
+  const [switched, setSwitched] = useState<SwitchedWorkflow | null>(null);
+  const shown = switchedWorkflow(listed, switched);
+  const { workflow } = shown;
 
   const toggle = async () => {
     const enabled = !workflow.enabled;
@@ -262,61 +286,105 @@ function SavedWorkflowView(props: { environmentId: EnvironmentId; workflow: Work
       }
       return;
     }
+    setSwitched(result.value);
     toastManager.add({ type: "success", title: `Turned ${words} ${workflow.title}` });
   };
 
-  const turnOnBlock = workflow.enabled ? null : (workflow.problems[0]?.message ?? null);
-  const toggleButton = (
-    <Button
-      size="xs"
-      variant={workflow.enabled ? "outline" : "default"}
-      disabled={busy || !canSetEnabled || turnOnBlock !== null}
-      onClick={() => void toggle()}
-    >
-      {workflow.enabled ? "Turn off" : "Turn on"}
-    </Button>
+  return { workflow, busy: busy || shown.settling, toggle };
+}
+
+function WorkflowStatusBadge(props: { workflow: WorkflowSummary }) {
+  const status = workflowCardStatus(props.workflow, null);
+  return (
+    <Badge variant={status === "on" ? "success" : "secondary"}>{CARD_STATUS_LABELS[status]}</Badge>
   );
+}
+
+/** Turn on or off, Run now and Open workflow for the workflow saved from this chat. */
+function SavedWorkflowControls(props: {
+  environmentId: EnvironmentId;
+  workflow: WorkflowSummary;
+  switching: boolean;
+  onToggle: () => void;
+  /** Turn on leads the footer when nothing else does. */
+  lead: boolean;
+}) {
+  const { environmentId, workflow } = props;
+  const router = useRouter();
+  const canSetEnabled = useAtomValue(
+    savedWorkflowsEnvironment.setEnabled.permissionAtom(environmentId),
+  );
+  const toggleReason = !canSetEnabled
+    ? CANNOT_CHANGE
+    : workflow.enabled
+      ? null
+      : (workflow.problems[0]?.message ?? null);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {workflow.trigger.schedule === null ? null : (
+        <WithReason reason={toggleReason}>
+          <Button
+            size="xs"
+            variant={props.lead && !workflow.enabled ? "default" : "outline"}
+            disabled={props.switching || toggleReason !== null}
+            onClick={props.onToggle}
+          >
+            {workflow.enabled ? "Turn off" : "Turn on"}
+          </Button>
+        </WithReason>
+      )}
+      <RunWorkflowButton
+        environmentId={environmentId}
+        workflow={workflow}
+        inputs={null}
+        disabledReason={workflow.problems[0]?.message ?? null}
+        variant="outline"
+        size="xs"
+      />
+      <Button
+        size="xs"
+        variant="ghost"
+        onClick={() => void router.navigate({ href: workflowHref(environmentId, workflow.name) })}
+      >
+        Open workflow
+      </Button>
+    </div>
+  );
+}
+
+/** What the saved workflow does now and whether it runs, as the workflow list reports it. */
+function SavedWorkflowView(props: { environmentId: EnvironmentId; workflow: WorkflowSummary }) {
+  const { environmentId } = props;
+  const clock = useWorkflowClock();
+  const { workflow, busy, toggle } = useWorkflowSwitch(environmentId, props.workflow);
+  const schedule = workflow.trigger.schedule;
+  const note =
+    workflow.problems.length > 0
+      ? `It can't run yet. ${workflow.problems.map((problem) => problem.message).join(" ")}`
+      : schedule === null
+        ? "It runs when you start it."
+        : !workflow.enabled
+          ? "It's off, so it won't run on its schedule until you turn it on."
+          : workflow.nextRunAt === null
+            ? "It's on, so it runs on its schedule."
+            : `Next run ${formatWhen(Date.parse(workflow.nextRunAt), { ...clock, timeZone: schedule.timeZone })}.`;
   const footer = (
     <TaskPanelFooter>
       <TaskPanelNote>{note}</TaskPanelNote>
-      <div className="flex flex-wrap items-center gap-2">
-        {schedule === null ? null : turnOnBlock === null ? (
-          toggleButton
-        ) : (
-          <Tooltip>
-            <TooltipTrigger render={<span className="inline-flex" />}>
-              {toggleButton}
-            </TooltipTrigger>
-            <TooltipPopup>{turnOnBlock}</TooltipPopup>
-          </Tooltip>
-        )}
-        <RunWorkflowButton
-          environmentId={environmentId}
-          workflow={workflow}
-          inputs={null}
-          disabledReason={workflow.problems[0]?.message ?? null}
-          variant="outline"
-          size="xs"
-        />
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={() => void router.navigate({ href: workflowHref(environmentId, workflow.name) })}
-        >
-          Open workflow
-        </Button>
-      </div>
+      <SavedWorkflowControls
+        environmentId={environmentId}
+        workflow={workflow}
+        switching={busy}
+        onToggle={() => void toggle()}
+        lead
+      />
     </TaskPanelFooter>
   );
   return (
     <TaskPanelLayout label="Workflow" footer={footer}>
       <WorkflowHeading
         title={workflow.title}
-        badge={
-          <Badge variant={status === "on" ? "success" : "secondary"}>
-            {CARD_STATUS_LABELS[status]}
-          </Badge>
-        }
+        badge={<WorkflowStatusBadge workflow={workflow} />}
         description={workflow.description}
         schedule={schedule}
         goal=""
@@ -331,8 +399,10 @@ function ChangedWorkflowView(props: {
   threadRef: ScopedThreadRef;
   draft: WorkflowDraft;
   workflow: WorkflowSummary;
+  /** Reads the list again, so a workflow deleted elsewhere shows as deleted. */
+  onReadFailed: () => void;
 }) {
-  const { threadRef, draft, workflow } = props;
+  const { threadRef, draft, onReadFailed } = props;
   const { environmentId } = threadRef;
   const router = useRouter();
   const { agents } = useAgents(environmentId);
@@ -341,24 +411,32 @@ function ChangedWorkflowView(props: {
     refresh: true,
     reportFailure: false,
   });
+  const save = useAtomCommand(savedWorkflowsEnvironment.save, { reportFailure: false });
+  const switcher = useWorkflowSwitch(environmentId, props.workflow);
+  const { workflow } = switcher;
   const [busy, setBusy] = useState(false);
+  const fromDraft = { threadId: threadRef.threadId, proposedAt: draft.proposedAt };
+
+  const readSaved = async (failedTitle: string) => {
+    const result = await read({ environmentId, input: { name: workflow.name } });
+    if (result._tag === "Success") return result.value;
+    onReadFailed();
+    if (!isAtomCommandInterrupted(result)) {
+      toastManager.add({
+        type: "error",
+        title: failedTitle,
+        description: commandErrorMessage(result, "Try again."),
+      });
+    }
+    return null;
+  };
 
   // Opens the saved workflow's editor with this draft applied, so saving updates that workflow.
   const review = async () => {
     setBusy(true);
-    const result = await read({ environmentId, input: { name: workflow.name } });
+    const detail = await readSaved(`Could not open ${workflow.title}`);
     setBusy(false);
-    if (result._tag === "Failure") {
-      if (!isAtomCommandInterrupted(result)) {
-        toastManager.add({
-          type: "error",
-          title: `Could not open ${workflow.title}`,
-          description: commandErrorMessage(result, "Try again."),
-        });
-      }
-      return;
-    }
-    const detail = result.value;
+    if (detail === null) return;
     const key = workflowEditKey({ kind: "saved", name: detail.name });
     const base = {
       definition: definitionOf(detail),
@@ -385,27 +463,79 @@ function ChangedWorkflowView(props: {
         definition: workflowWithDraft(base.definition, draft, agents),
         notes: detail.notes,
         base,
-        fromDraft: { threadId: threadRef.threadId, proposedAt: draft.proposedAt },
+        fromDraft,
       });
     }
     void router.navigate({ href: workflowHref(environmentId, detail.name) });
   };
 
+  // Saves the workflow as it is, naming this draft, so the chat records it as handled.
+  const discard = async () => {
+    const failedTitle = `Could not discard the changes to ${workflow.title}`;
+    setBusy(true);
+    const detail = await readSaved(failedTitle);
+    if (detail === null) {
+      setBusy(false);
+      return;
+    }
+    const result = await save({
+      environmentId,
+      input: { workflow: definitionOf(detail), previousName: detail.name, fromDraft },
+    });
+    setBusy(false);
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        toastManager.add({
+          type: "error",
+          title: failedTitle,
+          description: commandErrorMessage(result, "Try again."),
+        });
+      }
+      return;
+    }
+    toastManager.add({ type: "success", title: `Kept ${result.value.title} as it was` });
+  };
+
+  const saveReason = canSave ? null : CANNOT_CHANGE;
   const footer = (
     <TaskPanelFooter>
       <TaskPanelNote>{`These changes aren't saved to ${workflow.title} yet.`}</TaskPanelNote>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="xs" disabled={busy || !canSave} onClick={() => void review()}>
-          Review changes
-        </Button>
+        <WithReason reason={saveReason}>
+          <Button size="xs" disabled={busy || !canSave} onClick={() => void review()}>
+            Review changes
+          </Button>
+        </WithReason>
+        <WithReason reason={saveReason}>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={busy || !canSave}
+            onClick={() => void discard()}
+          >
+            Discard changes
+          </Button>
+        </WithReason>
       </div>
+      <SavedWorkflowControls
+        environmentId={environmentId}
+        workflow={workflow}
+        switching={switcher.busy}
+        onToggle={() => void switcher.toggle()}
+        lead={false}
+      />
     </TaskPanelFooter>
   );
   return (
     <TaskPanelLayout label="Workflow" footer={footer}>
       <WorkflowHeading
         title={workflow.title}
-        badge={<Badge variant="info">Changes</Badge>}
+        badge={
+          <>
+            <Badge variant="info">Changes</Badge>
+            <WorkflowStatusBadge workflow={workflow} />
+          </>
+        }
         description={draft.description}
         schedule={draft.schedule}
         goal={draft.goal}

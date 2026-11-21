@@ -5,9 +5,17 @@ import {
   type WorkflowStepId,
   type WorkflowSummary,
 } from "@codenine/contracts";
+import * as Option from "effect/Option";
+import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it } from "vite-plus/test";
 
-import { draftStepsOver, workflowDraftStatus, workflowScheduleText } from "./workflowDraft.logic";
+import {
+  draftStepsOver,
+  listAnsweredSince,
+  switchedWorkflow,
+  workflowDraftStatus,
+  workflowScheduleText,
+} from "./workflowDraft.logic";
 
 describe("workflowScheduleText", () => {
   const timeZone = "Europe/London";
@@ -101,5 +109,52 @@ describe("draftStepsOver", () => {
     expect(steps[0]).toMatchObject({ agent: "researcher" });
     expect(steps[0]).not.toHaveProperty("suggestion");
     expect(steps[1]).toBe(draft.steps[1]);
+  });
+});
+
+describe("listAnsweredSince", () => {
+  const at = 1_000;
+  const before = AsyncResult.success({ workflows: [] }, { timestamp: at });
+  it.each([
+    ["the result seen when asking", before, false],
+    ["a refetch in flight", AsyncResult.waiting(before), false],
+    [
+      "a later answer with the same timestamp",
+      AsyncResult.success({ workflows: [] }, { timestamp: at }),
+      true,
+    ],
+    [
+      "a failed refetch",
+      AsyncResult.fail("offline", { previousSuccess: Option.some(before) }),
+      false,
+    ],
+  ] as const)("with %s", (_name, result, expected) => {
+    expect(listAnsweredSince(result, before)).toBe(expected);
+  });
+});
+
+describe("switchedWorkflow", () => {
+  const listed = {
+    ...summary,
+    enabled: false,
+    nextRunAt: null,
+    updatedAt: "2026-11-21T08:00:00.000Z",
+  } as WorkflowSummary;
+  const turnedOn = {
+    id: summary.id,
+    enabled: true,
+    nextRunAt: "2026-11-23T09:00:00.000Z",
+    updatedAt: "2026-11-21T08:00:01.000Z",
+  };
+
+  it("shows what Turn on answered until the list is as new, then the list", () => {
+    expect(switchedWorkflow(listed, turnedOn)).toEqual({
+      workflow: { ...listed, enabled: true, nextRunAt: turnedOn.nextRunAt },
+      settling: true,
+    });
+    const caughtUp = { ...listed, enabled: true, updatedAt: turnedOn.updatedAt };
+    expect(switchedWorkflow(caughtUp, turnedOn)).toEqual({ workflow: caughtUp, settling: false });
+    const other = { ...listed, id: WorkflowId.make("wf-2") };
+    expect(switchedWorkflow(other, turnedOn)).toEqual({ workflow: other, settling: false });
   });
 });

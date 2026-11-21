@@ -279,7 +279,8 @@ open the draft in the workflow editor and save it there. A saved workflow starts
 from the chat's **Workflow** tab or in the editor to run it on its schedule. After you save, the
 **Workflow** tab shows the saved workflow, whether it is on, and anything that keeps it from
 running, and you can turn it on or off and run it from there. If you ask for changes later, they
-show as changes to that workflow, and saving them updates it instead of making a new one. The sent
+show as changes to that workflow: review and save them to update it instead of making a new one, or
+discard them to keep it as it is. You can still turn it on or off and run it while changes wait. The sent
 message shows **Workflow requested**. Like Team, Workflow turns off once the message is sent, and
 it does not apply to a `/` command; turning one on turns the other off. It is offered in Personal
 chats too: choose its workspace in the editor before you save. **New workflow** in the sidebar's

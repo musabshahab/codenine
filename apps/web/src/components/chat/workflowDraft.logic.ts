@@ -1,5 +1,6 @@
 import type {
   SavedWorkflowLink,
+  WorkflowDetail,
   WorkflowDraft,
   WorkflowDraftStep,
   WorkflowSchedule,
@@ -7,6 +8,7 @@ import type {
   WorkflowSummary,
   WorkflowWeekday,
 } from "@codenine/contracts";
+import type { AsyncResult } from "effect/reactivity";
 
 const WEEKDAYS: ReadonlyArray<readonly [WorkflowWeekday, string]> = [
   ["mon", "Monday"],
@@ -63,6 +65,38 @@ export function workflowDraftStatus(input: {
   return draft === null || draft.proposedAt === link.proposedAt
     ? { kind: "saved", workflow }
     : { kind: "changed", workflow };
+}
+
+/**
+ * Whether the list answered after `before`, the result seen when it was asked again. Timestamps can
+ * tie with the ask, so this goes by the result itself: any later settled success is the answer.
+ */
+export function listAnsweredSince(
+  result: AsyncResult.AsyncResult<unknown, unknown>,
+  before: AsyncResult.AsyncResult<unknown, unknown>,
+): boolean {
+  return result !== before && result._tag === "Success" && !result.waiting;
+}
+
+/** What Turn on or off answered for a workflow. */
+export type SwitchedWorkflow = Pick<WorkflowDetail, "id" | "enabled" | "nextRunAt" | "updatedAt">;
+
+/** The listed workflow, showing what Turn on or off answered until the list is as new as that. */
+export function switchedWorkflow(
+  listed: WorkflowSummary,
+  switched: SwitchedWorkflow | null,
+): { readonly workflow: WorkflowSummary; readonly settling: boolean } {
+  if (
+    switched === null ||
+    switched.id !== listed.id ||
+    Date.parse(listed.updatedAt) >= Date.parse(switched.updatedAt)
+  ) {
+    return { workflow: listed, settling: false };
+  }
+  return {
+    workflow: { ...listed, enabled: switched.enabled, nextRunAt: switched.nextRunAt },
+    settling: true,
+  };
 }
 
 /** The draft's steps, each keeping the agent the saved workflow gave it where the draft has none. */
