@@ -11,6 +11,7 @@ import {
   type ThreadId,
   type WorkflowDefinition,
   type WorkflowDetail,
+  type WorkflowDraftRef,
   WorkflowError,
   WorkflowId,
   type WorkflowInput,
@@ -20,6 +21,7 @@ import {
   type WorkflowRunStarted,
   type WorkflowRunTrigger,
   type WorkflowSaveInput,
+  type WorkflowSetEnabledInput,
   type WorkflowsListResult,
   type WorkflowSummary,
 } from "@codenine/contracts";
@@ -127,6 +129,10 @@ export class Workflows extends Context.Service<
     readonly remove: (input: { readonly name: WorkflowName }) => Effect.Effect<void, WorkflowError>;
     /** Starts a run now, whether or not the workflow is on; refused while it has problems. */
     readonly run: (input: WorkflowRunInput) => Effect.Effect<WorkflowRunStarted, WorkflowError>;
+    /** Turns scheduled runs on or off, leaving the rest of the file as it is. */
+    readonly setEnabled: (
+      input: WorkflowSetEnabledInput,
+    ) => Effect.Effect<WorkflowDetail, WorkflowError>;
     /** Queues the scheduled runs now due and starts the next queued one; the scheduler calls it. */
     readonly runDue: Effect.Effect<void>;
     /** Prices runs in progress, holds those at a limit, and keeps each ended run's note. */
@@ -286,16 +292,21 @@ const make = Effect.gen(function* () {
     Effect.map((entries) => entries.flatMap(({ read }) => (read._tag === "found" ? [read] : []))),
   );
 
-  const locks = new Map<WorkflowId, Semaphore.Semaphore>();
-  const withLock = <A, E, R>(id: WorkflowId, effect: Effect.Effect<A, E, R>) =>
-    Effect.suspend(() => {
-      let lock = locks.get(id);
-      if (lock === undefined) {
-        lock = Semaphore.makeUnsafe(1);
-        locks.set(id, lock);
-      }
-      return lock.withPermit(effect);
-    });
+  const keyedLock = <K>() => {
+    const locks = new Map<K, Semaphore.Semaphore>();
+    return <A, E, R>(key: K, effect: Effect.Effect<A, E, R>) =>
+      Effect.suspend(() => {
+        let lock = locks.get(key);
+        if (lock === undefined) {
+          lock = Semaphore.makeUnsafe(1);
+          locks.set(key, lock);
+        }
+        return lock.withPermit(effect);
+      });
+  };
+  const withLock = keyedLock<WorkflowId>();
+  // A create from a chat checks the chat's link and then writes it; two at once would both pass.
+  const withDraftLock = keyedLock<ThreadId>();
 
   /**
    * Runs `f` holding the workflow's lock, on the workflow as it is then. None when it was
@@ -441,8 +452,43 @@ const make = Effect.gen(function* () {
       Effect.catchTags({ PlatformError: failed("Could not check the workflows folder.") }),
     );
 
+  const refuseSecondCopy = Effect.fn("Workflows.refuseSecondCopy")(function* (threadId: ThreadId) {
+    const thread = yield* projections.getThread(threadId).pipe(Effect.orElseSucceed(() => null));
+    const link = thread?.savedWorkflow ?? null;
+    if (link === null) return;
+    const existing = (yield* listFound).find((entry) => entry.id === link.id);
+    if (existing === undefined) return;
+    return yield* new WorkflowError({
+      reason: "exists",
+      detail: `This chat's draft is already saved as ${existing.workflow.title}. Open it from the chat's Workflow tab.`,
+    });
+  });
+
+  // Fresh ids: a receipt replays by command id alone, and a refused command stays refused.
+  const linkDraft = Effect.fn("Workflows.linkDraft")(function* (
+    fromDraft: WorkflowDraftRef,
+    workflowId: WorkflowId,
+  ) {
+    yield* threads
+      .dispatch({
+        type: "workflow.draft.saved",
+        commandId: CommandId.make(`server:workflow-saved:${yield* randomUuidV4}`),
+        threadId: fromDraft.threadId,
+        workflowId,
+        proposedAt: fromDraft.proposedAt,
+      })
+      .pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Codenine could not link a saved workflow to its chat.", {
+            threadId: fromDraft.threadId,
+            cause,
+          }),
+        ),
+      );
+  });
+
   const save: Workflows["Service"]["save"] = Effect.fn("Workflows.save")(function* (input) {
-    const { workflow, previousName } = input;
+    const { workflow, previousName, fromDraft } = input;
     const issue = workflowDefinitionIssue(workflow);
     if (issue !== null) return yield* new WorkflowError({ reason: "invalid", detail: issue });
     const target = path.join(root, workflow.name);
@@ -459,18 +505,24 @@ const make = Effect.gen(function* () {
       .makeDirectory(root, { recursive: true })
       .pipe(Effect.catchTags({ PlatformError: couldNotSave }));
     if (previousName === undefined) {
-      const id = WorkflowId.make(yield* randomUuidV4);
-      // Claiming the folder first means two creates of one name cannot both write it.
-      yield* fileSystem.makeDirectory(target).pipe(
-        Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.fail(taken)),
-        Effect.catchTags({ PlatformError: couldNotSave }),
-      );
-      yield* writeFile(path.join(target, WORKFLOW_FILE), renderWorkflowFile(id, workflow)).pipe(
-        Effect.andThen(writeNotes(target)),
-        Effect.catchTags({ PlatformError: couldNotSave }),
-        Effect.tapError(() => fileSystem.remove(target, { recursive: true }).pipe(Effect.ignore)),
-      );
-      return yield* read({ name: workflow.name });
+      const create = Effect.gen(function* () {
+        if (fromDraft !== undefined) yield* refuseSecondCopy(fromDraft.threadId);
+        const id = WorkflowId.make(yield* randomUuidV4);
+        // Claiming the folder first means two creates of one name cannot both write it.
+        yield* fileSystem.makeDirectory(target).pipe(
+          Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.fail(taken)),
+          Effect.catchTags({ PlatformError: couldNotSave }),
+        );
+        yield* writeFile(path.join(target, WORKFLOW_FILE), renderWorkflowFile(id, workflow)).pipe(
+          Effect.andThen(writeNotes(target)),
+          Effect.catchTags({ PlatformError: couldNotSave }),
+          Effect.tapError(() => fileSystem.remove(target, { recursive: true }).pipe(Effect.ignore)),
+        );
+        const detail = yield* read({ name: workflow.name });
+        if (fromDraft !== undefined) yield* linkDraft(fromDraft, detail.id);
+        return detail;
+      });
+      return yield* fromDraft === undefined ? create : withDraftLock(fromDraft.threadId, create);
     }
     const previous = yield* readWorkflow(previousName);
     if (previous._tag === "missing") return yield* notFound(previousName);
@@ -496,8 +548,36 @@ const make = Effect.gen(function* () {
         );
       }),
     );
-    return yield* read({ name: workflow.name });
+    const detail = yield* read({ name: workflow.name });
+    if (fromDraft !== undefined) yield* linkDraft(fromDraft, detail.id);
+    return detail;
   });
+
+  const setEnabled: Workflows["Service"]["setEnabled"] = Effect.fn("Workflows.setEnabled")(
+    function* ({ name, enabled }) {
+      const current = yield* readWorkflow(name);
+      if (current._tag === "missing") return yield* notFound(name);
+      if (current._tag === "broken") {
+        return yield* new WorkflowError({
+          reason: "invalid",
+          detail: "This workflow's file can't be read, so it can't be turned on or off.",
+        });
+      }
+      const written = yield* whileLocked(name, current.id, (found) =>
+        Effect.gen(function* () {
+          if (found.workflow.enabled === enabled) return;
+          const file = path.join(found.folder, WORKFLOW_FILE);
+          const existing = yield* fileSystem.readFileString(file);
+          yield* writeFile(
+            file,
+            renderWorkflowFile(found.id, { ...found.workflow, enabled }, existing),
+          );
+        }).pipe(Effect.catchTags({ PlatformError: failed("Could not save the workflow.") })),
+      );
+      if (Option.isNone(written)) return yield* notFound(name);
+      return yield* read({ name });
+    },
+  );
 
   // Runs are found through the workflow's folder, so one left running would go on unwatched.
   const cancelLiveRuns = Effect.fn("Workflows.cancelLiveRuns")(function* (
@@ -958,7 +1038,7 @@ const make = Effect.gen(function* () {
   yield* scheduler.register("workflows", runDue);
   yield* scheduler.register("workflow-runs", superviseRuns);
 
-  return Workflows.of({ list, read, save, remove, run, runDue, superviseRuns });
+  return Workflows.of({ list, read, save, remove, run, setEnabled, runDue, superviseRuns });
 });
 
 export const layer = Layer.effect(Workflows, make);

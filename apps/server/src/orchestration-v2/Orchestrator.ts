@@ -573,6 +573,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "team.hold":
     case "team.run.update":
     case "workflow.draft.set":
+    case "workflow.draft.saved":
       return command.threadId;
     case "delegated_task.request":
     case "delegated_task.wake-policy":
@@ -3175,44 +3176,51 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     ]);
   });
 
-  const dispatchWorkflowDraftSet = Effect.fn("orchestrationV2.dispatch.workflowDraftSet")(
-    function* (
-      command: Extract<OrchestrationV2InternalCommand, { readonly type: "workflow.draft.set" }>,
-      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
-    ) {
-      const thread = yield* projectionStore
-        .getThread(command.threadId)
-        .pipe(
-          Effect.mapError(
-            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
-          ),
-        );
-      const refusal =
-        thread.deletedAt !== null
-          ? `Thread ${command.threadId} is deleted.`
-          : thread.teamTask !== undefined
-            ? "workflow_task_thread: A team agent's thread cannot draft a workflow."
-            : undefined;
-      if (refusal !== undefined) {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: refusal,
-        });
-      }
-      const now = yield* DateTime.now;
-      yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.metadata-updated",
-        threadId: command.threadId,
-        providerInstanceId: thread.providerInstanceId,
-        occurredAt: now,
-        payload: { ...thread, workflowDraft: command.draft, updatedAt: now },
+  const dispatchWorkflowDraft = Effect.fn("orchestrationV2.dispatch.workflowDraft")(function* (
+    command: Extract<
+      OrchestrationV2InternalCommand,
+      { readonly type: "workflow.draft.set" | "workflow.draft.saved" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const refusal =
+      thread.deletedAt !== null
+        ? `Thread ${command.threadId} is deleted.`
+        : thread.teamTask !== undefined
+          ? "workflow_task_thread: A team agent's thread cannot draft a workflow."
+          : undefined;
+    if (refusal !== undefined) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: refusal,
       });
-    },
-  );
+    }
+    const now = yield* DateTime.now;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        ...thread,
+        ...(command.type === "workflow.draft.set"
+          ? { workflowDraft: command.draft }
+          : { savedWorkflow: { id: command.workflowId, proposedAt: command.proposedAt } }),
+        updatedAt: now,
+      },
+    });
+  });
 
   const dispatchThreadVisit = Effect.fn("orchestrationV2.dispatch.threadVisit")(function* (
     command: Extract<OrchestrationV2Command, { readonly type: "thread.visit" }>,
@@ -13352,7 +13360,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* dispatchTeamCommand(command, events, effects);
         break;
       case "workflow.draft.set":
-        yield* dispatchWorkflowDraftSet(command, events);
+      case "workflow.draft.saved":
+        yield* dispatchWorkflowDraft(command, events);
         break;
       default:
         return yield* dispatchUnsupported(command);

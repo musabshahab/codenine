@@ -130,6 +130,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.workflowsSave]: "server",
   [WS_METHODS.workflowsDelete]: "server",
   [WS_METHODS.workflowsRun]: "server",
+  [WS_METHODS.workflowsSetEnabled]: "server",
   [WS_METHODS.projectsListEntries]: "workspace",
   [WS_METHODS.projectsListIgnoredFiles]: "workspace",
   [WS_METHODS.projectsReadFile]: "workspace",

@@ -113,6 +113,7 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         team: null,
         teamTask: undefined,
         workflowDraft: undefined,
+        savedWorkflow: undefined,
         activeProviderThreadId: null,
         lineage: {
           parentThreadId: input.sourceProjection.thread.id,

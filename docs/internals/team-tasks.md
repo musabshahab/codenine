@@ -63,8 +63,12 @@ running in one command, so a run never reads as proposed, which the Inbox shows 
   send-back. After activation the reactor wakes the lead again for each awaiting step whose wake it
   never read, and resends each send-back whose turn never started, at most once per round.
 
-`propose_workflow` leaves a draft on its chat in `thread.workflowDraft`; nothing runs until the user
-saves it, and forks do not copy it.
+`propose_workflow` leaves a draft on its chat in `thread.workflowDraft`. Saving from the editor with
+`fromDraft` makes `Workflows.save` dispatch `workflow.draft.saved`, which sets
+`thread.savedWorkflow` to the workflow's id and the draft's `proposedAt`. A save never fails
+because the link could not be written. A create from a chat already linked to an existing workflow
+is refused. Clients find the workflow by id in their list, and a missing id means it was deleted.
+Forks copy neither field.
 
 ## The plan lives in the thread payload
 

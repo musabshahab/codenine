@@ -915,7 +915,7 @@ it.effect("a task that worked in its own worktree tells its dependents where", (
 );
 
 it.effect(
-  "neither a delegated child nor a fork takes over a thread's team, team task or workflow draft",
+  "neither a delegated child nor a fork takes over a thread's team, team task, workflow draft or saved workflow",
   () =>
     withTeam((launched) =>
       Effect.gen(function* () {
@@ -952,6 +952,23 @@ it.effect(
           rejection(yield* Effect.exit(setDraft(buildThreadId!))),
           "workflow_task_thread",
         );
+        const markSaved = (threadId: ThreadId) =>
+          dispatch({
+            type: "workflow.draft.saved",
+            commandId: CommandId.make(`saved:${threadId}`),
+            threadId,
+            workflowId: WorkflowId.make("workflow-digest"),
+            proposedAt: "2026-11-18T10:00:00.000Z",
+          });
+        yield* markSaved(leadThreadId);
+        assert.deepEqual((yield* thread(leadThreadId)).thread.savedWorkflow, {
+          id: WorkflowId.make("workflow-digest"),
+          proposedAt: "2026-11-18T10:00:00.000Z",
+        });
+        assert.include(
+          rejection(yield* Effect.exit(markSaved(buildThreadId!))),
+          "workflow_task_thread",
+        );
         const fork = (sourceThreadId: ThreadId, targetThreadId: ThreadId) =>
           dispatch({
             type: "thread.fork",
@@ -966,6 +983,7 @@ it.effect(
         const leadFork = yield* fork(leadThreadId, ThreadId.make("thread:lead-fork"));
         assert.notExists(leadFork.thread.team);
         assert.notExists(leadFork.thread.workflowDraft);
+        assert.notExists(leadFork.thread.savedWorkflow);
         const taskFork = yield* fork(buildThreadId!, ThreadId.make("thread:task-fork"));
         assert.notExists(taskFork.thread.teamTask);
 
