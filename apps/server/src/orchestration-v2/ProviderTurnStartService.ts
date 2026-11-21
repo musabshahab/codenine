@@ -16,6 +16,7 @@ import {
   RunId,
   skillTitle,
   ThreadId,
+  type TurnItemId,
 } from "@codenine/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -1582,17 +1583,33 @@ export const layer: Layer.Layer<
         });
       });
       const pendingWorkflowIds = projection.thread.pendingWorkflowResults ?? [];
-      const pendingWorkflowItems = (yield* Effect.forEach(pendingWorkflowIds, (itemId) =>
-        projectionStore.getTurnItem({ threadId: projection.thread.id, itemId }),
-      )).filter((item) => item?.type === "workflow_run");
+      const readWorkflowResult = (itemId: TurnItemId) =>
+        projectionStore
+          .getTurnItem({ threadId: projection.thread.id, itemId })
+          .pipe(Effect.map((item) => (item?.type === "workflow_run" ? item : null)));
+      // A result reported again keeps its id, so what was delivered is told apart by its version.
+      const workflowResultVersion = (item: OrchestrationV2TurnItem | null) =>
+        item === null ? null : `${item.status}\0${DateTime.formatIso(item.updatedAt)}`;
+      const deliveredWorkflowResults = yield* Effect.forEach(pendingWorkflowIds, (itemId) =>
+        readWorkflowResult(itemId).pipe(Effect.map((item) => ({ itemId, item }))),
+      );
+      const pendingWorkflowItems = deliveredWorkflowResults.flatMap(({ item }) =>
+        item === null ? [] : [item],
+      );
       // Clears only what this prompt carried; a result reported meanwhile waits for the next one.
       const clearDeliveredWorkflowResults = threadCommands.withLock(
         projection.thread.id,
         Effect.gen(function* () {
           const fresh = yield* projectionStore.getThread(projection.thread.id);
           const pending = fresh.pendingWorkflowResults ?? [];
-          const remaining = pending.filter((itemId) => !pendingWorkflowIds.includes(itemId));
-          if (remaining.length === pending.length) return;
+          const cleared = new Set<TurnItemId>();
+          for (const { itemId, item } of deliveredWorkflowResults) {
+            if (!pending.includes(itemId)) continue;
+            const stored = yield* readWorkflowResult(itemId);
+            if (workflowResultVersion(stored) === workflowResultVersion(item)) cleared.add(itemId);
+          }
+          if (cleared.size === 0) return;
+          const remaining = pending.filter((itemId) => !cleared.has(itemId));
           yield* eventSink.write({
             events: [
               {
@@ -1633,8 +1650,11 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
+          // A provider reads a slash command only at the start of the prompt.
           const workflowContext =
-            compact || goalCommand ? "" : workflowResultsContext(pendingWorkflowItems);
+            compact || goalCommand || userText.trimStart().startsWith("/")
+              ? ""
+              : workflowResultsContext(pendingWorkflowItems);
           const context = [delivery.context, sideChatContext, workflowContext, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");

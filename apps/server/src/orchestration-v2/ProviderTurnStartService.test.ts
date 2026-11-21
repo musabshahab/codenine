@@ -288,6 +288,7 @@ const workflowResult = {
   leadThreadId: ThreadId.make("thread:workflow:workflow-digest:3"),
   headline: "Sent the digest",
   result: "The week's three stories.",
+  updatedAt: DateTime.makeUnsafe("2026-09-04T11:00:00Z"),
 } as Extract<OrchestrationV2TurnItem, { readonly type: "workflow_run" }>;
 
 function makeLocalCommandHarness(input: {
@@ -508,6 +509,7 @@ function makeLocalCommandHarness(input: {
     checkpoints: [],
     updatedAt: now,
   };
+  let storedWorkflowResult = workflowResult;
   if (input.pendingWorkflowResult === true) {
     projection = {
       ...projection,
@@ -1004,7 +1006,7 @@ function makeLocalCommandHarness(input: {
           getTurnStartContext,
           getThread: () => Effect.sync(() => projection.thread),
           getTurnItem: ({ itemId }) =>
-            Effect.succeed(itemId === workflowResult.id ? workflowResult : null),
+            Effect.sync(() => (itemId === workflowResult.id ? storedWorkflowResult : null)),
           getRuntimeRecoveryProjection: () =>
             Effect.as(failReadIfRunning, {
               ...projection,
@@ -1055,6 +1057,10 @@ function makeLocalCommandHarness(input: {
     compactThread,
     setProjection: (next: OrchestrationV2ThreadProjection) => {
       projection = next;
+    },
+    /** Reports the pending workflow result again, as the server does when its run changes. */
+    setWorkflowResult: (next: typeof workflowResult) => {
+      storedWorkflowResult = next;
     },
     resolveRuntimePolicy,
     createWorktree,
@@ -1385,8 +1391,28 @@ effectIt.effect(
       yield* Effect.exit(refused.start);
       expect(pendingAfter(refused)).toEqual([workflowResult.id]);
 
-      // /compact and /goal send no prompt of their own, so the results wait.
-      for (const text of ["/compact", "/goal Ship the digest"]) {
+      // The run was reported again while the provider took the prompt, so its news still waits.
+      const reported = makeLocalCommandHarness({
+        text: "Summarize the latest result",
+        sideChat: { contextRun: "delivered" },
+        pendingWorkflowResult: true,
+      });
+      reported.setWorkflowResult({ ...workflowResult, status: "failed" });
+      reported.startTurn.mockImplementationOnce(() =>
+        Effect.sync(() =>
+          reported.setWorkflowResult({
+            ...workflowResult,
+            updatedAt: DateTime.makeUnsafe("2026-09-04T12:30:00Z"),
+          }),
+        ),
+      );
+      yield* reported.start;
+      expect(reported.startTurn.mock.calls[0]?.[0].message.text).toContain("run 3, failed");
+      expect(pendingAfter(reported)).toEqual([workflowResult.id]);
+
+      // /compact and /goal send no prompt of their own, and a provider reads any other command only
+      // at the start of the prompt, so the results wait.
+      for (const text of ["/compact", "/goal Ship the digest", "/review"]) {
         const command = makeLocalCommandHarness({
           text,
           previousMessages: ["Earlier work"],
