@@ -368,7 +368,7 @@ export const OrchestratorMcpProposeWorkflowInput = Schema.Struct({
 export type OrchestratorMcpProposeWorkflowInput = typeof OrchestratorMcpProposeWorkflowInput.Type;
 
 export const ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT =
-  "Nothing is saved until the user reviews it in the editor and saves it; if they saved an earlier draft from this chat, saving updates that workflow. A saved workflow stays off until they turn it on. Tell them what you drafted and end your turn.";
+  "Nothing is saved until the user reviews it in the editor and saves it; if they saved an earlier draft from this chat, saving updates that workflow. A workflow saved from a new draft stays off until they turn it on; saving changes to a saved workflow keeps it on or off as it was. Tell them what you drafted and end your turn.";
 
 export const OrchestratorMcpProposeWorkflowResult = Schema.Struct({
   status: Schema.Literal("drafted"),
