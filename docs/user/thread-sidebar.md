@@ -66,8 +66,8 @@ needs you, is running, or is done. Workflow runs and their steps' chats are on t
 page, not in Tasks or the workspaces.
 
 Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
-sidebar, where **Restore** brings one back. An agent's thread is not listed there; open it from its
-task.
+sidebar, where **Mark not done** brings back a done thread and **Unarchive** an archived one. An
+agent's thread is not listed there; open it from its task.
 
 ## Build
 
@@ -119,8 +119,8 @@ files directly; see [Attach files](./composer.md#attach-files).
 Pinning or unpinning a thread keeps the sidebar at your current
 scroll position instead of following the thread to its new place in the list.
 
-A pinned thread is not marked done automatically, except a team agent's thread when its team ends.
-Marking a thread done removes its pin.
+A pinned thread is not marked done automatically, except a team agent's thread when its team
+finishes or is cancelled. Marking a thread done removes its pin.
 
 In the single list, drag a thread between sections to change its state. Drag a thread up into
 the pinned section to pin it at the spot you drop it; drag a pinned thread down into the active
@@ -189,7 +189,9 @@ cannot drag or move threads within it. Your saved order returns when you turn it
 ## Mark finished work done
 
 Choose **Mark done** from a thread's menu to move finished work out of the active list
-into the **Done** shelf without deleting the conversation. **Mark not done** restores it to
+without deleting the conversation. Grouped by workspace, it goes to **Completed & archived**; the
+single list keeps it on its **Done** shelf. **Mark done** is unavailable while the thread is
+working, waiting on an approval, or has a message queued. **Mark not done** restores it to
 active work and keeps it from being marked done automatically until new activity resumes the
 usual rules. Marking an idle thread done by hand dismisses unanswered async questions without
 sending an answer or restarting the agent. It also closes the thread's
@@ -226,8 +228,8 @@ To keep one thread from being marked done automatically, open its menu, choose *
 automatically**, and pick **Never**. The current option is checked. Pick **As set in Settings** to
 return to the rules in **Settings → Threads**. While those rules are off, a thread on **As set in
 Settings** is not marked done automatically either. **Mark done**, snooze, and archive still work
-while it is set to **Never**. A team agent's thread does not offer this, since its team marks it
-done when the team finishes or is cancelled.
+while it is set to **Never**. When a team finishes or is cancelled, its agents' threads are marked
+done whatever this is set to.
 
 Change these rules in **Settings → Threads**.
 They continue to run when your apps are closed. Choose an environment at the

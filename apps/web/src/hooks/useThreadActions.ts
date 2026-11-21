@@ -81,7 +81,7 @@ export class ThreadSettlementUnsupportedError extends Schema.TaggedError<ThreadS
   },
 ) {
   override get message(): string {
-    return "This environment's server cannot mark threads done yet. Update the server to use Mark done.";
+    return "This environment's server cannot mark chats done yet. Update the server to use Mark done.";
   }
 }
 
@@ -105,7 +105,7 @@ export class ThreadSnoozeBlockedError extends Schema.TaggedError<ThreadSnoozeBlo
   },
 ) {
   override get message(): string {
-    return "This thread is waiting on you. Respond to the pending request before snoozing it.";
+    return "This chat is waiting on you. Respond to the pending request before snoozing it.";
   }
 }
 
@@ -126,7 +126,7 @@ export class ThreadAutoSettleOptOutUnsupportedError extends Schema.TaggedError<T
   },
 ) {
   override get message(): string {
-    return "This environment's server cannot stop marking a single thread done automatically yet. Update the server to use it.";
+    return "This environment's server cannot stop marking a single chat done automatically yet. Update the server to use it.";
   }
 }
 
@@ -192,7 +192,7 @@ export async function navigateAfterThreadDeletion(navigate: () => Promise<void>)
     toastManager.add(
       stackedThreadToast({
         type: "error",
-        title: "Thread deleted, but navigation failed",
+        title: "Chat deleted, but navigation failed",
         description: error instanceof Error ? error.message : "An error occurred.",
       }),
     );
@@ -265,7 +265,7 @@ function threadOperationFailure(target: ScopedThreadRef) {
     : AsyncResult.failure(
         Cause.fail(
           new EnvironmentAuthorizationError({
-            message: "This connection cannot change threads.",
+            message: "This connection cannot change chats.",
             requiredScope: AuthOrchestrationOperateScope,
           }),
         ),
@@ -450,12 +450,17 @@ export function useThreadActions() {
 
   const deleteThread = async (
     target: ScopedThreadRef,
-    opts: { deletedThreadKeys?: ReadonlySet<string> } = {},
+    opts: {
+      deletedThreadKeys?: ReadonlySet<string>;
+      /** The chat as shown, for one the shell list leaves out. */
+      thread?: EnvironmentThreadShell | null;
+    } = {},
   ) => {
     const permissionFailure = threadOperationFailure(target);
     if (permissionFailure) return permissionFailure;
-    const resolved = resolveThreadTarget(target);
-    if (!resolved) {
+    const listedThread = readThreadShell(target);
+    const thread = listedThread ?? opts.thread ?? null;
+    if (thread === null) {
       let threads = readEnvironmentThreadRefs(target.environmentId).flatMap((ref) => {
         const shell = readThreadShell(ref);
         return shell === null ? [] : [{ id: shell.id, lineage: shell.lineage }];
@@ -494,11 +499,13 @@ export function useThreadActions() {
       }
       return result;
     }
-    const { thread, threadRef } = resolved;
-    const threads = readEnvironmentThreadRefs(threadRef.environmentId).flatMap((ref) => {
+    const threadRef = target;
+    const listedThreads = readEnvironmentThreadRefs(threadRef.environmentId).flatMap((ref) => {
       const shell = readThreadShell(ref);
       return shell === null ? [] : [shell];
     });
+    // With the chat in the list, its worktree and the chat to open next can be found.
+    const threads = listedThread === null ? [...listedThreads, thread] : listedThreads;
     const threadProject = readProject({
       environmentId: threadRef.environmentId,
       projectId: thread.projectId,
@@ -566,7 +573,7 @@ export function useThreadActions() {
       const confirmationResult = await settlePromise(() =>
         localApi.dialogs.confirm(
           [
-            "This thread is the only one linked to this worktree:",
+            "This chat is the only one linked to this worktree:",
             displayWorktreePath ?? orphanedWorktreePath,
             "",
             "Delete the worktree too?",
@@ -944,7 +951,7 @@ export function useThreadActions() {
       action: "Snoozed",
       claim: action,
       undo: () => runUndoPlan(target, ThreadUndo.planThreadUndo("snooze")),
-      failureTitle: "Failed to wake thread",
+      failureTitle: "Failed to undo snooze",
     });
     return result;
   };
@@ -973,7 +980,11 @@ export function useThreadActions() {
       (result) => result._tag === "Success",
     );
 
-  const confirmAndDeleteThread = async (target: ScopedThreadRef, knownTitle?: string) => {
+  const confirmAndDeleteThread = async (
+    target: ScopedThreadRef,
+    knownTitle?: string,
+    opts: { thread?: EnvironmentThreadShell | null } = {},
+  ) => {
     const permissionFailure = threadOperationFailure(target);
     if (permissionFailure) return permissionFailure;
     const localApi = readLocalApi();
@@ -998,7 +1009,7 @@ export function useThreadActions() {
       }
     }
 
-    return deleteThread(target);
+    return deleteThread(target, opts);
   };
 
   return {

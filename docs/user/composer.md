@@ -301,7 +301,7 @@ the repository by text. Choose a result to insert it as a chip.
 
 Another thread can be context too. Type `@` followed by part of its title to pick one from
 the same server. You can also drag a thread out of the sidebar and
-drop it on the composer; a multi-selection drops together. **Copy thread** copies a
+drop it on the composer; a multi-selection drops together. **Copy chat link** copies a
 link to the thread that pastes into a composer as its chip. The chip shows the thread's
 current title and opens it when selected. Your prompt only carries a reference: the agent reads the thread's
 history on demand, so attaching a long thread costs nothing until the agent looks. Attaching a

@@ -249,7 +249,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to mark thread not done",
+          title: "Failed to mark chat not done",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -294,7 +294,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to wake thread",
+          title: "Failed to wake chat",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -661,9 +661,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         return;
       }
       if (settleAndAdvance(activeThreadRef)) return;
-      void settleThread(activeThreadRef).then(
-        toastThreadActionFailure("Failed to mark thread done"),
-      );
+      void settleThread(activeThreadRef).then(toastThreadActionFailure("Failed to mark chat done"));
     },
     "thread.pin": ({ event }) => {
       // An open project list pins its highlighted project with this key instead.

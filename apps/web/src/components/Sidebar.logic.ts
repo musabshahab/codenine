@@ -45,6 +45,7 @@ import {
   type ThreadSortInput,
 } from "@codenine/client-runtime/state/thread-sort";
 import type { SidebarThreadSummary, Thread } from "../types";
+import { threadCanMarkUnread } from "./threadActionMenu.logic";
 import { normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
 import { observeIntersection } from "../lib/observeIntersection";
@@ -633,6 +634,22 @@ export function buildBulkUnpinContextMenuItem(input: {
 }): ContextMenuItem<"unpin"> | null {
   if (input.pinnedCount === 0) return null;
   return { id: "unpin", label: `Unpin (${input.pinnedCount})` };
+}
+
+/** Mark unread for the selected chats whose latest run finished, as the single-chat menu allows. */
+export function buildBulkMarkUnread<T extends Pick<Thread, "latestRun">>(
+  threads: ReadonlyArray<T>,
+  canOperate: (threads: ReadonlyArray<T>) => boolean,
+): { readonly targets: ReadonlyArray<T>; readonly item: ContextMenuItem<"mark-unread"> } {
+  const targets = threads.filter(threadCanMarkUnread);
+  return {
+    targets,
+    item: {
+      id: "mark-unread",
+      label: `Mark unread (${targets.length})`,
+      disabled: targets.length === 0 || !canOperate(targets),
+    },
+  };
 }
 
 export interface ThreadStatusPill {

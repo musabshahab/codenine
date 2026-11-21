@@ -6,6 +6,7 @@ import {
 import {
   canSnooze,
   effectiveSnoozed,
+  hasQueuedTurnStart,
   type SnoozePreset,
 } from "@codenine/client-runtime/state/thread-settled";
 
@@ -34,7 +35,6 @@ export type ThreadActionMenuId =
   | "copy-thread"
   | "copy-thread-id"
   | "archive"
-  | "unarchive"
   | "delete";
 
 export type DraftActionMenuId =
@@ -87,11 +87,10 @@ export interface ThreadActionMenuState {
   readonly hasPath: boolean;
   /** The chat's workspace is known, so its settings can open. */
   readonly hasProject: boolean;
-  readonly isArchived: boolean;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
+  readonly canSettleNow: boolean;
   readonly autoSettleEnabled: boolean;
-  readonly isTeamTask: boolean;
   readonly isSnoozed: boolean;
   readonly canSnoozeNow: boolean;
   readonly canMarkUnread: boolean;
@@ -110,6 +109,28 @@ export interface ThreadActionMenuState {
   readonly canTurnIntoProject?: boolean;
 }
 
+const SETTLE_BLOCKING_RUN_STATUSES = new Set(["preparing", "starting", "running", "waiting"]);
+
+/**
+ * Mirrors the server's refusal to mark a chat done while it runs, waits on an approval, or has a
+ * message queued. A blocking question holds its run open, so the run status covers it.
+ */
+function canSettleNow(thread: EnvironmentThreadShell, now: string): boolean {
+  const request = thread.source.pendingRuntimeRequest;
+  return (
+    !SETTLE_BLOCKING_RUN_STATUSES.has(
+      thread.source.activityRunStatus ?? thread.runtime?.status ?? "idle",
+    ) &&
+    (request == null || request.kind === "user_input") &&
+    !hasQueuedTurnStart(thread, { now })
+  );
+}
+
+/** The server marks a chat unread only once its latest run has finished. */
+export function threadCanMarkUnread(thread: Pick<EnvironmentThreadShell, "latestRun">): boolean {
+  return thread.latestRun?.completedAt != null;
+}
+
 /** What the chat's own record decides, read the same way by the header and the sidebar. */
 export function threadActionMenuThreadState(
   thread: EnvironmentThreadShell,
@@ -117,17 +138,14 @@ export function threadActionMenuThreadState(
 ) {
   return {
     branch: thread.branch,
-    isArchived: thread.archivedAt !== null,
     isPinned: thread.pinnedAt != null,
     // Snoozing a done chat leaves it done, so it still offers Mark not done.
     isSettled: options.configLoaded && thread.settledOverride === "settled",
+    canSettleNow: canSettleNow(thread, options.now),
     autoSettleEnabled: thread.autoSettleDisabledAt == null,
-    // A team marks its agents' chats done when it ends, whatever each chat is set to.
-    isTeamTask: thread.source.teamTask !== undefined,
     isSnoozed: options.configLoaded && effectiveSnoozed(thread, { now: options.now }),
     canSnoozeNow: canSnooze(thread, { now: options.now }),
-    // The server marks a chat unread only once its latest run has finished.
-    canMarkUnread: thread.latestRun?.completedAt != null,
+    canMarkUnread: threadCanMarkUnread(thread),
     isRegeneratingTitle: thread.titleRegeneration != null,
     isRunning: !threadRuntimeCanArchive(thread.runtime),
   } satisfies Partial<ThreadActionMenuState>;
@@ -163,7 +181,12 @@ function stateGroup(state: ThreadActionMenuState): ReadonlyArray<ThreadActionMen
       ? [
           state.isSettled
             ? { id: "unsettle" as const, label: "Mark not done", icon: "circle-check" }
-            : { id: "settle" as const, label: "Mark done", icon: "circle-check" },
+            : {
+                id: "settle" as const,
+                label: "Mark done",
+                icon: "circle-check",
+                disabled: !state.canSettleNow,
+              },
         ]
       : []),
     ...(state.supports.snooze
@@ -190,7 +213,8 @@ function stateGroup(state: ThreadActionMenuState): ReadonlyArray<ThreadActionMen
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open", disabled: !state.canMarkUnread },
-    ...(state.supports.autoSettleOptOut && !state.isTeamTask
+    // A team that finishes or is cancelled marks its agents' chats done whatever this is set to.
+    ...(state.supports.autoSettleOptOut
       ? [
           {
             id: "auto-settle" as const,
@@ -246,14 +270,6 @@ const DELETE_ITEM: ThreadActionMenuItem = {
 function threadActionMenuGroups(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ReadonlyArray<ThreadActionMenuItem>> {
-  // An archived chat has no place in the lists to change, only a way back.
-  if (state.isArchived) {
-    return [
-      [{ id: "unarchive", label: "Unarchive chat", icon: "archive-restore" }],
-      [copyItem(state), ...projectSettingsItems(state)],
-      [DELETE_ITEM],
-    ];
-  }
   return [
     stateGroup(state),
     [

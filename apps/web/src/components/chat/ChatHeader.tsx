@@ -510,10 +510,7 @@ export const ChatHeader = memo(function ChatHeader({
                 />
               </span>
             ) : null}
-            {isChat &&
-            threadShell !== null &&
-            threadShell.archivedAt === null &&
-            renamingTitle === null ? (
+            {isChat && threadShell !== null && renamingTitle === null ? (
               <span className="hidden @md/header-actions:flex">
                 <ChatPinToggle
                   threadRef={activeThreadRef}

@@ -28,7 +28,6 @@ const state = vi.hoisted(() => {
     worktreePath: null,
     runtime: null,
     latestRun: null,
-    archivedAt: null as string | null,
     pinnedAt: null,
     settledOverride: null,
     autoSettleDisabledAt: null,
@@ -144,7 +143,6 @@ vi.mock("./useThreadActions", () => ({
         "pinThread",
         "confirmAndUnpinThread",
         "archiveThread",
-        "unarchiveThread",
         "confirmAndDeleteThread",
       ].map((action) => [
         action,
@@ -179,7 +177,6 @@ const createMenu = (
 const shownMenu = (call = 0) => state.show.mock.calls[call]![0];
 
 beforeEach(() => {
-  state.chat.archivedAt = null;
   state.listed = true;
   state.granted = new Set(["primary"]);
   state.effects = [];
@@ -222,18 +219,5 @@ describe("thread menu for a chat the shell list leaves out", () => {
     state.listed = false;
     createMenu({ thread: state.chat as unknown as EnvironmentThreadShell }).openMenu(position);
     expect(shownMenu().some((item) => item.id === "archive")).toBe(true);
-  });
-
-  it("unarchives an archived chat with the Archive page's action", async () => {
-    state.listed = false;
-    state.chat.archivedAt = "2026-08-07T12:00:00.000Z";
-    state.granted.add("secondary");
-    state.show.mockResolvedValue("unarchive");
-    createMenu({ thread: state.chat as unknown as EnvironmentThreadShell }).openMenu(position);
-    await state.completed.promise;
-    expect(shownMenu().find((item) => item.id === "unarchive")).toMatchObject({
-      label: "Unarchive chat",
-    });
-    expect(state.effects).toEqual(["unarchiveThread"]);
   });
 });

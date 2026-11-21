@@ -7,6 +7,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
+  buildBulkMarkUnread,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
@@ -139,6 +140,54 @@ describe("deleteSelectedThreadEntries", () => {
     expect(outcome).toEqual({
       deletedThreadKeys: testCase.deletedThreadKeys,
       firstFailure: testCase.firstFailure,
+    });
+  });
+});
+
+describe("buildBulkMarkUnread", () => {
+  const finished = (id: string) =>
+    makeThreadFixture({
+      id: ThreadId.make(id),
+      latestRun: {
+        runId: RunId.make(`${id}-run`),
+        status: "completed",
+        requestedAt: "2026-08-07T11:00:00.000Z",
+        startedAt: "2026-08-07T11:00:00.000Z",
+        completedAt: "2026-08-07T11:05:00.000Z",
+        assistantMessageId: null,
+      },
+    });
+  const neverRun = (id: string) => makeThreadFixture({ id: ThreadId.make(id) });
+
+  it.each([
+    {
+      selection: "a mixed selection",
+      threads: [finished("a"), neverRun("b"), finished("c")],
+      canOperate: true,
+      marked: ["a", "c"],
+      disabled: false,
+    },
+    {
+      selection: "chats without a finished run",
+      threads: [neverRun("b")],
+      canOperate: true,
+      marked: [],
+      disabled: true,
+    },
+    {
+      selection: "a read-only connection",
+      threads: [finished("a")],
+      canOperate: false,
+      marked: ["a"],
+      disabled: true,
+    },
+  ])("marks only chats with a finished run: $selection", (row) => {
+    const { targets, item } = buildBulkMarkUnread(row.threads, () => row.canOperate);
+    expect(targets.map((thread) => thread.id)).toEqual(row.marked);
+    expect(item).toEqual({
+      id: "mark-unread",
+      label: `Mark unread (${row.marked.length})`,
+      disabled: row.disabled,
     });
   });
 });

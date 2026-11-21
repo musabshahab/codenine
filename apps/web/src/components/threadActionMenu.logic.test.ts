@@ -1,7 +1,9 @@
-import { RunId, type ContextMenuItem } from "@codenine/contracts";
+import { RunId, RuntimeRequestId, type ContextMenuItem } from "@codenine/contracts";
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import { makeThreadFixture } from "../test-fixtures";
+import type { Thread } from "../types";
 import {
   buildThreadActionMenuItems,
   threadActionMenuThreadState,
@@ -15,11 +17,10 @@ const baseState: ThreadActionMenuState = {
   projectFilter: null,
   hasPath: true,
   hasProject: true,
-  isArchived: false,
   isPinned: false,
   isSettled: false,
+  canSettleNow: true,
   autoSettleEnabled: true,
-  isTeamTask: false,
   isSnoozed: false,
   canSnoozeNow: true,
   canMarkUnread: true,
@@ -154,52 +155,29 @@ describe("buildThreadActionMenuItems", () => {
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
   });
 
-  it("disables Mark unread until a run has finished", () => {
-    const items = buildThreadActionMenuItems({ ...baseState, canMarkUnread: false });
-    expect(items.find((item) => item.id === "mark-unread")?.disabled).toBe(true);
+  it.each([
+    ["mark-unread", { canMarkUnread: false }],
+    ["settle", { canSettleNow: false }],
+  ] as const)("disables %s while the server would refuse it", (id, state) => {
+    const items = buildThreadActionMenuItems({ ...baseState, ...state });
+    expect(items.find((item) => item.id === id)?.disabled).toBe(true);
   });
 
   it("leaves out what has nothing to act on", () => {
     expect(
-      outline(
-        buildThreadActionMenuItems({
-          ...baseState,
-          hasPath: false,
-          hasProject: false,
-          isTeamTask: true,
-        }),
-      ),
+      outline(buildThreadActionMenuItems({ ...baseState, hasPath: false, hasProject: false })),
     ).toEqual([
       "Pin chat",
       "Mark done",
       "Snooze › In 1 hour (3:00 PM), Custom…",
       "Mark unread",
+      "Mark done automatically › As set in Settings, Never",
       "—",
       "Rename chat",
       "Regenerate title",
       "Copy › Chat link, Thread ID",
       "—",
       "Archive chat",
-      "Delete chat",
-    ]);
-  });
-
-  it("offers an archived chat only its way back, copying and removal", () => {
-    expect(
-      outline(
-        buildThreadActionMenuItems({
-          ...baseState,
-          isArchived: true,
-          canFind: true,
-          branch: "main",
-        }),
-      ),
-    ).toEqual([
-      "Unarchive chat",
-      "—",
-      "Copy › Chat link, Thread ID, Path, Branch",
-      "Workspace settings",
-      "—",
       "Delete chat",
     ]);
   });
@@ -215,6 +193,18 @@ describe("threadActionMenuThreadState", () => {
     completedAt: "2026-08-07T11:05:00.000Z",
     assistantMessageId: null,
   };
+  const withSource = (source: Partial<Thread["source"]>, thread = makeThreadFixture()) => ({
+    ...thread,
+    source: { ...thread.source, ...source },
+  });
+  const pendingRequest = (kind: "command" | "user_input", blocking: boolean) => ({
+    pendingRuntimeRequest: {
+      id: RuntimeRequestId.make("request"),
+      kind,
+      createdAt: DateTime.makeUnsafe(now),
+      blocking,
+    },
+  });
 
   it("keeps a snoozed chat that is marked done reading as done", () => {
     const state = threadActionMenuThreadState(
@@ -237,5 +227,22 @@ describe("threadActionMenuThreadState", () => {
       threadActionMenuThreadState(makeThreadFixture({ latestRun }), { now, configLoaded: true })
         .canMarkUnread,
     ).toBe(canMarkUnread);
+  });
+
+  it.each([
+    ["an idle chat", makeThreadFixture(), true],
+    ["a running chat", withSource({ activityRunStatus: "running" }), false],
+    ["a chat waiting in its run", withSource({ activityRunStatus: "waiting" }), false],
+    ["a pending approval", withSource(pendingRequest("command", true)), false],
+    ["a question the run went on past", withSource(pendingRequest("user_input", false)), true],
+    [
+      "a message queued a moment ago",
+      makeThreadFixture({ latestUserMessageAt: "2026-08-07T11:59:30.000Z" }),
+      false,
+    ],
+  ])("offers Mark done for %s", (_case, thread, canSettleNow) => {
+    expect(threadActionMenuThreadState(thread, { now, configLoaded: true }).canSettleNow).toBe(
+      canSettleNow,
+    );
   });
 });

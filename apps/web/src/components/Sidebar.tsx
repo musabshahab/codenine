@@ -188,6 +188,7 @@ import {
   filterSidebarV2VisibleThreads,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
+  buildBulkMarkUnread,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
@@ -957,8 +958,11 @@ function checkThreadOperations(
   if (canOperateThreads(threads)) return true;
   toastManager.add({
     type: "error",
-    title: "Thread action unavailable",
-    description: "This connection cannot change one or more selected threads.",
+    title: "Chat action unavailable",
+    description:
+      threads.length === 1
+        ? "This connection cannot change this chat."
+        : "This connection cannot change one or more of these chats.",
   });
   return false;
 }
@@ -1744,7 +1748,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to mark thread done",
+              title: "Failed to mark chat done",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
@@ -1782,7 +1786,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to mark thread not done",
+            title: "Failed to mark chat not done",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1797,7 +1801,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to wake thread",
+            title: "Failed to wake chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2289,7 +2293,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
           const navigateAfterSettle = planForwardNavigation(activeKey);
-          const settled = await run(settleThread(threadRef), "Failed to mark thread done").finally(
+          const settled = await run(settleThread(threadRef), "Failed to mark chat done").finally(
             () => settlingThreadKeysRef.current.delete(activeKey),
           );
           if (
@@ -2309,10 +2313,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin chat"))) return;
           if (
             plan.unsettle &&
-            !(await run(unsettleThread(threadRef), "Failed to mark thread not done"))
+            !(await run(unsettleThread(threadRef), "Failed to mark chat not done"))
           )
             return;
-          if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake thread")))
+          if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake chat")))
             return;
           break;
         case "pin":
@@ -2389,7 +2393,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to snooze thread",
+              title: "Failed to snooze chat",
               description:
                 outcome.error instanceof Error ? outcome.error.message : "An error occurred.",
             }),
@@ -2439,6 +2443,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
+      const markUnread = buildBulkMarkUnread(selectedThreads, canOperateThreads);
       // Presets sync across environments, so the first selected thread's stand for all.
       const menuOpenedAt = new Date();
       const snoozePresets = resolveSnoozePresets(
@@ -2489,7 +2494,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   },
                 ]
               : []),
-            { id: "mark-unread", label: `Mark unread (${count})` },
+            markUnread.item,
             {
               id: "delete",
               label: `Delete (${count})`,
@@ -2506,16 +2511,18 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ? pinnedSelectedThreads
           : clicked.value === "regenerate-title"
             ? regeneratableTitleThreads
-            : clicked.value === "settle"
-              ? settlingThreads.flatMap((thread) => {
-                  const current = threadByKeyRef.current.get(
-                    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-                  );
-                  return current && current.settledOverride !== "settled" ? [current] : [];
-                })
-              : selectedThreads;
+            : clicked.value === "mark-unread"
+              ? markUnread.targets
+              : clicked.value === "settle"
+                ? settlingThreads.flatMap((thread) => {
+                    const current = threadByKeyRef.current.get(
+                      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                    );
+                    return current && current.settledOverride !== "settled" ? [current] : [];
+                  })
+                : selectedThreads;
       if (clicked.value === "settle" && actionTargets.length === 0) return;
-      if (clicked.value !== "mark-unread" && !checkThreadOperations(actionTargets)) return;
+      if (!checkThreadOperations(actionTargets)) return;
       if (clicked.value?.startsWith("snooze:")) {
         const preset =
           clicked.value === "snooze:custom"
@@ -2550,8 +2557,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 type: "error",
                 title:
                   snoozedThreadRefs.length > 0
-                    ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? "" : "s"}`
-                    : "Failed to snooze threads",
+                    ? `Failed to snooze ${failures.length} chat${failures.length === 1 ? "" : "s"}`
+                    : "Failed to snooze chats",
                 description:
                   firstError instanceof Error ? firstError.message : "An error occurred.",
               }),
@@ -2579,7 +2586,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             toastManager.add(
               stackedThreadToast({
                 type: "error",
-                title: "Failed to regenerate thread titles",
+                title: "Failed to regenerate chat titles",
                 description: error instanceof Error ? error.message : "An error occurred.",
               }),
             );
@@ -2599,9 +2606,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         return;
       }
       if (clicked.value === "mark-unread") {
-        for (const threadKey of threadKeys) {
-          const thread = threadByKeyRef.current.get(threadKey);
-          if (thread) markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
+        for (const thread of markUnread.targets) {
+          markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
         }
         clearSelection();
         return;
@@ -2611,8 +2617,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const confirmed = await settlePromise(() =>
           api.dialogs.confirm(
             [
-              `Delete ${count} thread${count === 1 ? "" : "s"}?`,
-              "This permanently clears conversation history for these threads.",
+              `Delete ${count} chat${count === 1 ? "" : "s"}?`,
+              count === 1
+                ? "This permanently clears this chat's conversation history."
+                : "This permanently clears these chats' conversation history.",
             ].join("\n"),
             { variant: "destructive" },
           ),
@@ -2643,7 +2651,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to delete threads",
+            title: "Failed to delete chats",
             description: firstError instanceof Error ? firstError.message : "An error occurred.",
           }),
         );
@@ -2820,7 +2828,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Could not create thread",
+                  title: "Could not create chat",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2855,7 +2863,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Could not turn thread into a workspace",
+                  title: "Could not turn chat into a workspace",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2894,7 +2902,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to regenerate thread title",
+                  title: "Failed to regenerate chat title",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );

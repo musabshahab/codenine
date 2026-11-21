@@ -416,6 +416,28 @@ describe("thread action permissions", () => {
     expect(threadPanelStatePresence(target)).toEqual(panelStateCleared);
   });
 
+  it("offers to delete the worktree of a chat the shell list leaves out, from the chat as shown", async () => {
+    state.scopes
+      .get(secondary)!
+      .add(AuthOrchestrationOperateScope)
+      .add(AuthSourceControlWriteScope);
+    const shown = { ...state.threads[0]!, worktreePath: "/worktrees/thread" };
+    state.threads = [];
+    expect((await useThreadActions().deleteThread(target, { thread: shown as never }))._tag).toBe(
+      "Success",
+    );
+    expect(state.confirm).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("This chat is the only one linked to this worktree:"),
+      { variant: "destructive" },
+    );
+    expect(state.requests.map((request) => request.action)).toEqual([
+      "stopSession",
+      "delete",
+      "removeWorktree",
+      "refreshStatus",
+    ]);
+  });
+
   it("clears the drafts of the side chats deleted with it", async () => {
     state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
     const parent = state.threads[0]!;

@@ -84,7 +84,6 @@ export function useThreadActionMenu(input: {
     confirmAndUnpinThread,
     setThreadAutoSettle,
     archiveThread,
-    unarchiveThread,
     confirmAndDeleteThread,
     markThreadUnread,
     turnThreadIntoProject,
@@ -159,10 +158,7 @@ export function useThreadActionMenu(input: {
         threadActionRequiresOperate(action) &&
         !readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope)
       ) {
-        failureToast(
-          "Thread action unavailable",
-          new Error("This connection cannot change threads."),
-        );
+        failureToast("Chat action unavailable", new Error("This connection cannot change chats."));
         return;
       }
       if (action.startsWith("snooze:")) {
@@ -178,7 +174,7 @@ export function useThreadActionMenu(input: {
         if (!preset) return;
         const result = await snoozeThread(threadRef, preset.snoozedUntil);
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          failureToast("Failed to snooze thread", squashAtomCommandFailure(result));
+          failureToast("Failed to snooze chat", squashAtomCommandFailure(result));
         }
         return;
       }
@@ -216,18 +212,18 @@ export function useThreadActionMenu(input: {
             }),
           );
           if (result._tag === "Failure") {
-            failureToast("Could not create thread", squashAtomCommandFailure(result));
+            failureToast("Could not create chat", squashAtomCommandFailure(result));
           }
           return;
         }
         case "settle":
-          await reportFailure("Failed to mark thread done", () => settleThread(threadRef));
+          await reportFailure("Failed to mark chat done", () => settleThread(threadRef));
           return;
         case "unsettle":
-          await reportFailure("Failed to mark thread not done", () => unsettleThread(threadRef));
+          await reportFailure("Failed to mark chat not done", () => unsettleThread(threadRef));
           return;
         case "unsnooze":
-          await reportFailure("Failed to wake thread", () => unsnoozeThread(threadRef));
+          await reportFailure("Failed to wake chat", () => unsnoozeThread(threadRef));
           return;
         case "pin":
           await reportFailure("Failed to pin chat", () => pinThread(threadRef));
@@ -247,7 +243,7 @@ export function useThreadActionMenu(input: {
           return;
         case "regenerate-title":
           if (threadState.isRegeneratingTitle) return;
-          await reportFailure("Failed to regenerate thread title", () =>
+          await reportFailure("Failed to regenerate chat title", () =>
             updateThreadMetadata({
               environmentId: threadRef.environmentId,
               input: { threadId: threadRef.threadId, regenerateTitle: true },
@@ -266,10 +262,7 @@ export function useThreadActionMenu(input: {
               description: thread.title,
             });
           } else if (!isAtomCommandInterrupted(result)) {
-            failureToast(
-              "Could not turn thread into a workspace",
-              squashAtomCommandFailure(result),
-            );
+            failureToast("Could not turn chat into a workspace", squashAtomCommandFailure(result));
           }
           return;
         }
@@ -290,9 +283,6 @@ export function useThreadActionMenu(input: {
           return;
         case "copy-thread-id":
           copyThreadIdToClipboard(thread.id, { threadId: thread.id });
-          return;
-        case "unarchive":
-          await reportFailure("Could not unarchive the chat", () => unarchiveThread(threadRef));
           return;
         case "archive": {
           if (confirmThreadArchive) {
@@ -318,7 +308,7 @@ export function useThreadActionMenu(input: {
         }
         case "delete":
           await reportFailure("Failed to delete chat", () =>
-            confirmAndDeleteThread(threadRef, thread.title),
+            confirmAndDeleteThread(threadRef, thread.title, { thread }),
           );
           return;
         default:

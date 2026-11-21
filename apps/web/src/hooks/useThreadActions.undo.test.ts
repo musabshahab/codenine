@@ -242,20 +242,22 @@ describe("archive navigation", () => {
     expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Archived" });
   });
 
-  it("returns to the chat when archiving it fails", async () => {
+  const backToTheChat = expect.objectContaining({
+    to: "/$environmentId/$threadId",
+    params: { environmentId: target.environmentId, threadId: target.threadId },
+    replace: true,
+  });
+  it.each([
+    { from: "the draft it opened", movedTo: null, navigations: [[backToTheChat]] },
+    { from: "a chat opened meanwhile", movedTo: "/undo-env/other-thread", navigations: [] },
+  ])("returns to the chat after a failed archive only from $from", async (row) => {
     openTheChat();
-    commands.archive.mockResolvedValue({
-      _tag: "Failure",
-      cause: Cause.fail(new Error("Request failed")),
+    commands.archive.mockImplementation(async () => {
+      if (row.movedTo !== null) router.state.location.href = row.movedTo;
+      return { _tag: "Failure", cause: Cause.fail(new Error("Request failed")) };
     });
     expect((await useThreadActions().archiveThread(target))._tag).toBe("Failure");
-    expect(router.navigate).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: target.environmentId, threadId: target.threadId },
-        replace: true,
-      }),
-    );
+    expect(router.navigate.mock.calls).toEqual(row.navigations);
   });
 
   it("archives a chat the shell list leaves out, using the chat as shown", async () => {
