@@ -1,4 +1,5 @@
 import {
+  AgentError,
   type AgentModel,
   type AgentSummary,
   type OrchestrationV2AppThread,
@@ -23,6 +24,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Result from "effect/Result";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as Agents from "../agents/Agents.ts";
@@ -131,6 +133,7 @@ type TeamStart = Extract<OrchestrationV2ServerCommand, { readonly type: "team.st
 
 const makeWorld = () => ({
   agents: [agent("researcher", "Researcher"), agent("writer", "Writer")],
+  agentsUnreadable: false as boolean,
   threads: new Map<ThreadId, FakeThread>(),
   launched: [] as Array<{
     readonly input: ThreadLaunch.ThreadLaunchInput;
@@ -262,7 +265,13 @@ const fakes = (baseDir: string, world: World) => {
     );
   return Layer.mergeAll(
     ServerConfig.layerTest(baseDir, baseDir),
-    Layer.mock(Agents.Agents)({ list: Effect.sync(() => ({ agents: world.agents })) }),
+    Layer.mock(Agents.Agents)({
+      list: Effect.suspend(() =>
+        world.agentsUnreadable
+          ? Effect.fail(new AgentError({ reason: "failed", detail: "Could not read agents." }))
+          : Effect.succeed({ agents: world.agents }),
+      ),
+    }),
     Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed(providers) }),
     Layer.mock(ProjectStore.ProjectStoreV2)({
       list: (options) =>
@@ -461,16 +470,32 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         const chat = ThreadId.make("thread-chat");
         world.threads.set(chat, fakeThread(chat, "claude-x"));
         const fromDraft = { threadId: chat, proposedAt: "2026-11-18T10:00:00.000Z" };
-        const saved = yield* workflows.save({ workflow: digest, fromDraft });
-        expect(world.dispatched.at(-1)).toMatchObject({
-          type: "workflow.draft.saved",
-          threadId: chat,
-          workflowId: saved.id,
-          proposedAt: fromDraft.proposedAt,
-        });
+        // Two tabs save one draft at once under different names: only one becomes a workflow.
+        const raced = yield* Effect.all(
+          [
+            workflows.save({ workflow: digest, fromDraft }),
+            workflows.save({ workflow: { ...digest, name: "digest-race" }, fromDraft }),
+          ],
+          { concurrency: 2, mode: "result" },
+        );
+        const [saved, ...others] = raced.filter(Result.isSuccess).map((result) => result.success);
+        expect(others).toEqual([]);
+        expect(raced.filter(Result.isFailure).map((result) => result.failure.reason)).toEqual([
+          "exists",
+        ]);
+        expect(
+          world.dispatched.filter((command) => command.type === "workflow.draft.saved"),
+        ).toEqual([
+          expect.objectContaining({
+            threadId: chat,
+            workflowId: saved!.id,
+            proposedAt: fromDraft.proposedAt,
+          }),
+        ]);
+        const { name } = saved!;
 
         const copy = { ...digest, name: "digest-copy" };
-        const copyFolder = saved.path.replace(/weekly-digest$/, "digest-copy");
+        const copyFolder = saved!.path.replace(new RegExp(`${name}$`), "digest-copy");
         expect(yield* Effect.flip(workflows.save({ workflow: copy, fromDraft }))).toMatchObject({
           reason: "exists",
           detail:
@@ -480,23 +505,36 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
 
         const newer = { threadId: chat, proposedAt: "2026-11-18T11:00:00.000Z" };
         yield* workflows.save({
-          workflow: digest,
-          previousName: "weekly-digest",
+          workflow: { ...digest, name },
+          previousName: name,
           fromDraft: newer,
         });
         expect(world.dispatched.at(-1)).toMatchObject({
           type: "workflow.draft.saved",
-          workflowId: saved.id,
+          workflowId: saved!.id,
           proposedAt: newer.proposedAt,
         });
 
         // Deleted, so the chat's draft can be saved again; a failed link does not undo the save.
-        yield* workflows.remove({ name: "weekly-digest" });
+        yield* workflows.remove({ name });
         world.refused.add("workflow.draft.saved");
         const again = yield* workflows.save({ workflow: copy, fromDraft: newer });
         expect(again.name).toBe("digest-copy");
         expect(yield* fileSystem.exists(copyFolder)).toBe(true);
-        expect(world.threads.get(chat)?.savedWorkflow?.id).toBe(saved.id);
+        expect(world.threads.get(chat)?.savedWorkflow?.id).toBe(saved!.id);
+
+        // A read that fails after the write still links, so the chat does not offer the draft again.
+        world.refused.clear();
+        world.agentsUnreadable = true;
+        const latest = { threadId: chat, proposedAt: "2026-11-18T12:00:00.000Z" };
+        expect(yield* failure(workflows.save({ workflow: digest, fromDraft: latest }))).toBe(
+          "failed",
+        );
+        world.agentsUnreadable = false;
+        expect(world.threads.get(chat)?.savedWorkflow).toEqual({
+          id: (yield* workflows.list).workflows.find((entry) => entry.name === digest.name)?.id,
+          proposedAt: latest.proposedAt,
+        });
       }),
     ),
   );
@@ -518,6 +556,12 @@ it.layer(NodeServices.layer)("Workflows", (it) => {
         ]);
         expect(yield* failure(workflows.read({ name: "broken" }))).toBe("invalid");
         expect(yield* failure(workflows.run({ name: "broken" }))).toBe("invalid");
+        expect(yield* failure(workflows.setEnabled({ name: "broken", enabled: true }))).toBe(
+          "invalid",
+        );
+        expect(yield* fileSystem.readFileString(path.join(folder, "workflow.json"))).toBe(
+          "{ not json",
+        );
         yield* workflows.remove({ name: "broken" });
         expect(yield* fileSystem.exists(folder)).toBe(false);
       }),

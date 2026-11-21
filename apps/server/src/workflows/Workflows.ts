@@ -518,9 +518,9 @@ const make = Effect.gen(function* () {
           Effect.catchTags({ PlatformError: couldNotSave }),
           Effect.tapError(() => fileSystem.remove(target, { recursive: true }).pipe(Effect.ignore)),
         );
-        const detail = yield* read({ name: workflow.name });
-        if (fromDraft !== undefined) yield* linkDraft(fromDraft, detail.id);
-        return detail;
+        // Linked before the read, so a failed read cannot leave the saved draft offered again.
+        if (fromDraft !== undefined) yield* linkDraft(fromDraft, id);
+        return yield* read({ name: workflow.name });
       });
       return yield* fromDraft === undefined ? create : withDraftLock(fromDraft.threadId, create);
     }
@@ -548,9 +548,8 @@ const make = Effect.gen(function* () {
         );
       }),
     );
-    const detail = yield* read({ name: workflow.name });
-    if (fromDraft !== undefined) yield* linkDraft(fromDraft, detail.id);
-    return detail;
+    if (fromDraft !== undefined) yield* linkDraft(fromDraft, id);
+    return yield* read({ name: workflow.name });
   });
 
   const setEnabled: Workflows["Service"]["setEnabled"] = Effect.fn("Workflows.setEnabled")(
