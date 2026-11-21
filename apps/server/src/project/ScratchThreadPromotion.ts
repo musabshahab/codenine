@@ -56,15 +56,15 @@ const make = Effect.gen(function* () {
     "ScratchThreadPromotion.promote",
   )(function* (input) {
     const thread = yield* threads.getThreadShell(input.threadId).pipe(
-      Effect.mapError(fail("Could not read the thread.")),
+      Effect.mapError(fail("Could not read the chat.")),
       Effect.filterOrFail(
         (shell) => shell !== null,
-        () => new ScratchThreadPromotionError({ reason: "Thread not found." }),
+        () => new ScratchThreadPromotionError({ reason: "Chat not found." }),
       ),
     );
     const project = yield* projects
       .getById(thread.projectId)
-      .pipe(Effect.mapError(fail("Could not read the thread's project.")));
+      .pipe(Effect.mapError(fail("Could not read the chat's workspace.")));
     const folder = thread.worktreePath ?? Option.getOrUndefined(project)?.workspaceRoot;
     const scratchRoot = Option.getOrUndefined(yield* managedFolders.scratchRoot);
     const isScratch = yield* managedFolders.isScratchProject(thread.projectId);
@@ -78,13 +78,13 @@ const make = Effect.gen(function* () {
       !(isScratch || alreadyPromoted)
     ) {
       return yield* new ScratchThreadPromotionError({
-        reason: "Only a No project thread with its own folder can become a project.",
+        reason: "Only a Personal chat with its own folder can become a workspace.",
       });
     }
 
     const snapshot = yield* Effect.flatten(
       threads.readShellSnapshot({ worktreePath: folder }),
-    ).pipe(Effect.mapError(fail("Could not read the threads in this folder.")));
+    ).pipe(Effect.mapError(fail("Could not read the chats in this folder.")));
     const moveSet = new Map<ThreadId, OrchestrationV2ThreadShell>();
     if (isScratch) moveSet.set(thread.id, thread);
     for (const candidate of [...snapshot.threads, ...snapshot.archivedThreads]) {

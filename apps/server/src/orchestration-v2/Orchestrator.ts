@@ -3598,17 +3598,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (request) => request.kind !== "user_input" || request.responseCapability.type !== "message",
       );
       const blocker = blockingRequestExists
-        ? "is waiting on an approval or question. Answer it before settling."
+        ? "This chat is waiting on an approval or an answer. Answer it before marking it done."
         : runningRunExists
-          ? "is still running. Stop it before settling."
+          ? "This chat is still running. Stop it before marking it done."
           : queuedMessageExists
-            ? "has a queued message. Send it or remove it from the queue before settling."
+            ? "This chat has a queued message. Send it or remove it from the queue before marking it done."
             : null;
       if (blocker !== null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} ${blocker}`,
+          cause: blocker,
         });
       }
 
