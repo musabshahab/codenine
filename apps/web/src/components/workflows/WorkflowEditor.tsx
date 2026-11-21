@@ -5,6 +5,7 @@ import type {
   EnvironmentId,
   WorkflowDefinition,
   WorkflowDetail,
+  WorkflowDraftRef,
   WorkflowStepId,
 } from "@codenine/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -78,10 +79,12 @@ export function WorkflowEditor(props: {
   readonly saved: WorkflowDetail | null;
   /** Where a new workflow starts. */
   readonly start: WorkflowDefinition;
+  /** The chat draft `start` was made from; null when it is not made from one. */
+  readonly fromDraft: WorkflowDraftRef | null;
   /** Shown over the canvas, such as that the chat's draft could not be read. */
   readonly notice: string | null;
 }) {
-  const { environmentId, editKey, start } = props;
+  const { environmentId, editKey, start, fromDraft } = props;
   const navigate = useNavigate();
   const clock = useWorkflowClock();
   const edit = useWorkflowEdit(environmentId, editKey);
@@ -107,7 +110,7 @@ export function WorkflowEditor(props: {
     saved === null
       ? null
       : { definition: definitionOf(saved), notes: saved.notes, updatedAt: saved.updatedAt };
-  const shown = resolveWorkflowEdit(savedState, start, edit);
+  const shown = resolveWorkflowEdit(savedState, start, edit, fromDraft);
   const { definition } = shown;
   const problems =
     saved === null || shown.dirty
@@ -127,16 +130,22 @@ export function WorkflowEditor(props: {
   }) => {
     // Reads the store, not this render, so several changes from one handler all apply.
     const current = readWorkflowEdit(environmentId, editKey);
-    const now = resolveWorkflowEdit(savedState, start, current);
+    const now = resolveWorkflowEdit(savedState, start, current, fromDraft);
     setWorkflowEdit(
       environmentId,
       editKey,
-      changeWorkflowEdit(now, savedState, current, {
-        ...(change.definition === undefined
-          ? {}
-          : { definition: change.definition(now.definition) }),
-        ...(change.notes === undefined ? {} : { notes: change.notes }),
-      }),
+      changeWorkflowEdit(
+        now,
+        savedState,
+        current,
+        {
+          ...(change.definition === undefined
+            ? {}
+            : { definition: change.definition(now.definition) }),
+          ...(change.notes === undefined ? {} : { notes: change.notes }),
+        },
+        fromDraft,
+      ),
     );
   };
   const changeDefinition = (change: (current: WorkflowDefinition) => WorkflowDefinition) =>
@@ -152,7 +161,7 @@ export function WorkflowEditor(props: {
   const save = async () => {
     if (busy) return;
     const edited = readWorkflowEdit(environmentId, editKey);
-    const current = resolveWorkflowEdit(savedState, start, edited);
+    const current = resolveWorkflowEdit(savedState, start, edited, fromDraft);
     const checked = checkWorkflow(current.definition, takenNames);
     if (checked.issues !== undefined) {
       setChecking(true);
@@ -163,11 +172,17 @@ export function WorkflowEditor(props: {
     setChecking(false);
     setFailure(null);
     setBusy(true);
+    // Edits that gave way to a newer draft show that draft, so they save it.
+    const savedDraft =
+      current.dirty || current.overtaken
+        ? (edited?.fromDraft ?? fromDraft)
+        : (fromDraft ?? edited?.fromDraft ?? null);
     const result = await saveCommand({
       environmentId,
       input: {
         workflow: checked.workflow,
         ...(saved === null ? {} : { previousName: saved.name }),
+        ...(savedDraft === null ? {} : { fromDraft: savedDraft }),
         // Only notes the user changed: a run may have added its own since these edits began.
         ...(edited === null || edited.notes === edited.base.notes
           ? {}
@@ -287,8 +302,9 @@ export function WorkflowEditor(props: {
     notices.push(
       <Alert key="overtaken" variant="warning">
         <AlertDescription>
-          This workflow was saved somewhere else after you started changing it. Saving replaces that
-          version.
+          {saved === null
+            ? "The chat has a newer draft. Discard my changes to use it."
+            : "This workflow was saved somewhere else after you started changing it. Saving replaces that version."}
         </AlertDescription>
         <AlertAction>
           <Button size="xs" variant="outline" onClick={discard}>
@@ -371,7 +387,8 @@ export function WorkflowEditor(props: {
       )}
       <Button
         size="sm"
-        disabled={disabled || (saved !== null && !shown.dirty)}
+        // A clean edit can still carry a chat's draft, and saving it records that on the chat.
+        disabled={disabled || (saved !== null && !shown.dirty && edit?.fromDraft === undefined)}
         onClick={() => void save()}
       >
         {busy ? "Saving…" : "Save"}
@@ -441,7 +458,7 @@ export function WorkflowEditor(props: {
             onAddStep={(position) => {
               const current = readWorkflowEdit(environmentId, editKey);
               const next = addStep(
-                resolveWorkflowEdit(savedState, start, current).definition,
+                resolveWorkflowEdit(savedState, start, current, fromDraft).definition,
                 position,
               );
               changeDefinition(() => next.definition);

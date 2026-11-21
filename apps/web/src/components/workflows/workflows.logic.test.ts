@@ -32,6 +32,7 @@ import {
   resolveWorkflowEdit,
   runStartLine,
   runStepPositions,
+  STEP_HEIGHT,
   STEP_WIDTH,
   stepRunState,
   upcomingRuns,
@@ -41,6 +42,7 @@ import {
   workflowFromDraft,
   workflowFromTeamPlan,
   workflowHistoryRows,
+  workflowWithDraft,
   workflowNameFor,
   workflowRunsOf,
   workflowRunStatus,
@@ -232,6 +234,96 @@ describe("workflowFromDraft", () => {
   });
 });
 
+describe("workflowWithDraft", () => {
+  it("applies the draft and keeps the user's choices on the saved workflow", () => {
+    const model = {
+      instanceId: ProviderInstanceId.make("claude"),
+      model: "haiku",
+      effort: "medium" as const,
+    };
+    const saved: WorkflowDefinition = {
+      ...workflow([
+        { ...step("research"), model, position: { x: 400, y: 200 } },
+        { ...step("publish", ["research"]), agent: "publisher", position: { x: 640, y: 200 } },
+      ]),
+      name: "weekly-blog-post",
+      enabled: true,
+      trigger: {
+        schedule: { days: ["mon"], time: "09:00", timeZone: "Europe/London" },
+        missedRuns: "skip",
+        position: { x: 100, y: 200 },
+      },
+      lead: {
+        model,
+        goal: "Old goal.",
+        projectId: null,
+        approvals: "review",
+        limits: { spendUsd: 2, minutes: null },
+      },
+    };
+    const draft: WorkflowDraft = {
+      title: "Blog post, twice a week",
+      description: "Writes a post.",
+      goal: "A new post every Monday and Thursday.",
+      schedule: { days: ["mon", "thu"], time: "10:00", timeZone: "Europe/London" },
+      inputs: [{ name: "Topic area", value: "Gardening" }],
+      steps: [
+        {
+          id: id("research"),
+          title: "Research",
+          agent: "researcher",
+          instructions: "Find a topic.",
+          doneWhen: "",
+          dependsOn: [],
+        },
+        {
+          id: id("publish"),
+          title: "Publish",
+          agent: null,
+          suggestion: { title: "Publisher", description: "", instructions: "", connectors: [] },
+          instructions: "Publish it.",
+          doneWhen: "",
+          dependsOn: [id("research"), id("gone")],
+        },
+        {
+          id: id("share"),
+          title: "Share",
+          agent: "writer",
+          instructions: "",
+          doneWhen: "",
+          dependsOn: [id("publish")],
+        },
+      ],
+      proposedAt: "2026-11-21T09:00:00.000Z",
+    };
+    const merged = workflowWithDraft(saved, draft, []);
+    expect(merged).toMatchObject({
+      name: "weekly-blog-post",
+      title: "Weekly blog post",
+      enabled: true,
+      description: "Writes a post.",
+      inputs: draft.inputs,
+      lead: { model, goal: draft.goal, approvals: "review", limits: { spendUsd: 2 } },
+      trigger: { schedule: draft.schedule, missedRuns: "skip", position: { x: 100, y: 200 } },
+    });
+    expect(merged.steps[0]).toMatchObject({ model, position: { x: 400, y: 200 } });
+    expect(merged.steps[1]).toMatchObject({
+      agent: "publisher",
+      dependsOn: ["research"],
+      position: { x: 640, y: 200 },
+    });
+    expect(merged.steps[1]).not.toHaveProperty("suggestion");
+    const added = merged.steps[2];
+    expect(added).toMatchObject({ model: null, dependsOn: ["publish"] });
+    for (const kept of merged.steps.slice(0, 2)) {
+      const apart =
+        Math.abs(kept.position.x - (added?.position.x ?? 0)) >= STEP_WIDTH ||
+        Math.abs(kept.position.y - (added?.position.y ?? 0)) >= STEP_HEIGHT;
+      expect(apart).toBe(true);
+    }
+  });
+});
+
 describe("workflowFromTeamPlan", () => {
   const codex = ProviderInstanceId.make("codex");
   const member = (memberId: string, overrides: Partial<TeamAgent> = {}): TeamAgent => ({
@@ -383,6 +475,33 @@ describe("resolveWorkflowEdit", () => {
       overtaken: false,
       definition: saved.definition,
     });
+  });
+
+  it("lets clean edits of a chat's draft give way to its newer draft, and keeps the draft they began on", () => {
+    const older = { threadId: ThreadId.make("thread-1"), proposedAt: "2026-11-18T09:00:00Z" };
+    const newer = { ...older, proposedAt: "2026-11-18T10:00:00Z" };
+    const shown = resolveWorkflowEdit(null, start, null, older);
+    const clean = changeWorkflowEdit(shown, null, null, {}, older);
+    expect(clean.fromDraft).toEqual(older);
+    expect(resolveWorkflowEdit(null, start, clean, older)).toMatchObject({ overtaken: false });
+    const newerStart = workflow([step("b")]);
+    expect(resolveWorkflowEdit(null, newerStart, clean, newer)).toMatchObject({
+      definition: newerStart,
+      dirty: false,
+      overtaken: false,
+    });
+
+    const dirty = changeWorkflowEdit(shown, null, null, { notes: "Skip herbs." }, older);
+    const overtaken = resolveWorkflowEdit(null, newerStart, dirty, newer);
+    expect(overtaken).toMatchObject({ definition: start, dirty: true, overtaken: true });
+    expect(
+      changeWorkflowEdit(overtaken, null, dirty, { notes: "Herbs." }, newer).fromDraft,
+    ).toEqual(older);
+    // Started fresh on the newer draft, the edits name it.
+    const fresh = resolveWorkflowEdit(null, newerStart, clean, newer);
+    expect(changeWorkflowEdit(fresh, null, clean, { notes: "Herbs." }, newer).fromDraft).toEqual(
+      newer,
+    );
   });
 
   it("starts a new workflow from its starting point", () => {

@@ -14,6 +14,7 @@ import type {
   WorkflowDefinition,
   WorkflowDetail,
   WorkflowDraft,
+  WorkflowDraftRef,
   WorkflowId,
   WorkflowInput,
   WorkflowLimits,
@@ -27,6 +28,7 @@ import type {
   WorkflowWeekday,
 } from "@codenine/contracts";
 
+import { draftStepsOver } from "../chat/workflowDraft.logic";
 import { skillNameFromTitle } from "../skills/skills.logic";
 
 /** The contract's limits, which it checks without exporting. */
@@ -317,6 +319,46 @@ export function workflowFromDraft(
       position: { x: 0, y: 0 },
     })),
   });
+}
+
+/**
+ * A saved workflow with a newer draft from its chat applied: the draft's description, goal,
+ * schedule, inputs and steps, and the user's own choices kept, so saving updates it in place.
+ */
+export function workflowWithDraft(
+  saved: WorkflowDefinition,
+  draft: WorkflowDraft,
+  agents: ReadonlyArray<Pick<AgentSummary, "name">>,
+): WorkflowDefinition {
+  const drafted = draftStepsOver(draft, saved.steps);
+  const ids = new Set(drafted.map((step) => step.id));
+  const savedById = new Map(saved.steps.map((step) => [step.id, step]));
+  // New steps go where no kept step already sits.
+  const placed = drafted.flatMap((step) => savedById.get(step.id)?.position ?? []);
+  const steps = drafted.map((step): WorkflowStep => {
+    const kept = savedById.get(step.id);
+    const dependsOn = step.dependsOn.filter((id) => ids.has(id) && id !== step.id);
+    if (kept !== undefined) {
+      return { ...step, dependsOn, model: kept.model, position: kept.position };
+    }
+    const position = freeStepPosition(
+      nextStepPosition(placed.map((at) => ({ position: at }))),
+      placed,
+    );
+    placed.push(position);
+    return { ...step, dependsOn, model: null, position };
+  });
+  return withMadeAgents(
+    {
+      ...saved,
+      description: draft.description,
+      trigger: { ...saved.trigger, schedule: draft.schedule },
+      inputs: draft.inputs,
+      lead: { ...saved.lead, goal: draft.goal },
+      steps,
+    },
+    agents,
+  );
 }
 
 /**
@@ -664,6 +706,8 @@ export interface WorkflowEdit {
     /** The saved workflow's `updatedAt`; null for a workflow not saved yet. */
     readonly updatedAt: string | null;
   };
+  /** The chat draft these edits apply; saving records it on the chat. */
+  readonly fromDraft?: WorkflowDraftRef;
 }
 
 export interface ResolvedWorkflowEdit {
@@ -679,7 +723,10 @@ function sameJson(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** The edits over the saved workflow; clean edits give way to a newer saved version. */
+/**
+ * The edits over the saved workflow, or over a new one's start; clean edits give way to a newer
+ * saved version, or to a newer draft from the chat `start` was made from.
+ */
 export function resolveWorkflowEdit(
   saved: {
     readonly definition: WorkflowDefinition;
@@ -688,38 +735,48 @@ export function resolveWorkflowEdit(
   } | null,
   start: WorkflowDefinition,
   edit: WorkflowEdit | null,
+  draft: WorkflowDraftRef | null = null,
 ): ResolvedWorkflowEdit {
   const base = saved ?? { definition: start, notes: "", updatedAt: null };
   if (edit === null) {
     return { definition: base.definition, notes: base.notes, dirty: false, overtaken: false };
   }
   const dirty = !sameJson(edit.definition, edit.base.definition) || edit.notes !== edit.base.notes;
-  const moved = saved !== null && edit.base.updatedAt !== saved.updatedAt;
+  const moved =
+    saved !== null
+      ? edit.base.updatedAt !== saved.updatedAt
+      : draft !== null && edit.fromDraft?.proposedAt !== draft.proposedAt;
   if (moved && !dirty) {
     return { definition: base.definition, notes: base.notes, dirty: false, overtaken: false };
   }
   return { definition: edit.definition, notes: edit.notes, dirty, overtaken: moved };
 }
 
-/** Applies a change to the edits, starting them from what is shown when there are none yet. */
+/**
+ * Applies a change to the edits, starting them from what is shown when there are none yet. Edits
+ * begun on a chat's draft keep naming that draft, so saving them never marks a newer one saved.
+ */
 export function changeWorkflowEdit(
   shown: ResolvedWorkflowEdit,
   saved: { readonly updatedAt: string } | null,
   edit: WorkflowEdit | null,
   change: { readonly definition?: WorkflowDefinition; readonly notes?: string },
+  draft: WorkflowDraftRef | null = null,
 ): WorkflowEdit {
-  const base =
-    edit !== null && (shown.dirty || shown.overtaken)
-      ? edit.base
-      : {
-          definition: shown.definition,
-          notes: shown.notes,
-          updatedAt: saved?.updatedAt ?? null,
-        };
+  const keep = edit !== null && (shown.dirty || shown.overtaken);
+  const base = keep
+    ? edit.base
+    : {
+        definition: shown.definition,
+        notes: shown.notes,
+        updatedAt: saved?.updatedAt ?? null,
+      };
+  const fromDraft = keep ? edit.fromDraft : (draft ?? edit?.fromDraft);
   return {
     definition: change.definition ?? shown.definition,
     notes: change.notes ?? shown.notes,
     base,
+    ...(fromDraft === undefined ? {} : { fromDraft }),
   };
 }
 

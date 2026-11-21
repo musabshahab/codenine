@@ -34,6 +34,7 @@ export function RunWorkflowButton(props: {
   /** Why it cannot run now; null when it can. */
   readonly disabledReason: string | null;
   readonly variant?: "secondary" | "outline" | undefined;
+  readonly size?: "xs" | "sm" | undefined;
 }) {
   const { environmentId, workflow } = props;
   const navigate = useNavigate();
@@ -90,7 +91,7 @@ export function RunWorkflowButton(props: {
     : "This connection can see workflows but cannot start runs.";
   const button = (
     <Button
-      size="sm"
+      size={props.size ?? "sm"}
       variant={props.variant ?? "secondary"}
       disabled={reason !== null || busy}
       onClick={() => void click()}

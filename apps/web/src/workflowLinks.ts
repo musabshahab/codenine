@@ -8,6 +8,13 @@ import type { FileRoutesByTo } from "./routeTree.gen";
 // instead of a link.
 const RUN_ROUTE = "/workflows/$name/runs/$run" satisfies keyof FileRoutesByTo;
 const NEW_ROUTE = "/workflows/new" satisfies keyof FileRoutesByTo;
+const WORKFLOW_ROUTE = "/workflows/$name" satisfies keyof FileRoutesByTo;
+
+/** A saved workflow's editor, on the computer it is saved on. */
+export function workflowHref(environmentId: EnvironmentId, name: string): string {
+  const search: WorkflowsSearch = { machine: environmentId };
+  return `${WORKFLOW_ROUTE.replace("$name", encodeURIComponent(name))}${defaultStringifySearch(search)}`;
+}
 
 /** A workflow run's page, on the computer that ran it. */
 export function workflowRunHref(

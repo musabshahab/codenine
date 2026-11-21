@@ -275,11 +275,15 @@ Turn on **Workflow**, next to **Team**, to have the agent draft a workflow from 
 instead of doing the work: say what should happen each time, and when. The draft opens in the
 right panel's **Workflow** tab, a step for each of your agents' parts; a step none of your agents
 fits shows the agent the lead suggests. Ask in the chat to change it. Nothing is saved until you
-choose **Review and save**, which opens the draft in the workflow editor. The sent message shows
-**Workflow requested**. Like Team, Workflow turns off once the message is sent, and it does not
-apply to a `/` command; turning one on turns the other off. It is offered in Personal chats too,
-since you pick the workspace when you save. **New workflow** in the sidebar's **New** menu starts a
-chat with Workflow on.
+open the draft in the workflow editor and save it there. A saved workflow starts off; turn it on
+from the chat's **Workflow** tab or in the editor to run it on its schedule. After you save, the
+**Workflow** tab shows the saved workflow, whether it is on, and anything that keeps it from
+running, and you can turn it on or off and run it from there. If you ask for changes later, they
+show as changes to that workflow, and saving them updates it instead of making a new one. The sent
+message shows **Workflow requested**. Like Team, Workflow turns off once the message is sent, and
+it does not apply to a `/` command; turning one on turns the other off. It is offered in Personal
+chats too: choose its workspace in the editor before you save. **New workflow** in the sidebar's
+**New** menu starts a chat with Workflow on.
 
 ## Context in your message
 
