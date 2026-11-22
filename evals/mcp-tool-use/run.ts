@@ -1050,8 +1050,9 @@ const listedAgents = ({ testCase }: Sample): ReadonlyMap<string, string> => {
 
 /**
  * A proposed member's model, refused as Codenine refuses a target the case's
- * `orchestrator_capabilities` providers (else `PROVIDERS`) do not list. A target on a saved agent
- * (`agentModel`, as `instance/model`) starts from that agent's model, else from the lead's.
+ * `orchestrator_capabilities` providers (else `PROVIDERS`) do not list. A target starts from the
+ * saved agent's model (`agentModel`, as `instance/model`), else the lead's; a bare `driverKind`
+ * picks that driver's inherited instance, else its first listed one.
  */
 const proposedModel = (
   sample: Sample,
@@ -1059,24 +1060,50 @@ const proposedModel = (
   agentModel = "",
 ) => {
   const mock = sample.testCase.setup.mocks?.orchestrator_capabilities;
-  const listed = isRecord(mock) && Array.isArray(mock.providers) ? mock.providers : PROVIDERS;
+  const listed = (
+    isRecord(mock) && Array.isArray(mock.providers) ? mock.providers : PROVIDERS
+  ).filter(isRecord);
+  const view = capabilities(sample, isRecord(mock) ? mock : {});
   const slash = agentModel.indexOf("/");
   const [inherited, inheritedModel] =
     slash > 0
       ? [agentModel.slice(0, slash), agentModel.slice(slash + 1)]
       : [
-          isRecord(mock) && typeof mock.inheritedProviderInstanceId === "string"
-            ? mock.inheritedProviderInstanceId
-            : "claudeAgent",
+          isRecord(view) && typeof view.inheritedProviderInstanceId === "string"
+            ? view.inheritedProviderInstanceId
+            : sample.base.codex
+              ? "codex"
+              : "claudeAgent",
           sample.base.model,
         ];
-  const instanceId =
-    typeof target.providerInstanceId === "string" ? target.providerInstanceId : inherited;
-  const provider = listed.filter(isRecord).find((p) => p.providerInstanceId === instanceId);
+  const driverOf = (provider: Readonly<Record<string, unknown>>) =>
+    valueText(provider.driverKind ?? provider.providerInstanceId);
+  const driverKind = typeof target.driverKind === "string" ? target.driverKind : undefined;
+  let instanceId =
+    typeof target.providerInstanceId === "string" ? target.providerInstanceId : undefined;
+  if (instanceId === undefined && driverKind !== undefined) {
+    const candidates = listed.filter((p) => driverOf(p) === driverKind);
+    const chosen = candidates.find((p) => p.providerInstanceId === inherited) ?? candidates[0];
+    if (chosen === undefined) {
+      return {
+        code: "provider_unavailable",
+        message: `No V2 provider adapter is registered for driver ${driverKind}.`,
+      };
+    }
+    instanceId = valueText(chosen.providerInstanceId);
+  }
+  instanceId ??= inherited;
+  const provider = listed.find((p) => p.providerInstanceId === instanceId);
   if (provider === undefined) {
     return {
       code: "provider_unavailable",
       message: `Provider instance ${instanceId} is not registered.`,
+    };
+  }
+  if (driverKind !== undefined && driverOf(provider) !== driverKind) {
+    return {
+      code: "invalid_request",
+      message: `Provider instance ${instanceId} uses driver ${driverOf(provider)}, not ${driverKind}.`,
     };
   }
   const models = (Array.isArray(provider.models) ? provider.models : [])

@@ -529,8 +529,8 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents and
       },
     },
   };
-  const propose = (member: Record<string, unknown>, agent = "builder") =>
-    codenineDefault(makeSample(withAgents, base), "propose_team", {
+  const propose = (member: Record<string, unknown>, agent = "builder", lead = base) =>
+    codenineDefault(makeSample(withAgents, lead), "propose_team", {
       goal: "Ship the rate limiter",
       agents: [{ id: "builder", role: "implement", ...member }],
       tasks: [
@@ -576,6 +576,34 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents and
     code: "model_unavailable",
     message: 'Member "builder": Model claude-opus-5-5 is not advertised by provider codex.',
   });
+  // A member without an instance runs on the lead's, here a Codex lead's.
+  const codexLead = {
+    ...base,
+    model: "gpt-6.1-sol" as const,
+    codex: { input: [], reasoning: { effort: "high" } },
+  };
+  assert.deepInclude(propose({ target: { model: "gpt-6.1-sol" } }, "builder", codexLead), proposed);
+  assert.deepEqual(propose({ target: { model: "claude-haiku-5-5" } }, "builder", codexLead), {
+    code: "model_unavailable",
+    message: 'Member "builder": Model claude-haiku-5-5 is not advertised by provider codex.',
+  });
+  // `driverKind` picks an instance of that driver, the inherited one first.
+  assert.deepInclude(propose({ target: { driverKind: "codex", model: "gpt-6.1-sol" } }), proposed);
+  assert.deepInclude(
+    propose({ agent: "builder", target: { driverKind: "claudeAgent", model: "claude-opus-5-5" } }),
+    proposed,
+  );
+  assert.deepEqual(propose({ target: { driverKind: "gemini" } }), {
+    code: "provider_unavailable",
+    message: 'Member "builder": No V2 provider adapter is registered for driver gemini.',
+  });
+  assert.deepEqual(
+    propose({ target: { providerInstanceId: "codex", driverKind: "claudeAgent" } }),
+    {
+      code: "invalid_request",
+      message: 'Member "builder": Provider instance codex uses driver codex, not claudeAgent.',
+    },
+  );
 });
 
 it("gives each launched thread its own id, and reading it back shows that thread's brief", () => {
