@@ -49,11 +49,23 @@ const BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS: Record<BackgroundActivityProfil
   advanced: "Advanced",
 };
 
-const BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS: Record<BackgroundActivityProfile, string> = {
-  balanced: "Pauses probes for idle clients, and while the host is locked (desktop app only).",
-  performance: "Allows scoped background probes while any subscribed client remains connected.",
-  "battery-saver": "Also pauses background probes while the host is on battery (desktop app only).",
-};
+function describeBackgroundActivityProfile(
+  profile: BackgroundActivityProfile,
+  reportsHostPower: boolean,
+): string {
+  switch (profile) {
+    case "balanced":
+      return reportsHostPower
+        ? "Pauses probes for idle clients and while the host is locked."
+        : "Pauses probes for idle clients.";
+    case "performance":
+      return "Allows scoped background probes while any subscribed client remains connected.";
+    case "battery-saver":
+      return reportsHostPower
+        ? "Like Balanced, but turns off git fetch, checks provider health every 15 minutes, and pauses probes on battery."
+        : "Like Balanced, but turns off git fetch and checks provider health every 15 minutes.";
+  }
+}
 
 const ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION = "Uses custom intervals.";
 
@@ -343,7 +355,7 @@ export function BackgroundActivitySettingsRow() {
       ? `${ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION} Shared policy: ${
           BACKGROUND_ACTIVITY_PROFILE_LABELS[activeBackgroundActivityProfile]
         }.`
-      : BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS[resolvedBackgroundActivity.profile];
+      : describeBackgroundActivityProfile(backgroundActivityProfileOption, reportsHostPower);
   const canResetBackgroundActivity = !Equal.equals(
     settings.backgroundActivity,
     DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
