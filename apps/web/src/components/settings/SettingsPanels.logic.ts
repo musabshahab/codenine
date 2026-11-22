@@ -12,8 +12,9 @@ import type {
 import { DEFAULT_CLIENT_SETTINGS } from "@codenine/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
-  normalizeBackgroundActivitySettings,
+  getBackgroundActivityPresetSettings,
   normalizeServerBackgroundActivitySettings,
+  type ResolvedBackgroundActivitySettings,
   resolveServerBackgroundActivitySettings,
 } from "@codenine/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
@@ -114,26 +115,45 @@ export function planDeviceSettingsRestore(settings: ClientSettings) {
   };
 }
 
+// Nothing reports low power mode, and host power reaches only servers that advertise it.
+function effectiveBackgroundActivity(
+  settings: ResolvedBackgroundActivitySettings,
+  reportsHostPower: boolean,
+): ReadonlyArray<number | boolean> {
+  return [
+    Duration.toMillis(settings.automaticGitFetchInterval),
+    Duration.toMillis(settings.providerHealthRefreshInterval),
+    ...(reportsHostPower
+      ? [
+          Duration.toMillis(settings.hostPowerMonitorActiveInterval),
+          Duration.toMillis(settings.hostPowerMonitorIdleInterval),
+          settings.pauseWhenHostLocked,
+          settings.pauseWhenOnBattery,
+        ]
+      : []),
+  ];
+}
+
 export function resolveBackgroundActivityProfileOption(
   settings: ServerSettings,
+  reportsHostPower: boolean,
 ): BackgroundActivityProfile | "advanced" {
   const resolved = resolveServerBackgroundActivitySettings(settings);
-  const normalized = normalizeBackgroundActivitySettings({
-    schemaVersion: 1,
-    profile: "custom",
-    baseProfile: resolved.profile,
-    overrides: {
-      automaticGitFetchInterval: resolved.automaticGitFetchInterval,
-      providerHealthRefreshInterval: resolved.providerHealthRefreshInterval,
-      hostPowerMonitorActiveInterval: resolved.hostPowerMonitorActiveInterval,
-      hostPowerMonitorIdleInterval: resolved.hostPowerMonitorIdleInterval,
-      pauseWhenHostLocked: resolved.pauseWhenHostLocked,
-      pauseWhenHostLowPower: resolved.pauseWhenHostLowPower,
-      pauseWhenClientLowPower: resolved.pauseWhenClientLowPower,
-      pauseWhenOnBattery: resolved.pauseWhenOnBattery,
-    },
-  });
-  return normalized.profile === "custom" ? "advanced" : normalized.profile;
+  const current = effectiveBackgroundActivity(resolved, reportsHostPower);
+  const profiles: ReadonlyArray<BackgroundActivityProfile> = [
+    resolved.profile,
+    "balanced",
+    "performance",
+    "battery-saver",
+  ];
+  return (
+    profiles.find((profile) =>
+      effectiveBackgroundActivity(
+        getBackgroundActivityPresetSettings(profile),
+        reportsHostPower,
+      ).every((value, index) => value === current[index]),
+    ) ?? "advanced"
+  );
 }
 
 export function backgroundActivitySharedPolicySettings(

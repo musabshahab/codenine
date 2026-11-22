@@ -1,4 +1,5 @@
 import {
+  type BackgroundActivitySettings,
   type ClientSettings,
   ClientSettingsSchema,
   DEFAULT_CLIENT_SETTINGS,
@@ -11,7 +12,78 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   backgroundActivitySharedPolicySettings,
   planDeviceSettingsRestore,
+  resolveBackgroundActivityProfileOption,
 } from "./SettingsPanels.logic";
+
+describe("background activity profile option", () => {
+  it.each<{
+    readonly change: string;
+    readonly overrides: BackgroundActivitySettings["overrides"];
+    readonly reportsHostPower: boolean;
+    readonly option: string;
+  }>([
+    {
+      change: "host low power pause off, host power reported",
+      overrides: { pauseWhenHostLowPower: false },
+      reportsHostPower: true,
+      option: "balanced",
+    },
+    {
+      change: "client low power pause off",
+      overrides: { pauseWhenClientLowPower: false },
+      reportsHostPower: false,
+      option: "balanced",
+    },
+    {
+      change: "lock pause off, host power reported",
+      overrides: { pauseWhenHostLocked: false },
+      reportsHostPower: true,
+      option: "advanced",
+    },
+    {
+      change: "lock pause off, no host power",
+      overrides: { pauseWhenHostLocked: false },
+      reportsHostPower: false,
+      option: "balanced",
+    },
+    {
+      change: "idle host power interval changed, no host power",
+      overrides: { hostPowerMonitorIdleInterval: Duration.minutes(1) },
+      reportsHostPower: false,
+      option: "balanced",
+    },
+    {
+      change: "Performance intervals, no host power",
+      overrides: {
+        automaticGitFetchInterval: Duration.seconds(15),
+        providerHealthRefreshInterval: Duration.minutes(1),
+      },
+      reportsHostPower: false,
+      option: "performance",
+    },
+    {
+      change: "custom git fetch interval",
+      overrides: { automaticGitFetchInterval: Duration.seconds(42) },
+      reportsHostPower: false,
+      option: "advanced",
+    },
+  ])("shows $option for Balanced with $change", ({ overrides, reportsHostPower, option }) => {
+    expect(
+      resolveBackgroundActivityProfileOption(
+        {
+          ...DEFAULT_UNIFIED_SETTINGS,
+          backgroundActivity: {
+            schemaVersion: 1,
+            profile: "custom",
+            baseProfile: "balanced",
+            overrides,
+          },
+        },
+        reportsHostPower,
+      ),
+    ).toBe(option);
+  });
+});
 
 describe("device settings restore", () => {
   it("lists and resets only the device rows that changed", () => {

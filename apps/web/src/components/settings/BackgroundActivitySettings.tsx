@@ -349,7 +349,10 @@ export function BackgroundActivitySettingsRow() {
   const mixedBackgroundActivity = useScopedSettingsMixed(["backgroundActivity"]);
   const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
   const activeBackgroundActivityProfile = resolvedBackgroundActivity.profile;
-  const backgroundActivityProfileOption = resolveBackgroundActivityProfileOption(settings);
+  const backgroundActivityProfileOption = resolveBackgroundActivityProfileOption(
+    settings,
+    reportsHostPower,
+  );
   const backgroundActivityDescription =
     backgroundActivityProfileOption === "advanced"
       ? `${ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION} Shared policy: ${
