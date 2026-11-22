@@ -1,6 +1,13 @@
-import { teamStepFlows, teamStepList, type TeamDraftChange } from "@codenine/client-runtime/team";
+import {
+  teamStepFlows,
+  teamStepList,
+  type TeamDraftChange,
+  type TeamEditorDraft,
+} from "@codenine/client-runtime/team";
 import {
   TEAM_MAX_AGENTS,
+  TEAM_MAX_PARALLEL_PER_PROVIDER,
+  TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS,
   type AgentName,
   type AgentSummary,
   type ModelSelection,
@@ -19,7 +26,9 @@ import {
   EllipsisIcon,
   PencilIcon,
   PlusIcon,
+  SaveIcon,
   Trash2Icon,
+  Undo2Icon,
   UserPlusIcon,
 } from "lucide-react";
 import { type ReactElement, type ReactNode, useId, useState } from "react";
@@ -29,6 +38,7 @@ import { agentChatModelSelection, useAgents } from "../agents/useAgents";
 import { ConnectorMark } from "../connectors/ConnectorMark";
 import { Button, InlineButton } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
+import { Input } from "../ui/input";
 import {
   Menu,
   MenuGroup,
@@ -41,6 +51,13 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
+import {
+  NumberField,
+  NumberFieldDecrement,
+  NumberFieldGroup,
+  NumberFieldIncrement,
+  NumberFieldInput,
+} from "../ui/number-field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -54,6 +71,7 @@ import {
 import {
   TEAM_ROLE_LABELS,
   TEAM_WORKSPACE_LABELS,
+  TeamDoneWhen,
   TeamMemberMark,
   TeamSectionHeading,
   TeamStepFlow,
@@ -84,6 +102,14 @@ function stepsOf(draft: TeamDraft, agentId: TeamAgent["id"]): ReadonlyArray<numb
 /** What the tab calls a member: the lead's suggestion until it has an agent, else its label. */
 function memberName(member: TeamAgent): string {
   return member.agent === undefined ? (member.suggestion?.title ?? member.label) : member.label;
+}
+
+/** A member the lead defined for this team, running as itself or, for now, as a saved agent. */
+function hasLeadDefinition(member: TeamAgent): boolean {
+  return (
+    member.suggestion === undefined &&
+    (member.agent === undefined || member.instructions !== undefined)
+  );
 }
 
 /** The title of the user's agent a member runs as; undefined for none, or while agents load. */
@@ -125,7 +151,7 @@ function teamModelSummary(agents: ReadonlyArray<TeamAgent>, catalog: TeamModelCa
 /** The body of a proposed team: the team on one line, then each step, all editable until approval. */
 export function TeamDraftEditor(props: {
   leadRef: ScopedThreadRef;
-  draft: TeamDraft;
+  draft: TeamEditorDraft;
   catalog: TeamModelCatalog;
   /** The model an added agent without one starts on, when the team has no member to copy. */
   defaultModelSelection: ModelSelection | null;
@@ -144,7 +170,7 @@ export function TeamDraftEditor(props: {
   const [rosterChoice, setRosterChoice] = useState<boolean | null>(null);
   if (rosterChoice === null && teamMembersWithoutAgent(draft).length > 0) setRosterChoice(true);
   const rosterOpen = rosterChoice === true;
-  // `assign` is the step that asked for the new agent, which then takes it.
+  // `assign` is the step that asked for the new member, which then takes it.
   const [adding, setAdding] = useState<{ readonly assign: TeamTaskId | null } | null>(null);
   const [editingBrief, setEditingBrief] = useState<TeamTaskId | null>(null);
   const fallbackModel = draft.agents[0]?.modelSelection ?? props.defaultModelSelection;
@@ -198,16 +224,15 @@ export function TeamDraftEditor(props: {
             ))}
             <li>
               {adding !== null ? (
-                <TeamAgentForm
+                <TeamAddMemberForm
                   environmentId={leadRef.environmentId}
                   yours={yours}
                   catalog={catalog}
                   fallbackModelSelection={fallbackModel}
                   disabled={disabled}
-                  onAdd={(member) => {
+                  onAdd={(change) => {
                     onChange({
-                      type: "agent.add",
-                      ...member,
+                      ...change,
                       ...(adding.assign === null ? {} : { assign: adding.assign }),
                     });
                     setAdding(null);
@@ -227,12 +252,17 @@ export function TeamDraftEditor(props: {
                   >
                     <PlusIcon className="size-3.5" />
                   </span>
-                  {canAddAgent ? "Add agent" : `A team has at most ${TEAM_MAX_AGENTS} agents`}
+                  {canAddAgent ? "Add member" : `A team has at most ${TEAM_MAX_AGENTS} members`}
                 </button>
               )}
             </li>
           </ul>
         ) : null}
+        <TeamParallelField
+          value={draft.maxParallelPerProvider}
+          disabled={disabled}
+          onChange={onChange}
+        />
       </section>
       <section aria-label="Steps" className="flex flex-col gap-3">
         <TeamSectionHeading detail={String(draft.tasks.length)}>Steps</TeamSectionHeading>
@@ -264,9 +294,42 @@ export function TeamDraftEditor(props: {
   );
 }
 
+/** How many of the team's tasks run at once on one account. */
+function TeamParallelField(props: {
+  value: number;
+  disabled: boolean;
+  onChange: OnTeamDraftChange;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-muted-foreground text-xs">
+      Up to
+      <NumberField
+        size="sm"
+        className="w-24"
+        min={1}
+        max={TEAM_MAX_PARALLEL_PER_PROVIDER}
+        step={1}
+        value={props.value}
+        disabled={props.disabled}
+        onValueChange={(value) => {
+          if (value !== null)
+            props.onChange({ type: "parallel.set", maxParallelPerProvider: value });
+        }}
+      >
+        <NumberFieldGroup>
+          <NumberFieldDecrement aria-label="Fewer tasks at a time" />
+          <NumberFieldInput aria-label="Tasks at a time per account" />
+          <NumberFieldIncrement aria-label="More tasks at a time" />
+        </NumberFieldGroup>
+      </NumberField>
+      {props.value === 1 ? "task" : "tasks"} at a time per account
+    </div>
+  );
+}
+
 /**
  * A member as the agent it runs as, or, while the lead's suggestion waits for an agent, what it
- * would do with the ways to give it one. Members of plans from before agents show their role.
+ * would do with the ways to give it one. A member the lead defined shows its instructions.
  */
 function TeamRosterRow(props: {
   leadRef: ScopedThreadRef;
@@ -279,12 +342,16 @@ function TeamRosterRow(props: {
 }) {
   const { member, draft } = props;
   const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
   const steps = stepsOf(draft, member.id);
   const stepText = steps.length === 0 ? "No steps" : teamStepList(steps);
   const suggestion = member.agent === undefined ? (member.suggestion ?? null) : null;
+  const leadDefined = hasLeadDefinition(member);
+  const runsItself = leadDefined && member.agent === undefined;
   const agentTitle = agentTitleOf(member, props.yours.agents);
   const details = [
     suggestion === null ? null : "Suggested",
+    runsItself ? "Made for this team" : null,
     // The lead may name a member apart from its agent; the row still says which agent runs it.
     agentTitle === undefined || agentTitle === member.label ? null : `${agentTitle} agent`,
     member.role === "custom" ? null : TEAM_ROLE_LABELS[member.role],
@@ -294,6 +361,15 @@ function TeamRosterRow(props: {
     .filter((part) => part !== null)
     .join(" · ");
   const name = memberName(member);
+  const createAgent = () =>
+    void navigate({
+      to: "/agents/new",
+      search: {
+        machine: props.leadRef.environmentId,
+        lead: props.leadRef.threadId,
+        member: member.id,
+      },
+    });
   const remove = (
     <Button
       size="icon-xs"
@@ -310,7 +386,7 @@ function TeamRosterRow(props: {
       <div className="flex items-center gap-2.5">
         <TeamMemberMark member={member} name={agentTitle} size="lg" />
         <div className="flex min-w-0 flex-1 flex-col">
-          {member.agent === undefined ? (
+          {member.agent === undefined || leadDefined ? (
             <span className="truncate font-medium">{name}</span>
           ) : (
             <TeamChooseAgentMenu
@@ -345,6 +421,18 @@ function TeamRosterRow(props: {
           disabled={props.disabled}
           onChange={props.onChange}
         />
+        {leadDefined ? (
+          <TeamMemberMenu
+            member={member}
+            name={name}
+            yours={props.yours}
+            catalog={props.catalog}
+            disabled={props.disabled}
+            onEdit={() => setEditing(true)}
+            onSaveAsAgent={createAgent}
+            onChange={props.onChange}
+          />
+        ) : null}
         {steps.length > 0 ? (
           <Tooltip>
             <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
@@ -356,6 +444,39 @@ function TeamRosterRow(props: {
           remove
         )}
       </div>
+      {runsItself ? (
+        editing ? (
+          <TeamMemberEditForm
+            member={member}
+            disabled={props.disabled}
+            onSave={(edit) => {
+              props.onChange({ type: "member.edit", agentId: member.id, ...edit });
+              setEditing(false);
+            }}
+            onClose={() => setEditing(false)}
+          />
+        ) : (
+          <div className="ps-9">
+            {member.instructions === undefined ? (
+              <InlineButton tone="muted" disabled={props.disabled} onClick={() => setEditing(true)}>
+                Add instructions
+              </InlineButton>
+            ) : (
+              <button
+                type="button"
+                disabled={props.disabled}
+                onClick={() => setEditing(true)}
+                className="block w-full cursor-text rounded-sm text-start text-muted-foreground text-xs outline-none hover:text-foreground/85 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:hover:text-muted-foreground"
+              >
+                <span className="sr-only">Edit instructions: </span>
+                <span className="line-clamp-2 whitespace-pre-wrap break-words">
+                  {member.instructions}
+                </span>
+              </button>
+            )}
+          </div>
+        )
+      ) : null}
       {suggestion === null ? null : (
         <div className="flex flex-wrap items-center gap-1.5 ps-11.5">
           <Button
@@ -363,16 +484,7 @@ function TeamRosterRow(props: {
             variant="outline"
             aria-label={`Create agent for ${name}`}
             disabled={props.disabled}
-            onClick={() =>
-              void navigate({
-                to: "/agents/new",
-                search: {
-                  machine: props.leadRef.environmentId,
-                  lead: props.leadRef.threadId,
-                  member: member.id,
-                },
-              })
-            }
+            onClick={createAgent}
           >
             <UserPlusIcon aria-hidden />
             Create agent
@@ -395,6 +507,64 @@ function TeamRosterRow(props: {
 }
 
 /**
+ * The user's agents to run a member as. A member the lead defined keeps its name and model; any
+ * other member takes the agent's model when it has one.
+ */
+function TeamAgentChoices(props: {
+  member: TeamAgent;
+  label: string;
+  yours: YourAgents;
+  catalog: TeamModelCatalog;
+  onChange: OnTeamDraftChange;
+}) {
+  const { member, yours } = props;
+  return (
+    <>
+      <MenuGroup>
+        <MenuGroupLabel>{props.label}</MenuGroupLabel>
+        <MenuRadioGroup
+          value={member.agent ?? null}
+          onValueChange={(value) => {
+            const agent = yours.agents.find((candidate) => candidate.name === value);
+            if (agent === undefined || agent.name === member.agent) return;
+            props.onChange({
+              type: "agent.assign",
+              agentId: member.id,
+              agent: agent.name,
+              label: agent.title,
+              modelSelection:
+                agent.model === null
+                  ? member.modelSelection
+                  : agentChatModelSelection(props.catalog.entries, agent.model),
+            });
+          }}
+        >
+          {yours.agents.map((agent) => (
+            <MenuRadioItem key={agent.name} value={agent.name} closeOnClick>
+              <span className="flex items-center gap-2.5">
+                <ConnectorMark name={agent.title} size="sm" tone="agent" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{agent.title}</span>
+                  <span className="truncate text-muted-foreground text-xs">
+                    {agent.description}
+                  </span>
+                </span>
+                <MenuRadioItemIndicator />
+              </span>
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>
+      {yours.agents.length === 0 ? (
+        <p className="px-2 py-1 text-muted-foreground text-xs">
+          {yours.loading ? "Loading your agents…" : (yours.error ?? "You have no agents yet.")}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/**
  * Runs a member as one of the user's agents, on that agent's model when it has one: a suggested
  * member gets its agent here, and a member with one can change it.
  */
@@ -408,53 +578,79 @@ function TeamChooseAgentMenu(props: {
   trigger: ReactElement;
   children: ReactNode;
 }) {
-  const { member, yours } = props;
   return (
     <Menu>
       <MenuTrigger disabled={props.disabled} render={props.trigger}>
         {props.children}
       </MenuTrigger>
       <MenuPopup align="start" className="w-72">
-        <MenuGroup>
-          <MenuGroupLabel>Your agents</MenuGroupLabel>
-          <MenuRadioGroup
-            value={member.agent ?? null}
-            onValueChange={(value) => {
-              const agent = yours.agents.find((candidate) => candidate.name === value);
-              if (agent === undefined || agent.name === member.agent) return;
-              props.onChange({
-                type: "agent.assign",
-                agentId: member.id,
-                agent: agent.name,
-                label: agent.title,
-                modelSelection:
-                  agent.model === null
-                    ? member.modelSelection
-                    : agentChatModelSelection(props.catalog.entries, agent.model),
-              });
-            }}
-          >
-            {yours.agents.map((agent) => (
-              <MenuRadioItem key={agent.name} value={agent.name} closeOnClick>
-                <span className="flex items-center gap-2.5">
-                  <ConnectorMark name={agent.title} size="sm" tone="agent" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">{agent.title}</span>
-                    <span className="truncate text-muted-foreground text-xs">
-                      {agent.description}
-                    </span>
-                  </span>
-                  <MenuRadioItemIndicator />
-                </span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </MenuGroup>
-        {yours.agents.length === 0 ? (
-          <p className="px-2 py-1 text-muted-foreground text-xs">
-            {yours.loading ? "Loading your agents…" : (yours.error ?? "You have no agents yet.")}
-          </p>
-        ) : null}
+        <TeamAgentChoices
+          member={props.member}
+          label="Your agents"
+          yours={props.yours}
+          catalog={props.catalog}
+          onChange={props.onChange}
+        />
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+/**
+ * A member the lead defined: run it as one of the user's agents and back, edit it, or save it as
+ * an agent of the user's own.
+ */
+function TeamMemberMenu(props: {
+  member: TeamAgent;
+  name: string;
+  yours: YourAgents;
+  catalog: TeamModelCatalog;
+  disabled: boolean;
+  onEdit: () => void;
+  onSaveAsAgent: () => void;
+  onChange: OnTeamDraftChange;
+}) {
+  const { member } = props;
+  return (
+    <Menu>
+      <MenuTrigger
+        disabled={props.disabled}
+        render={
+          <Button size="icon-xs" variant="ghost-muted" aria-label={`More for ${props.name}`} />
+        }
+      >
+        <EllipsisIcon aria-hidden />
+      </MenuTrigger>
+      <MenuPopup align="end" className="w-72">
+        <TeamAgentChoices
+          member={member}
+          label={
+            member.instructions === undefined
+              ? "Use one of your agents"
+              : "Use one of your agents, on this model"
+          }
+          yours={props.yours}
+          catalog={props.catalog}
+          onChange={props.onChange}
+        />
+        <MenuSeparator />
+        {member.agent === undefined ? (
+          <>
+            <MenuItem onClick={props.onEdit}>
+              <PencilIcon aria-hidden />
+              Edit member
+            </MenuItem>
+            <MenuItem onClick={props.onSaveAsAgent}>
+              <SaveIcon aria-hidden />
+              Save as agent…
+            </MenuItem>
+          </>
+        ) : (
+          <MenuItem onClick={() => props.onChange({ type: "agent.unassign", agentId: member.id })}>
+            <Undo2Icon aria-hidden />
+            Back to the lead's definition
+          </MenuItem>
+        )}
       </MenuPopup>
     </Menu>
   );
@@ -609,6 +805,7 @@ function TeamDraftStep(props: {
           <span className="line-clamp-2 break-words">{task.brief}</span>
         </button>
       )}
+      <TeamDoneWhen text={task.doneWhen} />
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <TeamStepAgentMenu
           number={props.number}
@@ -709,148 +906,153 @@ function TeamStepAgentMenu(props: {
         <MenuSeparator />
         <MenuItem disabled={!props.canAddAgent} onClick={props.onNewAgent}>
           <UserPlusIcon aria-hidden />
-          Add agent…
+          Add member…
         </MenuItem>
       </MenuPopup>
     </Menu>
   );
 }
 
-/** Adds one of the user's agents to the team, on the agent's own model. */
-function TeamAgentForm(props: {
-  environmentId: ScopedThreadRef["environmentId"];
-  yours: YourAgents;
-  catalog: TeamModelCatalog;
-  /** The model an agent without one starts on. */
-  fallbackModelSelection: ModelSelection | null;
+function TeamRoleField(props: { value: TeamAgentRole; onChange: (role: TeamAgentRole) => void }) {
+  const id = useId();
+  return (
+    <div className="flex w-36 flex-col gap-1">
+      <span id={id} className="text-muted-foreground text-xs">
+        Role
+      </span>
+      <Select
+        value={props.value}
+        onValueChange={(value) => {
+          if (value !== null) props.onChange(value);
+        }}
+      >
+        <SelectTrigger size="sm" aria-labelledby={id}>
+          <SelectValue>{(value: TeamAgentRole) => TEAM_ROLE_LABELS[value]}</SelectValue>
+        </SelectTrigger>
+        <SelectPopup>
+          {ROLES.map((candidate) => (
+            <SelectItem key={candidate} value={candidate}>
+              {TEAM_ROLE_LABELS[candidate]}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+    </div>
+  );
+}
+
+function TeamWorkspaceField(props: {
+  value: TeamWorkspace;
+  onChange: (workspace: TeamWorkspace) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-1">
+      <span id={id} className="text-muted-foreground text-xs">
+        Works in
+      </span>
+      <ToggleGroup
+        aria-labelledby={id}
+        className="w-full *:flex-1"
+        value={[props.value]}
+        onValueChange={(next) => {
+          const value = next[0];
+          if (value === "shared" || value === "worktree") props.onChange(value);
+        }}
+      >
+        <Toggle value="shared">{TEAM_WORKSPACE_LABELS.shared}</Toggle>
+        <Toggle value="worktree">{TEAM_WORKSPACE_LABELS.worktree}</Toggle>
+      </ToggleGroup>
+      <p className="text-muted-foreground text-xs">{WORKSPACE_HELP[props.value]}</p>
+    </div>
+  );
+}
+
+function TeamNameField(props: {
+  value: string;
+  autoFocus?: boolean;
+  onChange: (name: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex min-w-36 flex-1 flex-col gap-1">
+      <label htmlFor={id} className="text-muted-foreground text-xs">
+        Name
+      </label>
+      <Input
+        id={id}
+        size="sm"
+        autoFocus={props.autoFocus}
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+function TeamInstructionsField(props: {
+  value: string;
+  autoFocus?: boolean;
+  onChange: (instructions: string) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-muted-foreground text-xs">
+        Instructions
+      </label>
+      <Textarea
+        id={id}
+        size="sm"
+        rows={4}
+        ref={props.autoFocus === true ? focusAtEnd : undefined}
+        maxLength={TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS}
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+      />
+      <p className="text-muted-foreground text-xs">
+        Its standing role and rules, for every step it runs. It exists only for this team.
+      </p>
+    </div>
+  );
+}
+
+const FORM_FRAME = "m-1 flex flex-col gap-3 rounded-md border bg-background p-3";
+
+/** Edits a member the lead defined: its name, role, workspace and instructions. */
+function TeamMemberEditForm(props: {
+  member: TeamAgent;
   disabled: boolean;
-  onAdd: (member: {
-    agent: AgentName;
+  onSave: (edit: {
     label: string;
     role: TeamAgentRole;
-    modelSelection: ModelSelection;
     workspace: TeamWorkspace;
+    instructions: string;
   }) => void;
   onClose: () => void;
 }) {
-  const { yours } = props;
-  const id = useId();
-  const [name, setName] = useState<AgentName | null>(null);
-  const [role, setRole] = useState<TeamAgentRole>("implement");
-  const [workspace, setWorkspace] = useState<TeamWorkspace>("shared");
-  const agent = yours.agents.find((candidate) => candidate.name === name) ?? null;
-  const modelSelection =
-    agent?.model == null
-      ? props.fallbackModelSelection
-      : agentChatModelSelection(props.catalog.entries, agent.model);
-  if (yours.agents.length === 0) {
-    return (
-      <div className="m-1 flex flex-col gap-3 rounded-md border bg-background p-3">
-        <p className="text-muted-foreground text-xs">
-          {yours.loading
-            ? "Loading your agents…"
-            : (yours.error ??
-              "A team is built from your agents, and you have none yet. Create one on the Agents page first.")}
-        </p>
-        <div className="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" onClick={props.onClose}>
-            Cancel
-          </Button>
-          <Button
-            size="xs"
-            variant="outline"
-            render={<Link to="/agents" search={{ machine: props.environmentId }} />}
-          >
-            Open Agents
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const { member } = props;
+  const [label, setLabel] = useState(member.label);
+  const [role, setRole] = useState(member.role);
+  const [workspace, setWorkspace] = useState(member.workspace);
+  const [instructions, setInstructions] = useState(member.instructions ?? "");
   return (
     <form
-      aria-label="Add agent"
-      className="m-1 flex flex-col gap-3 rounded-md border bg-background p-3"
+      aria-label={`Edit ${member.label}`}
+      className={FORM_FRAME}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!props.disabled && agent !== null && modelSelection !== null) {
-          props.onAdd({ agent: agent.name, label: agent.title, role, modelSelection, workspace });
+        if (!props.disabled && label.trim() !== "") {
+          props.onSave({ label, role, workspace, instructions });
         }
       }}
     >
       <div className="flex flex-wrap gap-2">
-        <div className="flex min-w-36 flex-1 flex-col gap-1">
-          <span id={`${id}-agent`} className="text-muted-foreground text-xs">
-            Agent
-          </span>
-          <Select value={name} onValueChange={(value) => setName(value)}>
-            <SelectTrigger size="sm" autoFocus aria-labelledby={`${id}-agent`}>
-              <SelectValue>
-                {(value: AgentName | null) =>
-                  yours.agents.find((candidate) => candidate.name === value)?.title ??
-                  "Choose one of your agents"
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {yours.agents.map((candidate) => (
-                <SelectItem key={candidate.name} value={candidate.name}>
-                  <span className="flex min-w-0 items-center gap-2">
-                    <ConnectorMark name={candidate.title} size="sm" tone="agent" />
-                    <span className="truncate">{candidate.title}</span>
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
-        <div className="flex w-36 flex-col gap-1">
-          <span id={`${id}-role`} className="text-muted-foreground text-xs">
-            Role
-          </span>
-          <Select
-            value={role}
-            onValueChange={(value) => {
-              if (value !== null) setRole(value);
-            }}
-          >
-            <SelectTrigger size="sm" aria-labelledby={`${id}-role`}>
-              <SelectValue>{(value: TeamAgentRole) => TEAM_ROLE_LABELS[value]}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {ROLES.map((candidate) => (
-                <SelectItem key={candidate} value={candidate}>
-                  {TEAM_ROLE_LABELS[candidate]}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
+        <TeamNameField value={label} onChange={setLabel} />
+        <TeamRoleField value={role} onChange={setRole} />
       </div>
-      {agent === null || modelSelection === null ? null : (
-        <p className="text-muted-foreground text-xs">
-          Runs on {teamModelLine(props.catalog, modelSelection)}. You can change it for this team
-          once it is added.
-        </p>
-      )}
-      <div className="flex flex-col gap-1">
-        <span id={`${id}-workspace`} className="text-muted-foreground text-xs">
-          Works in
-        </span>
-        <ToggleGroup
-          aria-labelledby={`${id}-workspace`}
-          className="w-full *:flex-1"
-          value={[workspace]}
-          onValueChange={(next) => {
-            const value = next[0];
-            if (value === "shared" || value === "worktree") setWorkspace(value);
-          }}
-        >
-          <Toggle value="shared">{TEAM_WORKSPACE_LABELS.shared}</Toggle>
-          <Toggle value="worktree">{TEAM_WORKSPACE_LABELS.worktree}</Toggle>
-        </ToggleGroup>
-        <p className="text-muted-foreground text-xs">{WORKSPACE_HELP[workspace]}</p>
-      </div>
+      <TeamInstructionsField autoFocus value={instructions} onChange={setInstructions} />
+      <TeamWorkspaceField value={workspace} onChange={setWorkspace} />
       <div className="flex items-center justify-end gap-1">
         <Button size="xs" variant="ghost" onClick={props.onClose}>
           Cancel
@@ -859,11 +1061,174 @@ function TeamAgentForm(props: {
           size="xs"
           variant="outline"
           type="submit"
-          disabled={props.disabled || agent === null || modelSelection === null}
+          disabled={props.disabled || label.trim() === ""}
         >
-          Add agent
+          Save
         </Button>
       </div>
+    </form>
+  );
+}
+
+type TeamMemberAddChange = Extract<TeamDraftChange, { type: "member.add" | "agent.add" }>;
+
+/** Adds a member defined here, or one of the user's agents on the agent's own model. */
+function TeamAddMemberForm(props: {
+  environmentId: ScopedThreadRef["environmentId"];
+  yours: YourAgents;
+  catalog: TeamModelCatalog;
+  /** The model a new member, or an agent without one, starts on. */
+  fallbackModelSelection: ModelSelection | null;
+  disabled: boolean;
+  onAdd: (change: TeamMemberAddChange) => void;
+  onClose: () => void;
+}) {
+  const { yours, catalog } = props;
+  const id = useId();
+  const [kind, setKind] = useState<"new" | "agent">("new");
+  const [label, setLabel] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [model, setModel] = useState(props.fallbackModelSelection);
+  const [name, setName] = useState<AgentName | null>(null);
+  const [role, setRole] = useState<TeamAgentRole>("implement");
+  const [workspace, setWorkspace] = useState<TeamWorkspace>("shared");
+  const agent = yours.agents.find((candidate) => candidate.name === name) ?? null;
+  const agentModel =
+    agent?.model == null
+      ? props.fallbackModelSelection
+      : agentChatModelSelection(catalog.entries, agent.model);
+  const ready =
+    kind === "new" ? label.trim() !== "" && model !== null : agent !== null && agentModel !== null;
+  const kindToggle = (
+    <ToggleGroup
+      aria-label="Kind of member"
+      className="w-full *:flex-1"
+      value={[kind]}
+      onValueChange={(next) => {
+        const value = next[0];
+        if (value === "new" || value === "agent") setKind(value);
+      }}
+    >
+      <Toggle value="new">New member</Toggle>
+      <Toggle value="agent">One of your agents</Toggle>
+    </ToggleGroup>
+  );
+  const actions = (
+    <div className="flex items-center justify-end gap-1">
+      <Button size="xs" variant="ghost" onClick={props.onClose}>
+        Cancel
+      </Button>
+      {kind === "agent" && yours.agents.length === 0 ? (
+        <Button
+          size="xs"
+          variant="outline"
+          render={<Link to="/agents" search={{ machine: props.environmentId }} />}
+        >
+          Open Agents
+        </Button>
+      ) : (
+        <Button size="xs" variant="outline" type="submit" disabled={props.disabled || !ready}>
+          Add member
+        </Button>
+      )}
+    </div>
+  );
+  return (
+    <form
+      aria-label="Add member"
+      className={FORM_FRAME}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (props.disabled) return;
+        if (kind === "new" && model !== null && label.trim() !== "") {
+          props.onAdd({
+            type: "member.add",
+            label,
+            role,
+            modelSelection: model,
+            workspace,
+            instructions,
+          });
+        }
+        if (kind === "agent" && agent !== null && agentModel !== null) {
+          props.onAdd({
+            type: "agent.add",
+            agent: agent.name,
+            label: agent.title,
+            role,
+            modelSelection: agentModel,
+            workspace,
+          });
+        }
+      }}
+    >
+      {kindToggle}
+      {kind === "agent" && yours.agents.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          {yours.loading
+            ? "Loading your agents…"
+            : (yours.error ?? "You have no agents yet. Create one on the Agents page.")}
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {kind === "new" ? (
+              <TeamNameField autoFocus value={label} onChange={setLabel} />
+            ) : (
+              <div className="flex min-w-36 flex-1 flex-col gap-1">
+                <span id={`${id}-agent`} className="text-muted-foreground text-xs">
+                  Agent
+                </span>
+                <Select value={name} onValueChange={(value) => setName(value)}>
+                  <SelectTrigger size="sm" autoFocus aria-labelledby={`${id}-agent`}>
+                    <SelectValue>
+                      {(value: AgentName | null) =>
+                        yours.agents.find((candidate) => candidate.name === value)?.title ??
+                        "Choose one of your agents"
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {yours.agents.map((candidate) => (
+                      <SelectItem key={candidate.name} value={candidate.name}>
+                        <span className="flex min-w-0 items-center gap-2">
+                          <ConnectorMark name={candidate.title} size="sm" tone="agent" />
+                          <span className="truncate">{candidate.title}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              </div>
+            )}
+            <TeamRoleField value={role} onChange={setRole} />
+          </div>
+          {kind === "new" ? (
+            <>
+              <TeamInstructionsField value={instructions} onChange={setInstructions} />
+              {model === null ? null : (
+                <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                  Runs on
+                  <TeamModelPicker
+                    catalog={catalog}
+                    selection={model}
+                    label="Model for the new member"
+                    disabled={props.disabled}
+                    onChange={setModel}
+                  />
+                </div>
+              )}
+            </>
+          ) : agent === null || agentModel === null ? null : (
+            <p className="text-muted-foreground text-xs">
+              Runs on {teamModelLine(catalog, agentModel)}. You can change it for this team once it
+              is added.
+            </p>
+          )}
+          <TeamWorkspaceField value={workspace} onChange={setWorkspace} />
+        </>
+      )}
+      {actions}
     </form>
   );
 }

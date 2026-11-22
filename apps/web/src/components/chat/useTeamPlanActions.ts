@@ -21,6 +21,7 @@ import {
 import {
   AuthOrchestrationOperateScope,
   CommandId,
+  type ModelSelection,
   type OrchestrationV2Command,
   type ScopedThreadRef,
   type TeamAgentId,
@@ -41,6 +42,11 @@ const OVERTAKEN_NOTICE =
   "The team changed while you were editing, so your unsaved changes were dropped. This is the new plan.";
 
 export type TeamPlanPendingAction = "save" | "approve" | "cancel" | `retry:${string}`;
+
+export interface TeamRetryChoice {
+  readonly agentId?: TeamAgentId;
+  readonly modelSelection?: ModelSelection;
+}
 
 interface TeamPlanUiState {
   readonly edit: TeamDraftEdit | null;
@@ -108,7 +114,7 @@ export function useTeamPlanActions(leadRef: ScopedThreadRef, plan: TeamPlan) {
   const canOperate = hasOperateScope && permitted;
   const proposed = plan.status === "proposed";
   const resolved = resolveTeamDraft(plan, ui.edit);
-  const issue = proposed ? teamDraftIssue(resolved.draft) : null;
+  const issue = proposed ? teamDraftIssue(resolved.draft, plan.goal) : null;
   const approveBlock = proposed ? teamApproveBlock(resolved.draft) : null;
   // While this client approves or cancels, the plan leaves `proposed` before its edits are cleared.
   const notice = ui.notice ?? (resolved.overtaken && ui.pending === null ? OVERTAKEN_NOTICE : null);
@@ -181,14 +187,10 @@ export function useTeamPlanActions(leadRef: ScopedThreadRef, plan: TeamPlan) {
         ? run("approve", teamApproveCommands({ threadId, resolved, newCommandId }))
         : Promise.resolve(false),
     cancel,
-    retry: (task: TeamTask, agentId?: TeamAgentId) =>
+    /** Retries on the task's member and model unless `on` names another agent or model. */
+    retry: (task: TeamTask, on: TeamRetryChoice = {}) =>
       run(`retry:${task.id}`, [
-        teamRetryCommand({
-          threadId,
-          task,
-          ...(agentId === undefined ? {} : { agentId }),
-          commandId: newCommandId(),
-        }),
+        teamRetryCommand({ threadId, task, ...on, commandId: newCommandId() }),
       ]),
   };
 }

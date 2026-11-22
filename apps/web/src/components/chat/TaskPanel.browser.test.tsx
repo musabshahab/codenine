@@ -84,8 +84,25 @@ const environmentId = EnvironmentId.make("local");
 const leadRef = { environmentId, threadId: ThreadId.make("thread:lead") };
 const claude = ProviderInstanceId.make("claudeAgent");
 const haiku = { instanceId: claude, model: "claude-haiku-5-5" };
+const writer = {
+  id: TeamAgentId.make("writer"),
+  label: "Writer",
+  role: "implement",
+  modelSelection: haiku,
+  workspace: "shared",
+  agent: "writer",
+} as const;
+/** A member the lead defined for this team, with no saved agent. */
+const checker = {
+  id: TeamAgentId.make("checker"),
+  label: "Fact checker",
+  role: "review",
+  modelSelection: haiku,
+  workspace: "shared",
+  instructions: "Check each claim against its source.",
+} as const;
 
-function setup() {
+function setup(overrides: Partial<TeamPlan> = {}) {
   const entries = deriveProviderInstanceEntries([
     {
       instanceId: claude,
@@ -147,14 +164,7 @@ function setup() {
     status: "proposed",
     goal: "Write the release notes",
     agents: [
-      {
-        id: TeamAgentId.make("writer"),
-        label: "Writer",
-        role: "implement",
-        modelSelection: haiku,
-        workspace: "shared",
-        agent: "writer",
-      },
+      writer,
       {
         id: TeamAgentId.make("checker"),
         label: "Fact checker",
@@ -173,6 +183,7 @@ function setup() {
     maxParallelPerProvider: 2,
     proposedAt: "2026-11-17T10:00:00.000Z",
     updatedAt: "2026-11-17T10:00:00.000Z",
+    ...overrides,
   };
   state.plan = Atom.make(plan);
 }
@@ -245,4 +256,74 @@ it("waits for an agent for each suggested member, then approves the team it chos
     agent: "source-checker",
   });
   expect(approval).toMatchObject({ type: "team.approve", expectedRevision: 2 });
+});
+
+it("runs a member the lead defined as one of your agents on its model, and back", async () => {
+  const draft = task("draft", "writer", []);
+  setup({
+    agents: [writer, checker],
+    tasks: [
+      draft,
+      { ...task("check", "checker", [draft.id]), doneWhen: "Every claim has a source." },
+    ],
+  });
+  await using screen = await render(<TaskPanel threadRef={leadRef} onViewChanges={undefined} />);
+  const approve = screen.getByRole("button", { name: "Approve and start" });
+  await expect.element(approve).toBeEnabled();
+  await expect.element(screen.getByText("Done when: Every claim has a source.")).toBeVisible();
+
+  await screen.getByRole("button", { name: "Edit team" }).click();
+  const madeHere = screen.getByText(/Made for this team/);
+  await expect.element(madeHere).toBeVisible();
+  await expect.element(screen.getByText("Check each claim against its source.")).toBeVisible();
+
+  const more = screen.getByRole("button", { name: "More for Fact checker" });
+  await more.click();
+  await page.getByRole("menuitemradio", { name: /Source checker/ }).click();
+  await expect.element(screen.getByText(/Source checker agent/)).toBeVisible();
+  await expect.element(madeHere).not.toBeInTheDocument();
+
+  await more.click();
+  await page.getByRole("menuitem", { name: "Back to the lead's definition" }).click();
+  await expect.element(madeHere).toBeVisible();
+
+  await more.click();
+  await page.getByRole("menuitemradio", { name: /Source checker/ }).click();
+  await screen.getByRole("button", { name: "More tasks at a time" }).click();
+  await approve.click();
+
+  await vi.waitFor(() => expect(state.dispatch).toHaveBeenCalledTimes(2));
+  const [edit] = state.dispatch.mock.calls.map(([call]) => call.input);
+  expect(edit.agents[1]).toEqual({ ...checker, agent: "source-checker" });
+  expect(edit.tasks[1]).toMatchObject({ doneWhen: "Every claim has a source." });
+  expect(edit.maxParallelPerProvider).toBe(3);
+});
+
+it("retries a failed step on another model", async () => {
+  const draft = { ...task("draft", "writer", []), status: "completed" as const };
+  setup({
+    status: "failed",
+    agents: [writer, checker],
+    tasks: [
+      draft,
+      {
+        ...task("check", "checker", [draft.id]),
+        status: "failed",
+        result: "Could not reach the sources.",
+        modelSelection: { instanceId: claude, model: "claude-sonnet-5-5" },
+      },
+    ],
+  });
+  await using screen = await render(<TaskPanel threadRef={leadRef} onViewChanges={undefined} />);
+  await expect.element(screen.getByText(/Sonnet 5\.5/)).toBeVisible();
+
+  await screen.getByRole("button", { name: "More ways to retry" }).click();
+  await page.getByRole("menuitem", { name: "Retry on another model…" }).click();
+  await page.getByRole("option", { name: /Haiku 5\.5/ }).click();
+  await page.getByRole("button", { name: /^Retry on .*Haiku 5\.5/ }).click();
+
+  await vi.waitFor(() => expect(state.dispatch).toHaveBeenCalledTimes(1));
+  const retry = state.dispatch.mock.calls[0]?.[0].input;
+  expect(retry).toMatchObject({ type: "team.task.retry", taskId: "check", modelSelection: haiku });
+  expect(retry).not.toHaveProperty("agentId");
 });
