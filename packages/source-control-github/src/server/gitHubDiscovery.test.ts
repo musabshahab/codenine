@@ -111,6 +111,13 @@ it.effect.each([
     status: "unauthenticated",
     detail: 'secret provider "vault"',
   },
+  {
+    name: "an ignored",
+    token: "resolved-token",
+    hosts: { "github.com": { enabled: false } },
+    status: "unauthenticated",
+    detail: "github.com is turned off",
+  },
 ])("reports $name saved GitHub token instead of another credential", (scenario) =>
   Effect.gen(function* () {
     const paths: Array<string> = [];
@@ -142,7 +149,10 @@ it.effect.each([
                     Effect.succeed(
                       decodeSettings({
                         sourceControlHosts: {
-                          github: { tokens: { "github.com": scenario.token } },
+                          github: {
+                            tokens: { "github.com": scenario.token },
+                            hosts: scenario.hosts ?? {},
+                          },
                         },
                       }),
                     ),

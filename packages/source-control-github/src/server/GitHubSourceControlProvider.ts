@@ -255,7 +255,8 @@ export const makeDiscovery = Effect.gen(function* () {
       const saved = yield* Effect.result(
         requireSettingsSecretLiteral(settings.tokens["github.com"], current?.secretProviders ?? {}),
       );
-      if (Result.isFailure(saved) && settings.hosts["github.com"]?.enabled !== false) {
+      const githubOff = settings.hosts["github.com"]?.enabled === false;
+      if (Result.isFailure(saved) && !githubOff) {
         return offerAppSignIn({
           ...cli,
           status: "available" as const,
@@ -276,7 +277,20 @@ export const makeDiscovery = Effect.gen(function* () {
         : signedIn
           ? `the ${appName} sign-in`
           : variable;
-      if (tokenSource === null || settings.hosts["github.com"]?.enabled === false) {
+      if (githubOff && !cli.auth.accounts?.some((entry) => entry.authenticated)) {
+        return offerAppSignIn({
+          ...cli,
+          auth: {
+            ...cli.auth,
+            ...providerAuth({
+              status: "unauthenticated",
+              host: "github.com",
+              detail: "github.com is turned off in Settings → Source control.",
+            }),
+          },
+        });
+      }
+      if (tokenSource === null || githubOff) {
         return offerAppSignIn(cli);
       }
       const viewer = yield* api

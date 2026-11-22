@@ -11,10 +11,13 @@ export interface HostAccountGroup {
   readonly environmentVariable: string | null;
 }
 
+/** Hosts turned off in `choices` stay listed without logins, so they can be turned back on. */
 export function groupHostAccounts(
   accounts: ReadonlyArray<DiscoveredAccount>,
+  choices: HostCredentialSettings["hosts"] = {},
 ): ReadonlyArray<HostAccountGroup> {
-  const hosts = [...new Set(accounts.map((entry) => entry.host))];
+  const disabled = Object.keys(choices).filter((host) => choices[host]?.enabled === false);
+  const hosts = [...new Set([...accounts.map((entry) => entry.host), ...disabled])];
   return hosts.map((host) => {
     const entries = accounts.filter((entry) => entry.host === host);
     const stored = entries.filter((entry) => entry.environmentVariable === undefined);

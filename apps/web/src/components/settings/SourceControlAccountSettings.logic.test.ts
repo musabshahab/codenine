@@ -37,6 +37,15 @@ describe("groupHostAccounts", () => {
       },
     ]);
   });
+
+  it("keeps a host turned off in Settings switchable after its logins are gone", () => {
+    expect(
+      groupHostAccounts(
+        [{ host: "ghe.acme.test", account: "jm", active: true, authenticated: true }],
+        { "github.com": { enabled: false }, "ghe.acme.test": { enabled: false } },
+      ).map((group) => group.host),
+    ).toEqual(["ghe.acme.test", "github.com"]);
+  });
 });
 
 describe("nextHostAccountChoices", () => {

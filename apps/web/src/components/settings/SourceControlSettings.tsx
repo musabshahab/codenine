@@ -455,19 +455,18 @@ export function SourceControlSettingsPanel() {
               credentials={credentials}
               onSaved={handleScan}
             />
-            {/* A token can make the item available while the CLI never ran, leaving no version. */}
-            {item.status === "available" && Option.isSome(item.version) ? (
-              <SourceControlAccountSettings
-                key={environmentId}
-                environmentId={environmentId}
-                definition={definition}
-                credentials={credentials}
-                auth={item.auth}
-                onSaved={handleScan}
-              />
-            ) : item.auth.status === "authenticated" ? null : (
-              <p className="text-xs text-muted-foreground">{item.installHint}</p>
-            )}
+            <SourceControlAccountSettings
+              key={environmentId}
+              environmentId={environmentId}
+              definition={definition}
+              credentials={credentials}
+              auth={item.auth}
+              // A token can make the item available while the CLI never ran, leaving no version.
+              cliInstallHint={
+                item.status === "available" && Option.isSome(item.version) ? null : item.installHint
+              }
+              onSaved={handleScan}
+            />
           </div>
         </SettingsSearchTarget>
       );

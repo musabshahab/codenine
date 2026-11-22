@@ -41,12 +41,15 @@ export function SourceControlAccountSettings({
   definition,
   credentials,
   auth,
+  cliInstallHint,
   onSaved,
 }: {
   readonly environmentId: EnvironmentId;
   readonly definition: SourceControlDefinition;
   readonly credentials: SourceControlHostCredentials;
   readonly auth: SourceControlProviderAuth;
+  /** Set when the CLI did not run, so there are no logins to choose from. */
+  readonly cliInstallHint: string | null;
   readonly onSaved: () => void;
 }) {
   const { hosts } = useEnvironmentSettings(environmentId, (settings) =>
@@ -59,7 +62,12 @@ export function SourceControlAccountSettings({
   });
   const [saving, setSaving] = useState(false);
   const [revealed, setRevealed] = useState(false);
-  const groups = groupHostAccounts(auth.accounts ?? []);
+  const groups = groupHostAccounts(auth.accounts ?? [], hosts);
+  const hasLogins = groups.some((group) => group.selectable.length + group.broken.length > 0);
+  const installHint =
+    cliInstallHint !== null && auth.status !== "authenticated" ? (
+      <p className="text-xs text-muted-foreground">{cliInstallHint}</p>
+    ) : null;
 
   const save = async (
     host: string,
@@ -82,6 +90,7 @@ export function SourceControlAccountSettings({
 
   if (groups.length === 0) {
     if (auth.status === "authenticated") return null;
+    if (installHint) return installHint;
     return (
       <p className="text-xs text-muted-foreground">
         To choose between several{" "}
@@ -94,21 +103,27 @@ export function SourceControlAccountSettings({
 
   return (
     <div className="grid gap-4">
-      <div className="flex items-center justify-between gap-3">
+      {hasLogins ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            Choose which <code className="rounded bg-muted px-1 py-px text-2xs">{cliName}</code>{" "}
+            login each {label} host uses, or turn a host off.
+          </p>
+          <Button
+            size="icon-xs"
+            variant="ghost-muted"
+            onClick={() => setRevealed((current) => !current)}
+            aria-label={revealed ? `Hide ${label} accounts` : `Reveal ${label} accounts`}
+            aria-pressed={revealed}
+          >
+            {revealed ? <EyeOffIcon /> : <EyeIcon />}
+          </Button>
+        </div>
+      ) : (
         <p className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
-          Choose which <code className="rounded bg-muted px-1 py-px text-2xs">{cliName}</code> login
-          each {label} host uses, or turn a host off.
+          {label} is turned off on these hosts. Turn one back on to use it.
         </p>
-        <Button
-          size="icon-xs"
-          variant="ghost-muted"
-          onClick={() => setRevealed((current) => !current)}
-          aria-label={revealed ? `Hide ${label} accounts` : `Reveal ${label} accounts`}
-          aria-pressed={revealed}
-        >
-          {revealed ? <EyeOffIcon /> : <EyeIcon />}
-        </Button>
-      </div>
+      )}
       {groups.map((group) => {
         const choice = hosts[group.host];
         const enabled = choice?.enabled ?? true;
@@ -231,6 +246,7 @@ export function SourceControlAccountSettings({
           </div>
         );
       })}
+      {installHint}
     </div>
   );
 }
