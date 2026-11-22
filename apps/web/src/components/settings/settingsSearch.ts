@@ -462,14 +462,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "prompt-suggestions-beta",
     title: "Suggest next prompt",
     to: "/settings/labs",
-    scope: "environment",
+    scope: "environment-defaults",
     searchTerms: ["beta tab autocomplete predict next message claude codex ghost text"],
   },
   {
     id: "worktree-fast-checkout",
     title: "Fast worktree checkout",
     to: "/settings/labs",
-    scope: "environment",
+    scope: "environment-defaults",
     fastWorktreeCheckoutOnly: true,
     searchTerms: ["beta fast worktree checkout clone apfs copy-on-write cache macos speed"],
   },
@@ -874,6 +874,7 @@ export const SETTINGS_SEARCH_ITEMS = [
       "repository conventions conventional commits custom instructions commit messages change descriptions pull request titles",
     ],
     environmentOnly: true,
+    scope: "project-defaults",
   },
   {
     id: "follow-change-request-templates",
@@ -881,6 +882,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/source-control",
     searchTerms: ["repository pr pull request change request description structure"],
     environmentOnly: true,
+    scope: "project-defaults",
   },
   {
     id: "source-control-writer-model",

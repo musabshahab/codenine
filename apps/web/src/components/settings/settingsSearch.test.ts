@@ -226,9 +226,20 @@ describe("settings search targets", () => {
     expect(isSettingsSearchScopeAvailable(fallback.scope, "environment")).toBe(true);
     expect(isSettingsSearchScopeAvailable(fallback.scope, "all")).toBe(true);
     expect(isSettingsSearchScopeAvailable(fallback.scope, "project")).toBe(false);
-    expect(getSettingsSearchTargetScope("response-streaming")?.scope).toBe("project-defaults");
+    for (const id of [
+      "response-streaming",
+      "source-control-writing-style",
+      "follow-change-request-templates",
+    ]) {
+      expect(getSettingsSearchTargetScope(id)?.scope).toBe("project-defaults");
+    }
     for (const scope of ["all", "environment", "project"] as const) {
       expect(isSettingsSearchScopeAvailable("project-defaults", scope)).toBe(true);
+    }
+    for (const id of ["prompt-suggestions-beta", "worktree-fast-checkout"]) {
+      const labs = getSettingsSearchTargetScope(id)!;
+      expect(isSettingsSearchScopeAvailable(labs.scope, "all")).toBe(true);
+      expect(isSettingsSearchScopeAvailable(labs.scope, "environment")).toBe(true);
     }
     for (const id of ["tool-call-visibility", "sidebar-group-by-project"]) {
       expect(getSettingsSearchTargetScope(id)!.scope).toBeNull();
