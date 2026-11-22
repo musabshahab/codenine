@@ -175,55 +175,87 @@ function isCliRemoteRefinementSpec(
   return spec.type === "cli" && spec.refineUnknownRemote !== undefined;
 }
 
+/**
+ * Runs a CLI's version command under one span. A missing CLI is an expected answer, so the span
+ * ends as a success marked `probe.miss`; the caller still receives the spawn error.
+ */
+export const runVersionProbe = Effect.fn("discovery.runVersionProbe")(function* (
+  process: SourceControlHost.SourceControlHost["Service"]["process"],
+  input: {
+    readonly executable: string;
+    readonly versionArgs: ReadonlyArray<string>;
+    readonly cwd: string;
+    readonly timeoutMs: number;
+  },
+) {
+  yield* Effect.annotateCurrentSpan("process.command", input.executable);
+  const outcome = yield* process
+    .run({
+      operation: "source-control.discovery.probe",
+      command: input.executable,
+      args: input.versionArgs,
+      cwd: input.cwd,
+      timeoutMs: input.timeoutMs,
+      maxOutputBytes: 8_000,
+      appendTruncationMarker: true,
+    })
+    .pipe(
+      // The process spans would each record a missing CLI as a failure.
+      Effect.withTracerEnabled(false),
+      Effect.result,
+    );
+  if (Result.isFailure(outcome)) {
+    if (!isMissingExecutable(outcome.failure)) return yield* outcome.failure;
+    yield* Effect.annotateCurrentSpan("probe.miss", "not-installed");
+  }
+  return outcome;
+});
+
 function probeCli(input: {
   readonly spec: SourceControlCliDiscoverySpec;
   readonly process: SourceControlHost.SourceControlHost["Service"]["process"];
   readonly cwd: string;
 }): Effect.Effect<DiscoveryProbeResult> {
-  return input.process
-    .run({
-      operation: "source-control.discovery.probe",
-      command: input.spec.executable,
-      args: input.spec.versionArgs,
-      cwd: input.cwd,
-      timeoutMs: probeTimeoutMs(input.spec),
-      maxOutputBytes: 8_000,
-      appendTruncationMarker: true,
-    })
-    .pipe(
-      Effect.map(
-        (result) =>
-          ({
-            kind: input.spec.kind,
-            label: input.spec.label,
-            executable: input.spec.executable,
-            status: "available" as const,
-            version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
-              firstNonEmptyLine(result.stderr),
-            ),
-            installHint: input.spec.installHint,
-            detail: Option.none<string>(),
-          }) satisfies DiscoveryProbeResult,
-      ),
-      Effect.catch((cause) =>
-        Effect.gen(function* () {
-          const installHint = yield* unavailableInstallHint(
-            input.spec.executable,
-            input.spec.installHint,
-            cause,
-          );
-          return {
-            kind: input.spec.kind,
-            label: input.spec.label,
-            executable: input.spec.executable,
-            status: "missing" as const,
-            version: Option.none<string>(),
-            installHint,
-            detail: detailFromCause(cause),
-          } satisfies DiscoveryProbeResult;
-        }),
-      ),
-    );
+  return runVersionProbe(input.process, {
+    executable: input.spec.executable,
+    versionArgs: input.spec.versionArgs,
+    cwd: input.cwd,
+    timeoutMs: probeTimeoutMs(input.spec),
+  }).pipe(
+    Effect.flatMap(Effect.fromResult),
+    Effect.map(
+      (result) =>
+        ({
+          kind: input.spec.kind,
+          label: input.spec.label,
+          executable: input.spec.executable,
+          status: "available" as const,
+          version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
+            firstNonEmptyLine(result.stderr),
+          ),
+          installHint: input.spec.installHint,
+          detail: Option.none<string>(),
+        }) satisfies DiscoveryProbeResult,
+    ),
+    Effect.catch((cause) =>
+      Effect.gen(function* () {
+        const installHint = yield* unavailableInstallHint(
+          input.spec.executable,
+          input.spec.installHint,
+          cause,
+        );
+        return {
+          kind: input.spec.kind,
+          label: input.spec.label,
+          executable: input.spec.executable,
+          status: "missing" as const,
+          version: Option.none<string>(),
+          installHint,
+          detail: detailFromCause(cause),
+        } satisfies DiscoveryProbeResult;
+      }),
+    ),
+  );
 }
 
 export function probeSourceControlProvider(input: {

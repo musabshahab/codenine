@@ -13,6 +13,7 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
   detailFromCause,
   firstNonEmptyLine,
+  runVersionProbe,
   unavailableInstallHint,
 } from "@codenine/source-control-core/server/discovery";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
@@ -80,48 +81,44 @@ export const make = Effect.gen(function* () {
     const executable = input.executable;
     const versionArgs = input.versionArgs;
 
-    return process
-      .run({
-        operation: "source-control.discovery.probe",
-        command: executable,
-        args: versionArgs,
-        cwd: config.cwd,
-        timeoutMs: 5_000,
-        maxOutputBytes: 8_000,
-        appendTruncationMarker: true,
-      })
-      .pipe(
-        Effect.map(
-          (result) =>
-            ({
-              kind: input.kind,
-              label: input.label,
-              executable,
-              implemented: input.implemented,
-              status: "available" as const,
-              version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
-                firstNonEmptyLine(result.stderr),
-              ),
-              installHint: input.installHint,
-              detail: Option.none<string>(),
-            }) satisfies DiscoveryProbeResult<Kind>,
-        ),
-        Effect.catch((cause) =>
-          Effect.gen(function* () {
-            const installHint = yield* unavailableInstallHint(executable, input.installHint, cause);
-            return {
-              kind: input.kind,
-              label: input.label,
-              executable,
-              implemented: input.implemented,
-              status: "missing" as const,
-              version: Option.none<string>(),
-              installHint,
-              detail: detailFromCause(cause),
-            } satisfies DiscoveryProbeResult<Kind>;
-          }),
-        ),
-      );
+    return runVersionProbe(process, {
+      executable,
+      versionArgs,
+      cwd: config.cwd,
+      timeoutMs: 5_000,
+    }).pipe(
+      Effect.flatMap(Effect.fromResult),
+      Effect.map(
+        (result) =>
+          ({
+            kind: input.kind,
+            label: input.label,
+            executable,
+            implemented: input.implemented,
+            status: "available" as const,
+            version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
+              firstNonEmptyLine(result.stderr),
+            ),
+            installHint: input.installHint,
+            detail: Option.none<string>(),
+          }) satisfies DiscoveryProbeResult<Kind>,
+      ),
+      Effect.catch((cause) =>
+        Effect.gen(function* () {
+          const installHint = yield* unavailableInstallHint(executable, input.installHint, cause);
+          return {
+            kind: input.kind,
+            label: input.label,
+            executable,
+            implemented: input.implemented,
+            status: "missing" as const,
+            version: Option.none<string>(),
+            installHint,
+            detail: detailFromCause(cause),
+          } satisfies DiscoveryProbeResult<Kind>;
+        }),
+      ),
+    );
   };
 
   return SourceControlDiscovery.of({

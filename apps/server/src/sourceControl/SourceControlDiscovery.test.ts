@@ -2,8 +2,11 @@ import { SourceControlProviderKind, VcsProcessSpawnError } from "@codenine/contr
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
+import * as Tracer from "effect/Tracer";
 import { providerAuth } from "@codenine/source-control-core/server/discovery";
 import type * as SourceControlHost from "@codenine/source-control-core/server/SourceControlHost";
 import {
@@ -31,16 +34,23 @@ const run = (
   >,
 ): Effect.Effect<SourceControlHost.SourceControlProcessOutput, VcsProcessSpawnError> => {
   if (input.args[0] === "--version") {
-    return input.command === "missing-cli"
-      ? Effect.fail(
-          new VcsProcessSpawnError({
-            operation: input.operation,
-            command: input.command,
-            cwd: input.cwd,
-            cause: new Error(`${input.command} not found`),
-          }),
-        )
-      : Effect.succeed(TestSourceControlHost.processOutput(`${input.command} version test\n`));
+    return (
+      input.command === "missing-cli"
+        ? Effect.fail(
+            new VcsProcessSpawnError({
+              operation: input.operation,
+              command: input.command,
+              cwd: input.cwd,
+              cause: PlatformError.systemError({
+                _tag: "NotFound",
+                module: "ChildProcess",
+                method: "spawn",
+                description: `spawn ${input.command} ENOENT`,
+              }),
+            }),
+          )
+        : Effect.succeed(TestSourceControlHost.processOutput(`${input.command} version test\n`))
+    ).pipe(Effect.withSpan("VcsProcess.run"));
   }
   return Effect.succeed(
     TestSourceControlHost.processOutput(`signed in as ${input.command}-user\n`),
@@ -88,8 +98,20 @@ const layerDiscovery = (runProcess = run) =>
 
 it.effect("reports every hosting integration in registry order with its sign-in", () =>
   Effect.gen(function* () {
+    const ended: Array<Tracer.NativeSpan> = [];
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options);
+        const end = span.end.bind(span);
+        span.end = (endTime, exit) => {
+          end(endTime, exit);
+          ended.push(span);
+        };
+        return span;
+      },
+    });
     const discovery = yield* SourceControlDiscovery.SourceControlDiscovery;
-    const result = yield* discovery.discover;
+    const result = yield* discovery.discover.pipe(Effect.withTracer(tracer));
 
     assert.deepStrictEqual(
       result.sourceControlProviders.map((item) => ({
@@ -129,6 +151,16 @@ it.effect("reports every hosting integration in registry order with its sign-in"
         ["git", "available"],
         ["jj", "available"],
       ],
+    );
+    assert.deepStrictEqual(
+      ended
+        .filter((span) => span.status._tag === "Ended" && Exit.isFailure(span.status.exit))
+        .map((span) => span.name),
+      [],
+    );
+    assert.deepStrictEqual(
+      ended.flatMap((span) => span.attributes.get("probe.miss") ?? []),
+      ["not-installed"],
     );
   }).pipe(Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery())))),
 );
