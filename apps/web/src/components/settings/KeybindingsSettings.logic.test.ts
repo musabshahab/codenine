@@ -10,6 +10,7 @@ import { resolveShortcutCommand } from "../../keybindings";
 import {
   buildKeybindingRows,
   buildWhenVariableOptions,
+  commandLabel,
   filterKeybindingRows,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
@@ -86,6 +87,22 @@ describe("KeybindingsSettings.logic", () => {
     expect(filterKeybindingRows(rows, "default").map((row) => String(row.command))).toEqual([
       "chat.find",
     ]);
+  });
+
+  it("labels chat and workspace commands in user words and still finds them by their ids", () => {
+    expect(
+      (["thread.next", "thread.jump.1", "threadPanel.toggle", "projectSearch.toggle"] as const).map(
+        (command) => commandLabel(command),
+      ),
+    ).toEqual(["Chat: Next", "Chat: Jump: 1", "Chat Panel: Toggle", "Workspace Search: Toggle"]);
+    expect(commandLabel("chat.newWithoutProject")).toBe("Chat: New Without Workspace");
+
+    const rows = buildKeybindingRows(compileResolvedKeybindingsConfig([]));
+    const found = (query: string) =>
+      filterKeybindingRows(rows, query).map((row) => String(row.command));
+    expect(found("projectSearch")).toEqual(["projectSearch.toggle"]);
+    expect(found("workspace search")).toEqual(["projectSearch.toggle"]);
+    expect(found("thread.next")).toEqual(["thread.next"]);
   });
 
   it("finds a shortcut by its stored, displayed, and typed spellings", () => {

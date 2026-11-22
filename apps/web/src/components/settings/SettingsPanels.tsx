@@ -315,8 +315,8 @@ function AboutVersionSection() {
             unswitchedMachines > 0 ? (
               <>
                 {unswitchedMachines === 1
-                  ? "1 machine still runs"
-                  : `${unswitchedMachines} machines still run`}{" "}
+                  ? "1 environment still runs"
+                  : `${unswitchedMachines} environments still run`}{" "}
                 {channelSwitchLabel(selectedUpdateChannel === "nightly" ? "latest" : "nightly")}.{" "}
                 {/* The dialog moves what it can and says why it skips the rest. */}
                 <Button
@@ -329,7 +329,7 @@ function AboutVersionSection() {
                 </Button>
               </>
             ) : (
-              "Switches this app and every connected machine whose database the target release supports."
+              "Switches this app and every connected environment whose database the target release supports."
             )
           }
           control={
@@ -1300,11 +1300,11 @@ function ScopedCompactIdleThreadsRow() {
       settingKeys={["idleCompaction", "compactIdleThreads"]}
       mixed={idleCompaction.mixed}
       {...searchableSetting("compact-idle-threads")}
-      description="When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this."
+      description="When to compact an idle Claude chat over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude account can override this."
       resetAction={
         globalIdleCompaction(settings) !== globalIdleCompaction(DEFAULT_UNIFIED_SETTINGS) ? (
           <SettingResetButton
-            label="compact idle threads"
+            label="compact idle chats"
             onClick={() =>
               updateSettings({ idleCompaction: globalIdleCompaction(DEFAULT_UNIFIED_SETTINGS) })
             }
@@ -1319,7 +1319,7 @@ function ScopedCompactIdleThreadsRow() {
             if (mode) updateSettings({ idleCompaction: mode.value });
           }}
         >
-          <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Compact idle threads">
+          <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Compact idle chats">
             <SelectValue>
               {(value: string | null) =>
                 value === null
@@ -1416,7 +1416,7 @@ export function ThreadsSettingsPanel() {
         <SettingsRow
           serverScoped
           {...searchableSetting("auto-resume-limited-threads")}
-          description="Automatically resume threads when their usage limits reset. You can cancel auto-resume in each thread."
+          description="Automatically resume chats when their usage limits reset. You can cancel auto-resume in each chat."
           settingKeys={["autoResumeLimitedThreads"]}
           controlPlacement="inline"
           control={
@@ -1433,7 +1433,7 @@ export function ThreadsSettingsPanel() {
         <SettingsRow
           serverScoped
           {...searchableSetting("snooze-limited-threads")}
-          description="Snooze threads until their usage limits reset. Enable auto-resume to continue the agent after the reset."
+          description="Snooze chats until their usage limits reset. Enable auto-resume to continue the agent after the reset."
           settingKeys={["snoozeLimitedThreads"]}
           controlPlacement="inline"
           control={
@@ -1496,12 +1496,12 @@ export function ThreadsSettingsPanel() {
             serverScoped
             settingKeys={["sidebarAutoSettleOnMerge"]}
             {...searchableSetting("auto-settle-merged-threads")}
-            description="Mark a thread done when its pull request merges. A closed pull request still marks it done."
+            description="Mark a chat done when its pull request merges. A closed pull request still marks it done."
             resetAction={
               settings.sidebarAutoSettleOnMerge !==
               DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge ? (
                 <SettingResetButton
-                  label="marking merged threads done"
+                  label="marking merged chats done"
                   onClick={() =>
                     updateSettings({
                       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -1518,7 +1518,7 @@ export function ThreadsSettingsPanel() {
                 onCheckedChange={(checked) =>
                   updateSettings({ sidebarAutoSettleOnMerge: Boolean(checked) })
                 }
-                aria-label="Mark merged threads done"
+                aria-label="Mark merged chats done"
               />
             }
           />
@@ -1527,12 +1527,12 @@ export function ThreadsSettingsPanel() {
             serverScoped
             settingKeys={["sidebarAutoSettleAfterDays"]}
             {...searchableSetting("auto-settle-inactive-threads")}
-            description="Sidebar threads with no activity for this long are marked done."
+            description="Sidebar chats with no activity for this long are marked done."
             resetAction={
               settings.sidebarAutoSettleAfterDays !==
               DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ? (
                 <SettingResetButton
-                  label="marking inactive threads done"
+                  label="marking inactive chats done"
                   onClick={() =>
                     updateSettings({
                       sidebarAutoSettleAfterDays:
@@ -1552,7 +1552,7 @@ export function ThreadsSettingsPanel() {
                     sidebarAutoSettleAfterDays: checked ? AUTO_SETTLE_DEFAULT_DAYS : null,
                   })
                 }
-                aria-label="Mark inactive threads done"
+                aria-label="Mark inactive chats done"
               />
             }
           />
@@ -1561,7 +1561,7 @@ export function ThreadsSettingsPanel() {
               serverScoped
               settingKeys={["sidebarAutoSettleAfterDays"]}
               title={searchableSetting("days-before-auto-settle").title}
-              description="Any new activity marks a thread not done again."
+              description="Any new activity marks a chat not done again."
               control={
                 <AutoSettleDaysInput
                   value={settings.sidebarAutoSettleAfterDays}
@@ -1574,8 +1574,8 @@ export function ThreadsSettingsPanel() {
             <SettingsRow
               serverScoped
               settingKeys={["sidebarAutoSettleKeepPullRequests"]}
-              title="Keep threads with a PR"
-              description="Inactivity does not mark threads with a pull request done. Merge and close still do."
+              title="Keep chats with a PR"
+              description="Inactivity does not mark chats with a pull request done. Merge and close still do."
               controlPlacement="inline"
               control={
                 <ScopedSwitch
@@ -1584,7 +1584,7 @@ export function ThreadsSettingsPanel() {
                   onCheckedChange={(checked) =>
                     updateSettings({ sidebarAutoSettleKeepPullRequests: checked })
                   }
-                  aria-label="Keep threads with a PR"
+                  aria-label="Keep chats with a PR"
                 />
               }
             />
@@ -1597,7 +1597,7 @@ export function ThreadsSettingsPanel() {
           serverScoped
           settingKeys={["textGenerationModelSelection"]}
           {...searchableSetting("text-generation-model")}
-          description="For thread titles and other generated text. Source control has its own setting. Text generators from Providers also appear here."
+          description="For chat titles and other generated text. Source control has its own setting. Text generators from Accounts also appear here."
           resetAction={
             hasServerTargets && isTextGenerationModelDirty ? (
               <SettingResetButton

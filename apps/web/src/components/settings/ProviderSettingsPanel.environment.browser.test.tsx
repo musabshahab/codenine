@@ -263,7 +263,7 @@ describe("EnvironmentProviderSettings routing", () => {
     await setProviders([provider()]);
     await using _screen = await render(panel({ targetInstanceId: customId }));
     await expect
-      .element(page.getByText("This provider instance is no longer available on this device."))
+      .element(page.getByText("This account is no longer available on this environment."))
       .toBeVisible();
     expect(state.updateSettings).not.toHaveBeenCalled();
   });
@@ -386,7 +386,7 @@ describe("EnvironmentProviderSettings instance removal", () => {
     };
     await setProviders([provider()]);
     await using _screen = await render(panel({ targetInstanceId: codexId }));
-    const reset = page.getByRole("button", { name: "Reset Codex provider settings to default" });
+    const reset = page.getByRole("button", { name: "Reset Codex account settings to default" });
     await userEvent.click(reset);
 
     expect(state.mutateProviderInstance).not.toHaveBeenCalled();

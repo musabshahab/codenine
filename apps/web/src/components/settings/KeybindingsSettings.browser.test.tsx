@@ -218,7 +218,7 @@ it("binds a command that has no shortcut yet as a new rule", async () => {
     </RegistryProvider>,
   );
 
-  await screen.getByRole("button", { name: "Set shortcut for Thread: Stop" }).click();
+  await screen.getByRole("button", { name: "Set shortcut for Chat: Stop" }).click();
   await userEvent.keyboard("{Control>}k{/Control}");
   await screen.getByRole("button", { name: "Save" }).click();
 

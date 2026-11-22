@@ -1040,7 +1040,7 @@ export function CodexManagedRuntimeFields({
         description={
           provider?.runtimePaths?.shadowHomePath
             ? "Account-specific home sharing the Codex state above."
-            : "This instance uses the shared Codex home directly."
+            : "This account uses the shared Codex home directly."
         }
         control={
           <div className="w-full sm:w-80">

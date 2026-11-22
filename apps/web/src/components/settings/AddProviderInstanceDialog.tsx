@@ -69,12 +69,12 @@ const MORE_DRIVER_OPTIONS = providerClients.definitions.filter(
 );
 const EMPTY_CONFIG_DRAFT: Record<string, unknown> = {};
 function validateInstanceId(id: string, existing: ReadonlySet<string>): string | null {
-  if (id.length === 0) return "Instance ID is required.";
-  if (id.length > 64) return "Instance ID must be 64 characters or fewer.";
+  if (id.length === 0) return "Account ID is required.";
+  if (id.length > 64) return "Account ID must be 64 characters or fewer.";
   if (!INSTANCE_ID_PATTERN.test(id)) {
-    return "Instance ID must start with a letter and use only letters, digits, '-', or '_'.";
+    return "Account ID must start with a letter and use only letters, digits, '-', or '_'.";
   }
-  if (existing.has(id)) return `An instance named '${id}' already exists.`;
+  if (existing.has(id)) return `An account named '${id}' already exists.`;
   return null;
 }
 
@@ -401,7 +401,7 @@ export function AddProviderInstanceDialog({
                 }
               />
               <SettingsRow
-                title={<label htmlFor="add-provider-instance-id">Instance ID</label>}
+                title={<label htmlFor="add-provider-instance-id">Account ID</label>}
                 description={
                   <span id="add-provider-instance-id-description">
                     Letters, digits, '-', or '_'.

@@ -260,14 +260,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Default account and model",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["new thread project workspace provider account reasoning effort"],
+    searchTerms: ["new chat thread project workspace provider account reasoning effort"],
   },
   {
     id: "fallback-model",
     title: "Fallback model",
     to: "/settings/threads",
     scope: "environment-defaults",
-    searchTerms: ["fallback agent account provider out of usage new threads"],
+    searchTerms: ["fallback agent account provider out of usage new chats threads"],
     environmentOnly: true,
   },
   {
@@ -276,7 +276,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: [
-      "new thread default runtime mode supervised approvals auto accept edits full access",
+      "new chat thread default runtime mode supervised approvals auto accept edits full access",
     ],
   },
   {
@@ -321,10 +321,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "thread-details-items",
-    title: "Thread details",
+    title: "Chat details",
     to: "/settings/appearance",
     searchTerms: [
-      "customize show hide panel card environment editor scripts branch pull request git changes servers lineage usage limits 5 hour weekly quota tokens context window",
+      "thread customize show hide panel card environment editor scripts branch pull request git changes servers lineage usage limits 5 hour weekly quota tokens context window",
     ],
   },
   {
@@ -442,7 +442,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "working-shelf",
     title: "Working section",
     to: "/settings/general",
-    searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
+    searchTerms: ["hide fold running monitoring chats threads inbox sidebar shelf"],
   },
   {
     id: "sidebar-two-line-rows",
@@ -475,33 +475,37 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "auto-settle-inactive-threads",
-    title: "Mark inactive threads done",
+    title: "Mark inactive chats done",
     to: "/settings/threads",
-    searchTerms: ["sidebar inactivity days no activity automatically auto-settle settle settled"],
+    searchTerms: [
+      "threads sidebar inactivity days no activity automatically auto-settle settle settled",
+    ],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
   {
     id: "compact-idle-threads",
-    title: "Compact idle threads",
+    title: "Compact idle chats",
     to: "/settings/providers",
     scope: "environment-defaults",
-    searchTerms: ["claude context compaction idle cache tokens usage summary resume"],
+    searchTerms: ["threads claude context compaction idle cache tokens usage summary resume"],
   },
   {
     id: "auto-settle-merged-threads",
-    title: "Mark merged threads done",
+    title: "Mark merged chats done",
     to: "/settings/threads",
-    searchTerms: ["pull request merge closed automatically sidebar auto-settle settle settled"],
+    searchTerms: [
+      "threads pull request merge closed automatically sidebar auto-settle settle settled",
+    ],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
   {
     id: "keep-threads-with-pull-requests",
-    title: "Keep threads with a PR",
+    title: "Keep chats with a PR",
     to: "/settings/threads",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["pull request inactivity done auto-settle merge close sidebar"],
+    searchTerms: ["threads pull request inactivity done auto-settle merge close sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -510,7 +514,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Days of inactivity before marking done",
     to: "/settings/threads",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["thread timeout activity sidebar auto-settle settle settled"],
+    searchTerms: ["chat thread timeout activity sidebar auto-settle settle settled"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -653,7 +657,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: [
-      "resume running active interrupted threads work restart reboot machine crash desktop update automatically",
+      "resume running active interrupted chats threads work restart reboot machine crash desktop update automatically",
     ],
   },
   {
@@ -730,14 +734,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Text generation model",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles source control content default provider"],
+    searchTerms: ["generated chat thread titles source control content default provider"],
   },
   {
     id: "thread-title-instructions",
-    title: "Thread title instructions",
+    title: "Chat title instructions",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles prompt custom style naming rename regenerate"],
+    searchTerms: ["generated chat thread titles prompt custom style naming rename regenerate"],
   },
   {
     id: "app-version",
@@ -814,7 +818,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Text generators",
     to: "/settings/providers",
     searchTerms: [
-      "model api api key openai openrouter anthropic ollama lm studio custom endpoint base url thread titles commit messages",
+      "model api api key openai openrouter anthropic ollama lm studio custom endpoint base url chat thread titles commit messages",
     ],
     providerSettingsOnly: true,
     textGeneratorsOnly: true,
@@ -867,15 +871,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Source control writing style",
     to: "/settings/source-control",
     searchTerms: [
-      "repository conventions conventional commits custom instructions change descriptions request titles",
+      "repository conventions conventional commits custom instructions commit messages change descriptions pull request titles",
     ],
     environmentOnly: true,
   },
   {
     id: "follow-change-request-templates",
-    title: "Follow change request templates",
+    title: "Follow pull request templates",
     to: "/settings/source-control",
-    searchTerms: ["repository pr pull request description structure"],
+    searchTerms: ["repository pr pull request change request description structure"],
     environmentOnly: true,
   },
   {
@@ -968,10 +972,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "connections-environment",
-    title: "This machine",
+    title: "Environment access",
     to: "/settings/access",
     searchTerms: [
-      "connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint mcp another app",
+      "this machine connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint mcp another app",
     ],
   },
   {

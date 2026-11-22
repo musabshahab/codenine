@@ -101,7 +101,7 @@ describe("device settings restore", () => {
     });
 
     expect(changedLabels).toEqual([
-      "Thread details",
+      "Chat details",
       "Workspace grouping",
       "Two-line chat rows",
       "Code font",
@@ -119,7 +119,7 @@ describe("device settings restore", () => {
     expect(
       planDeviceSettingsRestore({ ...DEFAULT_CLIENT_SETTINGS, threadDetailsUsageEnabled: true }),
     ).toEqual({
-      changedLabels: ["Thread details"],
+      changedLabels: ["Chat details"],
       patch: { threadDetailsItems: {}, threadDetailsUsageEnabled: false },
     });
     expect(

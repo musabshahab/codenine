@@ -418,7 +418,7 @@ export function ProviderEnvironmentSection(props: {
   return (
     <SettingsRow
       title="Variables"
-      description="API keys, base URLs, and other per-instance CLI settings."
+      description="API keys, base URLs, and other per-account CLI settings."
       control={
         <Button type="button" size="sm" variant="outline" onClick={addVariable}>
           <PlusIcon className="size-3" />
@@ -562,7 +562,7 @@ function ProjectOverrideInheritance({
 }) {
   const layers = [
     { key: "project", label: "Workspace", enabled: projectEnabled, effective: true },
-    { key: "device", label: "Device", enabled: deviceEnabled, effective: false },
+    { key: "device", label: "Environment", enabled: deviceEnabled, effective: false },
   ];
   return (
     <Popover>
@@ -1087,7 +1087,7 @@ export function ProviderInstanceCard({
               />
               <SettingResetButton
                 label={`${displayName} enablement`}
-                tooltip="Reset to the device setting"
+                tooltip="Reset to the environment setting"
                 disabled={readOnly || !canWriteSettings}
                 onClick={projectOverride.onReset}
               />
@@ -1164,7 +1164,7 @@ export function ProviderInstanceCard({
       title="Driver"
       description={
         <span>
-          This instance uses <code className="text-foreground">{String(instance.driver)}</code>,
+          This account uses <code className="text-foreground">{String(instance.driver)}</code>,
           which is not available in this build. Its configuration is preserved.
         </span>
       }
@@ -1198,7 +1198,7 @@ export function ProviderInstanceCard({
                 className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
                 value={instance.displayName ?? ""}
                 onCommit={updateDisplayName}
-                placeholder={driverOption?.label ?? "Instance label"}
+                placeholder={driverOption?.label ?? "Account label"}
                 spellCheck={false}
               />
             </div>
