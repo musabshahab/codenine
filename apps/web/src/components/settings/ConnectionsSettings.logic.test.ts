@@ -1,8 +1,9 @@
-import { type DesktopWslState, EnvironmentId } from "@codenine/contracts";
+import { type DesktopUpdateState, type DesktopWslState, EnvironmentId } from "@codenine/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyWslEnableSelection,
   resolveAccessEnvironmentId,
+  resolveLocalVersionStatusLabel,
   resolveTailscaleServeBaseUrl,
   selectQrEndpointOption,
   togglePairingScopeSelection,
@@ -199,5 +200,52 @@ describe("resolveAccessEnvironmentId", () => {
     expect(resolveAccessEnvironmentId({ primaryEnvironmentId, environments, selected })).toBe(
       expected,
     );
+  });
+});
+
+describe("resolveLocalVersionStatusLabel", () => {
+  const idle: DesktopUpdateState = {
+    enabled: true,
+    status: "idle",
+    channel: "latest",
+    currentVersion: "1.0.0",
+    hostArch: "x64",
+    appArch: "x64",
+    runningUnderArm64Translation: false,
+    availableVersion: null,
+    downloadedVersion: null,
+    releaseNotes: [],
+    omittedReleaseCount: 0,
+    downloadPercent: null,
+    checkedAt: null,
+    message: null,
+    errorContext: null,
+    canRetry: false,
+  };
+
+  it.each<[string, DesktopUpdateState | null, string | null]>([
+    ["no desktop update state", null, null],
+    ["checks off", { ...idle, enabled: false, status: "disabled" }, "Update checks are off"],
+    ["never checked", idle, null],
+    ["checking", { ...idle, status: "checking" }, null],
+    ["failed check", { ...idle, status: "error", errorContext: "check", canRetry: true }, null],
+    ["checked", { ...idle, status: "up-to-date" }, "Up to date"],
+    [
+      "available",
+      { ...idle, status: "available", availableVersion: "1.1.0" },
+      "Update 1.1.0 available",
+    ],
+    [
+      "downloading",
+      { ...idle, status: "downloading", availableVersion: "1.1.0" },
+      "Downloading update 1.1.0",
+    ],
+    [
+      "downloaded",
+      { ...idle, status: "downloaded", downloadedVersion: "1.1.0" },
+      "Update 1.1.0 downloaded",
+    ],
+  ])("%s", (_name, state, expected) => {
+    expect(resolveLocalVersionStatusLabel(state)).toBe(expected);
   });
 });
