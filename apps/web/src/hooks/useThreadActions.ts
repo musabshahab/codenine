@@ -650,27 +650,55 @@ export function useThreadActions() {
       );
     }
 
-    if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
+    if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject || !localApi) {
       return deleteResult;
     }
 
-    const removeResult = readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope)
-      ? await removeWorktree({
-          environmentId: threadRef.environmentId,
-          input: {
-            cwd: threadProject.workspaceRoot,
-            path: orphanedWorktreePath,
-            force: true,
-          },
-        })
-      : AsyncResult.failure(
-          Cause.fail(
-            new EnvironmentAuthorizationError({
-              message: "This connection can no longer remove worktrees.",
-              requiredScope: AuthSourceControlWriteScope,
-            }),
+    const canRemoveWorktree = () =>
+      readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope);
+    const removeOrphanedWorktree = async (force: boolean) =>
+      canRemoveWorktree()
+        ? await removeWorktree({
+            environmentId: threadRef.environmentId,
+            input: { cwd: threadProject.workspaceRoot, path: orphanedWorktreePath, force },
+          })
+        : AsyncResult.failure(
+            Cause.fail(
+              new EnvironmentAuthorizationError({
+                message: "This connection can no longer remove worktrees.",
+                requiredScope: AuthSourceControlWriteScope,
+              }),
+            ),
+          );
+    let removeResult = await removeOrphanedWorktree(false);
+    // Git keeps worktrees with uncommitted files or submodules; forcing would discard those files.
+    if (removeResult._tag === "Failure" && canRemoveWorktree()) {
+      const status = await refreshVcsStatus({
+        environmentId: threadRef.environmentId,
+        input: { cwd: orphanedWorktreePath, localOnly: true },
+      });
+      const uncommittedFiles =
+        status._tag === "Success" && status.value.isRepo
+          ? status.value.workingTree.files.length
+          : null;
+      if (uncommittedFiles !== 0) {
+        const worktreeName = displayWorktreePath ?? orphanedWorktreePath;
+        const discard = await settlePromise(() =>
+          localApi.dialogs.confirm(
+            [
+              uncommittedFiles === null
+                ? `The worktree ${worktreeName} may have uncommitted files.`
+                : `The worktree ${worktreeName} has ${uncommittedFiles} uncommitted ${uncommittedFiles === 1 ? "file" : "files"}.`,
+              "",
+              "Delete it anyway and discard them?",
+            ].join("\n"),
+            { variant: "destructive" },
           ),
         );
+        if (discard._tag === "Failure" || !discard.value) return deleteResult;
+      }
+      removeResult = await removeOrphanedWorktree(true);
+    }
     const refreshResult =
       removeResult._tag === "Success"
         ? await refreshVcsStatus({

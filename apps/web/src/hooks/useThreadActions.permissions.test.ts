@@ -40,7 +40,11 @@ const state = vi.hoisted(() => ({
     id: ThreadId;
     lineage: { parentThreadId: ThreadId | null; sideChat?: boolean };
   }[],
-  requests: [] as { action: string; environmentId: string; input: { threadId?: string } }[],
+  requests: [] as {
+    action: string;
+    environmentId: string;
+    input: { threadId?: string; cwd?: string; force?: boolean };
+  }[],
   localEffects: [] as string[],
   confirm: vi.fn<(message: string) => Promise<boolean>>(),
   toasts: [] as string[],
@@ -48,6 +52,8 @@ const state = vi.hoisted(() => ({
   sessionLookupFails: false,
   routeThreadRef: null as ScopedThreadRef | null,
   worktreeThreadIds: [] as ThreadId[],
+  worktreeRefusesRemoval: false,
+  worktreeFiles: [] as string[] | null,
   fallbackThreadId: null as ThreadId | null,
   fallbackCandidates: [] as ThreadId[][],
   navigate: vi.fn<(options: unknown) => Promise<void>>(),
@@ -72,7 +78,10 @@ vi.mock("../state/session", () => ({
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand:
     (action: string) =>
-    async (request: { environmentId: string; input: { threadId?: string } }) => {
+    async (request: {
+      environmentId: string;
+      input: { threadId?: string; cwd?: string; force?: boolean };
+    }) => {
       state.requests.push({ action, ...request });
       const scope =
         action === "removeWorktree" ? AuthSourceControlWriteScope : AuthOrchestrationOperateScope;
@@ -80,7 +89,16 @@ vi.mock("../state/use-atom-command", () => ({
         return AsyncResult.failure(Cause.fail(new Error("Server denied the request")));
       }
       state.afterRequest?.(action);
-      return AsyncResult.success(undefined);
+      if (action === "removeWorktree" && !request.input.force && state.worktreeRefusesRemoval) {
+        return AsyncResult.failure(Cause.fail(new Error("git worktree remove failed")));
+      }
+      if (action !== "refreshStatus") return AsyncResult.success(undefined);
+      return state.worktreeFiles === null
+        ? AsyncResult.failure(Cause.fail(new Error("git status failed")))
+        : AsyncResult.success({
+            isRepo: true,
+            workingTree: { files: state.worktreeFiles.map((path) => ({ path })) },
+          });
     },
 }));
 vi.mock("../state/use-atom-query-runner", () => ({
@@ -291,6 +309,8 @@ beforeEach(() => {
   state.sessionLookupFails = false;
   state.routeThreadRef = null;
   state.worktreeThreadIds = [];
+  state.worktreeRefusesRemoval = false;
+  state.worktreeFiles = [];
   state.fallbackThreadId = null;
   state.fallbackCandidates = [];
   state.navigate.mockReset().mockResolvedValue(undefined);
@@ -471,6 +491,61 @@ describe("thread action permissions", () => {
         params: { environmentId: secondary, threadId: next.id },
         replace: true,
       });
+    },
+  );
+
+  it.each([
+    {
+      case: "keeps uncommitted files",
+      files: ["a.ts", "b.ts", "c.ts"],
+      discard: false,
+      asked: "The worktree thread has 3 uncommitted files.",
+      removals: [false],
+    },
+    {
+      case: "discards them when confirmed",
+      files: ["a.ts", "b.ts", "c.ts"],
+      discard: true,
+      asked: "The worktree thread has 3 uncommitted files.",
+      removals: [false, true],
+    },
+    {
+      case: "keeps one whose status cannot be read",
+      files: null,
+      discard: false,
+      asked: "The worktree thread may have uncommitted files.",
+      removals: [false],
+    },
+    {
+      case: "forces a clean one without asking",
+      files: [],
+      discard: false,
+      asked: null,
+      removals: [false, true],
+    },
+  ])(
+    "when Git keeps a deleted chat's worktree, $case",
+    async ({ files, discard, asked, removals }) => {
+      state.scopes
+        .get(secondary)!
+        .add(AuthOrchestrationOperateScope)
+        .add(AuthSourceControlWriteScope);
+      state.threads[0]!.worktreePath = "/worktrees/thread";
+      state.worktreeRefusesRemoval = true;
+      state.worktreeFiles = files;
+      state.confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(discard);
+
+      expect((await useThreadActions().deleteThread(target))._tag).toBe("Success");
+      expect(
+        state.requests
+          .filter((request) => request.action === "removeWorktree")
+          .map((request) => request.input.force),
+      ).toEqual(removals);
+      expect(state.confirm.mock.calls.map(([message]) => message.split("\n")[0])).toEqual([
+        "This chat is the only one linked to this worktree:",
+        ...(asked === null ? [] : [asked]),
+      ]);
+      expect(state.toasts).toEqual([]);
     },
   );
 
