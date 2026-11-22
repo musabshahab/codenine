@@ -1,32 +1,83 @@
-import { DEFAULT_UNIFIED_SETTINGS } from "@codenine/contracts";
+import {
+  type ClientSettings,
+  ClientSettingsSchema,
+  DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS,
+  ProviderInstanceId,
+  ServerSettings,
+} from "@codenine/contracts";
 import * as Duration from "effect/Duration";
 import { describe, expect, it } from "vite-plus/test";
 import {
   backgroundActivitySharedPolicySettings,
-  hasChangedBackgroundActivitySettings,
+  planDeviceSettingsRestore,
 } from "./SettingsPanels.logic";
 
-describe("background activity settings restore", () => {
-  it("detects legacy interval values even when the structured setting is at its default", () => {
-    expect(
-      hasChangedBackgroundActivitySettings({
-        backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
-        backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
-        automaticGitFetchInterval: Duration.seconds(45),
-        providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
-      }),
-    ).toBe(true);
-    expect(
-      hasChangedBackgroundActivitySettings({
-        backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
-        backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
-        automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
-        providerHealthRefreshInterval: Duration.minutes(7),
-      }),
-    ).toBe(true);
-    expect(hasChangedBackgroundActivitySettings(DEFAULT_UNIFIED_SETTINGS)).toBe(false);
+describe("device settings restore", () => {
+  it("lists and resets only the device rows that changed", () => {
+    const { changedLabels, patch } = planDeviceSettingsRestore({
+      ...DEFAULT_CLIENT_SETTINGS,
+      threadDetailsItems: { usage: true },
+      sidebarProjectGroupingMode: "separate",
+      sidebarTwoLineRows: true,
+      fontSizeCode: DEFAULT_CLIENT_SETTINGS.fontSizeCode + 1,
+      fontSmoothing: false,
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      favorites: [{ provider: ProviderInstanceId.make("codex"), model: "gpt-5" }],
+      loadBalancingWeights: { "environment-1": 50 },
+      sidebarProjectGroupingOverrides: { "environment-1:/repo": "separate" },
+    });
+
+    expect(changedLabels).toEqual([
+      "Thread details",
+      "Workspace grouping",
+      "Two-line chat rows",
+      "Code font",
+      "Font smoothing",
+    ]);
+    expect(patch).toEqual({
+      threadDetailsItems: {},
+      sidebarProjectGroupingMode: DEFAULT_CLIENT_SETTINGS.sidebarProjectGroupingMode,
+      sidebarTwoLineRows: DEFAULT_CLIENT_SETTINGS.sidebarTwoLineRows,
+      fontFamilyCode: DEFAULT_CLIENT_SETTINGS.fontFamilyCode,
+      fontSizeCode: DEFAULT_CLIENT_SETTINGS.fontSizeCode,
+      fontSmoothing: DEFAULT_CLIENT_SETTINGS.fontSmoothing,
+    });
+    expect(planDeviceSettingsRestore(DEFAULT_CLIENT_SETTINGS)).toEqual({
+      changedLabels: [],
+      patch: {},
+    });
   });
 
+  it("covers every device setting a row shows and never an environment setting", () => {
+    const everythingChanged = Object.fromEntries(
+      Object.keys(DEFAULT_CLIENT_SETTINGS).map((key) => [key, Symbol(key)]),
+    ) as unknown as ClientSettings;
+    const leftAlone = new Set([
+      "onboardingCompletedAt",
+      "onboardingCompletedEnvironmentId",
+      "loadBalancingEnabled",
+      "loadBalancingWeights",
+      "sidebarProjectGroupingOverrides",
+      "sidebarThreadSortOrder",
+      "threadDetailsUsageEnabled",
+    ]);
+    const deviceKeys = Object.keys(ClientSettingsSchema.fields).filter(
+      (key) => !Object.hasOwn(ServerSettings.fields, key) && !leftAlone.has(key),
+    );
+
+    const { patch } = planDeviceSettingsRestore(everythingChanged);
+
+    expect(Object.keys(patch).toSorted()).toEqual(deviceKeys.toSorted());
+    expect(patch).toEqual(
+      Object.fromEntries(
+        deviceKeys.map((key) => [key, DEFAULT_CLIENT_SETTINGS[key as keyof ClientSettings]]),
+      ),
+    );
+  });
+});
+
+describe("background activity shared policy", () => {
   it("preserves advanced overrides when the shared policy changes", () => {
     const automaticGitFetchInterval = Duration.seconds(42);
     expect(

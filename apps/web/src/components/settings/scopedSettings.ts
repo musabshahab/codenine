@@ -41,6 +41,11 @@ const SERVER_KEYS = new Set<string>(Object.keys(ServerSettings.fields));
 const CLIENT_KEYS = new Set<string>(Object.keys(ClientSettingsSchema.fields));
 const PROJECT_SCOPED_KEYS = new Set<string>(PROJECT_SCOPED_SERVER_SETTING_KEYS);
 
+/** Kept only on this device. favorites and providerModelPreferences are also saved on environments. */
+export function isDeviceSettingKey(key: string): boolean {
+  return CLIENT_KEYS.has(key) && !SERVER_KEYS.has(key);
+}
+
 export function isProjectScopedSettingKey(key: string): key is ProjectScopedServerSettingKey {
   return PROJECT_SCOPED_KEYS.has(key);
 }
@@ -223,7 +228,7 @@ export function planScopedSettingsPatch(
   patch: ScopedSettingsPatch,
 ) {
   const clientPatch = Object.fromEntries(
-    Object.entries(patch).filter(([key]) => CLIENT_KEYS.has(key) && !SERVER_KEYS.has(key)),
+    Object.entries(patch).filter(([key]) => isDeviceSettingKey(key)),
   ) as ClientSettingsPatch;
   const serverPatch = Object.fromEntries(
     Object.entries(patch).filter(([key]) => SERVER_KEYS.has(key)),

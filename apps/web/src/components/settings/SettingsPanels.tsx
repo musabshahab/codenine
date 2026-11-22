@@ -47,6 +47,7 @@ import {
   readThemePreference,
   useTheme,
 } from "../../hooks/useTheme";
+import { updateClientSettings, useClientSettings } from "../../hooks/useSettings";
 import {
   useScopedSettings,
   useScopedSettingsMixed,
@@ -83,9 +84,8 @@ import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
-  getChangedTypographySettingLabels,
-  hasChangedBackgroundActivitySettings,
   isProjectGroupingEnabled,
+  planDeviceSettingsRestore,
   projectGroupingModeFromToggle,
   readLastEnabledProjectGroupingMode,
   rememberEnabledProjectGroupingMode,
@@ -410,156 +410,24 @@ export function useSettingsRestore(onRestored?: () => void) {
     clearThemeHalves,
     themeHalves,
   } = useTheme();
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-
-  const isTextGenerationModelDirty = !Equal.equals(
-    settings.textGenerationModelSelection ?? null,
-    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
-  );
-  const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
+  const clientSettings = useClientSettings();
+  const deviceRestore = planDeviceSettingsRestore(clientSettings);
 
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
     ...(!followSystem ? ["Follow system"] : []),
     ...(themeHalves !== null ? ["Theme mix"] : []),
-    ...(settings.appearanceContrast !== DEFAULT_UNIFIED_SETTINGS.appearanceContrast
-      ? ["Contrast"]
-      : []),
-    ...(settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? ["Glass opacity"] : []),
-    ...(settings.diffColorScheme !== DEFAULT_UNIFIED_SETTINGS.diffColorScheme
-      ? ["Diff colors"]
-      : []),
-    ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
-    ...(settings.effortDisplay !== DEFAULT_UNIFIED_SETTINGS.effortDisplay
-      ? ["Effort display"]
-      : []),
-    ...(settings.mathRenderingEnabled !== DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled
-      ? ["Render math"]
-      : []),
-    ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
-      ? ["Panel animations"]
-      : []),
-    ...(settings.environmentIdentificationMode !==
-    DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
-      ? ["Environment identification"]
-      : []),
-    ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
-      ? ["Time format"]
-      : []),
-    ...(settings.notificationMode !== DEFAULT_UNIFIED_SETTINGS.notificationMode
-      ? ["Thread notifications"]
-      : []),
-    ...(settings.inAppNotificationsEnabled !== DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled
-      ? ["In-app notifications"]
-      : []),
-    ...(settings.sidebarProjectGroupingMode !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode
-      ? ["Workspace Grouping"]
-      : []),
-    ...(settings.sidebarProjectSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder
-      ? ["Workspace order"]
-      : []),
-    ...(settings.sidebarGroupByProject !== DEFAULT_UNIFIED_SETTINGS.sidebarGroupByProject
-      ? ["Group chats by workspace"]
-      : []),
-    ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
-      ? ["Working section"]
-      : []),
-    ...(settings.sidebarAutoSettleAfterDays !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays
-      ? ["Mark inactive threads done"]
-      : []),
-    ...(settings.sidebarAutoSettleKeepPullRequests !==
-    DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests
-      ? ["Keep threads with a PR"]
-      : []),
-    ...(settings.sidebarAutoSettleOnMerge !== DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge
-      ? ["Mark merged threads done"]
-      : []),
-    ...(settings.autoResumeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads
-      ? ["Resume after usage limits"]
-      : []),
-    ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
-      ? ["Snooze until limits reset"]
-      : []),
-    ...(!Equal.equals(settings.snoozePresets, DEFAULT_UNIFIED_SETTINGS.snoozePresets)
-      ? ["Snooze options"]
-      : []),
-    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
-    ...(settings.persistComposerContextStrip !==
-    DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
-      ? ["Composer context"]
-      : []),
-    ...getChangedTypographySettingLabels(settings),
-    ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
-      ? ["Default diff file state"]
-      : []),
-    ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
-      ? ["Diff whitespace changes"]
-      : []),
-    ...(settings.diffLayout !== DEFAULT_UNIFIED_SETTINGS.diffLayout ? ["Diff layout"] : []),
-    ...(settings.proactivePanelsEnabled !== DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled
-      ? ["Open pull requests and changes panels proactively"]
-      : []),
-    ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
-      ? ["Show skills in slash menu"]
-      : []),
-    ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
-      ? ["Rich text composer"]
-      : []),
-    ...(settings.sendShortcut !== DEFAULT_UNIFIED_SETTINGS.sendShortcut ? ["Send shortcut"] : []),
-    ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
-      ? ["Follow-up behavior"]
-      : []),
-    ...(settings.toolCallVisibility !== DEFAULT_UNIFIED_SETTINGS.toolCallVisibility
-      ? ["Tool calls in chat"]
-      : []),
-    ...(settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode
-      ? ["Response streaming"]
-      : []),
-    ...(settings.enableProviderUpdateChecks !== DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
-      ? ["Provider update checks"]
-      : []),
-    ...(settings.continueThreadsAfterServerUpdate !==
-    DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
-      ? ["Continue threads after restarts"]
-      : []),
-    ...(isBackgroundActivityDirty ? ["Background activity"] : []),
-    ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
-      ? ["New thread mode"]
-      : []),
-    ...(settings.newWorktreesStartFromOrigin !==
-    DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
-      ? ["New worktrees start from remote"]
-      : []),
-    ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
-      ? ["Add workspace base directory"]
-      : []),
-    ...(settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout
-      ? ["Clone into host folders"]
-      : []),
-    ...(settings.confirmThreadUnpin !== DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin
-      ? ["Unpin confirmation"]
-      : []),
-    ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
-      ? ["Archive confirmation"]
-      : []),
-    ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
-      ? ["Delete confirmation"]
-      : []),
-    ...(settings.confirmQuit !== DEFAULT_UNIFIED_SETTINGS.confirmQuit ? ["Quit shortcut"] : []),
-    ...(isTextGenerationModelDirty ? ["Text generation model"] : []),
-    ...(settings.threadTitleInstructions !== DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions
-      ? ["Thread title instructions"]
-      : []),
+    ...deviceRestore.changedLabels,
   ];
 
   const restoreDefaults = async () => {
     if (changedSettingLabels.length === 0) return;
     const api = readLocalApi();
     const confirmed = await (api ?? ensureLocalApi()).dialogs.confirm(
-      ["Restore default settings?", `This will reset: ${changedSettingLabels.join(", ")}.`].join(
-        "\n",
-      ),
+      [
+        "Restore device defaults?",
+        `This will reset on this device: ${changedSettingLabels.join(", ")}.`,
+      ].join("\n"),
       { variant: "destructive" },
     );
     if (!confirmed) return;
@@ -604,65 +472,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       notifyThemeRestoreFailure();
       return;
     }
-    updateSettings({
-      appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
-      diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
-      chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
-      effortDisplay: DEFAULT_UNIFIED_SETTINGS.effortDisplay,
-      mathRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.mathRenderingEnabled,
-      timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
-      notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
-      inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
-      wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
-      persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
-      diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
-      diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
-      diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
-      proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
-      showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
-      composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
-      sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
-      followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
-      toolCallVisibility: DEFAULT_UNIFIED_SETTINGS.toolCallVisibility,
-      environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
-      glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
-      panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
-      sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
-      sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
-      sidebarGroupByProject: DEFAULT_UNIFIED_SETTINGS.sidebarGroupByProject,
-      sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
-      sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
-      sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
-      sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
-      autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
-      snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
-      snoozePresets: DEFAULT_UNIFIED_SETTINGS.snoozePresets,
-      responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
-      enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
-      continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
-      backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
-      backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
-      automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
-      providerHealthRefreshInterval: DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
-      defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
-      newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
-      addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-      ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout,
-      confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
-      confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
-      confirmThreadUnpin: DEFAULT_UNIFIED_SETTINGS.confirmThreadUnpin,
-      confirmQuit: DEFAULT_UNIFIED_SETTINGS.confirmQuit,
-      textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-      threadTitleInstructions: DEFAULT_UNIFIED_SETTINGS.threadTitleInstructions,
-      fontFamilySans: DEFAULT_UNIFIED_SETTINGS.fontFamilySans,
-      fontFamilyComposer: DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer,
-      fontFamilyCode: DEFAULT_UNIFIED_SETTINGS.fontFamilyCode,
-      fontFamilyTerminal: DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal,
-      fontSizeInterface: DEFAULT_UNIFIED_SETTINGS.fontSizeInterface,
-      fontSizePrompt: DEFAULT_UNIFIED_SETTINGS.fontSizePrompt,
-      fontSizeCode: DEFAULT_UNIFIED_SETTINGS.fontSizeCode,
-      fontSizeTerminal: DEFAULT_UNIFIED_SETTINGS.fontSizeTerminal,
-    });
+    void updateClientSettings(deviceRestore.patch);
     onRestored?.();
   };
 

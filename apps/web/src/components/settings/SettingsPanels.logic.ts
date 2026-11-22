@@ -1,13 +1,15 @@
 import type {
   BackgroundActivityProfile,
   BackgroundActivitySettings,
+  ClientSettings,
+  ClientSettingsPatch,
   ProviderInstanceConfig,
   ProviderInstanceId,
   ServerSettings,
   SidebarProjectGroupingMode,
   UnifiedSettings,
 } from "@codenine/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@codenine/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS } from "@codenine/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
   normalizeBackgroundActivitySettings,
@@ -16,6 +18,7 @@ import {
 } from "@codenine/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
+import { isDeviceSettingKey } from "./scopedSettings";
 
 export function isProjectGroupingEnabled(mode: SidebarProjectGroupingMode): boolean {
   return mode !== "separate";
@@ -48,60 +51,66 @@ export function rememberEnabledProjectGroupingMode(mode: SidebarProjectGroupingM
   } catch {}
 }
 
-export function hasChangedBackgroundActivitySettings(
-  settings: Pick<
-    UnifiedSettings,
-    | "backgroundActivity"
-    | "backgroundActivityProfile"
-    | "automaticGitFetchInterval"
-    | "providerHealthRefreshInterval"
-  >,
-): boolean {
-  return (
-    !Equal.equals(settings.backgroundActivity, DEFAULT_UNIFIED_SETTINGS.backgroundActivity) ||
-    settings.backgroundActivityProfile !== DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile ||
-    !Equal.equals(
-      settings.automaticGitFetchInterval,
-      DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
-    ) ||
-    !Equal.equals(
-      settings.providerHealthRefreshInterval,
-      DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
-    )
+// Restore device defaults resets these rows. Server keys are filtered out so the button
+// never writes environment settings, and onboarding, favorites and per-workspace or
+// per-environment maps are left out because no row here names them.
+const DEVICE_RESTORE_ROWS: ReadonlyArray<{
+  readonly label: string;
+  readonly keys: readonly (keyof ClientSettings)[];
+}> = [
+  { label: "Contrast", keys: ["appearanceContrast"] },
+  { label: "Glass opacity", keys: ["glassOpacity"] },
+  { label: "Diff colors", keys: ["diffColorScheme"] },
+  { label: "Chat width", keys: ["chatWidth"] },
+  { label: "Effort display", keys: ["effortDisplay"] },
+  { label: "Render math", keys: ["mathRenderingEnabled"] },
+  { label: "Panel animations", keys: ["panelAnimationDurationMs"] },
+  { label: "Environment identification", keys: ["environmentIdentificationMode"] },
+  { label: "Thread details", keys: ["threadDetailsItems"] },
+  { label: "Time format", keys: ["timestampFormat"] },
+  { label: "Thread notifications", keys: ["notificationMode"] },
+  { label: "In-app notifications", keys: ["inAppNotificationsEnabled"] },
+  { label: "Workspace grouping", keys: ["sidebarProjectGroupingMode"] },
+  { label: "Workspace order", keys: ["sidebarProjectSortOrder"] },
+  { label: "Group chats by workspace", keys: ["sidebarGroupByProject"] },
+  { label: "Working section", keys: ["sidebarWorkingShelfEnabled"] },
+  { label: "Two-line chat rows", keys: ["sidebarTwoLineRows"] },
+  { label: "Word wrap", keys: ["wordWrap"] },
+  { label: "Composer context", keys: ["persistComposerContextStrip"] },
+  { label: "Interface font", keys: ["fontFamilySans", "fontSizeInterface"] },
+  { label: "Prompt font", keys: ["fontFamilyComposer", "fontSizePrompt"] },
+  { label: "Code font", keys: ["fontFamilyCode", "fontSizeCode"] },
+  { label: "Terminal font", keys: ["fontFamilyTerminal", "fontSizeTerminal"] },
+  { label: "Font smoothing", keys: ["fontSmoothing"] },
+  { label: "Default diff file state", keys: ["diffFilesCollapsed"] },
+  { label: "Diff whitespace changes", keys: ["diffIgnoreWhitespace"] },
+  { label: "Diff layout", keys: ["diffLayout"] },
+  { label: "Open pull requests and changes panels proactively", keys: ["proactivePanelsEnabled"] },
+  { label: "Show skills in slash menu", keys: ["showSkillsInSlashMenu"] },
+  { label: "Rich text composer", keys: ["composerRichTextEnabled"] },
+  { label: "Send shortcut", keys: ["sendShortcut"] },
+  { label: "Follow-up behavior", keys: ["followUpBehavior"] },
+  { label: "Tool calls in chat", keys: ["toolCallVisibility"] },
+  { label: "Unpin confirmation", keys: ["confirmThreadUnpin"] },
+  { label: "Archive confirmation", keys: ["confirmThreadArchive"] },
+  { label: "Delete confirmation", keys: ["confirmThreadDelete"] },
+  { label: "Quit shortcut", keys: ["confirmQuit"] },
+];
+
+/** The labels to confirm and the patch that resets exactly those rows on this device. */
+export function planDeviceSettingsRestore(settings: ClientSettings) {
+  const changedRows = DEVICE_RESTORE_ROWS.map((row) => ({
+    label: row.label,
+    keys: row.keys.filter(isDeviceSettingKey),
+  })).filter((row) =>
+    row.keys.some((key) => !Equal.equals(settings[key], DEFAULT_CLIENT_SETTINGS[key])),
   );
-}
-
-type TypographySettings = Pick<
-  UnifiedSettings,
-  | "fontFamilySans"
-  | "fontFamilyComposer"
-  | "fontFamilyCode"
-  | "fontFamilyTerminal"
-  | "fontSizeInterface"
-  | "fontSizePrompt"
-  | "fontSizeCode"
-  | "fontSizeTerminal"
->;
-
-export function getChangedTypographySettingLabels(settings: TypographySettings): string[] {
-  return [
-    ...(settings.fontFamilySans !== DEFAULT_UNIFIED_SETTINGS.fontFamilySans ||
-    settings.fontSizeInterface !== DEFAULT_UNIFIED_SETTINGS.fontSizeInterface
-      ? ["Interface font"]
-      : []),
-    ...(settings.fontFamilyComposer !== DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer ||
-    settings.fontSizePrompt !== DEFAULT_UNIFIED_SETTINGS.fontSizePrompt
-      ? ["Prompt font"]
-      : []),
-    ...(settings.fontFamilyCode !== DEFAULT_UNIFIED_SETTINGS.fontFamilyCode ||
-    settings.fontSizeCode !== DEFAULT_UNIFIED_SETTINGS.fontSizeCode
-      ? ["Code font"]
-      : []),
-    ...(settings.fontFamilyTerminal !== DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal ||
-    settings.fontSizeTerminal !== DEFAULT_UNIFIED_SETTINGS.fontSizeTerminal
-      ? ["Terminal font"]
-      : []),
-  ];
+  return {
+    changedLabels: changedRows.map((row) => row.label),
+    patch: Object.fromEntries(
+      changedRows.flatMap((row) => row.keys.map((key) => [key, DEFAULT_CLIENT_SETTINGS[key]])),
+    ) as ClientSettingsPatch,
+  };
 }
 
 export function resolveBackgroundActivityProfileOption(
