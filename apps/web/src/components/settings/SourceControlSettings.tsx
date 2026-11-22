@@ -44,7 +44,10 @@ import {
 } from "./settingsLayout";
 import { searchableSetting, sourceControlHostSettingsSearchId } from "./settingsSearch";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
-import { sourceControlClients } from "@codenine/client-runtime/source-control-clients";
+import {
+  sourceControlClients,
+  type SourceControlHostCredentials,
+} from "@codenine/client-runtime/source-control-clients";
 import { sourceControlIcon } from "~/sourceControlPresentation";
 
 const EMPTY_DISCOVERY_RESULT: SourceControlDiscoveryResult = {
@@ -143,6 +146,28 @@ function SourceControlItemMark({
   );
 }
 
+function NotConnectedSummary({
+  item,
+  credentials,
+}: {
+  readonly item: SourceControlProviderDiscoveryItem;
+  readonly credentials: SourceControlHostCredentials;
+}) {
+  const command = (text: string) => (
+    <code className="rounded bg-muted px-1 py-px text-2xs">{text}</code>
+  );
+  return (
+    <span>
+      Not connected.{" "}
+      {credentials.appSignIn && item.appSignIn === true
+        ? `Sign in with ${item.label}, paste a token below,`
+        : "Paste a token below,"}{" "}
+      set {command(credentials.tokenEnvVar)}, or run {command(credentials.loginCommand)} where this
+      environment runs.
+    </span>
+  );
+}
+
 function itemSummary({
   item,
   auth,
@@ -156,8 +181,24 @@ function itemSummary({
     return <span>Support for {item.label} is coming soon.</span>;
   }
 
+  const credentials = isProviderDiscoveryItem(item)
+    ? sourceControlClients.find(item.kind)?.credentials
+    : undefined;
+
+  if (auth?.status === "unauthenticated" && auth.accounts?.some((entry) => entry.authenticated)) {
+    return <span>{optionLabel(auth.detail) ?? `Every ${item.label} host is turned off.`}</span>;
+  }
+
+  if (
+    credentials &&
+    isProviderDiscoveryItem(item) &&
+    (item.status !== "available" || item.auth.status === "unauthenticated")
+  ) {
+    return <NotConnectedSummary item={item} credentials={credentials} />;
+  }
+
   if (item.status !== "available") {
-    return <span>Not available on this server: {item.installHint}</span>;
+    return <span>Not available in this environment: {item.installHint}</span>;
   }
 
   if (auth) {
@@ -181,16 +222,12 @@ function itemSummary({
       return <span>Available. {item.installHint}</span>;
     }
 
-    if (auth.status === "unauthenticated" && auth.accounts?.some((entry) => entry.authenticated)) {
-      return <span>{optionLabel(auth.detail) ?? `Every ${item.label} host is turned off.`}</span>;
-    }
-
     if (auth.status === "unauthenticated") {
       return (
         <span>
-          {item.label} is not authenticated on this server. Sign in or configure credentials using
-          the <code className="rounded bg-muted px-1 py-px text-2xs">{item.executable}</code> tool
-          on the server host to enable change request features.
+          {item.label} is not authenticated in this environment. Sign in with the{" "}
+          <code className="rounded bg-muted px-1 py-px text-2xs">{item.executable}</code> tool where
+          this environment runs to use pull requests.
         </span>
       );
     }
@@ -219,7 +256,7 @@ function DiscoveryItemRow({
   const auth = isProviderDiscoveryItem(item) ? item.auth : null;
   const authStatus = auth ? authPresentation(auth) : null;
   const authAccount = auth ? optionLabel(auth.account) : null;
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(auth !== null && !enabled);
   const hasDetails = children !== undefined;
   const searchTargetId = useSettingsSearchTargetId();
   const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
@@ -231,10 +268,7 @@ function DiscoveryItemRow({
 
   return (
     <div
-      className={cn(
-        "first:rounded-t-xl last:rounded-b-xl transition-colors hover:bg-muted/20",
-        isVcsNotReady(item) && "opacity-80",
-      )}
+      className={cn("first:rounded-t-xl last:rounded-b-xl", isVcsNotReady(item) && "opacity-80")}
     >
       <div className="px-3 py-3 sm:px-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -340,19 +374,19 @@ function EmptySourceControlDiscovery({
   const hasError = error !== null;
 
   return (
-    <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
+    <SettingsSection id={searchableSetting("source-control").id} title="Environment">
       <Empty>
         <EmptyMedia variant="icon">
           <PullRequestGlyph.pullRequest />
         </EmptyMedia>
         <EmptyHeader>
           <EmptyTitle>
-            {hasError ? "Could not scan the server environment" : "Nothing detected yet"}
+            {hasError ? "Could not scan this environment" : "Nothing detected yet"}
           </EmptyTitle>
           <EmptyDescription>
             {hasError
               ? error
-              : "Install Git on the server, add optional hosting integrations or credentials your workspace needs, then rescan."}
+              : "Install Git where this environment runs, add the hosting integrations or credentials your workspace needs, then rescan."}
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
@@ -429,7 +463,9 @@ export function SourceControlSettingsPanel() {
                 auth={item.auth}
                 onSaved={handleScan}
               />
-            ) : null}
+            ) : (
+              <p className="text-xs text-muted-foreground">{item.installHint}</p>
+            )}
           </div>
         </SettingsSearchTarget>
       );
@@ -454,7 +490,7 @@ export function SourceControlSettingsPanel() {
             variant="ghost-muted"
             onClick={handleScan}
             disabled={discovery.isPending}
-            aria-label="Rescan server environment"
+            aria-label="Rescan environment"
           >
             <RefreshIcon refreshing={discovery.isPending} />
           </Button>
@@ -468,7 +504,7 @@ export function SourceControlSettingsPanel() {
     <SettingsPageContainer>
       <ProjectDefaultsSettings category="source-control" />
       {environmentId === null ? (
-        <SettingsSection id={searchableSetting("source-control").id} title="Server environment">
+        <SettingsSection id={searchableSetting("source-control").id} title="Environment">
           <p className="px-4 py-3 text-sm text-muted-foreground">
             Connect an environment to inspect its version control tools and hosting integrations.
           </p>

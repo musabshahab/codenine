@@ -81,11 +81,13 @@ export function SourceControlAccountSettings({
   };
 
   if (groups.length === 0) {
+    if (auth.status === "authenticated") return null;
     return (
       <p className="text-xs text-muted-foreground">
-        Sign in with{" "}
-        <code className="rounded bg-muted px-1 py-px text-2xs">{credentials.loginCommand}</code> on
-        the server host, then rescan to choose accounts here.
+        To choose between several{" "}
+        <code className="rounded bg-muted px-1 py-px text-2xs">{cliName}</code> logins, run{" "}
+        <code className="rounded bg-muted px-1 py-px text-2xs">{credentials.loginCommand}</code>{" "}
+        where this environment runs, then rescan.
       </p>
     );
   }
@@ -220,10 +222,10 @@ export function SourceControlAccountSettings({
                 </span>
               </p>
             ))}
-            {group.environmentVariable ? (
+            {group.environmentVariable && group.selectable.length > 0 ? (
               <p className="text-xs text-warning">
-                {group.environmentVariable} is set on the server, so it overrides the account chosen
-                here until it is unset.
+                {group.environmentVariable} is set in this environment, so it overrides the account
+                chosen here until it is unset.
               </p>
             ) : null}
           </div>

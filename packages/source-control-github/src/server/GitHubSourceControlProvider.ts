@@ -108,6 +108,21 @@ function authAccounts(accounts: ReadonlyArray<GitHubAuthStatusAccount>) {
   }));
 }
 
+type ReportedAccount = NonNullable<SourceControlProviderDiscoveryItem["auth"]["accounts"]>[number];
+
+/** Says the token overrides the Settings choice only when gh has a stored login to choose. */
+function environmentTokenDetail(
+  variable: string,
+  host: string,
+  accounts: ReadonlyArray<ReportedAccount> = [],
+): string {
+  const choosable = accounts.some(
+    (entry) =>
+      entry.host === host && entry.authenticated && entry.environmentVariable === undefined,
+  );
+  return `Using the ${variable} environment variable${choosable ? "; it overrides the account chosen in Settings" : ""}.`;
+}
+
 export function parseGitHubAuth(
   input: SourceControlAuthProbeInput,
   settings: GitHubClient.GitHubSettings = readSourceControlHostSettings(GitHubClient.settings, {}),
@@ -122,7 +137,8 @@ export function parseGitHubAuth(
   const chosen = orderedHosts
     .map((host) => effectiveGitHubAccount(host, authStatus.accounts, settings))
     .find((entry) => entry !== undefined);
-  const accounts = authStatus.parsed ? { accounts: authAccounts(authStatus.accounts) } : {};
+  const reported = authAccounts(authStatus.accounts);
+  const accounts = authStatus.parsed ? { accounts: reported } : {};
 
   if (chosen) {
     return {
@@ -133,7 +149,7 @@ export function parseGitHubAuth(
         detail:
           chosen.environmentVariable === null
             ? undefined
-            : `Using ${chosen.environmentVariable} from the server environment; it overrides the account chosen in Settings.`,
+            : environmentTokenDetail(chosen.environmentVariable, chosen.host, reported),
       }),
       ...accounts,
     };
@@ -144,7 +160,7 @@ export function parseGitHubAuth(
       ...providerAuth({
         status: "unauthenticated",
         host: fallback.host,
-        detail: "Every GitHub host gh is signed in to is turned off in Settings → Source Control.",
+        detail: "Every GitHub host gh is signed in to is turned off in Settings → Source control.",
       }),
       ...accounts,
     };
@@ -283,7 +299,7 @@ export const makeDiscovery = Effect.gen(function* () {
                   ? "Using the token saved in Settings; it overrides GH_TOKEN and the gh login."
                   : signedIn
                     ? `Signed in with ${appName}.`
-                    : `Using ${variable} from the server environment; it overrides the account chosen in Settings.`,
+                    : environmentTokenDetail(tokenSource, "github.com", cli.auth.accounts),
               })
             : Result.isFailure(viewer) && viewer.failure._tag !== "GitHubApiAuthenticationError"
               ? providerAuth({
@@ -295,9 +311,9 @@ export const makeDiscovery = Effect.gen(function* () {
                   status: "unauthenticated",
                   host: "github.com",
                   detail: savedToken
-                    ? "GitHub refused the token saved in Settings. Replace or remove it in Settings → Source Control."
+                    ? "GitHub refused the token saved in Settings. Replace or remove it in Settings → Source control."
                     : signedIn
-                      ? `GitHub refused the ${appName} sign-in. Sign in again in Settings → Source Control.`
+                      ? `GitHub refused the ${appName} sign-in. Sign in again in Settings → Source control.`
                       : `GitHub refused the token in ${tokenSource}. Replace it, or unset it to use \`gh auth login\`.`,
                 })),
           ...accounts,

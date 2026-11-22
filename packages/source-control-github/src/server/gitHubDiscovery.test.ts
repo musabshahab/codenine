@@ -102,7 +102,7 @@ it.effect.each([
     name: "no",
     token: "",
     status: "authenticated",
-    detail: "GH_TOKEN from the server environment",
+    detail: "Using the GH_TOKEN environment variable.",
   },
   // getWithSecrets leaves a reference its secret provider could not read in place.
   {
