@@ -3,6 +3,7 @@ import { AuthEnvironmentMaintainScope, type EnvironmentId } from "@codenine/cont
 import { useId, useState } from "react";
 
 import { backupEnvironment } from "../../state/backup";
+import { useEnvironmentQuery } from "../../state/query";
 import { readEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
@@ -11,8 +12,9 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { toastManager } from "../ui/toast";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup } from "../ui/wizard";
-import { passwordErrors, type PasswordErrors } from "./backup.logic";
+import { passwordErrors, type PasswordErrors, undoAvailability } from "./backup.logic";
 import { commandErrorMessage } from "../../lib/commandError";
+import { useBackupClock } from "./useBackupDateFormat";
 
 export function FieldError({
   id,
@@ -95,6 +97,12 @@ export function BackupPasswordDialog({
   const [errors, setErrors] = useState<PasswordErrors>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const { nowMs } = useBackupClock();
+  const report = useEnvironmentQuery(backupEnvironment.restoreReport({ environmentId, input: {} }))
+    .data?.report;
+  // The safety backup was made with the restore's password, and undo opens it with the saved one.
+  const undoPending =
+    report?.safetyBackup != null && undoAvailability(report.undoUntil, nowMs) !== null;
 
   const save = async () => {
     const problems = passwordErrors(password, confirmation);
@@ -128,7 +136,11 @@ export function BackupPasswordDialog({
       <WizardPopup>
         <WizardHeader
           title="Change backup password"
-          description="New backups use this password. Backups you already have still open with the one they were made with."
+          description={`New backups use this password. Backups you already have still open with the one they were made with.${
+            undoPending
+              ? " Undo restore needs the password the restore used, so it stops working until you set that password again."
+              : ""
+          }`}
         />
         <WizardPanel>
           <form
