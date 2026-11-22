@@ -164,7 +164,7 @@ describe("workflowProblems", () => {
       ...digest,
       steps: [
         ...pairs
-          .slice(0, 9)
+          .slice(0, 13)
           .map((pair, index) => step(`step-${index}`, pair.agent, { model: pair.model })),
         step("again", "writer", { model: pairs[0]!.model }),
       ],
@@ -173,7 +173,7 @@ describe("workflowProblems", () => {
       {
         step: null,
         message:
-          "A run can use at most 8 pairs of agent and model; this workflow uses 9. Give some steps the same agent and model.",
+          "A run can use at most 12 pairs of agent and model; this workflow uses 13. Give some steps the same agent and model.",
       },
     ]);
   });
