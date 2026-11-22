@@ -68,6 +68,17 @@ export function sameTeamPlan(a: TeamPlan | null, b: TeamPlan | null): boolean {
   return a === null || b === null ? a === b : sameJson(a, b);
 }
 
+// The server returns a member's fields in its schema's order, not in the order an edit wrote them.
+function sortedKeys(_key: string, value: unknown): unknown {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : value;
+}
+
+function sameFields(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a, sortedKeys) === JSON.stringify(b, sortedKeys);
+}
+
 export type TeamDraftChange =
   | {
       readonly type: "agent.model";
@@ -288,7 +299,7 @@ export function teamDraftChangeCount(base: TeamEditorDraft, draft: TeamEditorDra
   count += Number(base.maxParallelPerProvider !== draft.maxParallelPerProvider);
   for (const agent of draft.agents) {
     // All of a member's edits count as one choice, as a new agent brings its model.
-    if (!sameJson(agentsBefore.get(agent.id), agent)) count += 1;
+    if (!sameFields(agentsBefore.get(agent.id), agent)) count += 1;
   }
   for (const task of base.tasks) {
     const after = tasksAfter.get(task.id);
@@ -329,7 +340,7 @@ export function resolveTeamDraft(plan: TeamPlan, edit: TeamDraftEdit | null): Re
     return {
       draft: edit.draft,
       revision: edit.revision,
-      dirty: !sameJson(edit.draft, current),
+      dirty: !sameFields(edit.draft, current),
       overtaken: false,
     };
   }
@@ -338,7 +349,7 @@ export function resolveTeamDraft(plan: TeamPlan, edit: TeamDraftEdit | null): Re
     return {
       draft: edit.draft,
       revision: edit.revision,
-      dirty: !sameJson(edit.draft, edit.base),
+      dirty: !sameFields(edit.draft, edit.base),
       overtaken: false,
     };
   }
@@ -346,7 +357,7 @@ export function resolveTeamDraft(plan: TeamPlan, edit: TeamDraftEdit | null): Re
     draft: current,
     revision: plan.revision,
     dirty: false,
-    overtaken: !sameJson(edit.draft, edit.base),
+    overtaken: !sameFields(edit.draft, edit.base),
   };
 }
 

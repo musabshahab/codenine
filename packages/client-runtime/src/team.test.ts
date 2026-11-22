@@ -342,6 +342,32 @@ describe("resolveTeamDraft", () => {
     expect(resolveTeamDraft(delivered, saved)).toMatchObject({ revision: 2, dirty: false });
   });
 
+  it("reads a delivered plan as saved whatever order the server keeps its fields in", () => {
+    const defined = plan({ agents: [agent("builder"), inlineAgent("checker")] });
+    const edit = editTeamDraft(defined, null, {
+      type: "agent.assign",
+      agentId: TeamAgentId.make("checker"),
+      agent: "fact-checker",
+      label: "Fact checker",
+      modelSelection: { instanceId: codex, model: "gpt-strong" },
+    });
+    const saved = savedTeamDraftEdit(defined, resolveTeamDraft(defined, edit));
+    // The server decodes members field by field, so `agent` comes back before `instructions`.
+    const { instructions: _instructions, ...checker } = inlineAgent("checker");
+    const delivered = plan({
+      revision: 2,
+      agents: [
+        agent("builder"),
+        {
+          ...checker,
+          agent: "fact-checker",
+          instructions: "Check every claim against its source.",
+        },
+      ],
+    });
+    expect(resolveTeamDraft(delivered, saved)).toMatchObject({ revision: 2, dirty: false });
+  });
+
   it("reports unsaved edits that a newer plan replaced", () => {
     const edit = editTeamDraft(current, null, strongBuilder);
     for (const newer of [
