@@ -851,6 +851,44 @@ it.effect(
     ),
 );
 
+it.effect("the lead's wake keeps the results of the tasks nothing depends on first", () =>
+  withTeam((launched) =>
+    Effect.gen(function* () {
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const result = (id: string) => `${id}: ${"done. ".repeat(700)}`.slice(0, 4_000);
+      yield* propose([
+        task("a"),
+        task("b"),
+        task("c"),
+        task("d"),
+        task("integrate", ["a", "b", "c", "d"], reviewer),
+      ]);
+      yield* approve();
+      yield* runEffects(launched, 2);
+      for (const [id, launches] of [
+        ["a", 1],
+        ["b", 1],
+        ["c", 0],
+        ["d", 1],
+        ["integrate", 0],
+      ] as const) {
+        yield* endRun(yield* taskThreadId(id), "completed", result(id));
+        yield* runEffects(launched, launches);
+      }
+      assert.equal((yield* team).status, "completed");
+      // The wake, then the settle; the lead turn the wake starts is not under test.
+      yield* worker.drain(2);
+      const [wake] = yield* leadWakes;
+      assert.include(wake!.text, `- Task integrate: completed.`);
+      assert.include(wake!.text, result("integrate"));
+      for (const id of ["a", "b", "c"]) assert.include(wake!.text, result(id));
+      assert.notInclude(wake!.text, result("d"));
+      assert.include(wake!.text, "- Task d: completed. Agent: builder (gpt-fast). Thread: ");
+      assert.include(wake!.text, "Result left out to keep this message short. Read the thread.");
+    }),
+  ),
+);
+
 it.effect(
   "recovery settles once a task whose run ended unheard, and the task it unblocks starts once",
   () =>

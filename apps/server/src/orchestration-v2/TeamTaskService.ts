@@ -255,15 +255,24 @@ const RUN_WAKE_WORDS = {
 
 function wakeText(plan: TeamPlan): string {
   const words = plan.run === undefined ? TEAM_WAKE_WORDS : RUN_WAKE_WORDS;
+  // The final tasks, such as integration or review, report on the whole goal, so they come first.
+  const dependedOn = new Set(plan.tasks.flatMap((task) => task.dependsOn));
   let budget = WAKE_RESULT_BUDGET_CHARS;
+  const kept = new Set<TeamTaskId>();
+  for (const task of [
+    ...plan.tasks.filter((task) => !dependedOn.has(task.id)),
+    ...plan.tasks.filter((task) => dependedOn.has(task.id)),
+  ]) {
+    if (task.result === null || task.result.length > budget) continue;
+    budget -= task.result.length;
+    kept.add(task.id);
+  }
   const tasks = plan.tasks.map((task) => {
     const heading = `- ${task.title}: ${task.status}. Agent: ${memberOf(plan, task)}. Thread: ${threadOf(task)}`;
     if (task.result === null) return heading;
-    if (task.result.length > budget) {
-      return `${heading}\n  Result left out to keep this message short. Read the thread.`;
-    }
-    budget -= task.result.length;
-    return `${heading}\n${task.result}`;
+    return kept.has(task.id)
+      ? `${heading}\n${task.result}`
+      : `${heading}\n  Result left out to keep this message short. Read the thread.`;
   });
   return [
     plan.status === "completed" ? words.completed : words.failed,
