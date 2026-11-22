@@ -418,7 +418,10 @@ describe("EnvironmentProviderSettings instance removal", () => {
     await userEvent.click(remove);
 
     expect(state.mutateProviderInstance).not.toHaveBeenCalled();
-    expect(state.confirm).toHaveBeenCalledOnce();
+    expect(state.confirm).toHaveBeenCalledWith(
+      expect.stringMatching(/^Remove the Codex Work account\?/),
+      { variant: "destructive" },
+    );
 
     state.confirm.mockResolvedValue(true);
     await userEvent.click(remove);

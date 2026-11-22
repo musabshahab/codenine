@@ -34,6 +34,7 @@ import {
   toCustomModelSetting,
 } from "@codenine/shared/model";
 import { isOpenRouterProvider } from "@codenine/shared/openRouter";
+import { resolveProviderInstanceDisplayName } from "@codenine/client-runtime/state/provider-instance-display";
 import { cn } from "../../lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useStableCallback } from "../../hooks/useStableCallback";
@@ -740,8 +741,7 @@ export function ProviderInstanceCard({
     : versionAdvisory?.targetVersion
       ? onInstallRecommended
       : onRunUpdate;
-  const displayName =
-    instance.displayName?.trim() || driverOption?.label || String(instance.driver);
+  const displayName = resolveProviderInstanceDisplayName({ instanceId, ...instance });
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
@@ -1198,7 +1198,10 @@ export function ProviderInstanceCard({
                 className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
                 value={instance.displayName ?? ""}
                 onCommit={updateDisplayName}
-                placeholder={driverOption?.label ?? "Account label"}
+                placeholder={resolveProviderInstanceDisplayName({
+                  instanceId,
+                  driver: instance.driver,
+                })}
                 spellCheck={false}
               />
             </div>

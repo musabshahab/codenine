@@ -9,6 +9,7 @@ import { useEnvironmentScope, readEnvironmentScope } from "../../state/session";
 import { useAtomValue } from "@effect/atom-react";
 import { connectionStatusTitle } from "@codenine/client-runtime/connection";
 import { safeErrorLogAttributes } from "@codenine/client-runtime/errors";
+import { resolveProviderInstanceDisplayName } from "@codenine/client-runtime/state/provider-instance-display";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -133,14 +134,6 @@ import {
   resolveRemoteOperateAccess,
   resolveSelectedProviderEnvironmentId,
 } from "./ProviderSettingsPanel.logic";
-
-function providerInstanceName(instance: ProviderInstanceConfig): string {
-  return (
-    instance.displayName?.trim() ||
-    providerClients.get(instance.driver)?.label ||
-    String(instance.driver)
-  );
-}
 
 async function confirmProviderInstanceRemoval(
   question: string,
@@ -821,7 +814,7 @@ export function EnvironmentProviderSettings({
   const deleteInstance = useStableCallback(
     async (instanceId: ProviderInstanceId, instance: ProviderInstanceConfig) => {
       const confirmed = await confirmProviderInstanceRemoval(
-        `Remove the ${providerInstanceName(instance)} account?`,
+        `Remove the ${resolveProviderInstanceDisplayName({ instanceId, ...instance })} account?`,
         " Its login and chat history stay on this environment, so adding it again picks them up. To end the login, sign out first.",
       );
       if (!confirmed) return;
@@ -845,7 +838,7 @@ export function EnvironmentProviderSettings({
     const instanceId = defaultInstanceIdForDriver(driverKind);
     const instance = settings.providerInstances?.[instanceId] ?? { driver: driverKind };
     const confirmed = await confirmProviderInstanceRemoval(
-      `Reset the ${providerInstanceName(instance)} account to its defaults?`,
+      `Reset the ${resolveProviderInstanceDisplayName({ instanceId, ...instance })} account to its defaults?`,
       resolveProviderInstanceEnabled(instance) ? "" : " It will also be turned back on.",
     );
     if (!confirmed) return;
