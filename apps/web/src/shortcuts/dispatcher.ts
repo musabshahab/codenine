@@ -43,7 +43,7 @@ const globalScopes: CommandScope[] = [];
 const captureScopes: CommandScope[] = [];
 const observerScopes: CommandScope[] = [];
 
-function readFocusContext(event: KeyboardEvent): Partial<ShortcutMatchContext> {
+export function readFocusContext(event: KeyboardEvent): Partial<ShortcutMatchContext> {
   return {
     terminalFocus: isTerminalFocused(),
     editableFocus: isEditableFocused(event.target),
