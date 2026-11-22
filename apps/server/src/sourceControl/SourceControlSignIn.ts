@@ -58,9 +58,10 @@ const make = Effect.gen(function* () {
     }),
     access: Effect.fn("SourceControlSignIn.access")(function* (input) {
       const signIn = drivers.find(({ driver }) => driver.kind === input.provider)?.instance.signIn;
+      if (signIn === undefined) return { status: "signed-out" } satisfies SourceControlAppAccess;
       return {
-        status:
-          signIn === undefined ? "signed-out" : yield* signIn.access(input.host, input.repository),
+        status: yield* signIn.access(input.host, input.repository),
+        ...(signIn.installUrl === null ? {} : { installUrl: signIn.installUrl }),
       } satisfies SourceControlAppAccess;
     }),
   });

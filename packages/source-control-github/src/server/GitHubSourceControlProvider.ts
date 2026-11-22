@@ -230,7 +230,13 @@ export const makeDiscovery = Effect.gen(function* () {
   const environment = yield* HostProcess.Environment;
   const appSignIn = yield* GitHubAppSignIn.GitHubAppSignIn;
   const offerAppSignIn = <A extends SourceControlProviderDiscoveryItem>(item: A): A =>
-    appSignIn.enabled ? { ...item, appSignIn: true } : item;
+    appSignIn.enabled
+      ? {
+          ...item,
+          appSignIn: true,
+          ...(appSignIn.installUrl === null ? {} : { appInstallUrl: appSignIn.installUrl }),
+        }
+      : item;
 
   return {
     type: "managed-cli",
@@ -312,7 +318,7 @@ export const makeDiscovery = Effect.gen(function* () {
                 detail: savedToken
                   ? "Using the token saved in Settings; it overrides GH_TOKEN and the gh login."
                   : signedIn
-                    ? `Signed in with ${appName}.`
+                    ? `Signed in with the ${appName}.`
                     : environmentTokenDetail(tokenSource, "github.com", cli.auth.accounts),
               })
             : Result.isFailure(viewer) && viewer.failure._tag !== "GitHubApiAuthenticationError"

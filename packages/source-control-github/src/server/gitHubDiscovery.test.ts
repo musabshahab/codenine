@@ -27,7 +27,7 @@ const makeDiscovery = (credential: GitHubRest.GitHubRest["Service"]["credential"
     Effect.provide(
       Layer.mergeAll(
         Layer.mock(GitHubRest.GitHubRest)({ credential }),
-        Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false }),
+        Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false, installUrl: null }),
         TestSourceControlHost.layer(),
       ),
     ),
@@ -136,7 +136,7 @@ it.effect.each([
               });
             },
           }),
-          Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false }),
+          Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false, installUrl: null }),
           Layer.effect(
             SourceControlHost.SourceControlHost,
             Effect.gen(function* () {

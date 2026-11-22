@@ -88,6 +88,7 @@ const WSL_FORWARDED_ENV_NAMES = [
   "ANTHROPIC_API_KEY",
   "CODENINE_TELEMETRY_ENABLED",
   "CODENINE_GITHUB_APP_CLIENT_ID",
+  "CODENINE_GITHUB_APP_SLUG",
   // Otherwise the WSL server keeps exporting to endpoints from the bootstrap.
   "CODENINE_OTEL_SDK_DISABLED",
   "OTEL_SDK_DISABLED",

@@ -437,6 +437,7 @@ export function SourceControlSettingsPanel() {
                 environmentId={environmentId}
                 definition={definition}
                 appSignIn={credentials.appSignIn}
+                installUrl={item.appInstallUrl ?? null}
                 account={Option.getOrNull(item.auth.account)}
                 onChanged={handleScan}
               />

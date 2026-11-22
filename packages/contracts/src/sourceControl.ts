@@ -157,6 +157,8 @@ export const SourceControlProviderDiscoveryItem = Schema.Struct({
   auth: SourceControlProviderAuth,
   /** The server is configured to sign in through the host's app; clients offer it only then. */
   appSignIn: Schema.optionalKey(Schema.Boolean),
+  /** Where an account or organization installs that app, when the deployer named it. */
+  appInstallUrl: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type SourceControlProviderDiscoveryItem = typeof SourceControlProviderDiscoveryItem.Type;
 
@@ -223,6 +225,7 @@ export type SourceControlAppAccessInput = typeof SourceControlAppAccessInput.Typ
 /** Whether the server's forge app sign-in reaches a repository; `signed-out` when not in use. */
 export const SourceControlAppAccess = Schema.Struct({
   status: Schema.Literals(["covered", "not-covered", "signed-out"]),
+  installUrl: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type SourceControlAppAccess = typeof SourceControlAppAccess.Type;
 

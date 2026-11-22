@@ -52,6 +52,7 @@ const makeSignIn = Effect.gen(function* () {
         Effect.map((account) => ({ account })),
       ),
     cancel: appSignIn.cancel,
+    installUrl: appSignIn.installUrl,
     access: appAccess.reach,
   } satisfies SourceControlSignIn;
 });

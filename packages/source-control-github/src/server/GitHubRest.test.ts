@@ -34,6 +34,7 @@ import { driver } from "./driver.ts";
 
 const appSignedOut = Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
   enabled: false,
+  installUrl: null,
   token: () => Effect.succeedNone,
   invalidate: () => Effect.void,
 });
