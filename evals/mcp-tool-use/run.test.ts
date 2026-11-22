@@ -6,7 +6,7 @@ import { FetchHttpClient } from "effect/http";
 import { assert, expect, it } from "@effect/vitest";
 import { ComposerContextId, EnvironmentId, ThreadId } from "@codenine/contracts";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
-import { teamMemberChoiceMessage, unknownTeamAgentMessage } from "@codenine/shared/team";
+import { unknownTeamAgentMessage } from "@codenine/shared/team";
 
 import {
   answerToolCall,
@@ -496,13 +496,9 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents", (
       agents: [{ id: "builder", role: "implement", ...member }],
       tasks: [{ id: "build", title: "Build", brief: "Write the token bucket.", agent }],
     });
-  const suggestion = {
-    title: "Rate limiter builder",
-    description: "Builds rate limiters.",
-    instructions: "Write a token bucket with tests.",
-  };
-  assert.deepInclude(propose({ agent: "builder" }), { status: "proposed", revision: 1 });
-  assert.deepInclude(propose({ suggestion }), { status: "proposed", revision: 1 });
+  for (const member of [{ agent: "builder" }, {}, { instructions: "Write a token bucket." }]) {
+    assert.deepInclude(propose(member), { status: "proposed", revision: 1 });
+  }
   assert.deepEqual(propose({ agent: "builder" }, "reviewer"), {
     code: "invalid_request",
     message: 'Task "build" names agent "reviewer", which is not on the team.',
@@ -511,12 +507,6 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents", (
     code: "invalid_request",
     message: unknownTeamAgentMessage("builder", "designer"),
   });
-  for (const member of [{}, { agent: "builder", suggestion }]) {
-    assert.deepEqual(propose(member), {
-      code: "invalid_request",
-      message: teamMemberChoiceMessage("builder"),
-    });
-  }
 });
 
 it("gives each launched thread its own id, and reading it back shows that thread's brief", () => {

@@ -47,11 +47,7 @@ import {
   ThreadId,
 } from "@codenine/contracts";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
-import {
-  teamMemberChoiceMessage,
-  unknownTeamAgentMessage,
-  validateTeamDraft,
-} from "@codenine/shared/team";
+import { unknownTeamAgentMessage, validateTeamDraft } from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
@@ -1120,22 +1116,21 @@ export const codenineDefault = (
     case "task_cancel":
       return { taskId: input.taskId, status: "cancel_requested" };
     case "propose_team": {
-      // Codenine refuses a member that is not exactly one of the user's agents or a suggestion,
-      // and a team whose tasks name unknown members or depend on each other in a cycle.
+      // Codenine refuses a member that names an agent the user does not have, and a team whose
+      // tasks name unknown members, depend on each other in a cycle, or carry too much text.
       const proposal = Option.getOrUndefined(decodeProposeTeam(input));
       const agents = listedAgentNames(sample);
-      const memberIssue = proposal?.agents.flatMap(({ id, agent, suggestion }) =>
-        (agent === undefined) === (suggestion === undefined)
-          ? [{ message: teamMemberChoiceMessage(id) }]
-          : agent !== undefined && !agents.has(agent)
-            ? [{ message: unknownTeamAgentMessage(id, agent) }]
-            : [],
+      const memberIssue = proposal?.agents.flatMap(({ id, agent }) =>
+        agent !== undefined && !agents.has(agent)
+          ? [{ message: unknownTeamAgentMessage(id, agent) }]
+          : [],
       )[0];
       const issue =
         proposal === undefined
           ? { message: "Invalid propose_team input." }
           : (memberIssue ??
             validateTeamDraft({
+              goal: proposal.goal,
               agents: proposal.agents.map((member) => ({
                 id: member.id,
                 label: member.label ?? member.id,
@@ -1145,6 +1140,7 @@ export const codenineDefault = (
                   model: sample.base.model,
                 },
                 workspace: member.workspace ?? "shared",
+                ...(member.instructions === undefined ? {} : { instructions: member.instructions }),
               })),
               tasks: proposal.tasks.map((task) => ({
                 id: task.id,
@@ -1152,6 +1148,7 @@ export const codenineDefault = (
                 brief: task.brief,
                 agentId: task.agent,
                 dependsOn: task.dependsOn ?? [],
+                ...(task.doneWhen === undefined ? {} : { doneWhen: task.doneWhen }),
               })),
             }));
       return issue === null

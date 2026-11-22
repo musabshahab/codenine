@@ -1632,8 +1632,16 @@ describe("OrchestratorMcpService provider resolution", () => {
           }),
           model("gpt-5", { name: "Code Legacy", isLegacy: true }),
           model("gpt-4", { isLegacy: true }),
-          model("gpt-3", { name: "GPT-3", isLegacy: true }),
+          model("gpt-3", {
+            name: "GPT-3",
+            isLegacy: true,
+            info: { usesTools: true, readsImages: null, price: { input: 0.25, output: 2 } },
+          }),
           model("my-alpha", { isCustom: true }),
+          // A model that cannot call tools cannot run a task, so it is never listed.
+          model("gpt-chat", {
+            info: { usesTools: false, readsImages: null, price: { input: 0.1, output: 0.4 } },
+          }),
         ],
       },
       {
@@ -1769,8 +1777,12 @@ describe("OrchestratorMcpService provider resolution", () => {
             ],
           },
           { id: "gpt-4" },
-          { id: "gpt-3" },
+          { id: "gpt-3", price: { input: 0.25, output: 2 } },
           { id: "my-alpha" },
+        ]);
+        assert.deepEqual(listing(yield* capabilitiesWith("chat")), [
+          { id: codexInstanceId, models: [], omitted: 0 },
+          { id: opencodeInstanceId, models: [], omitted: 0 },
         ]);
       }),
     );
@@ -1836,7 +1848,7 @@ describe("OrchestratorMcpService provider resolution", () => {
   );
 
   it.effect(
-    "propose_team runs each member as one of the user's agents, on its model where that can run",
+    "propose_team runs a member as one of the user's agents or as the lead defines it, on a model that can run",
     () =>
       Effect.gen(function* () {
         const dispatched: Array<OrchestrationV2ServerCommand> = [];
@@ -1929,6 +1941,29 @@ describe("OrchestratorMcpService provider resolution", () => {
                     ],
                   },
                 },
+                {
+                  slug: "gpt-mini",
+                  name: "gpt-mini",
+                  isCustom: false,
+                  capabilities: {
+                    optionDescriptors: [
+                      {
+                        id: "reasoningEffort",
+                        label: "Reasoning",
+                        type: "select",
+                        options: [{ id: "low", label: "Low" }],
+                      },
+                    ],
+                  },
+                  info: { usesTools: true, readsImages: null, price: null },
+                },
+                {
+                  slug: "gpt-chat",
+                  name: "gpt-chat",
+                  isCustom: false,
+                  capabilities: null,
+                  info: { usesTools: false, readsImages: null, price: null },
+                },
               ],
             } as ServerProvider,
             providerSnapshot({
@@ -1975,26 +2010,16 @@ describe("OrchestratorMcpService provider resolution", () => {
                 brief: "Do it.",
                 agent: candidate.id,
                 ...(index === 0 ? {} : { dependsOn: [TeamTaskId.make(members[0]!.id)] }),
+                ...(candidate.id === "copy" ? { doneWhen: "Run `npm test`." } : {}),
               })),
             });
-          const copywriter = {
-            title: "Copywriter",
-            description: "Writes product copy.",
-            instructions: "Write short, plain copy.",
-          };
-
-          for (const fields of [{}, { agent: "builder", suggestion: copywriter }]) {
-            const refused = yield* propose([member("builder", fields)]).pipe(Effect.flip);
-            assert.equal(refused.code, "invalid_request");
-            assert.include(refused.message, "exactly one of `agent`");
-          }
           const unknown = yield* propose([member("designer", { agent: "designer" })]).pipe(
             Effect.flip,
           );
           assert.equal(unknown.code, "invalid_request");
           assert.include(unknown.message, 'no agent named "designer"');
-          assert.include(unknown.message, "`suggestion`");
-          // A suggested agent's model resolves as a delegate_task target does.
+          assert.include(unknown.message, 'leave out `agent` and define member "designer" here');
+          // A member's target resolves as a delegate_task target does, named after the member.
           for (const target of [
             { model: "gpt-9" },
             { options: [{ id: "effort", value: "high" }] },
@@ -2003,9 +2028,20 @@ describe("OrchestratorMcpService provider resolution", () => {
             const delegated = yield* service
               .delegateTask(scope, { task: "Build it.", target })
               .pipe(Effect.flip);
-            const suggested = member("copy", { suggestion: { ...copywriter, target } });
-            assert.deepEqual(yield* propose([suggested]).pipe(Effect.flip), delegated);
+            for (const fields of [{ target }, { agent: "builder", target }]) {
+              const refused = yield* propose([member("copy", fields)]).pipe(Effect.flip);
+              assert.deepEqual(
+                { code: refused.code, message: refused.message },
+                { code: delegated.code, message: `Member "copy": ${delegated.message}` },
+              );
+            }
           }
+          const toolless = yield* propose([member("copy", { target: { model: "gpt-chat" } })]).pipe(
+            Effect.flip,
+          );
+          assert.equal(toolless.code, "model_unavailable");
+          assert.include(toolless.message, 'Member "copy": ');
+          assert.include(toolless.message, "cannot call tools");
           assert.isEmpty(dispatched);
 
           const proposed = yield* propose([
@@ -2014,12 +2050,16 @@ describe("OrchestratorMcpService provider resolution", () => {
             member("stale", { agent: "stale" }),
             member("off", { agent: "off" }),
             member("elsewhere", { agent: "elsewhere" }),
+            member("quick", {
+              agent: "builder",
+              target: { options: [{ id: "reasoningEffort", value: "low" }] },
+            }),
+            member("helper", { instructions: "  " }),
             {
               ...member("copy", {
-                suggestion: {
-                  ...copywriter,
-                  target: { options: [{ id: "reasoningEffort", value: "low" }] },
-                },
+                label: "Copywriter",
+                instructions: "  Write short, plain copy.\n",
+                target: { model: "gpt-mini", options: [{ id: "reasoningEffort", value: "low" }] },
               }),
               role: "custom",
               workspace: "worktree",
@@ -2045,13 +2085,14 @@ describe("OrchestratorMcpService provider resolution", () => {
             id: string,
             label: string,
             modelSelection: TeamAgent["modelSelection"],
+            agent = id,
           ): TeamAgent => ({
             id: TeamAgentId.make(id),
             role: "implement",
             workspace: "shared",
             label,
             modelSelection,
-            agent: id,
+            agent,
           });
           assert.deepEqual(command.agents, [
             runsAs("builder", "Builder", {
@@ -2063,13 +2104,30 @@ describe("OrchestratorMcpService provider resolution", () => {
             runsAs("stale", "Stale", lead),
             runsAs("off", "Off", lead),
             runsAs("elsewhere", "Elsewhere", lead),
+            runsAs(
+              "quick",
+              "Builder",
+              { ...lead, options: [{ id: "reasoningEffort", value: "low" }] },
+              "builder",
+            ),
+            {
+              id: TeamAgentId.make("helper"),
+              role: "implement",
+              workspace: "shared",
+              label: "helper",
+              modelSelection: lead,
+            },
             {
               id: TeamAgentId.make("copy"),
               role: "custom",
               workspace: "worktree",
               label: "Copywriter",
-              modelSelection: { ...lead, options: [{ id: "reasoningEffort", value: "low" }] },
-              suggestion: { ...copywriter, connectors: [] },
+              modelSelection: {
+                instanceId: codexInstanceId,
+                model: "gpt-mini",
+                options: [{ id: "reasoningEffort", value: "low" }],
+              },
+              instructions: "Write short, plain copy.",
             },
           ]);
           assert.deepEqual(command.tasks.at(-1), {
@@ -2078,7 +2136,9 @@ describe("OrchestratorMcpService provider resolution", () => {
             brief: "Do it.",
             agentId: TeamAgentId.make("copy"),
             dependsOn: [TeamTaskId.make("builder")],
+            doneWhen: "Run `npm test`.",
           });
+          assert.notProperty(command.tasks[0], "doneWhen");
 
           callerIsTeamAgent = true;
           const refused = yield* propose([member("builder", { agent: "builder" })]).pipe(

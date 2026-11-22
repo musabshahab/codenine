@@ -57,7 +57,7 @@ const threadMetadataDependencies = [
 
 const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
   description:
-    "List providers, models, options, and runtime modes for `delegate_task`. Short list. `search` finds others. Any catalog model works.",
+    "List providers, models, options, and runtime modes for `delegate_task` and `propose_team`, plus the user's agents. Short list. `search` finds others. Any catalog model works. `price` is USD per million tokens, when known.",
   parameters: OrchestratorMcpCapabilitiesInput,
   success: OrchestratorMcpCapabilitiesResult,
   failure: OrchestratorMcpFailure,
@@ -110,7 +110,7 @@ const TaskCancelTool = Tool.make("task_cancel", {
 
 const ProposeTeamTool = Tool.make("propose_team", {
   description:
-    "Propose a team of the user's agents for the user to edit and approve. Use when the user asks for a team, or for different models on parts of a task. Each member names one of the user's agents in `agent`, from `orchestrator_capabilities` `agents`; it brings its own model. Never invent an agent name. Where none fits part of the work, give that member a `suggestion` instead and say so in your reply: the user creates that agent or picks another before the team starts. Order tasks with `dependsOn`. Members that edit in parallel: `workspace:'worktree'`, plus a last `integrate` task that depends on them. Calling again replaces a team not yet approved.",
+    "Propose a team for the user to edit and approve; nothing starts before they do. Use it when the user asks for a team, or for different models on parts of a task. Follow any split, agents or models the user named. Use one of the user's agents (`agent`, from `orchestrator_capabilities` `agents`) where one fits a part; otherwise define the member here with `role`, `target` and, when it has several tasks, `instructions`. It exists only for this team. Split the work into as many tasks as it has independent parts, each small enough for a small model to finish and check alone: one deliverable, its own files, one check in `doneWhen`. Never let two tasks edit one file, and keep a small change as one task. Give mechanical tasks the cheapest listed model at low effort; give review and integration a stronger one. Members that edit in parallel need `workspace:'worktree'` and a last `integrate` task. Order tasks with `dependsOn`. Calling again replaces a team not yet approved.",
   parameters: OrchestratorMcpProposeTeamInput,
   success: OrchestratorMcpProposeTeamResult,
   failure: OrchestratorMcpFailure,
