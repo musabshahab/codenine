@@ -13,7 +13,7 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import {
   detailFromCause,
   firstNonEmptyLine,
-  runVersionProbe,
+  runProbe,
   unavailableInstallHint,
 } from "@codenine/source-control-core/server/discovery";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
@@ -81,11 +81,14 @@ export const make = Effect.gen(function* () {
     const executable = input.executable;
     const versionArgs = input.versionArgs;
 
-    return runVersionProbe(process, {
-      executable,
-      versionArgs,
+    return runProbe(process, {
+      operation: "source-control.discovery.probe",
+      command: executable,
+      args: versionArgs,
       cwd: config.cwd,
       timeoutMs: 5_000,
+      maxOutputBytes: 8_000,
+      appendTruncationMarker: true,
     }).pipe(
       Effect.flatMap(Effect.fromResult),
       Effect.map(

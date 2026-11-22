@@ -32,30 +32,29 @@ const run = (
     SourceControlHost.SourceControlProcessInput,
     "operation" | "command" | "args" | "cwd"
   >,
-): Effect.Effect<SourceControlHost.SourceControlProcessOutput, VcsProcessSpawnError> => {
-  if (input.args[0] === "--version") {
-    return (
-      input.command === "missing-cli"
-        ? Effect.fail(
-            new VcsProcessSpawnError({
-              operation: input.operation,
-              command: input.command,
-              cwd: input.cwd,
-              cause: PlatformError.systemError({
-                _tag: "NotFound",
-                module: "ChildProcess",
-                method: "spawn",
-                description: `spawn ${input.command} ENOENT`,
-              }),
-            }),
-          )
-        : Effect.succeed(TestSourceControlHost.processOutput(`${input.command} version test\n`))
-    ).pipe(Effect.withSpan("VcsProcess.run"));
-  }
-  return Effect.succeed(
-    TestSourceControlHost.processOutput(`signed in as ${input.command}-user\n`),
-  );
-};
+): Effect.Effect<SourceControlHost.SourceControlProcessOutput, VcsProcessSpawnError> =>
+  (input.command === "missing-cli"
+    ? Effect.fail(
+        new VcsProcessSpawnError({
+          operation: input.operation,
+          command: input.command,
+          cwd: input.cwd,
+          cause: PlatformError.systemError({
+            _tag: "NotFound",
+            module: "ChildProcess",
+            method: "spawn",
+            description: `spawn ${input.command} ENOENT`,
+          }),
+        }),
+      )
+    : Effect.succeed(
+        TestSourceControlHost.processOutput(
+          input.args[0] === "--version"
+            ? `${input.command} version test\n`
+            : `signed in as ${input.command}-user\n`,
+        ),
+      )
+  ).pipe(Effect.withSpan("VcsProcess.run"));
 
 const cliDiscovery = (name: string) => ({
   type: "cli" as const,
@@ -160,7 +159,7 @@ it.effect("reports every hosting integration in registry order with its sign-in"
     );
     assert.deepStrictEqual(
       ended.flatMap((span) => span.attributes.get("probe.miss") ?? []),
-      ["not-installed"],
+      ["not-installed", "not-installed"],
     );
   }).pipe(Effect.provide(SourceControlDiscovery.layer.pipe(Layer.provide(layerDiscovery())))),
 );
