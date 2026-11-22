@@ -156,9 +156,10 @@ function NotConnectedSummary({
   const command = (text: string) => (
     <code className="rounded bg-muted px-1 py-px text-2xs">{text}</code>
   );
+  const detail = item.auth.status === "unauthenticated" ? optionLabel(item.auth.detail) : null;
   return (
     <span>
-      Not connected.{" "}
+      {detail === null ? "Not connected." : /[.!?]$/u.test(detail) ? detail : `${detail}.`}{" "}
       {credentials.appSignIn && item.appSignIn === true
         ? `Sign in with ${item.label}, paste a token below,`
         : "Paste a token below,"}{" "}
