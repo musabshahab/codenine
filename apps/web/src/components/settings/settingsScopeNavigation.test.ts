@@ -11,7 +11,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { resolveSettingsScope } from "./settingsScope";
 import {
   retainSettingsScope,
-  searchWithoutHiddenWorkspace,
+  settingsRedirect,
   validateSettingsRouteSearch,
 } from "./settingsScopeNavigation";
 
@@ -32,8 +32,8 @@ function createSettingsRouter(initialEntry = "/settings/general") {
       if (location.pathname === "/settings") {
         throw redirect({ to: "/settings/general", replace: true });
       }
-      const search = searchWithoutHiddenWorkspace(location.pathname, location.search);
-      if (search) throw redirect({ to: location.pathname, search, hash: true, replace: true });
+      const target = settingsRedirect(location);
+      if (target) throw redirect({ ...target, hash: true, replace: true });
     },
   });
   const general = createRoute({ getParentRoute: () => settings, path: "general" });
@@ -109,12 +109,16 @@ describe("settings scope navigation", () => {
 
   it("drops the workspace on pages that do not show it and keeps the environment", async () => {
     const router = createSettingsRouter();
-    for (const to of ["/settings/general", "/settings/integrations"] as const) {
+    for (const [to, redirects] of [
+      ["/settings/general", 1],
+      ["/settings/integrations", 2],
+    ] as const) {
       await router.navigate({ to: "/settings/source-control", search: checkoutSearch });
       await router.navigate({ to, hash: "" });
-      expect(router.state.redirect).not.toBeUndefined();
-      await router.navigate(router.state.redirect!.options);
-      expect(router.state.location.pathname).toBe(to);
+      for (let step = 0; step < redirects; step += 1) {
+        await router.navigate(router.state.redirect!.options);
+      }
+      expect(router.state.location.pathname).toBe("/settings/general");
       expect(router.state.location.search).toEqual({ machine: checkoutSearch.machine });
     }
     await router.navigate({ to: "/settings/source-control", hash: "" });

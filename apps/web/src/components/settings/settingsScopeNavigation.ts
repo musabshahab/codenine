@@ -1,6 +1,7 @@
 import type { SearchMiddleware } from "@tanstack/react-router";
 
 import { validateSettingsScopeSearch, type SettingsScopeSearch } from "./settingsScope";
+import { movedSettingsPath, SETTINGS_WORKSPACE_SCOPE_PATHS } from "./settingsSearch";
 
 export function validateSettingsRouteSearch(raw: Record<string, unknown>) {
   return validateSettingsScopeSearch(
@@ -17,25 +18,21 @@ const SCOPE_KEYS = [
 ] as const satisfies readonly (keyof SettingsScopeSearch)[];
 const TARGET_INPUT_KEYS = [...SCOPE_KEYS, "environmentId"];
 
-/** Pages with rows a workspace can override; only these show the workspace in the scope sentence. */
-export const SETTINGS_WORKSPACE_SCOPE_PATHS: ReadonlySet<string> = new Set([
-  "/settings/providers",
-  "/settings/threads",
-  "/settings/projects",
-  "/settings/source-control",
-  "/settings/worktrees",
-  "/settings/maintenance",
-  "/settings/archived",
-]);
-
-/** The search to redirect to when a page that hides the workspace still carries one. */
-export function searchWithoutHiddenWorkspace(
-  pathname: string,
-  search: SettingsScopeSearch,
-): SettingsScopeSearch | null {
+/** Where the settings route sends an old link, then a page that hides the workspace it carries. */
+export function settingsRedirect(location: {
+  readonly pathname: string;
+  readonly hash: string;
+  readonly search: SettingsScopeSearch;
+}) {
+  const moved = movedSettingsPath(location.pathname, location.hash);
+  if (moved) return { to: moved, search: true } as const;
+  const { pathname, search } = location;
   if (SETTINGS_WORKSPACE_SCOPE_PATHS.has(pathname)) return null;
   if (search.project === undefined && search.checkout === undefined) return null;
-  return { machine: search.machine, project: undefined, checkout: undefined };
+  return {
+    to: pathname,
+    search: { machine: search.machine, project: undefined, checkout: undefined },
+  };
 }
 
 export const retainSettingsScope: SearchMiddleware<SettingsScopeSearch> = ({ search, next }) => {

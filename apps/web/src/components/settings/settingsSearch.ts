@@ -1034,6 +1034,21 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/archived": "project-defaults",
 };
 
+const WORKSPACE_OVERRIDE_SCOPES: ReadonlySet<SettingsSearchScope> = new Set([
+  "project",
+  "project-defaults",
+  "checkout",
+]);
+
+/** Pages with rows a workspace can override; Accounts' switches are per workspace too. */
+export const SETTINGS_WORKSPACE_SCOPE_PATHS: ReadonlySet<string> = new Set([
+  "/settings/providers",
+  ...(SETTINGS_SEARCH_ITEMS as readonly SettingsSearchItem[]).flatMap((item) => {
+    const scope = item.scope ?? SETTINGS_CATEGORY_SCOPES[item.to];
+    return scope !== null && WORKSPACE_OVERRIDE_SCOPES.has(scope) ? [item.to] : [];
+  }),
+]);
+
 const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
   "/settings/storage": "/settings/maintenance",
   "/settings/beta": "/settings/labs",

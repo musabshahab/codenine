@@ -18,14 +18,13 @@ import { SETTINGS_DEVICE_ONLY_PATHS } from "../components/settings/SettingsScope
 import { SettingsPageContainer } from "../components/settings/settingsLayout";
 import {
   retainSettingsScope,
-  searchWithoutHiddenWorkspace,
+  settingsRedirect,
   validateSettingsRouteSearch,
 } from "../components/settings/settingsScopeNavigation";
 import {
   getSettingsSearchTargetScope,
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
-  movedSettingsPath,
 } from "../components/settings/settingsSearch";
 
 function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void }) {
@@ -102,10 +101,15 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
       </SettingsPageContainer>
     );
   if (scope.kind === "environment" && connectedEnvironments.length === 0) {
+    const connecting =
+      environments.find((environment) => environment.environmentId === scope.environmentId)
+        ?.connection.phase === "connecting";
     return (
       <SettingsPageContainer>
         <p className="text-sm text-muted-foreground">
-          Reconnect {scope.label} to change its settings.
+          {connecting
+            ? `Connecting to ${scope.label}…`
+            : `Reconnect ${scope.label} to change its settings.`}
         </p>
       </SettingsPageContainer>
     );
@@ -184,10 +188,8 @@ export const Route = createFileRoute("/_chat/settings")({
     if (location.pathname === "/settings") {
       throw redirect({ to: "/settings/general", replace: true });
     }
-    const moved = movedSettingsPath(location.pathname, location.hash);
-    if (moved) throw redirect({ to: moved, search: true, hash: true, replace: true });
-    const search = searchWithoutHiddenWorkspace(location.pathname, location.search);
-    if (search) throw redirect({ to: location.pathname, search, hash: true, replace: true });
+    const target = settingsRedirect(location);
+    if (target) throw redirect({ ...target, hash: true, replace: true });
   },
   component: SettingsRouteLayout,
 });

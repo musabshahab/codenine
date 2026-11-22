@@ -1,13 +1,13 @@
 # Settings and workspace overrides
 
 The "Applying settings for …" sentence at the top of Settings pages picks
-the workspace and environment a change applies to. General, Appearance, Chat and Diffs are saved in
-this browser or app and say **Saved on this device** instead. With one environment, its name
-shows in place of a menu.
+the workspace and environment a change applies to. Pages that hold only preferences saved in this
+browser or app, such as Appearance, say **Saved on this device** instead. With one environment, its
+name shows in place of a menu.
 
-Only Chats, Source control, Worktrees, Accounts, Maintenance and Workspaces offer a workspace. Other
-pages pick only the environment, and opening one clears the workspace you picked. The environment
-stays selected as you move between pages or search for a setting.
+Only pages with settings a workspace can override, such as Chats and Source control, offer a
+workspace. Other pages pick only the environment, and opening one clears the workspace you picked.
+The environment stays selected as you move between pages or search for a setting.
 
 Preferences saved on this device, such as appearance and confirmations, always
 show and ignore the selection. Everything else is stored on a server. Choose one environment to

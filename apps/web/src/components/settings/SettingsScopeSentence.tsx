@@ -27,8 +27,8 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
-import { SETTINGS_WORKSPACE_SCOPE_PATHS } from "./settingsScopeNavigation";
 import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope";
+import { SETTINGS_WORKSPACE_SCOPE_PATHS } from "./settingsSearch";
 import {
   ALL_ENVIRONMENTS_VALUE,
   ALL_PROJECTS_VALUE,
@@ -77,10 +77,12 @@ export function SettingsScopeSentence() {
   const scope = useOptionalSettingsScope();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { environments } = useEnvironments();
-  if (SETTINGS_DEVICE_SAVED_PATHS.has(pathname)) {
+  const showsWorkspace = SETTINGS_WORKSPACE_SCOPE_PATHS.has(pathname);
+  // A device page that gains a row a workspace can override needs the full sentence instead.
+  if (!showsWorkspace && SETTINGS_DEVICE_SAVED_PATHS.has(pathname)) {
     return <p className="px-3 text-sm text-muted-foreground sm:px-4">Saved on this device.</p>;
   }
-  if (scope === null || SETTINGS_DEVICE_ONLY_PATHS.has(pathname)) return null;
+  if (scope === null || (!showsWorkspace && SETTINGS_DEVICE_ONLY_PATHS.has(pathname))) return null;
   const props: SettingsScopeMenuProps = {
     value: scope.search,
     singleEnvironment: scope.singleEnvironment,
@@ -88,7 +90,6 @@ export function SettingsScopeSentence() {
     environments,
     onChange: scope.selectScope,
   };
-  const showsWorkspace = SETTINGS_WORKSPACE_SCOPE_PATHS.has(pathname);
   const onlyEnvironment =
     environments.length === 1 &&
     (scope.search.machine === undefined || scope.search.machine === environments[0]?.environmentId)
