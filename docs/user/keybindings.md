@@ -167,12 +167,12 @@ closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an ava
 shortcut such as `alt+w`.
 
 A focused terminal on Windows or Linux keeps `Ctrl+W`, `Ctrl+D`, and `Ctrl+N` for
-the shell. There, `Ctrl+Shift+W` closes the terminal, `Ctrl+Shift+N` opens a new
-one, `Ctrl+Shift+5` splits it, and `Ctrl+Shift+D` splits it vertically. On macOS
-these are `Cmd+W`, `Cmd+N`, `Cmd+D`, and `Cmd+Shift+D`. In a Windows or Linux
-browser tab, the browser keeps `Ctrl+Shift+W` (close window) and `Ctrl+Shift+N`
-(new private window), so bind **Terminal: Close** and **Terminal: New** to other
-keys there.
+the shell. There, `Ctrl+Shift+5` splits the terminal and `Ctrl+Shift+D` splits it
+vertically. In the desktop app, `Ctrl+Shift+W` closes it and `Ctrl+Shift+N` opens
+a new one. A Windows or Linux browser keeps those two chords for closing its
+window and opening a private one, so **Terminal: Close** and **Terminal: New**
+have no default shortcut in a browser tab there; bind them to other keys if you
+want them. On macOS these are `Cmd+W`, `Cmd+N`, `Cmd+D`, and `Cmd+Shift+D`.
 
 `mod+shift+t` reopens the last closed tab across the app, including files and
 diffs, in the order you closed them. This shortcut does not undo deleted work.

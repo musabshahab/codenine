@@ -300,10 +300,18 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
         custom,
         { key: "mod+w", command: "terminal.close", when: "terminalFocus && isMac" },
-        { key: "ctrl+shift+w", command: "terminal.close", when: "terminalFocus && !isMac" },
+        {
+          key: "ctrl+shift+w",
+          command: "terminal.close",
+          when: "terminalFocus && !isMac && isDesktop",
+        },
         editedSplit,
         { key: "mod+n", command: "terminal.new", when: "terminalFocus && isMac" },
-        { key: "ctrl+shift+n", command: "terminal.new", when: "terminalFocus && !isMac" },
+        {
+          key: "ctrl+shift+n",
+          command: "terminal.new",
+          when: "terminalFocus && !isMac && isDesktop",
+        },
       ]);
 
       yield* writeKeybindingsConfig(keybindingsConfigPath, [custom, oldClose]);

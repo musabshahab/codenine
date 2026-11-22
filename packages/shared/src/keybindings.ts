@@ -66,14 +66,15 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+b", command: "rightPanel.toggle" },
   { key: "mod+shift+b", command: "threadPanel.toggle", when: "!terminalFocus" },
   { key: "mod+t", command: "rightPanel.new", when: "rightPanelOpen && !terminalFocus" },
-  // Off macOS, mod+d/n/w would be Ctrl+D/N/W, which the shell needs.
+  // Off macOS, mod+d/n/w would be Ctrl+D/N/W, which the shell needs. Browsers there keep
+  // Ctrl+Shift+N and Ctrl+Shift+W for their own windows, so those two are desktop-only.
   { key: "mod+d", command: "terminal.split", when: "terminalFocus && isMac" },
   { key: "ctrl+shift+5", command: "terminal.split", when: "terminalFocus && !isMac" },
   { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus && isMac" },
-  { key: "ctrl+shift+n", command: "terminal.new", when: "terminalFocus && !isMac" },
+  { key: "ctrl+shift+n", command: "terminal.new", when: "terminalFocus && !isMac && isDesktop" },
   { key: "mod+w", command: "terminal.close", when: "terminalFocus && isMac" },
-  { key: "ctrl+shift+w", command: "terminal.close", when: "terminalFocus && !isMac" },
+  { key: "ctrl+shift+w", command: "terminal.close", when: "terminalFocus && !isMac && isDesktop" },
   { key: "mod+w", command: "rightPanel.close", when: "!terminalFocus" },
   { key: "mod+shift+t", command: "view.reopenClosed" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
