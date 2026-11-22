@@ -66,7 +66,7 @@ const DEVICE_RESTORE_ROWS: ReadonlyArray<{
   { label: "Render math", keys: ["mathRenderingEnabled"] },
   { label: "Panel animations", keys: ["panelAnimationDurationMs"] },
   { label: "Environment identification", keys: ["environmentIdentificationMode"] },
-  { label: "Thread details", keys: ["threadDetailsItems"] },
+  { label: "Thread details", keys: ["threadDetailsItems", "threadDetailsUsageEnabled"] },
   { label: "Time format", keys: ["timestampFormat"] },
   { label: "Thread notifications", keys: ["notificationMode"] },
   { label: "In-app notifications", keys: ["inAppNotificationsEnabled"] },

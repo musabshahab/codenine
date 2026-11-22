@@ -37,11 +37,18 @@ describe("device settings restore", () => {
     ]);
     expect(patch).toEqual({
       threadDetailsItems: {},
+      threadDetailsUsageEnabled: false,
       sidebarProjectGroupingMode: DEFAULT_CLIENT_SETTINGS.sidebarProjectGroupingMode,
       sidebarTwoLineRows: DEFAULT_CLIENT_SETTINGS.sidebarTwoLineRows,
       fontFamilyCode: DEFAULT_CLIENT_SETTINGS.fontFamilyCode,
       fontSizeCode: DEFAULT_CLIENT_SETTINGS.fontSizeCode,
       fontSmoothing: DEFAULT_CLIENT_SETTINGS.fontSmoothing,
+    });
+    expect(
+      planDeviceSettingsRestore({ ...DEFAULT_CLIENT_SETTINGS, threadDetailsUsageEnabled: true }),
+    ).toEqual({
+      changedLabels: ["Thread details"],
+      patch: { threadDetailsItems: {}, threadDetailsUsageEnabled: false },
     });
     expect(planDeviceSettingsRestore(DEFAULT_CLIENT_SETTINGS)).toEqual({
       changedLabels: [],
@@ -60,7 +67,6 @@ describe("device settings restore", () => {
       "loadBalancingWeights",
       "sidebarProjectGroupingOverrides",
       "sidebarThreadSortOrder",
-      "threadDetailsUsageEnabled",
     ]);
     const deviceKeys = Object.keys(ClientSettingsSchema.fields).filter(
       (key) => !Object.hasOwn(ServerSettings.fields, key) && !leftAlone.has(key),
