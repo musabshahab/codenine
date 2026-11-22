@@ -30,7 +30,8 @@ export function planProjectRemoval<
     projectThreads.filter((thread) => isListedThreadLineage(thread.lineage)).length +
     (options.unloadedThreadCount ?? 0);
   const isWholeGroup = members.length === groupMemberCount;
-  const targetKind = hasOtherMembers || !isWholeGroup ? "checkout" : "project";
+  const removesWorkspace = isWholeGroup && !hasOtherMembers;
+  const targetKind = removesWorkspace ? "workspace" : "checkout";
   const singleMember = members.length === 1 ? members[0]! : null;
   const targetLabel = singleMember?.title ?? displayName;
   const chatsLabel = `${threadCount} chat${threadCount === 1 ? "" : "s"}`;
@@ -48,7 +49,7 @@ export function planProjectRemoval<
             : []),
         ]
       : [
-          `This removes ${members.length} grouped project entries.`,
+          `This removes ${removesWorkspace ? "its" : "these"} ${members.length} checkouts.`,
           ...(deleteFolder ? members.map((member) => `Folder: ${member.workspaceRoot}`) : []),
         ]),
     ...(deleteFolder
@@ -59,12 +60,13 @@ export function planProjectRemoval<
     threadCount > 0 && deleteFolder
       ? `Its ${chatsLabel} and any archived chats are deleted from Codenine.`
       : "Any archived chats are deleted from Codenine.",
-    ...(deleteFolder && isWholeGroup && !hasOtherMembers
+    ...(removesWorkspace ? ["Its workspace settings and actions are deleted too."] : []),
+    ...(deleteFolder && removesWorkspace
       ? []
       : [
-          isWholeGroup && !hasOtherMembers
+          removesWorkspace
             ? "Files on disk are kept."
-            : "Other entries in this grouped project are unaffected.",
+            : "Other checkouts of this workspace are unaffected.",
         ]),
     "This can't be undone.",
   ].join("\n");
