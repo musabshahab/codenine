@@ -13,10 +13,10 @@ those modes. Customize these shortcuts under **Settings → Keybindings**.
 
 ## Composer context
 
-Git-backed workspaces show branch and worktree controls below the composer while you create a thread.
+Git-backed workspaces show branch and worktree controls below the composer while you create a chat.
 The controls retreat as the composer docks after you send the first message.
 
-Turn on **Composer context** to keep those controls visible after the thread starts.
+Turn on **Composer context** to keep those controls visible after the chat starts.
 
 ## Math
 
@@ -34,7 +34,7 @@ preference is saved separately on each device.
 
 The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
 **Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
-in your operating system. Moving between threads always snaps to the selected thread's panel state
+in your operating system. Moving between chats always snaps to the selected chat's panel state
 without replaying its transitions.
 
 ## Custom themes

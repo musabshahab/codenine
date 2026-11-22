@@ -1,11 +1,11 @@
-# Threads from an older database
+# Chats from an older database
 
 This page applies only when your data directory holds a `state.sqlite` database written by a
 version from before the current storage format. A new installation has none. The older format is
 called V1 below and the current one V2.
 
 On your first V2 launch, Codenine copies the V1 database, `state.sqlite`, into `statev2.sqlite`
-in the same data directory and migrates the copy. Your threads appear automatically, with full
+in the same data directory and migrates the copy. Your chats appear automatically, with full
 transcripts imported as needed. You do not need to run an import command.
 
 V1 continues using its original database while V2 uses the copy. The database import can run while
@@ -16,7 +16,7 @@ remain shared.
 On its first launch, the V2 desktop app copies stashed prompts, unsent drafts, layout, and theme
 from V1. Anything you change in V2 afterwards stays in V2.
 
-The migrated thread keeps its title, workspace, provider and model selection, permission and
+The migrated chat keeps its title, workspace, provider and model selection, permission and
 interaction modes, branch or worktree, archive state, done state, snooze and pin state, and
 linked pull request. Codenine also brings over user and assistant messages, their timestamps, and
 supported attachments. Large histories may appear in stages while the server imports transcripts.
@@ -26,21 +26,21 @@ records, checkpoints and diffs, tool activity, approval history, or proposed pla
 new format. These items may be absent from a migrated timeline even though the conversation text is
 present.
 
-## Continuing a migrated thread
+## Continuing a migrated chat
 
 The first new message starts a fresh provider session. Codenine selects intact user and assistant
 messages using the same [handoff budget](./portable-handoffs.md) as a provider switch. Omitted text
-remains in the thread and can be retrieved by the agent. The migration retains its separate
+remains in the chat and can be retrieved by the agent. The migration retains its separate
 32,000-character recovery excerpt; neither that excerpt nor the handoff replaces the full imported
 transcript.
 
-Before continuing a long or important thread, read the recent transcript and include any older
-requirements the agent still needs in your next message. Starting a new thread and pasting a short
+Before continuing a long or important chat, read the recent transcript and include any older
+requirements the agent still needs in your next message. Starting a new chat and pasting a short
 handoff is also a good choice when the old conversation contains conflicting instructions.
 
 ## Keeping a recovery copy
 
-Codenine does not currently have a whole-thread export command. Before a major server update, stop
+Codenine does not currently have a whole-chat export command. Before a major server update, stop
 the server and copy its `userdata` directory to a safe location. The default is
 `~/.codenine/userdata`; a server started with `--base-dir <path>` uses `<path>/userdata`.
 
@@ -51,7 +51,7 @@ old transcript without starting a server against it:
 sqlite3 -readonly /path/to/recovery-copy/state.sqlite
 ```
 
-At the SQLite prompt, list recent legacy threads:
+At the SQLite prompt, list recent legacy chats:
 
 ```sql
 .headers on

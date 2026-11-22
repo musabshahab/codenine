@@ -20,7 +20,7 @@ connects:
 **Add custom connector** adds any MCP server, by its web address or by a command that runs on the
 computer Codenine runs on.
 
-If you use more than one computer, choose one at the top of the page. Each computer keeps its own
+If you use more than one environment, choose one at the top of the page. Each environment keeps its own
 connectors.
 
 ## Google and Slack

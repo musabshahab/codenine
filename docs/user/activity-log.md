@@ -6,16 +6,16 @@ command's output updates live, and long output shows only its most recent part. 
 a file change to review its contents.
 
 Codenine Orchestrator summaries describe the actions taken, such as **Ran 2 commands and sent messages
-to 3 threads**. Repeated messages to the same destinations show both counts: **Sent 5 messages to
-2 threads**. Thread creation counts the threads returned by the tool, including batches.
+to 3 chats**. Repeated messages to the same destinations show both counts: **Sent 5 messages to
+2 chats**. Chat creation counts the chats returned by the tool, including batches.
 
 Groups with many kinds of activity show up to two specific action categories and a count of the
 remaining actions. Commands, file changes, and orchestration changes take priority over reads and
 status checks. Expand the group for the full list.
 
-Failed calls do not count as successful messages or creations. Waiting on a thread does not mean
-it finished, and an interrupt or cancellation request does not mean the thread stopped. When tool
-details are unavailable, summaries use a broader description instead of guessing how many threads
+Failed calls do not count as successful messages or creations. Waiting on a chat does not mean
+it finished, and an interrupt or cancellation request does not mean the chat stopped. When tool
+details are unavailable, summaries use a broader description instead of guessing how many chats
 were affected.
 
 ## Hide tool calls

@@ -1,6 +1,6 @@
 # Text generation models
 
-Codenine writes some text for you: thread titles, commit messages, pull request titles and
+Codenine writes some text for you: chat titles, commit messages, pull request titles and
 descriptions, and branch names. Pick the model for this in
 **Settings → Chats → Text generation model**. **Settings → Source control** can pick a different
 one.

@@ -140,22 +140,22 @@ shown there apply only to the route marked **In use**; other routes are not
 checked. Direct pairing and Codenine Connect have separate sessions and may grant
 different permissions.
 
-### Balance new threads across machines
+### Balance new chats across environments
 
 Auto balance is off by default. Enable it in
-**Settings → Environments → Load balancing** to automatically choose a machine for
-new threads in workspaces grouped across connected environments. The section
-appears once two or more machines are switched on.
-Each machine starts at **Normal**. Choose **Prefer** to favor it when it has CPU and
+**Settings → Environments → Load balancing** to automatically choose an environment for
+new chats in workspaces grouped across connected environments. The section
+appears once two or more environments are switched on.
+Each environment starts at **Normal**. Choose **Prefer** to favor it when it has CPU and
 memory available, **Less often** to reduce its share, or **Manual only** to exclude
 it from automatic selection. These are preferences, not fixed traffic percentages.
 Preferences are saved separately in each client.
 
-The composer checks eligible machines when choosing a draft's environment, then keeps
+The composer checks eligible environments when choosing a draft's environment, then keeps
 that choice stable. Choose **Auto balance** again to check current resources, or choose
-a specific machine to override it. Choosing a branch or worktree also keeps the draft
-on that machine. Existing threads stay where they started. If resource checks are
-unavailable or all eligible machines are full, choose a machine manually to continue.
+a specific environment to override it. Choosing a branch or worktree also keeps the draft
+on that environment. Existing chats stay where they started. If resource checks are
+unavailable or all eligible environments are full, choose an environment manually to continue.
 
 ### Tailscale HTTPS
 
@@ -217,7 +217,7 @@ again on its next connect.
 ## Connect an outside agent
 
 Claude Code, Codex and other agents Codenine did not start can drive
-threads on an environment through its MCP server. See
+chats on an environment through its MCP server. See
 [outside agents](./outside-agents.md) for setup.
 
 ## Manage or revoke access

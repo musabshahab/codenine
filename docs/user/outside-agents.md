@@ -1,7 +1,7 @@
 # Outside agents
 
 Agents that Codenine did not start can work with an environment through its MCP
-server. They can read workspaces and threads, start and message threads, and
+server. They can read workspaces and chats, start and message chats, and
 check which providers and models are available. This covers Claude Code or
 Codex in your own terminal, hosted assistants, and bots that support MCP. Each agent signs
 in once, and you choose what it may do.
@@ -70,10 +70,10 @@ A code from **Use Codenine in another app (MCP)** already carries the level you
 picked there. With another code, choose what the agent may do here: **Auto** is
 selected by default. Approving without a code starts at **Read only**:
 
-- **Read only** lets the agent read workspaces and threads and see
+- **Read only** lets the agent read workspaces and chats and see
   the available providers and models. It cannot change anything.
 - **Supervised** through **Full access** also let it start, message and stop
-  threads in every workspace. A thread it starts or steers cannot run with more
+  chats in every workspace. A chat it starts or steers cannot run with more
   permissions than the mode you chose.
 
 ## Claude Code
@@ -128,14 +128,14 @@ codenine thread list
 ```
 
 `.` means the workspace that contains the current folder; a workspace id also
-works. A new thread uses the workspace's default model and permission mode, and
+works. A new chat uses the workspace's default model and permission mode, and
 runs in the workspace folder unless you pass `--worktree <base-branch>`. `send`
-never interrupts: a busy thread gets the message as its next turn. Pass `-` as
+never interrupts: a busy chat gets the message as its next turn. Pass `-` as
 the message to read it from stdin.
 
 `--wait` prints the agent's reply. It exits 1 when the run fails or stops, and
 2 when the agent waits for an answer you give in the app. Add `--json` for a
-result that always includes the thread id.
+result that always includes the chat id.
 
 ## Remove an agent
 

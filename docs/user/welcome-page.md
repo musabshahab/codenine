@@ -55,7 +55,7 @@ Other agents are under **Add more agents**. The same card opens later from
 On the desktop app, when the folder of the `codenine` command is not on your `PATH`,
 **Add to PATH** adds one line to your shell's startup file.
 
-The setup terminal uses the environment configured for the provider instance.
+The setup terminal uses the environment configured for the account.
 Sensitive values remain redacted in Settings and terminal metadata while the
 terminal process can use them.
 

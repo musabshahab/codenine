@@ -1,14 +1,14 @@
 # Permission modes
 
 Permission modes control when an agent needs your approval to act. Choose a mode in the message
-composer; it applies to that thread. A new thread names its mode under the composer. In a thread
+composer; it applies to that chat. A new chat names its mode under the composer. In a chat
 on your default mode, open the model picker and choose **Permissions** at its bottom, or press
-`mod+shift+a`. A thread on another mode shows it next to the model, such as **Permissions:
+`mod+shift+a`. A chat on another mode shows it next to the model, such as **Permissions:
 Supervised**.
 
-Set the default for new threads in **Settings → Chats → New threads → Permissions**.
-Workspaces can override the environment default. New threads use this setting rather than the
-mode of the thread you were viewing. The initial default is **Full access**; existing threads
+Set the default for new chats in **Settings → Chats → New chats → Permissions**.
+Workspaces can override the environment default. New chats use this setting rather than the
+mode of the chat you were viewing. The initial default is **Full access**; existing chats
 and modes you choose in a draft keep their permissions.
 
 | Mode                  | Behavior                                                                     |
@@ -20,7 +20,7 @@ and modes you choose in a draft keep their permissions.
 
 Approve or reject requests in the conversation to let the agent continue. Permission modes do
 not prevent the agent from asking questions about the task. Subagent approval requests appear in
-the parent conversation with the subagent's name, so you can respond without switching threads.
+the parent conversation with the subagent's name, so you can respond without switching chats.
 
 ## Provider differences
 

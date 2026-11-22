@@ -23,7 +23,7 @@ run these commands on the machine that will host Codenine:
 | Restart                               | `codenine service restart`   |
 | Stop and remove from startup          | `codenine service uninstall` |
 
-Uninstalling the service leaves your workspaces, threads, and settings intact.
+Uninstalling the service leaves your workspaces, chats, and settings intact.
 Running `codenine service install` again repairs a service that `codenine service status`
 reports as broken.
 
@@ -42,7 +42,7 @@ backwards.
 
 `codenine uninstall` removes the background service, the `codenine` launcher, and the
 downloaded versions after showing you the list and asking once. Your workspaces,
-threads, and settings under `~/.codenine/userdata` are kept, along with `service.env`
+chats, and settings under `~/.codenine/userdata` are kept, along with `service.env`
 under Codenine home. Pass `--yes` from a script.
 
 ## Local network access
@@ -194,4 +194,4 @@ is not set) and once next to the database for its write-ahead log.
 If you upgraded from a version before 0.1.0, its database (`state.sqlite`) is
 still kept next to the current one so you can roll back. `codenine doctor` offers to
 delete it, but never selects that repair for you and `--fix` skips it: once it
-is gone, a version before 0.1.0 starts with no threads or settings.
+is gone, a version before 0.1.0 starts with no chats or settings.

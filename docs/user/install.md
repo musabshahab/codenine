@@ -8,7 +8,7 @@ browser. There is no published release yet, so you run it from source.
 - Git
 - [Vite+](https://viteplus.dev/guide/) (`vp`). It provides the Node version Codenine is pinned to,
   so you do not install Node yourself.
-- An installed, signed-in [provider](#providers) before you start a thread. You can start Codenine
+- An installed, signed-in [provider](#providers) before you start a chat. You can start Codenine
   first and set up providers afterwards.
 
 Install `vp` on macOS or Linux:
@@ -74,7 +74,7 @@ With the desktop app already running on the same machine:
 codenine app
 ```
 
-This opens a new thread for the current directory, adding the workspace if needed. Pass a path,
+This opens a new chat for the current directory, adding the workspace if needed. Pass a path,
 such as `codenine app ../my-project`, to open another directory. It needs the desktop app, so a
 standalone server or an SSH session is not enough.
 
@@ -142,7 +142,7 @@ version, or a path into one version's directory, through mise yourself. Homebrew
 installs compare against the version their package manager offers, which can trail the npm
 release; update Claude installed with Chocolatey through Chocolatey.
 
-Add another provider instance for a separate account or configuration. Each instance can have its
+Add another account for a separate sign-in or configuration. Each account can have its
 own environment variables, such as API keys or a custom base URL. Mark secret values as sensitive;
 after saving, Codenine does not display their original values.
 
@@ -151,7 +151,7 @@ For provider-specific setup and accounts, see [Codex](./providers-codex.md) and
 
 ## Next steps
 
-- [Working with threads](./thread-sidebar.md): start tasks and organize parallel work.
+- [Working with chats](./thread-sidebar.md): start tasks and organize parallel work.
 - [Permission modes](./permission-modes.md): choose when agents ask before acting.
 - [Remote access](./remote-access.md): connect from another device.
 - [Running in the background](./background-service.md): keep a Linux or macOS host available.

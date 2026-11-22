@@ -33,31 +33,31 @@ Keybindings edit only the primary environment, whose shortcuts this app uses. Ev
 fans out to the selection.
 
 With a workspace selected, a provider's switch in **Settings → Accounts** turns it on or off for
-that workspace only, in either direction: a provider off on the machine can be used in one workspace,
+that workspace only, in either direction: a provider off on the environment can be used in one workspace,
 and one on everywhere can be kept out of another. That workspace's model pickers follow the switch,
 and no new turn there can start on a provider it turned off, including queued messages and
 follow-ups from delegated tasks. A turn already running when the switch flips finishes. A delegated
-task's result still lands in its parent thread, which sees it on its next turn. Reset returns the workspace to the
-machine's setting. Every other provider setting stays per machine.
+task's result still lands in its parent chat, which sees it on its next turn. Reset returns the workspace to the
+environment's setting. Every other provider setting stays per environment.
 
 ## Pin, archive, and remove workspaces
 
 Pinned workspaces come first in the workspace pickers: the workspace picker on a new chat, the
 **New chat in...** list, the command palette, and the sidebar workspace filter. When chats are
-grouped by workspace, pinned workspaces get the top folders, even with no active threads. Pin or unpin
-a workspace from its row in any of those lists, or press the thread pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
+grouped by workspace, pinned workspaces get the top folders, even with no active chats. Pin or unpin
+a workspace from its row in any of those lists, or press the chat pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
 workspace** in the command palette and **Settings → Workspaces** work too. A list keeps its order
 while it is open, so a new pin moves up the next time you open it.
 
 Archive a workspace you are done with in **Settings → Workspaces**. It leaves the workspace pickers.
-Its threads, settings, and files stay as they are, and archived workspaces still show in the
+Its chats, settings, and files stay as they are, and archived workspaces still show in the
 Settings workspace list, marked **Archived**. Choose one there and select **Unarchive** to bring it
 back.
 
-A workspace on several machines must have every machine connected to pin or archive it.
+A workspace on several environments must have every environment connected to pin or archive it.
 
 Remove a workspace from its folder's right-click menu in the sidebar or from **Settings → Workspaces**.
-Removing it deletes its threads from Codenine and leaves its folder on disk; **Delete workspace and
+Removing it deletes its chats from Codenine and leaves its folder on disk; **Delete workspace and
 folder** also permanently deletes the folder, including uncommitted work, and the workspace's
 Codenine worktrees on the machine that holds it.
 
@@ -89,7 +89,7 @@ checkouts and removal. Actions belong to a workspace: editing them creates the w
 on each selected environment, and reset returns to the environment's shared list. A workspace's
 `codenine.json` actions can be imported there.
 
-Settings a repository can also declare in `codenine.json`, such as the workspace for new threads,
+Settings a repository can also declare in `codenine.json`, such as the workspace for new chats,
 resolve in one order: a workspace override, then the environment setting, then `codenine.json`, then the
 built-in default. Leave a setting on **Inherit** to let the next tier decide.
 
@@ -104,7 +104,7 @@ applies when the workspace and environment are both on **Inherit**.
 
 New worktrees go in the `worktrees` folder of the Codenine home directory. To put them somewhere else,
 such as another drive, set **Settings → Worktrees → Worktree location** to an absolute path like
-`D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
+`D:\worktrees` or `~/worktrees`. The setting is per environment. Existing worktrees stay where they
 are, and cleanup covers both the default folder and the custom one.
 
 ## Fast worktree checkout on macOS
