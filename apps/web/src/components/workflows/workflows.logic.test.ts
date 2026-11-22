@@ -401,6 +401,32 @@ describe("workflowFromTeamPlan", () => {
       dependsOn: ["draft-notes"],
     });
   });
+
+  it("turns a member the lead defined into a step suggestion, clipped to its limits", () => {
+    const definition = workflowFromTeamPlan(
+      {
+        ...plan,
+        agents: [
+          member("researcher", {
+            label: "R".repeat(100),
+            role: "research",
+            instructions: "x".repeat(2_100),
+          }),
+        ],
+        tasks: [task("look", "researcher")],
+      },
+      { title: "Research", model: null, projectId: null, stepModel: () => null },
+    );
+    expect(definition.steps[0]).toMatchObject({
+      agent: null,
+      suggestion: {
+        title: "R".repeat(80),
+        description: expect.stringMatching(/\S/),
+        instructions: "x".repeat(2_000),
+        connectors: [],
+      },
+    });
+  });
 });
 
 describe("names", () => {
