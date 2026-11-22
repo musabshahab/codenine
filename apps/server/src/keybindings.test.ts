@@ -285,6 +285,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         when: "terminalFocus",
       } as const;
       const custom = { key: "mod+shift+y", command: "terminal.toggle" } as const;
+      const steer = "thread.steerQueuedMessage";
       const terminalRules = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
         rules.filter((entry) => entry.command.startsWith("terminal.")),
       );
@@ -293,9 +294,16 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         oldClose,
         editedSplit,
         { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+        { key: "mod+shift+enter", command: steer, when: "!terminalFocus" },
       ]);
 
       yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepStrictEqual(
+        (yield* readKeybindingsConfig(keybindingsConfigPath)).filter(
+          (entry) => entry.command === steer,
+        ),
+        [{ key: "mod+shift+enter", command: steer, when: "!terminalFocus && !draftThreadRoute" }],
+      );
       assert.deepStrictEqual(yield* terminalRules, [
         { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
         custom,

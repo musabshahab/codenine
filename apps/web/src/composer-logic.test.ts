@@ -138,6 +138,27 @@ describe("composerSubmissionIntentForKey", () => {
     },
   );
 
+  it("starts a new chat in the background with Ctrl+Shift+Enter whatever the rule order", () => {
+    // Earlier installs got the mod+enter Start in Background rule at the top of their file.
+    const movedFirst = DEFAULT_RESOLVED_KEYBINDINGS.filter(
+      (binding) => binding.command === "composer.sendBackground" && !binding.shortcut.altKey,
+    );
+    const keybindings = [
+      ...movedFirst,
+      ...DEFAULT_RESOLVED_KEYBINDINGS.filter((binding) => !movedFirst.includes(binding)),
+    ];
+    expect(
+      composerSubmissionIntentForKey({
+        ...input,
+        keybindings,
+        isDraftThread: true,
+        sendShortcut: "mod-enter",
+        prompt: "one line",
+        event: chords["Ctrl+Shift+Enter"],
+      }),
+    ).toBe("background");
+  });
+
   it("honors the send preference with an existing install's saved alternate binding", () => {
     const keybindings = mergeWithDefaultKeybindings(
       compileResolvedKeybindingsConfig([

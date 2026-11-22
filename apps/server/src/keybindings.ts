@@ -120,6 +120,10 @@ const REPLACED_DEFAULT_KEYBINDINGS: ReadonlyArray<{
     id: "terminal.close:shell-safe",
     from: { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   },
+  {
+    id: "thread.steerQueuedMessage:not-in-draft",
+    from: { key: "mod+shift+enter", command: "thread.steerQueuedMessage", when: "!terminalFocus" },
+  },
 ];
 
 function keybindingShortcutContext(rule: KeybindingRule): string | null {
