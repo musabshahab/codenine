@@ -5,6 +5,7 @@ import * as References from "effect/References";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 
+import { LONG_LIVED_SPAN_ATTRIBUTE } from "./Attributes.ts";
 import { rpcRequestDuration, rpcRequestsTotal, withMetrics } from "./Metrics.ts";
 
 type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
@@ -189,6 +190,12 @@ const RPC_METHODS_WITH_TRACING_DISABLED: ReadonlySet<string> = new Set([
   WS_METHODS.serverGetTraceDiagnostics,
 ]);
 
+// A subscription stays open while a client watches, so its span length is not time spent working.
+const isSubscriptionRpc = (method: string) =>
+  /(^|\.)subscribe/.test(method) ||
+  method === WS_METHODS.terminalAttach ||
+  method === WS_METHODS.terminalObserve;
+
 /** Add after RpcScopeAuthorization to wrap authorization and record rejected calls. */
 export class RpcInstrumentation extends RpcMiddleware.Service<RpcInstrumentation>()(
   "codenine/server/RpcInstrumentation",
@@ -209,6 +216,7 @@ export const rpcInstrumentationLayer = Layer.succeed(RpcInstrumentation)((effect
         ...DEFAULT_RPC_SPAN_ATTRIBUTES,
         "rpc.method": method,
         "rpc.aggregate": RPC_AGGREGATES[method as WsRpcMethod],
+        ...(isSubscriptionRpc(method) ? { [LONG_LIVED_SPAN_ATTRIBUTE]: true } : {}),
       },
     }),
   );

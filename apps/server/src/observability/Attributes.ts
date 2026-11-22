@@ -5,6 +5,9 @@ export type MetricAttributeValue = string;
 export type MetricAttributes = Readonly<Record<string, MetricAttributeValue>>;
 export type ObservabilityOutcome = "success" | "failure" | "interrupt";
 
+/** Marks a span that lasts as long as a subscription or socket, so its duration is not slow work. */
+export const LONG_LIVED_SPAN_ATTRIBUTE = "codenine.span.long_lived";
+
 export function compactMetricAttributes(
   attributes: Readonly<Record<string, unknown>>,
 ): MetricAttributes {

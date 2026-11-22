@@ -18,6 +18,8 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { LONG_LIVED_SPAN_ATTRIBUTE } from "../observability/Attributes.ts";
+
 interface TraceEventLike {
   readonly name?: unknown;
   readonly timeUnixNano?: unknown;
@@ -200,6 +202,8 @@ export function makeTraceDiagnosticsAggregator(
     { count: number; failureCount: number; totalDurationMs: number; maxDurationMs: number }
   >();
   const failuresByKey = new Map<string, ServerTraceDiagnosticsFailureSummary>();
+  // Children end, and so are written, before their parents.
+  const failedChildCausesBySpan = new Map<string, Set<string>>();
   const latestFailures: ServerTraceDiagnosticsRecentFailure[] = [];
   const slowestSpans: ServerTraceDiagnosticsSpanOccurrence[] = [];
   const latestWarningAndErrorLogs: ServerTraceDiagnosticsLogEvent[] = [];
@@ -224,6 +228,7 @@ export function makeTraceDiagnosticsAggregator(
     const name = toStringValue(parsed.name);
     const traceId = toStringValue(parsed.traceId);
     const spanId = toStringValue(parsed.spanId);
+    const parentSpanId = toStringValue(parsed.parentSpanId);
     const durationMs = toNumberValue(parsed.durationMs);
     const endedAt = unixNanoToDateTime(parsed.endTimeUnixNano);
     const startedAt = unixNanoToDateTime(parsed.startTimeUnixNano);
@@ -249,7 +254,6 @@ export function makeTraceDiagnosticsAggregator(
       exitTag === "Interrupted" ||
       attributes["effect.fiber.interrupted"] === true ||
       status.message === "Interrupted";
-    if (isFailure) failureCount += 1;
     if (isInterrupted) interruptionCount += 1;
 
     const spanSummary = spansByName.get(name) ?? {
@@ -265,16 +269,26 @@ export function makeTraceDiagnosticsAggregator(
     spansByName.set(name, spanSummary);
 
     const spanItem = { name, durationMs, endedAt, traceId, spanId };
-    if (durationMs >= slowSpanThresholdMs) {
-      slowSpanCount += 1;
+    if (attributes[LONG_LIVED_SPAN_ATTRIBUTE] !== true) {
+      if (durationMs >= slowSpanThresholdMs) slowSpanCount += 1;
+      insertBounded(slowestSpans, spanItem, TOP_LIMIT, slowestFirst);
     }
-    insertBounded(slowestSpans, spanItem, TOP_LIMIT, slowestFirst);
 
-    if (isFailure) {
-      const cause =
-        exitTag === "Failure"
-          ? readExitCause(parsed.exit)
-          : (toStringValue(status.message)?.trim() ?? "Failure");
+    const ownSpanKey = `${traceId}\0${spanId}`;
+    const failedChildCauses = failedChildCausesBySpan.get(ownSpanKey);
+    failedChildCausesBySpan.delete(ownSpanKey);
+    const cause = !isFailure
+      ? null
+      : exitTag === "Failure"
+        ? readExitCause(parsed.exit)
+        : (toStringValue(status.message)?.trim() ?? "Failure");
+    if (cause !== null && parentSpanId) {
+      const parentKey = `${traceId}\0${parentSpanId}`;
+      const parentCauses = failedChildCausesBySpan.get(parentKey) ?? new Set();
+      failedChildCausesBySpan.set(parentKey, parentCauses.add(cause));
+    }
+    if (cause !== null && !failedChildCauses?.has(cause)) {
+      failureCount += 1;
       insertBounded(latestFailures, { ...spanItem, cause }, RECENT_LIMIT, latestEndedFirst);
 
       const failureKey = `${name}\0${cause}`;
