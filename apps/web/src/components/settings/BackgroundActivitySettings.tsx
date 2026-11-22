@@ -50,24 +50,18 @@ const BACKGROUND_ACTIVITY_PROFILE_OPTION_LABELS: Record<BackgroundActivityProfil
 };
 
 const BACKGROUND_ACTIVITY_PROFILE_DESCRIPTIONS: Record<BackgroundActivityProfile, string> = {
-  balanced: "Pauses probes for idle clients, locked hosts, or low power mode.",
+  balanced: "Pauses probes for idle clients, and while the host is locked (desktop app only).",
   performance: "Allows scoped background probes while any subscribed client remains connected.",
-  "battery-saver": "Also pauses background probes when the host or client is on battery.",
+  "battery-saver": "Also pauses background probes while the host is on battery (desktop app only).",
 };
 
 const ADVANCED_BACKGROUND_ACTIVITY_DESCRIPTION = "Uses custom intervals.";
 
 const BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES: ReadonlyArray<{
-  readonly key:
-    | "pauseWhenHostLocked"
-    | "pauseWhenHostLowPower"
-    | "pauseWhenClientLowPower"
-    | "pauseWhenOnBattery";
+  readonly key: "pauseWhenHostLocked" | "pauseWhenOnBattery";
   readonly label: string;
 }> = [
   { key: "pauseWhenHostLocked", label: "Pause when host is locked" },
-  { key: "pauseWhenHostLowPower", label: "Pause on host low power" },
-  { key: "pauseWhenClientLowPower", label: "Pause on client low power" },
   { key: "pauseWhenOnBattery", label: "Pause on battery" },
 ];
 
@@ -97,6 +91,10 @@ function BackgroundActivityAdvancedDialog({
   const canWriteSettings = useScopedSettingsWriteAllowed();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const { environment } = useSettingsScope();
+  // Host lock, battery and power polling come only from the desktop app that runs the server.
+  const desktopHosted =
+    environment?.serverConfig?.environment.capabilities.serverSelfUpdate === "desktop-managed";
   const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
   const activeProfile = resolvedBackgroundActivity.profile;
   const automaticGitFetchIntervalSeconds = durationToSeconds(
@@ -227,87 +225,91 @@ function BackgroundActivityAdvancedDialog({
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 space-y-1">
-                <div className="text-sm font-medium">Host power monitor</div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  Poll host power state while clients are active.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <IntervalSecondsField
-                  label="active host power interval"
-                  value={hostPowerMonitorActiveIntervalSeconds}
-                  min={5}
-                  step={5}
-                  onCommit={(seconds, options) =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(
-                        settings.backgroundActivity,
-                        resolvedBackgroundActivity,
-                        { hostPowerMonitorActiveInterval: Duration.seconds(seconds) },
-                      ),
-                      options,
-                    )
-                  }
-                />
-                <span className="text-xs text-muted-foreground">seconds</span>
-              </div>
-            </div>
+            {desktopHosted ? (
+              <>
+                <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-sm font-medium">Host power monitor</div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Poll host power state while clients are active.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <IntervalSecondsField
+                      label="active host power interval"
+                      value={hostPowerMonitorActiveIntervalSeconds}
+                      min={5}
+                      step={5}
+                      onCommit={(seconds, options) =>
+                        updateSettings(
+                          backgroundActivityOverrideSettings(
+                            settings.backgroundActivity,
+                            resolvedBackgroundActivity,
+                            { hostPowerMonitorActiveInterval: Duration.seconds(seconds) },
+                          ),
+                          options,
+                        )
+                      }
+                    />
+                    <span className="text-xs text-muted-foreground">seconds</span>
+                  </div>
+                </div>
 
-            <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 space-y-1">
-                <div className="text-sm font-medium">Idle host monitor</div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  Poll host power state when no foreground client is active.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <IntervalSecondsField
-                  label="idle host power interval"
-                  value={hostPowerMonitorIdleIntervalSeconds}
-                  min={5}
-                  step={30}
-                  onCommit={(seconds, options) =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(
-                        settings.backgroundActivity,
-                        resolvedBackgroundActivity,
-                        { hostPowerMonitorIdleInterval: Duration.seconds(seconds) },
-                      ),
-                      options,
-                    )
-                  }
-                />
-                <span className="text-xs text-muted-foreground">seconds</span>
-              </div>
-            </div>
+                <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <div className="text-sm font-medium">Idle host monitor</div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Poll host power state when no foreground client is active.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <IntervalSecondsField
+                      label="idle host power interval"
+                      value={hostPowerMonitorIdleIntervalSeconds}
+                      min={5}
+                      step={30}
+                      onCommit={(seconds, options) =>
+                        updateSettings(
+                          backgroundActivityOverrideSettings(
+                            settings.backgroundActivity,
+                            resolvedBackgroundActivity,
+                            { hostPowerMonitorIdleInterval: Duration.seconds(seconds) },
+                          ),
+                          options,
+                        )
+                      }
+                    />
+                    <span className="text-xs text-muted-foreground">seconds</span>
+                  </div>
+                </div>
 
-            <div className="grid gap-0 border-t sm:grid-cols-2">
-              {BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES.map(({ key, label }) => (
-                <label
-                  key={key}
-                  className="flex items-center justify-between gap-3 border-b px-4 py-3 last:border-b-0 sm:border-r sm:even:border-r-0"
-                >
-                  <span className="text-sm font-medium">{label}</span>
-                  <Switch
-                    checked={resolvedBackgroundActivity[key]}
-                    onCheckedChange={(checked) =>
-                      updateSettings(
-                        backgroundActivityOverrideSettings(
-                          settings.backgroundActivity,
-                          resolvedBackgroundActivity,
-                          {
-                            [key]: Boolean(checked),
-                          },
-                        ),
-                      )
-                    }
-                    aria-label={label}
-                  />
-                </label>
-              ))}
-            </div>
+                <div className="grid gap-0 border-t sm:grid-cols-2">
+                  {BACKGROUND_ACTIVITY_BOOLEAN_OVERRIDES.map(({ key, label }) => (
+                    <label
+                      key={key}
+                      className="flex items-center justify-between gap-3 border-b px-4 py-3 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0"
+                    >
+                      <span className="text-sm font-medium">{label}</span>
+                      <Switch
+                        checked={resolvedBackgroundActivity[key]}
+                        onCheckedChange={(checked) =>
+                          updateSettings(
+                            backgroundActivityOverrideSettings(
+                              settings.backgroundActivity,
+                              resolvedBackgroundActivity,
+                              {
+                                [key]: Boolean(checked),
+                              },
+                            ),
+                          )
+                        }
+                        aria-label={label}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </fieldset>
         </DialogPanel>
         <DialogFooter>
