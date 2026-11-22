@@ -611,6 +611,34 @@ describe("project settings scope", () => {
     await expect.element(remoteOption()).not.toBeInTheDocument();
   });
 
+  it("lists only the picked environment's workspaces and keeps it when one is opened", async () => {
+    setup();
+    state.projects = state.projects.map((project) =>
+      project.environmentId === remoteId
+        ? { ...project, title: "Remote only", repositoryIdentity: null }
+        : { ...project, title: "Primary only", repositoryIdentity: null },
+    );
+    const remoteKey = buildSidebarProjectSnapshots({
+      projects: state.projects,
+      settings: DEFAULT_CLIENT_SETTINGS,
+      primaryEnvironmentId: primaryId,
+      resolveEnvironmentLabel: (id) => id,
+    }).find((group) => group.displayName === "Remote only")!.projectKey;
+    await using screen = await mountSettings({ machine: remoteId });
+
+    await expect.element(page.getByRole("button", { name: /^Remote only/ })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: /^Primary only/ }))
+      .not.toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: /^Remote only/ }));
+    await vi.waitFor(() =>
+      expect(screen.router.state.location.search).toEqual({
+        project: remoteKey,
+        machine: remoteId,
+      }),
+    );
+  });
+
   it("keeps an unknown project recoverable from any environment", async () => {
     setup();
     state.projects = state.projects.filter((project) => project.environmentId === primaryId);

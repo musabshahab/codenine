@@ -15,6 +15,7 @@ import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
 import type { SettingsScopeSearch } from "./settingsScope";
 import {
+  projectScopeMenuGroups,
   settingsScopeEnvironmentAddress,
   settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines,
@@ -81,7 +82,7 @@ export function SettingsScopeNotice({
           };
         })
       : target === "project"
-        ? groups.map((group) => ({
+        ? projectScopeMenuGroups(groups, search).map((group) => ({
             label: group.displayName,
             secondary: [
               ...(group.archived ? ["Archived"] : []),
@@ -94,7 +95,10 @@ export function SettingsScopeNotice({
               group.workspaceRoot,
             ].join(" · "),
             icon: <ProjectFavicon project={group} className="size-4 shrink-0" />,
-            search: { project: group.projectKey },
+            search: {
+              project: group.projectKey,
+              ...(search.machine ? { machine: search.machine } : {}),
+            },
           }))
         : target === "environment"
           ? environments
