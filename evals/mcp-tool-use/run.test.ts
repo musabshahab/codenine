@@ -516,7 +516,7 @@ it("replays earlier capability results with the model under test as the caller",
   }
 });
 
-it("refuses a proposed team as Codenine does, knowing only the case's agents", () => {
+it("refuses a proposed team as Codenine does, knowing only the case's agents and models", () => {
   const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
   const withAgents: McpToolUseCase = {
     ...childCase,
@@ -529,11 +529,27 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents", (
     codenineDefault(makeSample(withAgents, base), "propose_team", {
       goal: "Ship the rate limiter",
       agents: [{ id: "builder", role: "implement", ...member }],
-      tasks: [{ id: "build", title: "Build", brief: "Write the token bucket.", agent }],
+      tasks: [
+        {
+          id: "build",
+          title: "Build",
+          brief: "Write the token bucket.",
+          agent,
+          doneWhen: "npm test passes",
+        },
+      ],
     });
-  for (const member of [{ agent: "builder" }, {}, { instructions: "Write a token bucket." }]) {
-    assert.deepInclude(propose(member), { status: "proposed", revision: 1 });
-  }
+  const proposed = { status: "proposed", revision: 1 };
+  assert.deepInclude(propose({ agent: "builder" }), proposed);
+  // A member with neither `agent` nor `suggestion` is defined in the plan and runs as itself.
+  assert.deepInclude(propose({}), proposed);
+  assert.deepInclude(
+    propose({
+      instructions: "Write small, tested TypeScript.",
+      target: { providerInstanceId: "codex", model: "gpt-6.1-sol" },
+    }),
+    proposed,
+  );
   assert.deepEqual(propose({ agent: "builder" }, "reviewer"), {
     code: "invalid_request",
     message: 'Task "build" names agent "reviewer", which is not on the team.',
@@ -541,6 +557,14 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents", (
   assert.deepEqual(propose({ agent: "designer" }), {
     code: "invalid_request",
     message: unknownTeamAgentMessage("builder", "designer"),
+  });
+  assert.deepEqual(propose({ target: { model: "gpt-6.1-sol" } }), {
+    code: "model_unavailable",
+    message: 'Member "builder": Model gpt-6.1-sol is not advertised by provider claudeAgent.',
+  });
+  assert.deepEqual(propose({ agent: "builder", target: { providerInstanceId: "gemini" } }), {
+    code: "provider_unavailable",
+    message: 'Member "builder": Provider instance gemini is not registered.',
   });
 });
 

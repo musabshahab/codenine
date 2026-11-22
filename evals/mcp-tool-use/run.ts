@@ -1046,6 +1046,44 @@ const listedAgentNames = ({ testCase }: Sample): ReadonlySet<string> => {
   return new Set(agents.filter(isRecord).map((agent) => valueText(agent.name)));
 };
 
+/**
+ * A proposed member's model, refused as Codenine refuses a target the case's
+ * `orchestrator_capabilities` providers (else `PROVIDERS`) do not list.
+ */
+const proposedModel = (sample: Sample, target: Readonly<Record<string, unknown>>) => {
+  const mock = sample.testCase.setup.mocks?.orchestrator_capabilities;
+  const listed = isRecord(mock) && Array.isArray(mock.providers) ? mock.providers : PROVIDERS;
+  const inherited =
+    isRecord(mock) && typeof mock.inheritedProviderInstanceId === "string"
+      ? mock.inheritedProviderInstanceId
+      : "claudeAgent";
+  const instanceId =
+    typeof target.providerInstanceId === "string" ? target.providerInstanceId : inherited;
+  const provider = listed.filter(isRecord).find((p) => p.providerInstanceId === instanceId);
+  if (provider === undefined) {
+    return {
+      code: "provider_unavailable",
+      message: `Provider instance ${instanceId} is not registered.`,
+    };
+  }
+  const models = (Array.isArray(provider.models) ? provider.models : [])
+    .filter(isRecord)
+    .map((model) => valueText(model.id));
+  const model =
+    typeof target.model === "string"
+      ? target.model
+      : instanceId === inherited
+        ? sample.base.model
+        : (models[0] ?? sample.base.model);
+  if (!models.includes(model) && typeof target.model === "string") {
+    return {
+      code: "model_unavailable",
+      message: `Model ${model} is not advertised by provider ${instanceId}.`,
+    };
+  }
+  return { instanceId: ProviderInstanceId.make(instanceId), model };
+};
+
 /** A believable Codenine result for a tool the case does not mock. */
 export const codenineDefault = (
   sample: Sample,
@@ -1117,41 +1155,63 @@ export const codenineDefault = (
     case "task_cancel":
       return { taskId: input.taskId, status: "cancel_requested" };
     case "propose_team": {
-      // Codenine refuses a member that names an agent the user does not have, and a team whose
-      // tasks name unknown members, depend on each other in a cycle, or carry too much text.
       const proposal = Option.getOrUndefined(decodeProposeTeam(input));
+      if (proposal === undefined) {
+        return { code: "invalid_request", message: "Invalid propose_team input." };
+      }
+      // Read from the raw input too, so the mock works whichever propose_team schema it decodes.
+      const raw = (list: unknown, index: number) =>
+        Array.isArray(list) && isRecord(list[index]) ? list[index] : {};
+      const text = (value: unknown) =>
+        typeof value === "string" && value.trim() !== "" ? value : undefined;
       const agents = listedAgentNames(sample);
-      const memberIssue = proposal?.agents.flatMap(({ id, agent }) =>
-        agent !== undefined && !agents.has(agent)
-          ? [{ message: unknownTeamAgentMessage(id, agent) }]
-          : [],
-      )[0];
-      const issue =
-        proposal === undefined
-          ? { message: "Invalid propose_team input." }
-          : (memberIssue ??
-            validateTeamDraft({
-              goal: proposal.goal,
-              agents: proposal.agents.map((member) => ({
-                id: member.id,
-                label: member.label ?? member.id,
-                role: member.role,
-                modelSelection: {
-                  instanceId: ProviderInstanceId.make("claudeAgent"),
-                  model: sample.base.model,
-                },
-                workspace: member.workspace ?? "shared",
-                ...(member.instructions === undefined ? {} : { instructions: member.instructions }),
-              })),
-              tasks: proposal.tasks.map((task) => ({
-                id: task.id,
-                title: task.title,
-                brief: task.brief,
-                agentId: task.agent,
-                dependsOn: task.dependsOn ?? [],
-                ...(task.doneWhen === undefined ? {} : { doneWhen: task.doneWhen }),
-              })),
-            }));
+      const members = [];
+      for (const [index, member] of proposal.agents.entries()) {
+        if (member.agent !== undefined && !agents.has(member.agent)) {
+          return {
+            code: "invalid_request",
+            message: unknownTeamAgentMessage(member.id, member.agent),
+          };
+        }
+        const { target, suggestion, instructions } = raw(input.agents, index);
+        const selection = proposedModel(
+          sample,
+          isRecord(target)
+            ? target
+            : isRecord(suggestion) && isRecord(suggestion.target)
+              ? suggestion.target
+              : {},
+        );
+        if ("message" in selection) {
+          return { ...selection, message: `Member "${member.id}": ${selection.message}` };
+        }
+        const memberInstructions = text(instructions);
+        members.push({
+          id: member.id,
+          label: member.label ?? member.id,
+          role: member.role,
+          modelSelection: selection,
+          workspace: member.workspace ?? "shared",
+          ...(member.agent === undefined ? {} : { agent: member.agent }),
+          ...(memberInstructions === undefined ? {} : { instructions: memberInstructions }),
+        });
+      }
+      const draft = {
+        goal: proposal.goal,
+        agents: members,
+        tasks: proposal.tasks.map((task, index) => {
+          const doneWhen = text(raw(input.tasks, index).doneWhen);
+          return {
+            id: task.id,
+            title: task.title,
+            brief: task.brief,
+            agentId: task.agent,
+            dependsOn: task.dependsOn ?? [],
+            ...(doneWhen === undefined ? {} : { doneWhen }),
+          };
+        }),
+      };
+      const issue = validateTeamDraft(draft);
       return issue === null
         ? {
             planId: "team-plan-1",
