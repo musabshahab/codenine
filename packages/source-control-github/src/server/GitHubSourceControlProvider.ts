@@ -363,7 +363,7 @@ function fromGitHubApiError(
   switch (error._tag) {
     case "GitHubCliMissingError":
       return failure(
-        "No GitHub credential on the server. Set GH_TOKEN, or install the GitHub CLI and run `gh auth login`.",
+        "No GitHub credential in this environment. Paste a token in Settings → Source control, set GH_TOKEN, or run `gh auth login`.",
         error,
       );
     case "GitHubNotSignedInError":
@@ -372,7 +372,7 @@ function fromGitHubApiError(
       return failure(error.message, error);
     case "GitHubApiAuthenticationError":
       return failure(
-        "GitHub is not authenticated. Run `gh auth login` (or set GH_TOKEN) and retry.",
+        "GitHub is not authenticated. Check the token in Settings → Source control or GH_TOKEN, or run `gh auth login`, then retry.",
         error,
       );
     case "GitHubApiRateLimitError":
@@ -583,7 +583,7 @@ export const make = Effect.gen(function* () {
         // 50 default-branch lookups can each match 100 fork PRs and exceed the usual cap.
         maxResponseBytes: HEAD_LOOKUP_MAX_RESPONSE_BYTES,
       },
-      "GitHub returned an invalid change request list.",
+      "GitHub returned an invalid pull request list.",
       GraphQLResolver.request(
         {
           owner: locator.owner,

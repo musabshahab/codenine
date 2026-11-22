@@ -473,7 +473,10 @@ describe("GitHubSourceControlProvider change request lookups by head", () => {
           .pipe(Effect.flip, Effect.forkChild);
       const missing = yield* read("missing");
       yield* TestClock.adjust("500 millis");
-      assert.include((yield* Fiber.join(missing)).detail, "No GitHub credential on the server");
+      assert.include(
+        (yield* Fiber.join(missing)).detail,
+        "No GitHub credential in this environment",
+      );
       signedIn = true;
       const limited = yield* read("limited");
       yield* TestClock.adjust("500 millis");
