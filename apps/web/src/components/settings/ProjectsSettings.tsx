@@ -1,12 +1,27 @@
 import { EnvironmentId } from "@codenine/contracts";
+import { DEFAULT_UNIFIED_SETTINGS } from "@codenine/contracts/settings";
+import { resolvePastedPath } from "@codenine/shared/path";
 import { LayersIcon } from "lucide-react";
 
 import { Button } from "../ui/button";
+import { DraftInput } from "../ui/draft-input";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { SettingsScopeNotice } from "./SettingsScopeNotice";
-import { SettingsPageContainer } from "./settingsLayout";
+import { ScopedSwitch } from "./ScopedSwitch";
+import {
+  SettingResetButton,
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+} from "./settingsLayout";
+import { searchableSetting } from "./settingsSearch";
 import { ALL_ENVIRONMENTS_VALUE, selectEnvironmentAxis } from "./settingsScopeAxis";
+import {
+  useScopedSettings,
+  useScopedSettingsMixed,
+  useUpdateScopedSettings,
+} from "./useScopedSettings";
 
 export function ProjectsSettings() {
   const { search: value, scope, selectScope } = useSettingsScope();
@@ -46,10 +61,78 @@ export function ProjectsSettings() {
       ) : unavailable ? (
         unavailable
       ) : (
-        <SettingsScopeNotice target="project">
-          Choose a workspace to manage its name, icon, checkouts and actions.
-        </SettingsScopeNotice>
+        <SettingsPageContainer>
+          <NewWorkspacesSection />
+          <SettingsScopeNotice target="project" inline>
+            Choose a workspace to manage its name, icon, checkouts and actions.
+          </SettingsScopeNotice>
+        </SettingsPageContainer>
       )}
     </div>
+  );
+}
+
+function NewWorkspacesSection() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
+  return (
+    <SettingsSection id="new-projects" title="New workspaces">
+      <SettingsRow
+        serverScoped
+        settingKeys={["addProjectBaseDirectory"]}
+        {...searchableSetting("add-project-starts-in")}
+        description="Where Browse opens when you add a workspace from a folder. With Clone into host folders on, clones go here too. Leave empty for your home folder."
+        resetAction={
+          settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
+            <SettingResetButton
+              label="start folder"
+              onClick={() =>
+                updateSettings({
+                  addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+                })
+              }
+            />
+          ) : null
+        }
+        control={
+          <DraftInput
+            size="sm"
+            className="w-full sm:w-72"
+            value={mixedAddProjectBaseDirectory ? "" : settings.addProjectBaseDirectory}
+            onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
+            normalizeDraft={resolvePastedPath}
+            placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
+            spellCheck={false}
+            aria-label="Start folder"
+          />
+        }
+      />
+      <SettingsRow
+        serverScoped
+        settingKeys={["ghqCloneLayout"]}
+        {...searchableSetting("ghq-clone-layout")}
+        description="Clones go to host/owner/repo under Start folder, like ghq. When off, new workspaces clone into Codenine's workspaces folder."
+        resetAction={
+          settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout ? (
+            <SettingResetButton
+              label="clone into host folders"
+              onClick={() =>
+                updateSettings({ ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout })
+              }
+            />
+          ) : null
+        }
+        controlPlacement="inline"
+        control={
+          <ScopedSwitch
+            settingKeys={["ghqCloneLayout"]}
+            checked={settings.ghqCloneLayout}
+            onCheckedChange={(checked) => updateSettings({ ghqCloneLayout: Boolean(checked) })}
+            aria-label="Clone into host folders"
+          />
+        }
+      />
+    </SettingsSection>
   );
 }

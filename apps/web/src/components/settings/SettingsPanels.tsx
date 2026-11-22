@@ -21,7 +21,6 @@ import {
 } from "@codenine/contracts/settings";
 import { desktopUpdateChannelOf } from "@codenine/shared/cliRelease";
 import { createModelSelection } from "@codenine/shared/model";
-import { resolvePastedPath } from "@codenine/shared/path";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
@@ -74,7 +73,6 @@ import {
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { Button } from "../ui/button";
 import { CodenineFolderSettings } from "./CodenineFolderSettings";
-import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
@@ -523,6 +521,73 @@ export function GeneralSettingsPanel() {
           }
         />
         <SettingsRow
+          {...searchableSetting("sidebar-two-line-rows")}
+          aria-disabled={!settings.sidebarGroupByProject || undefined}
+          description="Show each chat in a workspace folder on two lines: the title, then the branch, pull request, and agent."
+          status={
+            settings.sidebarGroupByProject
+              ? undefined
+              : "Turn on Group chats by workspace to use this."
+          }
+          resetAction={
+            settings.sidebarTwoLineRows !== DEFAULT_UNIFIED_SETTINGS.sidebarTwoLineRows ? (
+              <SettingResetButton
+                label="two-line chat rows"
+                onClick={() =>
+                  updateSettings({
+                    sidebarTwoLineRows: DEFAULT_UNIFIED_SETTINGS.sidebarTwoLineRows,
+                  })
+                }
+              />
+            ) : null
+          }
+          controlPlacement="inline"
+          control={
+            <Switch
+              checked={settings.sidebarTwoLineRows}
+              disabled={!settings.sidebarGroupByProject}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarTwoLineRows: Boolean(checked) })
+              }
+              aria-label="Two-line chat rows"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("working-shelf")}
+          aria-disabled={settings.sidebarGroupByProject || undefined}
+          description="In the single list, fold working and monitoring chats into a Working section. They return to the top of the list when they need you."
+          status={
+            settings.sidebarGroupByProject
+              ? "Turn off Group chats by workspace to use this."
+              : undefined
+          }
+          resetAction={
+            settings.sidebarWorkingShelfEnabled !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
+              <SettingResetButton
+                label="working section"
+                onClick={() =>
+                  updateSettings({
+                    sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          controlPlacement="inline"
+          control={
+            <Switch
+              checked={settings.sidebarWorkingShelfEnabled}
+              disabled={settings.sidebarGroupByProject}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
+              }
+              aria-label="Working section"
+            />
+          }
+        />
+        <SettingsRow
           {...searchableSetting("project-grouping")}
           description="Combine matching repositories across environments."
           resetAction={
@@ -596,33 +661,6 @@ export function GeneralSettingsPanel() {
                 ))}
               </SelectPopup>
             </Select>
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("working-shelf")}
-          description="In the single list, fold working and monitoring chats into a Working section. They return to the top of the list when they need you. Chats grouped by workspace have no Working section."
-          resetAction={
-            settings.sidebarWorkingShelfEnabled !==
-            DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
-              <SettingResetButton
-                label="working section"
-                onClick={() =>
-                  updateSettings({
-                    sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
-                  })
-                }
-              />
-            ) : null
-          }
-          controlPlacement="inline"
-          control={
-            <Switch
-              checked={settings.sidebarWorkingShelfEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
-              }
-              aria-label="Working section"
-            />
           }
         />
       </SettingsSection>
@@ -930,6 +968,9 @@ export function ChatSettingsPanel() {
 
       <SettingsSection id="activity" title="Activity">
         <ToolCallVisibilityRow />
+        <AdvancedSettings targetIds={[searchableSetting("response-streaming").id]}>
+          <ResponseStreamingRow />
+        </AdvancedSettings>
       </SettingsSection>
     </SettingsPageContainer>
   );
@@ -943,6 +984,62 @@ const TOOL_CALL_VISIBILITY_LABELS: Record<ToolCallVisibility, string> = {
 };
 
 const isToolCallVisibility = Schema.is(ToolCallVisibility);
+
+function ResponseStreamingRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["responseStreamingMode"]}
+      {...searchableSetting("response-streaming")}
+      description={
+        mixedResponseStreamingMode
+          ? "Your environments use different streaming modes."
+          : RESPONSE_STREAMING_MODE_DESCRIPTIONS[settings.responseStreamingMode]
+      }
+      resetAction={
+        settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode ? (
+          <SettingResetButton
+            label="response streaming"
+            onClick={() =>
+              updateSettings({
+                responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={mixedResponseStreamingMode ? null : settings.responseStreamingMode}
+          onValueChange={(value) => {
+            if (value === "turn" || value === "paragraph") {
+              updateSettings({ responseStreamingMode: value });
+            }
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Response streaming">
+            <SelectValue>
+              {(value: ResponseStreamingMode | null) =>
+                value === null ? "Mixed" : RESPONSE_STREAMING_MODE_LABELS[value]
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            <SelectItem hideIndicator value="turn">
+              {RESPONSE_STREAMING_MODE_LABELS.turn}
+            </SelectItem>
+            <SelectItem hideIndicator value="paragraph">
+              {RESPONSE_STREAMING_MODE_LABELS.paragraph}
+            </SelectItem>
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
 
 function ToolCallVisibilityRow() {
   const settings = useScopedSettings();
@@ -1253,7 +1350,6 @@ export function ThreadsSettingsPanel() {
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
   const environmentId = environment?.environmentId ?? null;
   const hasServerTargets = connectedEnvironments.length > 0;
-  const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
   const providersByEnvironment = useEnvironmentProviders();
   const serverProviders =
     (environment?.serverConfig
@@ -1299,70 +1395,10 @@ export function ThreadsSettingsPanel() {
     settings,
     textGenerationModelInstanceEntries,
   );
-  const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="new-projects" title="New workspaces">
-        <SettingsRow
-          serverScoped
-          settingKeys={["addProjectBaseDirectory"]}
-          {...searchableSetting("add-project-starts-in")}
-          description='Where browsing for a folder starts, and where Clone into host folders puts clones. Leave empty to use "~/".'
-          resetAction={
-            settings.addProjectBaseDirectory !==
-            DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
-              <SettingResetButton
-                label="add workspace base directory"
-                onClick={() =>
-                  updateSettings({
-                    addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <DraftInput
-              size="sm"
-              className="w-full sm:w-72"
-              value={mixedAddProjectBaseDirectory ? "" : settings.addProjectBaseDirectory}
-              onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
-              normalizeDraft={resolvePastedPath}
-              placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
-              spellCheck={false}
-              aria-label="Add workspace base directory"
-            />
-          }
-        />
-        <SettingsRow
-          serverScoped
-          settingKeys={["ghqCloneLayout"]}
-          {...searchableSetting("ghq-clone-layout")}
-          description="Clones go to github.com/owner/repo under the folder above, like ghq."
-          resetAction={
-            settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout ? (
-              <SettingResetButton
-                label="clone into host folders"
-                onClick={() =>
-                  updateSettings({ ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout })
-                }
-              />
-            ) : null
-          }
-          controlPlacement="inline"
-          control={
-            <ScopedSwitch
-              settingKeys={["ghqCloneLayout"]}
-              checked={settings.ghqCloneLayout}
-              onCheckedChange={(checked) => updateSettings({ ghqCloneLayout: Boolean(checked) })}
-              aria-label="Clone into host folders"
-            />
-          }
-        />
-      </SettingsSection>
-
       <ProjectDefaultsSettings category="general" />
 
       {!isProjectScope ? (
@@ -1403,6 +1439,47 @@ export function ThreadsSettingsPanel() {
                 updateSettings({ snoozeLimitedThreads: Boolean(checked) })
               }
               aria-label="Snooze until limits reset"
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection id="restarts" title="Restarts">
+        <SettingsRow
+          {...searchableSetting("continue-threads-after-server-update")}
+          serverScoped
+          settingKeys={["continueThreadsAfterServerUpdate"]}
+          description="Resume chats that were working when Codenine stopped for an update, crash, or restart. Codenine has to start again for them to resume."
+          status={
+            !hasServerTargets
+              ? "All selected connected environments must support restart continuation."
+              : undefined
+          }
+          resetAction={
+            hasServerTargets &&
+            settings.continueThreadsAfterServerUpdate !==
+              DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate ? (
+              <SettingResetButton
+                label="continue chats after restarts"
+                onClick={() =>
+                  updateSettings({
+                    continueThreadsAfterServerUpdate:
+                      DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
+                  })
+                }
+              />
+            ) : null
+          }
+          controlPlacement="inline"
+          control={
+            <ScopedSwitch
+              settingKeys={["continueThreadsAfterServerUpdate"]}
+              checked={settings.continueThreadsAfterServerUpdate}
+              disabled={!hasServerTargets}
+              onCheckedChange={(checked) =>
+                updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
+              }
+              aria-label="Continue chats after restarts"
             />
           }
         />
@@ -1611,61 +1688,8 @@ export function ThreadsSettingsPanel() {
             )
           }
         />
-        <AdvancedSettings
-          targetIds={[
-            searchableSetting("thread-title-instructions").id,
-            searchableSetting("response-streaming").id,
-          ]}
-        >
+        <AdvancedSettings targetIds={[searchableSetting("thread-title-instructions").id]}>
           <ThreadTitleInstructionsSettings />
-          <SettingsRow
-            serverScoped
-            settingKeys={["responseStreamingMode"]}
-            {...searchableSetting("response-streaming")}
-            description={
-              mixedResponseStreamingMode
-                ? "The selected targets use different streaming modes."
-                : RESPONSE_STREAMING_MODE_DESCRIPTIONS[settings.responseStreamingMode]
-            }
-            resetAction={
-              settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode ? (
-                <SettingResetButton
-                  label="response streaming"
-                  onClick={() =>
-                    updateSettings({
-                      responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Select
-                value={mixedResponseStreamingMode ? null : settings.responseStreamingMode}
-                onValueChange={(value) => {
-                  if (value === "turn" || value === "paragraph") {
-                    updateSettings({ responseStreamingMode: value });
-                  }
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Response streaming">
-                  <SelectValue>
-                    {(value: ResponseStreamingMode | null) =>
-                      value === null ? "Mixed" : RESPONSE_STREAMING_MODE_LABELS[value]
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="turn">
-                    {RESPONSE_STREAMING_MODE_LABELS.turn}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="paragraph">
-                    {RESPONSE_STREAMING_MODE_LABELS.paragraph}
-                  </SelectItem>
-                </SelectPopup>
-              </Select>
-            }
-          />
         </AdvancedSettings>
       </SettingsSection>
     </SettingsPageContainer>
@@ -1675,10 +1699,9 @@ export function ThreadsSettingsPanel() {
 export function MaintenanceSettingsPanel() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
-  const { scope, environment, connectedEnvironments } = useSettingsScope();
+  const { scope, environment } = useSettingsScope();
   const environmentId = environment?.environmentId ?? null;
   const isEnvironmentScope = scope.environmentIds.length === 1 && environmentId !== null;
-  const hasServerTargets = connectedEnvironments.length > 0;
 
   return (
     <SettingsPageContainer>
@@ -1710,44 +1733,6 @@ export function MaintenanceSettingsPanel() {
                 updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
               }
               aria-label="Check provider versions"
-            />
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("continue-threads-after-server-update")}
-          serverScoped
-          settingKeys={["continueThreadsAfterServerUpdate"]}
-          description="Automatically resume interrupted threads after an update, crash, or machine restart on the selected environments."
-          status={
-            !hasServerTargets
-              ? "All selected connected environments must support restart continuation."
-              : undefined
-          }
-          resetAction={
-            hasServerTargets &&
-            settings.continueThreadsAfterServerUpdate !==
-              DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate ? (
-              <SettingResetButton
-                label="continue threads after restarts"
-                onClick={() =>
-                  updateSettings({
-                    continueThreadsAfterServerUpdate:
-                      DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
-                  })
-                }
-              />
-            ) : null
-          }
-          controlPlacement="inline"
-          control={
-            <ScopedSwitch
-              settingKeys={["continueThreadsAfterServerUpdate"]}
-              checked={settings.continueThreadsAfterServerUpdate}
-              disabled={!hasServerTargets}
-              onCheckedChange={(checked) =>
-                updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
-              }
-              aria-label="Continue threads after restarts"
             />
           }
         />

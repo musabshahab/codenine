@@ -95,8 +95,8 @@ the workspace's page, with its folder, machines, and commands, its open tasks an
 to start either. Use a workspace's **New chat** button, or right-click it, to start a thread in that
 workspace. You can drag a thread onto the composer to mention it, but not within the sidebar.
 
-To show each thread on two lines, with its branch, pull request, and agent under the title, turn on
-**Settings → Labs → Two-line chat rows**.
+To show each chat in a workspace folder on two lines, with its branch, pull request, and agent
+under the title, turn on **Settings → General → Sidebar → Two-line chat rows**.
 
 For one list without workspace folders, turn off **Settings → General → Sidebar → Group chats by
 workspace**. The single list keeps finished threads on its own **Done** shelf, you can drag threads

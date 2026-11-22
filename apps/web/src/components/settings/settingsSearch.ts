@@ -447,8 +447,8 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "sidebar-two-line-rows",
     title: "Two-line chat rows",
-    to: "/settings/labs",
-    searchTerms: ["beta sidebar project folder rows multiline branch pull request details"],
+    to: "/settings/general",
+    searchTerms: ["sidebar project folder rows multiline branch pull request details"],
   },
   {
     id: "tool-call-visibility",
@@ -549,7 +549,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "response-streaming",
     title: "Response streaming",
-    to: "/settings/threads",
+    to: "/settings/chat",
     scope: "project-defaults",
     searchTerms: ["output token paragraph buffered wait turn legacy"],
   },
@@ -649,11 +649,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "continue-threads-after-server-update",
-    title: "Continue threads after restarts",
-    to: "/settings/maintenance",
+    title: "Continue chats after restarts",
+    to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: [
-      "resume running active interrupted work restart reboot machine crash desktop update automatically",
+      "resume running active interrupted threads work restart reboot machine crash desktop update automatically",
     ],
   },
   {
@@ -688,15 +688,15 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "add-project-starts-in",
-    title: "Add workspace starts in",
-    to: "/settings/threads",
+    title: "Start folder",
+    to: "/settings/projects",
     scope: "environment-defaults",
-    searchTerms: ["base directory folder browser path home"],
+    searchTerms: ["add workspace starts in base directory folder browse path home clone"],
   },
   {
     id: "ghq-clone-layout",
     title: "Clone into host folders",
-    to: "/settings/threads",
+    to: "/settings/projects",
     scope: "environment-defaults",
     searchTerms: ["ghq clone destination host owner repository root layout"],
   },
@@ -1050,12 +1050,16 @@ const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
   "/settings/appearance",
   "/settings/source-control",
   "/settings/connections",
+  "/settings/threads",
+  "/settings/maintenance",
+  "/settings/labs",
   ...Object.keys(RENAMED_SETTINGS_PATHS),
 ]);
 // Section anchors that moved but are not search results themselves.
 const MOVED_SECTION_ANCHORS: Readonly<Record<string, SettingsPath>> = {
   "authorized-clients": "/settings/access",
   "text-generation": "/settings/threads",
+  "new-projects": "/settings/projects",
   about: "/settings/about",
 };
 

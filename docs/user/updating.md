@@ -22,8 +22,8 @@ checkout on each machine, so they stay on the same version.
 Restarting a server drops its connections and can interrupt active agents and
 terminal commands. Saved threads, settings, and workspace files remain.
 
-**Settings → Maintenance → Continue threads after restarts** is on by default.
-It resumes supported active threads after an update, crash, or machine
+**Settings → Chats → Continue chats after restarts** is on by default.
+It resumes supported active chats after an update, crash, or machine
 restart. Changes are saved to the connected environments selected at the top of Settings. An
 environment that was offline keeps its previous value; set it again after it connects.
 Codenine must start again on that machine;

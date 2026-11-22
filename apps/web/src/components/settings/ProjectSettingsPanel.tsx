@@ -4,9 +4,9 @@ import { useEnvironmentsWithScope } from "../../state/session";
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@codenine/contracts";
 import { useProjectGroupUpdate, type ProjectGroupUpdate } from "../../hooks/useProjectGroupUpdate";
 import { useProjectRemoval } from "../../hooks/useProjectRemoval";
-import { Navigate, useLocation, useNavigate } from "@tanstack/react-router";
-import { InfoIcon, Trash2Icon } from "lucide-react";
-import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "@tanstack/react-router";
+import { Trash2Icon } from "lucide-react";
+import { Fragment, lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
 import { persistClientSettingsUpdate, useClientSettings } from "../../hooks/useSettings";
 import { derivePhysicalProjectKey } from "@codenine/client-runtime/state/project-grouping";
@@ -18,8 +18,7 @@ import {
 } from "../../sidebarProjectGrouping";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { Alert, AlertDescription } from "../ui/alert";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -44,7 +43,16 @@ import {
   projectGroupTitleNeedsUpdate,
 } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
+import { SETTINGS_SECTION_LABELS, type SettingsPath } from "./settingsSearch";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
+
+// Pages with rows a workspace can override; their links keep the workspace scope.
+const WORKSPACE_OVERRIDE_PAGES = [
+  "/settings/threads",
+  "/settings/source-control",
+  "/settings/worktrees",
+  "/settings/providers",
+] as const satisfies readonly SettingsPath[];
 
 const ProjectIconPickerDialog = lazy(() =>
   import("./ProjectIconPickerDialog").then((module) => ({
@@ -458,13 +466,15 @@ function ProjectDetail({
   return (
     <>
       <SettingsPageContainer className="gap-6">
-        <Alert variant="info">
-          <InfoIcon aria-hidden />
-          <AlertDescription>
-            Can't find a setting? This workspace stays picked on Chats, Source control, Worktrees,
-            Accounts and Maintenance.
-          </AlertDescription>
-        </Alert>
+        <p className="px-3 text-sm text-muted-foreground sm:px-4">
+          More settings for {group.displayName}:{" "}
+          {WORKSPACE_OVERRIDE_PAGES.map((to, index) => (
+            <Fragment key={to}>
+              {index > 0 ? " · " : null}
+              <InlineButton render={<Link to={to} />}>{SETTINGS_SECTION_LABELS[to]}</InlineButton>
+            </Fragment>
+          ))}
+        </p>
         <SettingsSection id="project-overview" title="Workspace" hideTitle>
           {!canEditGroup ? (
             <p className="px-3 py-2 text-sm text-muted-foreground sm:px-4">

@@ -1,4 +1,3 @@
-import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
@@ -10,29 +9,10 @@ export function LabsSettingsPanel() {
   return (
     <SettingsPageContainer>
       <SettingsSection id="beta" title="Beta">
-        <TwoLineRowsRow />
         <PromptSuggestionsRow />
         <FastWorktreeCheckoutRow />
       </SettingsSection>
     </SettingsPageContainer>
-  );
-}
-
-function TwoLineRowsRow() {
-  const settings = useScopedSettings();
-  const updateSettings = useUpdateScopedSettings();
-  return (
-    <SettingsRow
-      {...searchableSetting("sidebar-two-line-rows")}
-      description="When chats are grouped by workspace, show each on two lines: the title, then the branch, pull request, and agent."
-      control={
-        <Switch
-          checked={settings.sidebarTwoLineRows}
-          onCheckedChange={(checked) => updateSettings({ sidebarTwoLineRows: Boolean(checked) })}
-          aria-label="Two-line chat rows"
-        />
-      }
-    />
   );
 }
 

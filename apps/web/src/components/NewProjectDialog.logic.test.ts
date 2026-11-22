@@ -163,7 +163,7 @@ describe("planNewProject", () => {
     });
   });
 
-  it("clones into host folders below Add workspace starts in when asked", () => {
+  it("clones into host folders below the start folder when asked", () => {
     expect(
       planNewProject(
         form({ source: "clone", repository: "acme/rocket" }),

@@ -205,7 +205,7 @@ export function emptyProjectFolder(
   return abbreviateHomePath(folder, machine.homeDirectory);
 }
 
-/** Clones go in the projects folder, or below "Add workspace starts in" in a ghq layout. */
+/** Clones go in the projects folder, or below the start folder in a ghq layout. */
 function cloneBaseFolder(
   machine: Pick<
     NewProjectMachine,
