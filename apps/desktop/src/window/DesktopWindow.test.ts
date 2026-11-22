@@ -196,17 +196,18 @@ const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 } satisfies ElectronTheme.ElectronTheme["Service"]);
 
-const layerDesktopEnvironment = DesktopEnvironment.layer(environmentInput).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      NodeServices.layer,
-      DesktopConfig.layerTest({
-        CODENINE_PORT: "3773",
-        VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
-      }),
+const layerDesktopEnvironment = (platform: NodeJS.Platform = environmentInput.platform) =>
+  DesktopEnvironment.layer({ ...environmentInput, platform }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        DesktopConfig.layerTest({
+          CODENINE_PORT: "3773",
+          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+        }),
+      ),
     ),
-  ),
-);
+  );
 
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
@@ -230,6 +231,7 @@ function layerTest(input: {
   readonly onPopupTemplate?: (input: ElectronMenu.ElectronMenuTemplateInput) => Effect.Effect<void>;
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
+  readonly platform?: NodeJS.Platform;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -294,7 +296,7 @@ function layerTest(input: {
     Layer.provide(
       Layer.mergeAll(
         layerDesktopAssets,
-        layerDesktopEnvironment,
+        layerDesktopEnvironment(input.platform),
         layerDesktopAppSettings,
         layerDesktopClientSettings,
         layerDesktopServerExposure,
@@ -393,7 +395,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       Layer.provide(
         Layer.mergeAll(
           layerDesktopAssets,
-          layerDesktopEnvironment,
+          layerDesktopEnvironment(),
           DesktopAppSettings.layerTest(),
           layerDesktopClientSettings,
           layerDesktopServerExposure,
@@ -598,56 +600,62 @@ describe("DesktopWindow", () => {
       }),
   );
 
-  it.effect("leaves Cmd+W to the renderer and blocks repeated presses", () =>
-    Effect.gen(function* () {
-      const fakeWindow = makeFakeBrowserWindow();
-      const createCount = yield* Ref.make(0);
-      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
-      const layer = layerTest({
-        window: fakeWindow.window,
-        createCount,
-        mainWindow,
-      });
+  it.effect.each([
+    { platform: "darwin", modifier: "meta", blocksRepeats: true },
+    { platform: "linux", modifier: "control", blocksRepeats: false },
+  ] as const)(
+    "leaves $modifier+W to the renderer on $platform, blocking repeats only on macOS",
+    ({ platform, modifier, blocksRepeats }) =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const createCount = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const layer = layerTest({
+          window: fakeWindow.window,
+          createCount,
+          mainWindow,
+          platform,
+        });
 
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
 
-        const beforeInput = fakeWindow.webContentsListeners.get("before-input-event");
-        if (!beforeInput) {
-          return yield* Effect.die("before-input-event listener was not registered");
-        }
+          const beforeInput = fakeWindow.webContentsListeners.get("before-input-event");
+          if (!beforeInput) {
+            return yield* Effect.die("before-input-event listener was not registered");
+          }
 
-        let prevented = false;
-        const event = { preventDefault: () => (prevented = true) };
-        const input = {
-          type: "keyDown",
-          isAutoRepeat: true,
-          key: "W",
-          meta: true,
-          control: false,
-          alt: false,
-          shift: false,
-        };
-        beforeInput(event, input);
-        assert.isTrue(prevented);
+          let prevented = false;
+          const event = { preventDefault: () => (prevented = true) };
+          const input = {
+            type: "keyDown",
+            isAutoRepeat: true,
+            key: "W",
+            meta: modifier === "meta",
+            control: modifier === "control",
+            alt: false,
+            shift: false,
+          };
+          beforeInput(event, input);
+          assert.strictEqual(prevented, blocksRepeats);
 
-        prevented = false;
-        beforeInput(event, { ...input, isAutoRepeat: false });
-        assert.isFalse(prevented);
+          prevented = false;
+          beforeInput(event, { ...input, isAutoRepeat: false });
+          assert.isFalse(prevented);
 
-        prevented = false;
-        beforeInput(event, { ...input, meta: false });
-        assert.isFalse(prevented);
+          prevented = false;
+          beforeInput(event, { ...input, [modifier]: false });
+          assert.isFalse(prevented);
 
-        assert.deepEqual(
-          fakeWindow.setIgnoreMenuShortcuts.mock.calls.map(([ignore]) => ignore),
-          [true, true, false],
-        );
-        beforeInput(event, { ...input, key: "r", isAutoRepeat: false });
-        assert.isFalse(fakeWindow.setIgnoreMenuShortcuts.mock.lastCall?.[0]);
-      }).pipe(Effect.provide(layer));
-    }),
+          assert.deepEqual(
+            fakeWindow.setIgnoreMenuShortcuts.mock.calls.map(([ignore]) => ignore),
+            [true, true, false],
+          );
+          beforeInput(event, { ...input, key: "r", isAutoRepeat: false });
+          assert.isFalse(fakeWindow.setIgnoreMenuShortcuts.mock.lastCall?.[0]);
+        }).pipe(Effect.provide(layer));
+      }),
   );
 
   it.effect("zooms main with a focused popup", () =>
