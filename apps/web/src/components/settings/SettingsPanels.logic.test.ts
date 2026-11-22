@@ -122,6 +122,15 @@ describe("device settings restore", () => {
       changedLabels: ["Thread details"],
       patch: { threadDetailsItems: {}, threadDetailsUsageEnabled: false },
     });
+    expect(
+      planDeviceSettingsRestore({ ...DEFAULT_CLIENT_SETTINGS, notificationMode: "sound" }),
+    ).toEqual({ changedLabels: ["Sound"], patch: { notificationMode: "off" } });
+    expect(
+      planDeviceSettingsRestore({
+        ...DEFAULT_CLIENT_SETTINGS,
+        notificationMode: "notifications-and-sound",
+      }).changedLabels,
+    ).toEqual(["System notifications", "Sound"]);
     expect(planDeviceSettingsRestore(DEFAULT_CLIENT_SETTINGS)).toEqual({
       changedLabels: [],
       patch: {},

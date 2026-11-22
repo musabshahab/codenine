@@ -510,9 +510,15 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "thread-notifications",
-    title: "Thread notifications",
+    title: "System notifications",
     to: "/settings/general",
-    searchTerms: ["notification sound alert completion input approval desktop"],
+    searchTerms: ["chat notification alert background completion input approval desktop"],
+  },
+  {
+    id: "notification-sound",
+    title: "Sound",
+    to: "/settings/general",
+    searchTerms: ["notification sound audio chime alert chat completion input approval"],
   },
   {
     id: "codenine-folder",
@@ -524,9 +530,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "in-app-notifications",
-    title: "In-app notifications",
+    title: "In-app toasts",
     to: "/settings/general",
-    searchTerms: ["notification toast popup completion input approval failure"],
+    searchTerms: ["notification toast popup chat completion input approval failure"],
   },
   {
     id: "time-format",

@@ -5,12 +5,6 @@ import completionUrl from "./assets/notification-completion.mp3";
 import inputUrl from "./assets/notification-input.mp3";
 
 type NotificationMode = ClientSettings["notificationMode"];
-export const NOTIFICATION_MODE_LABELS = {
-  off: "Off",
-  notifications: "Notifications only",
-  sound: "Sound only",
-  "notifications-and-sound": "Notifications with sound",
-} satisfies Record<NotificationMode, string>;
 
 export function hasNotificationSound(mode: NotificationMode) {
   return mode === "sound" || mode === "notifications-and-sound";
@@ -18,6 +12,17 @@ export function hasNotificationSound(mode: NotificationMode) {
 
 export function hasDesktopNotifications(mode: NotificationMode) {
   return mode === "notifications" || mode === "notifications-and-sound";
+}
+
+/** The stored mode with one channel switched, keeping the other as it was. */
+export function notificationModeWith(
+  mode: NotificationMode,
+  change: { readonly desktop?: boolean; readonly sound?: boolean },
+): NotificationMode {
+  const desktop = change.desktop ?? hasDesktopNotifications(mode);
+  const sound = change.sound ?? hasNotificationSound(mode);
+  if (desktop) return sound ? "notifications-and-sound" : "notifications";
+  return sound ? "sound" : "off";
 }
 
 const TAG_HASH_OFFSET_BASIS = 0xcbf29ce484222325n;

@@ -19,6 +19,7 @@ import {
 } from "@codenine/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
+import { hasDesktopNotifications, hasNotificationSound } from "../../threadNotifications";
 import { isDeviceSettingKey } from "./scopedSettings";
 import { searchableSetting, type SettingsSearchItemId } from "./settingsSearch";
 
@@ -59,6 +60,8 @@ export function rememberEnabledProjectGroupingMode(mode: SidebarProjectGroupingM
 const DEVICE_RESTORE_ROWS: ReadonlyArray<{
   readonly id: SettingsSearchItemId;
   readonly keys: readonly (keyof ClientSettings)[];
+  /** For rows that share a setting: whether this row's part of it is on. */
+  readonly labelWhen?: (settings: ClientSettings) => boolean;
 }> = [
   { id: "setting-appearance-contrast", keys: ["appearanceContrast"] },
   { id: "setting-glass-opacity", keys: ["glassOpacity"] },
@@ -70,7 +73,16 @@ const DEVICE_RESTORE_ROWS: ReadonlyArray<{
   { id: "environment-identification", keys: ["environmentIdentificationMode"] },
   { id: "thread-details-items", keys: ["threadDetailsItems", "threadDetailsUsageEnabled"] },
   { id: "time-format", keys: ["timestampFormat"] },
-  { id: "thread-notifications", keys: ["notificationMode"] },
+  {
+    id: "thread-notifications",
+    keys: ["notificationMode"],
+    labelWhen: (settings) => hasDesktopNotifications(settings.notificationMode),
+  },
+  {
+    id: "notification-sound",
+    keys: ["notificationMode"],
+    labelWhen: (settings) => hasNotificationSound(settings.notificationMode),
+  },
   { id: "in-app-notifications", keys: ["inAppNotificationsEnabled"] },
   { id: "project-grouping", keys: ["sidebarProjectGroupingMode"] },
   { id: "project-order", keys: ["sidebarProjectSortOrder"] },
@@ -104,11 +116,14 @@ export function planDeviceSettingsRestore(settings: ClientSettings) {
   const changedRows = DEVICE_RESTORE_ROWS.map((row) => ({
     label: searchableSetting(row.id).title,
     keys: row.keys.filter(isDeviceSettingKey),
+    labelWhen: row.labelWhen,
   })).filter((row) =>
     row.keys.some((key) => !Equal.equals(settings[key], DEFAULT_CLIENT_SETTINGS[key])),
   );
   return {
-    changedLabels: changedRows.map((row) => row.label),
+    changedLabels: changedRows
+      .filter((row) => row.labelWhen?.(settings) ?? true)
+      .map((row) => row.label),
     patch: Object.fromEntries(
       changedRows.flatMap((row) => row.keys.map((key) => [key, DEFAULT_CLIENT_SETTINGS[key]])),
     ) as ClientSettingsPatch,

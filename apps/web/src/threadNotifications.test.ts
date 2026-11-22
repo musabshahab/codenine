@@ -102,3 +102,20 @@ describe("playNotificationSound", () => {
     expect(audio.started).toBe(1);
   });
 });
+
+describe("notificationModeWith", () => {
+  it.each([
+    ["off", { desktop: true }, "notifications"],
+    ["off", { sound: true }, "sound"],
+    ["sound", { desktop: true }, "notifications-and-sound"],
+    ["notifications", { sound: true }, "notifications-and-sound"],
+    ["notifications-and-sound", { desktop: false }, "sound"],
+    ["notifications-and-sound", { sound: false }, "notifications"],
+    ["notifications", { desktop: false }, "off"],
+    ["sound", { sound: false }, "off"],
+    ["notifications", { desktop: true }, "notifications"],
+  ] as const)("%s with %o is %s", async (mode, change, expected) => {
+    const { notificationModeWith } = await import("./threadNotifications");
+    expect(notificationModeWith(mode, change)).toBe(expected);
+  });
+});

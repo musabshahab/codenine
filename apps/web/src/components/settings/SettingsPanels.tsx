@@ -493,18 +493,6 @@ export function GeneralSettingsPanel() {
       <CodenineFolderSettings />
       <SettingsSection id="notifications" title="Notifications">
         <NotificationSettings />
-        <SettingsRow
-          {...searchableSetting("in-app-notifications")}
-          description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
-          controlPlacement="inline"
-          control={
-            <Switch
-              checked={settings.inAppNotificationsEnabled}
-              onCheckedChange={(checked) => updateSettings({ inAppNotificationsEnabled: checked })}
-              aria-label="In-app notifications"
-            />
-          }
-        />
       </SettingsSection>
 
       <SettingsSection id="sidebar" title="Sidebar">

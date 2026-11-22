@@ -424,3 +424,20 @@ A snoozed thread keeps working and stays hidden until its wake time, even while
 its agent wakes itself for background work. It comes back early for an approval,
 a new question, a failed run, or a message or answer you send. You can snooze an existing
 question and answer when the thread wakes; the question stays unanswered.
+
+## Get notified
+
+Codenine can tell you when a chat finishes, fails, hits a usage limit, or needs your input or
+approval. Turn on any of these in **Settings → General → Notifications**:
+
+- **System notifications** appear only while Codenine is open but in the background, such as
+  another window or a hidden tab. Click one to open its chat.
+- **Sound** plays for every alert, even while Codenine is in front.
+- **In-app toasts** appear while Codenine is in front, for chats other than the one on screen.
+
+The first time you turn on system notifications, your browser asks for permission. If you
+refused, the setting says **Blocked in browser settings**: allow notifications for this site in
+your browser's site settings, then turn the switch on again. In a browser, system notifications
+need HTTPS or localhost; the desktop app supports them.
+
+These choices apply to this device only. Nothing alerts you once Codenine is closed.
