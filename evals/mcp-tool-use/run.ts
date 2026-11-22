@@ -1039,24 +1039,37 @@ const linkedEntry = (sample: Sample, url: string) => {
   return { ...pr, state: seeded?.state ?? "open", title: seeded?.title ?? null };
 };
 
-/** The user's agents, as the case's `orchestrator_capabilities` mock lists them. */
-const listedAgentNames = ({ testCase }: Sample): ReadonlySet<string> => {
+/** The user's agents by name, with their `instance/model`, as the case's capabilities mock lists them. */
+const listedAgents = ({ testCase }: Sample): ReadonlyMap<string, string> => {
   const mock = testCase.setup.mocks?.orchestrator_capabilities;
   const agents = isRecord(mock) && Array.isArray(mock.agents) ? mock.agents : [];
-  return new Set(agents.filter(isRecord).map((agent) => valueText(agent.name)));
+  return new Map(
+    agents.filter(isRecord).map((agent) => [valueText(agent.name), valueText(agent.model)]),
+  );
 };
 
 /**
  * A proposed member's model, refused as Codenine refuses a target the case's
- * `orchestrator_capabilities` providers (else `PROVIDERS`) do not list.
+ * `orchestrator_capabilities` providers (else `PROVIDERS`) do not list. A target on a saved agent
+ * (`agentModel`, as `instance/model`) starts from that agent's model, else from the lead's.
  */
-const proposedModel = (sample: Sample, target: Readonly<Record<string, unknown>>) => {
+const proposedModel = (
+  sample: Sample,
+  target: Readonly<Record<string, unknown>>,
+  agentModel = "",
+) => {
   const mock = sample.testCase.setup.mocks?.orchestrator_capabilities;
   const listed = isRecord(mock) && Array.isArray(mock.providers) ? mock.providers : PROVIDERS;
-  const inherited =
-    isRecord(mock) && typeof mock.inheritedProviderInstanceId === "string"
-      ? mock.inheritedProviderInstanceId
-      : "claudeAgent";
+  const slash = agentModel.indexOf("/");
+  const [inherited, inheritedModel] =
+    slash > 0
+      ? [agentModel.slice(0, slash), agentModel.slice(slash + 1)]
+      : [
+          isRecord(mock) && typeof mock.inheritedProviderInstanceId === "string"
+            ? mock.inheritedProviderInstanceId
+            : "claudeAgent",
+          sample.base.model,
+        ];
   const instanceId =
     typeof target.providerInstanceId === "string" ? target.providerInstanceId : inherited;
   const provider = listed.filter(isRecord).find((p) => p.providerInstanceId === instanceId);
@@ -1073,8 +1086,8 @@ const proposedModel = (sample: Sample, target: Readonly<Record<string, unknown>>
     typeof target.model === "string"
       ? target.model
       : instanceId === inherited
-        ? sample.base.model
-        : (models[0] ?? sample.base.model);
+        ? inheritedModel
+        : (models[0] ?? inheritedModel);
   if (!models.includes(model) && typeof target.model === "string") {
     return {
       code: "model_unavailable",
@@ -1164,7 +1177,7 @@ export const codenineDefault = (
         Array.isArray(list) && isRecord(list[index]) ? list[index] : {};
       const text = (value: unknown) =>
         typeof value === "string" && value.trim() !== "" ? value : undefined;
-      const agents = listedAgentNames(sample);
+      const agents = listedAgents(sample);
       const members = [];
       for (const [index, member] of proposal.agents.entries()) {
         if (member.agent !== undefined && !agents.has(member.agent)) {
@@ -1181,6 +1194,7 @@ export const codenineDefault = (
             : isRecord(suggestion) && isRecord(suggestion.target)
               ? suggestion.target
               : {},
+          member.agent === undefined ? undefined : agents.get(member.agent),
         );
         if ("message" in selection) {
           return { ...selection, message: `Member "${member.id}": ${selection.message}` };

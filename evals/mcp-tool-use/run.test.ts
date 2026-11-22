@@ -522,7 +522,11 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents and
     ...childCase,
     setup: {
       ...childCase.setup,
-      mocks: { orchestrator_capabilities: { agents: [{ name: "builder", title: "Builder" }] } },
+      mocks: {
+        orchestrator_capabilities: {
+          agents: [{ name: "builder", title: "Builder", model: "codex/gpt-6.1-sol" }],
+        },
+      },
     },
   };
   const propose = (member: Record<string, unknown>, agent = "builder") =>
@@ -565,6 +569,12 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents and
   assert.deepEqual(propose({ agent: "builder", target: { providerInstanceId: "gemini" } }), {
     code: "provider_unavailable",
     message: 'Member "builder": Provider instance gemini is not registered.',
+  });
+  // A saved agent's target defaults to the agent's own provider instance, not the lead's.
+  assert.deepInclude(propose({ agent: "builder", target: { model: "gpt-6-luna" } }), proposed);
+  assert.deepEqual(propose({ agent: "builder", target: { model: "claude-opus-5-5" } }), {
+    code: "model_unavailable",
+    message: 'Member "builder": Model claude-opus-5-5 is not advertised by provider codex.',
   });
 });
 
