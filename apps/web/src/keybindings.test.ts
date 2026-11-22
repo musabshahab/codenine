@@ -296,6 +296,33 @@ describe("split/new/close terminal shortcuts", () => {
       }),
     );
   });
+
+  it.each([
+    ["MacIntel", { key: "w", metaKey: true }, "terminal.close"],
+    ["MacIntel", { key: "d", metaKey: true }, "terminal.split"],
+    ["MacIntel", { key: "n", metaKey: true }, "terminal.new"],
+    ["Linux x86_64", { key: "w", ctrlKey: true }, null],
+    ["Linux x86_64", { key: "d", ctrlKey: true }, null],
+    ["Linux x86_64", { key: "n", ctrlKey: true }, null],
+    ["Win32", { key: "w", ctrlKey: true }, null],
+    ["Win32", { key: "d", ctrlKey: true }, null],
+    ["Win32", { key: "n", ctrlKey: true }, null],
+    ["Win32", { key: "W", ctrlKey: true, shiftKey: true }, "terminal.close"],
+    ["Linux x86_64", { key: "%", code: "Digit5", ctrlKey: true, shiftKey: true }, "terminal.split"],
+    ["Linux x86_64", { key: "N", ctrlKey: true, shiftKey: true }, "terminal.new"],
+    ["Linux x86_64", { key: "D", ctrlKey: true, shiftKey: true }, "terminal.splitVertical"],
+  ] as const)(
+    "resolves %s %j in a focused terminal to %s by default",
+    (platform, keys, command) => {
+      assert.strictEqual(
+        resolveShortcutCommand(event(keys), DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { terminalFocus: true, terminalOpen: true },
+        }),
+        command,
+      );
+    },
+  );
 });
 
 describe("shortcutLabelForCommand", () => {

@@ -34,6 +34,7 @@ export interface ShortcutMatchContext {
   terminalOpen: boolean;
   isWeb: boolean;
   isDesktop: boolean;
+  isMac?: boolean;
   editableFocus?: boolean;
   [key: string]: boolean;
 }
@@ -62,6 +63,7 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
     terminalOpen: false,
     isWeb: !isElectron,
     isDesktop: isElectron,
+    isMac: isMacPlatform(resolvePlatform(options)),
     editableFocus: false,
     ...options?.context,
   };

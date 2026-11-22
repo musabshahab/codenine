@@ -94,23 +94,31 @@ function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): bool
   return keybindingRuleIdentity(left) === keybindingRuleIdentity(right);
 }
 
-const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
+// Startup sync never touches a command already in the file, so a changed default needs one of
+// these: once, an untouched earlier default is swapped in place for its command's current defaults.
+const REPLACED_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   readonly id: string;
-  readonly alongside: KeybindingRule;
-  readonly rule: KeybindingRule;
+  readonly from: KeybindingRule;
 }> = [
   {
     id: "composer.sendBackground:mod+enter",
-    alongside: {
+    from: {
       key: "mod+alt+enter",
       command: "composer.sendBackground",
       when: "composerFocus && draftThreadRoute",
     },
-    rule: {
-      key: "mod+enter",
-      command: "composer.sendBackground",
-      when: "composerFocus && draftThreadRoute",
-    },
+  },
+  {
+    id: "terminal.split:shell-safe",
+    from: { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+  },
+  {
+    id: "terminal.new:shell-safe",
+    from: { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+  },
+  {
+    id: "terminal.close:shell-safe",
+    from: { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
   },
 ];
 
@@ -444,16 +452,16 @@ const make = Effect.gen(function* () {
   const syncDefaultKeybindingsOnStartup = upsertSemaphore.withPermits(1)(
     Effect.gen(function* () {
       const appliedMigrationIds = yield* readAppliedMigrationIds;
-      const pendingLateDefaults = LATE_DEFAULT_KEYBINDINGS.filter(
-        (late) => !appliedMigrationIds.has(late.id),
+      const pendingReplacements = REPLACED_DEFAULT_KEYBINDINGS.filter(
+        (replacement) => !appliedMigrationIds.has(replacement.id),
       );
       const configExists = yield* readConfigExists;
       if (!configExists) {
         yield* writeConfigAtomically(DEFAULT_KEYBINDINGS);
-        if (pendingLateDefaults.length > 0) {
+        if (pendingReplacements.length > 0) {
           yield* recordAppliedMigrations([
             ...appliedMigrationIds,
-            ...LATE_DEFAULT_KEYBINDINGS.map((late) => late.id),
+            ...REPLACED_DEFAULT_KEYBINDINGS.map((replacement) => replacement.id),
           ]);
         }
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
@@ -499,14 +507,6 @@ const make = Effect.gen(function* () {
         }
         missingDefaults.push(defaultRule);
       }
-      for (const { alongside, rule } of pendingLateDefaults) {
-        if (
-          customConfig.some((entry) => isSameKeybindingRule(entry, alongside)) &&
-          !customConfig.some((entry) => hasSameShortcutContext(entry, rule))
-        ) {
-          missingDefaults.push(rule);
-        }
-      }
       for (const conflict of shortcutConflictWarnings) {
         yield* Effect.logWarning("skipping default keybinding due to shortcut conflict", {
           path: keybindingsConfigPath,
@@ -542,17 +542,30 @@ const make = Effect.gen(function* () {
           commands: skippedDefaults.map((rule) => rule.command),
         });
       }
-      if (defaultsToAppend.length > 0) {
-        yield* writeConfigAtomically([...defaultsToAppend, ...customConfig]);
+      let migratedConfig = customConfig;
+      let spareSlots = availableSlots - defaultsToAppend.length;
+      const settledReplacements: string[] = [];
+      for (const { id, from } of pendingReplacements) {
+        const index = migratedConfig.findIndex((entry) => isSameKeybindingRule(entry, from));
+        if (index !== -1) {
+          const currentDefaults = DEFAULT_KEYBINDINGS.filter(
+            (rule) =>
+              rule.command === from.command &&
+              (isSameKeybindingRule(rule, from) ||
+                !migratedConfig.some((entry) => hasSameShortcutContext(entry, rule))),
+          );
+          const growth = currentDefaults.length - 1;
+          if (growth > spareSlots) continue;
+          spareSlots -= growth;
+          migratedConfig = migratedConfig.toSpliced(index, 1, ...currentDefaults);
+        }
+        settledReplacements.push(id);
       }
-      const settledLateDefaults = pendingLateDefaults.filter(
-        (late) => !skippedDefaults.includes(late.rule),
-      );
-      if (settledLateDefaults.length > 0) {
-        yield* recordAppliedMigrations([
-          ...appliedMigrationIds,
-          ...settledLateDefaults.map((late) => late.id),
-        ]);
+      if (defaultsToAppend.length > 0 || migratedConfig !== customConfig) {
+        yield* writeConfigAtomically([...defaultsToAppend, ...migratedConfig]);
+      }
+      if (settledReplacements.length > 0) {
+        yield* recordAppliedMigrations([...appliedMigrationIds, ...settledReplacements]);
       }
       yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
     }),

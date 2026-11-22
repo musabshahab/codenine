@@ -78,8 +78,9 @@ It is a JSON array of rules:
 ```
 
 Codenine creates the file with its defaults and adds new defaults on later startups.
-New defaults do not replace commands you customized. If a new default overlaps one
-of your shortcuts, [rule order](#precedence) decides which runs.
+When a default changes, Codenine updates the rule in your file only if you have not
+edited it. New defaults do not replace commands you customized. If a new default
+overlaps one of your shortcuts, [rule order](#precedence) decides which runs.
 Invalid rules are ignored; if the file cannot be parsed, Codenine uses defaults.
 
 ## Rule shape
@@ -99,13 +100,14 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `rightPanelOpen`,
-`modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+`modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, `isDesktop`, and `isMac`.
 `rightPanelOpen` applies only to `rightPanel.new` and is true while the right panel is
 open; the default `mod+t` uses it to open the panel's new-tab menu.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
-desktop app. Unknown keys evaluate to `false`.
+desktop app. `isMac` is true when the client runs on macOS, even if the server
+does not. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
 model picker is open. The thread jumps do not run while the model picker is open.
@@ -159,10 +161,18 @@ through the pages you have visited, like a browser's back and forward buttons.
 
 ## Reserved shortcuts
 
-In the desktop app, `mod+w` closes the focused terminal or the active right-panel
-tab. When nothing remains to close, it does nothing; it never closes the window. In a browser, `mod+w`
+In the desktop app, `mod+w` closes the active right-panel tab, and on macOS also the
+focused terminal. When nothing remains to close, it does nothing; it never closes the window. In a browser, `mod+w`
 closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an available
 shortcut such as `alt+w`.
+
+A focused terminal on Windows or Linux keeps `Ctrl+W`, `Ctrl+D`, and `Ctrl+N` for
+the shell. There, `Ctrl+Shift+W` closes the terminal, `Ctrl+Shift+N` opens a new
+one, `Ctrl+Shift+5` splits it, and `Ctrl+Shift+D` splits it vertically. On macOS
+these are `Cmd+W`, `Cmd+N`, `Cmd+D`, and `Cmd+Shift+D`. In a Windows or Linux
+browser tab, the browser keeps `Ctrl+Shift+W` (close window) and `Ctrl+Shift+N`
+(new private window), so bind **Terminal: Close** and **Terminal: New** to other
+keys there.
 
 `mod+shift+t` reopens the last closed tab across the app, including files and
 diffs, in the order you closed them. This shortcut does not undo deleted work.
