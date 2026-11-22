@@ -240,8 +240,8 @@ const AGENT_CHAT_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * An agent's limits hold only in its own chat, so in it, and in every team task's chat, the tools
- * that start, read or steer other chats, or change workspaces, refuse. The calling chat is read per call: its agent can change
- * while its provider keeps the same MCP session.
+ * that start, read or steer other chats, or change workspaces, refuse. The calling chat is read
+ * per call: its agent can change while its provider keeps the same MCP session.
  */
 const withAgentChatLimit = Effect.fn("McpHttpServer.withAgentChatLimit")(function* <A, E, R>(
   registration: Effect.Effect<A, E, R>,
