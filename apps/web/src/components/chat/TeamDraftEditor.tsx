@@ -1,4 +1,5 @@
 import {
+  teamMemberLeadDefined,
   teamStepFlows,
   teamStepList,
   type TeamDraftChange,
@@ -104,14 +105,6 @@ function memberName(member: TeamAgent): string {
   return member.agent === undefined ? (member.suggestion?.title ?? member.label) : member.label;
 }
 
-/** A member the lead defined for this team, running as itself or, for now, as a saved agent. */
-function hasLeadDefinition(member: TeamAgent): boolean {
-  return (
-    member.suggestion === undefined &&
-    (member.agent === undefined || member.instructions !== undefined)
-  );
-}
-
 /** The title of the user's agent a member runs as; undefined for none, or while agents load. */
 function agentTitleOf(member: TeamAgent, agents: ReadonlyArray<AgentSummary>): string | undefined {
   return member.agent === undefined
@@ -152,6 +145,8 @@ function teamModelSummary(agents: ReadonlyArray<TeamAgent>, catalog: TeamModelCa
 export function TeamDraftEditor(props: {
   leadRef: ScopedThreadRef;
   draft: TeamEditorDraft;
+  /** The plan the unsaved edits began from, which tells the members the lead defined. */
+  base: TeamDraft;
   catalog: TeamModelCatalog;
   /** The model an added agent without one starts on, when the team has no member to copy. */
   defaultModelSelection: ModelSelection | null;
@@ -216,6 +211,7 @@ export function TeamDraftEditor(props: {
                 leadRef={leadRef}
                 member={member}
                 draft={draft}
+                base={props.base}
                 catalog={catalog}
                 yours={yours}
                 disabled={disabled}
@@ -335,6 +331,7 @@ function TeamRosterRow(props: {
   leadRef: ScopedThreadRef;
   member: TeamAgent;
   draft: TeamDraft;
+  base: TeamDraft;
   catalog: TeamModelCatalog;
   yours: YourAgents;
   disabled: boolean;
@@ -346,7 +343,7 @@ function TeamRosterRow(props: {
   const steps = stepsOf(draft, member.id);
   const stepText = steps.length === 0 ? "No steps" : teamStepList(steps);
   const suggestion = member.agent === undefined ? (member.suggestion ?? null) : null;
-  const leadDefined = hasLeadDefinition(member);
+  const leadDefined = teamMemberLeadDefined(props.base, member);
   const runsItself = leadDefined && member.agent === undefined;
   const agentTitle = agentTitleOf(member, props.yours.agents);
   const details = [
@@ -624,11 +621,7 @@ function TeamMemberMenu(props: {
       <MenuPopup align="end" className="w-72">
         <TeamAgentChoices
           member={member}
-          label={
-            member.instructions === undefined
-              ? "Use one of your agents"
-              : "Use one of your agents, on this model"
-          }
+          label="Use one of your agents, on this model"
           yours={props.yours}
           catalog={props.catalog}
           onChange={props.onChange}

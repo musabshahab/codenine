@@ -109,7 +109,7 @@ export type TeamDraftChange =
   | {
       /**
        * Runs a member as one of the user's agents, which settles the lead's suggestion for it. A
-       * member with the lead's own instructions keeps its name, model and instructions.
+       * member the lead defined keeps its name, model and instructions.
        */
       readonly type: "agent.assign";
       readonly agentId: TeamAgentId;
@@ -118,7 +118,7 @@ export type TeamDraftChange =
       readonly modelSelection: ModelSelection;
     }
   | {
-      /** Runs a member that has the lead's instructions on them again, instead of a saved agent. */
+      /** Runs a member the lead defined as itself again, instead of a saved agent. */
       readonly type: "agent.unassign";
       readonly agentId: TeamAgentId;
     }
@@ -162,6 +162,17 @@ function withInstructions(member: TeamAgent, instructions: string): TeamAgent {
   return trimmed === "" ? rest : { ...rest, instructions: trimmed };
 }
 
+/**
+ * Whether the lead defined `member` for this team, as `base`, the plan the edits began from,
+ * shows it. Such a member keeps the lead's name and model on a saved agent, and can go back.
+ */
+export function teamMemberLeadDefined(base: Pick<TeamDraft, "agents">, member: TeamAgent): boolean {
+  if (member.suggestion !== undefined) return false;
+  if (member.agent === undefined || member.instructions !== undefined) return true;
+  const before = base.agents.find((candidate) => candidate.id === member.id);
+  return before !== undefined && before.agent === undefined && before.suggestion === undefined;
+}
+
 function changeMember(
   draft: TeamEditorDraft,
   agentId: TeamAgentId,
@@ -173,7 +184,12 @@ function changeMember(
   };
 }
 
-export function changeTeamDraft(draft: TeamEditorDraft, change: TeamDraftChange): TeamEditorDraft {
+/** Applies `change`; `base` is the plan the edits began from, which tells who the lead defined. */
+export function changeTeamDraft(
+  draft: TeamEditorDraft,
+  change: TeamDraftChange,
+  base: Pick<TeamDraft, "agents"> = draft,
+): TeamEditorDraft {
   switch (change.type) {
     case "agent.model":
       return {
@@ -226,18 +242,18 @@ export function changeTeamDraft(draft: TeamEditorDraft, change: TeamDraftChange)
       return changeMember(draft, change.agentId, (member) => {
         const { suggestion: _suggestion, ...kept } = member;
         // The lead picked this member's model for its part; the saved agent only takes its place.
-        return member.instructions === undefined
-          ? {
+        return teamMemberLeadDefined(base, member)
+          ? { ...kept, agent: change.agent }
+          : {
               ...kept,
               agent: change.agent,
               label: change.label.trim(),
               modelSelection: change.modelSelection,
-            }
-          : { ...kept, agent: change.agent };
+            };
       });
     case "agent.unassign": {
       const member = draft.agents.find((candidate) => candidate.id === change.agentId);
-      if (member?.agent === undefined || member.instructions === undefined) return draft;
+      if (member?.agent === undefined || !teamMemberLeadDefined(base, member)) return draft;
       return changeMember(draft, change.agentId, ({ agent: _agent, ...rest }) => rest);
     }
     case "member.edit":
@@ -321,6 +337,8 @@ export interface TeamDraftEdit {
 
 export interface ResolvedTeamDraft {
   readonly draft: TeamEditorDraft;
+  /** The plan as it stood when the shown edits began, for `teamMemberLeadDefined`. */
+  readonly base: TeamEditorDraft;
   /** The revision `draft` applies to, which a save or an approval names. */
   readonly revision: number;
   /** The draft holds changes the server does not have. */
@@ -333,12 +351,19 @@ export interface ResolvedTeamDraft {
 export function resolveTeamDraft(plan: TeamPlan, edit: TeamDraftEdit | null): ResolvedTeamDraft {
   const current = teamDraftOf(plan);
   if (edit === null) {
-    return { draft: current, revision: plan.revision, dirty: false, overtaken: false };
+    return {
+      draft: current,
+      base: current,
+      revision: plan.revision,
+      dirty: false,
+      overtaken: false,
+    };
   }
   const applies = plan.status === "proposed" && edit.planId === plan.id;
   if (applies && edit.revision === plan.revision) {
     return {
       draft: edit.draft,
+      base: edit.base,
       revision: edit.revision,
       dirty: !sameFields(edit.draft, current),
       overtaken: false,
@@ -348,6 +373,7 @@ export function resolveTeamDraft(plan: TeamPlan, edit: TeamDraftEdit | null): Re
   if (applies && edit.revision > plan.revision) {
     return {
       draft: edit.draft,
+      base: edit.base,
       revision: edit.revision,
       dirty: !sameFields(edit.draft, edit.base),
       overtaken: false,
@@ -355,6 +381,7 @@ export function resolveTeamDraft(plan: TeamPlan, edit: TeamDraftEdit | null): Re
   }
   return {
     draft: current,
+    base: current,
     revision: plan.revision,
     dirty: false,
     overtaken: !sameFields(edit.draft, edit.base),
@@ -376,7 +403,7 @@ export function editTeamDraft(
           base: teamDraftOf(plan),
           draft: teamDraftOf(plan),
         };
-  return { ...current, draft: changeTeamDraft(current.draft, change) };
+  return { ...current, draft: changeTeamDraft(current.draft, change, current.base) };
 }
 
 /** The edit once the server accepted `resolved` as the next revision. */

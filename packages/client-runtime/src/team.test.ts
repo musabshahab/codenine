@@ -28,6 +28,7 @@ import {
   teamDraftChangeCount,
   teamDraftIssue,
   teamDraftOf,
+  teamMemberLeadDefined,
   teamResultHandoff,
   teamRetryCommand,
   teamRunsInSequence,
@@ -230,6 +231,30 @@ describe("changeTeamDraft", () => {
       agentId: TeamAgentId.make("builder"),
     });
     expect(saved).toBe(back);
+    // The lead gives most members no instructions; the edit's base still shows it defined them.
+    const { instructions: _instructions, ...plain } = inlineAgent("checker");
+    const plainBase = teamDraftOf(plan({ agents: [agent("builder"), plain] }));
+    const plainAssigned = changeTeamDraft(
+      plainBase,
+      {
+        type: "agent.assign",
+        agentId: checker,
+        agent: "fact-checker",
+        label: "Source checker",
+        modelSelection: { instanceId: codex, model: "gpt-strong" },
+      },
+      plainBase,
+    );
+    const swapped = { ...plain, agent: "fact-checker" };
+    expect(plainAssigned.agents[1]).toEqual(swapped);
+    expect(teamMemberLeadDefined(plainBase, swapped)).toBe(true);
+    expect(teamMemberLeadDefined(teamDraftOf(plan({ agents: [swapped] })), swapped)).toBe(false);
+    const plainBack = changeTeamDraft(
+      plainAssigned,
+      { type: "agent.unassign", agentId: checker },
+      plainBase,
+    );
+    expect(plainBack.agents[1]).toEqual(plain);
   });
 
   it("edits a member's name, role, workspace and instructions, trimmed", () => {
@@ -300,7 +325,10 @@ describe("changeTeamDraft", () => {
       { type: "parallel.set", maxParallelPerProvider: 4 },
     ] as const satisfies ReadonlyArray<Parameters<typeof changeTeamDraft>[1]>;
     const base = teamDraftOf(plan({ agents: [...plan().agents, inlineAgent("checker")] }));
-    const next = edited.reduce<ReturnType<typeof teamDraftOf>>(changeTeamDraft, base);
+    const next = edited.reduce<ReturnType<typeof teamDraftOf>>(
+      (draft, change) => changeTeamDraft(draft, change),
+      base,
+    );
     expect(teamDraftChangeCount(base, base)).toBe(0);
     expect(teamDraftChangeCount(base, next)).toBe(6);
     const renamed = changeTeamDraft(base, {
@@ -327,6 +355,7 @@ describe("resolveTeamDraft", () => {
       dirty: true,
       overtaken: false,
       draft: { agents: [{ modelSelection: { model: "gpt-strong" } }, {}] },
+      base: { agents: [{ modelSelection: { model: "gpt-fast" } }, {}] },
     });
   });
 
@@ -377,6 +406,7 @@ describe("resolveTeamDraft", () => {
     ]) {
       expect(resolveTeamDraft(newer, edit)).toEqual({
         draft: teamDraftOf(newer),
+        base: teamDraftOf(newer),
         revision: newer.revision,
         dirty: false,
         overtaken: true,

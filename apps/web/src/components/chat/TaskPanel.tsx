@@ -404,6 +404,7 @@ function TeamPlanView(props: {
         <TeamDraftEditor
           leadRef={leadRef}
           draft={resolved.draft}
+          base={resolved.base}
           catalog={catalog}
           defaultModelSelection={lead?.modelSelection ?? null}
           disabled={busy}
