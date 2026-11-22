@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  ConnectionId,
   EventId,
   GitCommandError,
   MessageId,
@@ -513,45 +514,82 @@ it.effect("a proposed team starts nothing, and only the revision the user saw ca
   ),
 );
 
-it.effect("a team waits for an agent for every member, and its task chats talk to them", () =>
-  withTeam((launched) =>
-    Effect.gen(function* () {
-      const suggested: TeamAgent = {
-        ...agent("writer", fast),
-        label: "Copywriter",
-        suggestion: {
-          title: "Copywriter",
-          description: "Writes product copy.",
-          instructions: "Write short, plain copy.",
-          connectors: [],
-        },
-      };
-      yield* propose([task("copy", [], suggested)], [suggested]);
-      assert.include(
-        rejection(yield* Effect.exit(approve(1))),
-        "team_agent_needed: Create or choose an agent for Copywriter first.",
-      );
+it.effect(
+  "a team waits for an agent for every suggested member; a member the lead defined runs on the lead's connectors",
+  () =>
+    withTeam((launched) =>
+      Effect.gen(function* () {
+        const suggested: TeamAgent = {
+          ...agent("writer", fast),
+          label: "Copywriter",
+          suggestion: {
+            title: "Copywriter",
+            description: "Writes product copy.",
+            instructions: "Write short, plain copy.",
+            connectors: [],
+          },
+        };
+        const planner: TeamAgent = {
+          ...agent("planner", strong),
+          label: "Planner",
+          instructions: "Keep every plan under ten lines.",
+        };
+        const tasks = [
+          task("copy", [], suggested),
+          { ...task("plan", [], planner), doneWhen: "vp test run plan.test.ts passes" },
+        ];
+        yield* createLead;
+        yield* dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("lead-connectors"),
+          threadId: leadThreadId,
+          connectors: [ConnectionId.make("github")],
+        });
+        yield* proposeOnLead(tasks, [suggested, planner]);
+        assert.include(
+          rejection(yield* Effect.exit(approve(1))),
+          "team_agent_needed: Create or choose an agent for Copywriter first.",
+        );
 
-      // The user creates the agent from the suggestion, and the client saves the whole draft.
-      const { suggestion: _suggestion, ...member } = suggested;
-      const withAgent = { ...member, agent: "copywriter" };
-      yield* dispatch({
-        type: "team.edit",
-        commandId: CommandId.make("edit"),
-        threadId: leadThreadId,
-        expectedRevision: 1,
-        agents: [withAgent],
-        tasks: [task("copy", [], suggested)],
-      });
-      assert.deepEqual((yield* team).agents, [withAgent]);
-      yield* approve(2);
-      const [copyThreadId] = yield* runEffects(launched, 1);
-      assert.deepInclude((yield* thread(copyThreadId!)).thread, {
-        agent: "copywriter",
-        modelSelection: fast,
-      });
-    }),
-  ),
+        // The user creates the agent from the suggestion, and the client saves the whole draft.
+        const { suggestion: _suggestion, ...member } = suggested;
+        const withAgent = { ...member, agent: "copywriter" };
+        yield* dispatch({
+          type: "team.edit",
+          commandId: CommandId.make("edit"),
+          threadId: leadThreadId,
+          expectedRevision: 1,
+          agents: [withAgent, planner],
+          tasks,
+        });
+        assert.deepEqual((yield* team).agents, [withAgent, planner]);
+        yield* approve(2);
+        yield* runEffects(launched, 2);
+        const copy = yield* thread(yield* taskThreadId("copy"));
+        assert.deepInclude(copy.thread, { agent: "copywriter", modelSelection: fast });
+        assert.isUndefined(copy.thread.connectors);
+        assert.notInclude(copy.messages[0]!.text, "Your instructions:");
+
+        const plan = yield* thread(yield* taskThreadId("plan"));
+        assert.isUndefined(plan.thread.agent);
+        assert.deepInclude(plan.thread, {
+          modelSelection: strong,
+          connectors: [ConnectionId.make("github")],
+        });
+        assert.equal(
+          plan.messages[0]!.text,
+          [
+            'Act as the implement agent "Planner" on this team.',
+            "Your instructions:\nKeep every plan under ten lines.",
+            "Team goal:\nShip the feature",
+            "Your task: Task plan\nDo plan.",
+            "Done when: vp test run plan.test.ts passes",
+            "Do only your task; other members do the rest of the goal. Start no subagents; Codenine's tools for other chats are not available here. If you cannot finish, stop and say what blocks you instead of guessing.",
+            "Your final message is the hand-off to the next agent, under 250 words: first whether Done when passed (the command and the last lines of its output), then the files you changed and the branch, then anything left open.",
+          ].join("\n\n"),
+        );
+      }),
+    ),
 );
 
 it.effect(
@@ -633,8 +671,10 @@ it.effect(
           "team_plan_running",
         );
 
-        // `c` comes first in the plan, so it takes the slot `a` frees; `d` waits for `b`.
-        yield* endRun(yield* taskThreadId("a"), "completed", "Wrote src/a.ts on main.");
+        // `c` comes first in the plan, so it takes the slot `a` frees; `d` waits for `b`. The plan
+        // keeps a shorter copy of a long result; a dependent reads it from the task's thread.
+        const aResult = `Wrote src/a.ts on main.\n${"Checked the edge cases. ".repeat(300)}`;
+        yield* endRun(yield* taskThreadId("a"), "completed", aResult);
         assert.deepEqual(yield* runEffects(launched, 1), [yield* taskThreadId("c")]);
         assert.deepInclude(yield* taskStates, { a: "completed#1", d: "pending#1" });
 
@@ -658,8 +698,12 @@ it.effect(
         const brief = d.messages[0]!.text;
         assert.include(brief, 'Act as the implement agent "reviewer" on this team.');
         assert.include(brief, "Ship the feature");
-        assert.include(brief, "### Task a\nWrote src/a.ts on main.");
+        assert.include(brief, `### Task a\n${aResult}`);
         assert.notInclude(brief, "Wrote src/b.ts.");
+        assert.include(
+          brief,
+          "Your final message is the hand-off to the next agent, under 250 words: first what you checked and how it went, then the files you changed and the branch, then anything left open.",
+        );
 
         // Thread lists group a task thread under its lead from the shell alone.
         for (const shell of [
@@ -929,12 +973,16 @@ it.effect("a task that worked in its own worktree tells its dependents where", (
         type: "worktree",
         baseRef: "abc1234",
       });
-      yield* endRun(buildThreadId!, "completed", "Built it.");
+      const buildResult = `Built it.\n${"x".repeat(9_000)}`;
+      yield* endRun(buildThreadId!, "completed", buildResult);
       const [reviewThreadId] = yield* runEffects(launched, 1);
+      const brief = (yield* thread(reviewThreadId!)).messages[0]!.text;
       assert.include(
-        (yield* thread(reviewThreadId!)).messages[0]!.text,
-        `### Task build\nIts work is on branch ${build.thread.branch} in worktree ${build.thread.worktreePath}.\nBuilt it.`,
+        brief,
+        `### Task build\nIts work is on branch ${build.thread.branch} in worktree ${build.thread.worktreePath}.\n${buildResult.slice(0, 8_000)}\n\n[Result shortened to fit this message.]`,
       );
+      assert.notInclude(brief, buildResult.slice(0, 8_001));
+      assert.notInclude(brief, "Read the task's thread");
     }),
   ),
 );

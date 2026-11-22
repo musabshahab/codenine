@@ -55,13 +55,13 @@ export const teamTaskThreadId = (planId: TeamPlanId, taskId: TeamTaskId, attempt
       .join(":"),
   );
 
-const RESULT_TRUNCATED = "\n\n[Result cut short. Read the task's thread for the rest.]";
+export const TEAM_RESULT_CUT_NOTE = "\n\n[Result cut short. Read the task's thread for the rest.]";
 
 function truncatedResult(result: string, cap: number): string {
   const characters = Array.from(result);
   return characters.length <= cap
     ? result
-    : `${characters.slice(0, cap).join("")}${RESULT_TRUNCATED}`;
+    : `${characters.slice(0, cap).join("")}${TEAM_RESULT_CUT_NOTE}`;
 }
 
 const rejected = (code: string, message: string): TeamDecision => ({

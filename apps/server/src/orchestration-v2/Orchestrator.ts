@@ -3025,6 +3025,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       lastVisitedAt: null,
       ...(command.teamTask === undefined ? {} : { teamTask: command.teamTask }),
       ...(command.agent === undefined ? {} : { agent: command.agent }),
+      ...(command.connectors === undefined
+        ? {}
+        : { connectors: Array.from(new Set(command.connectors)) }),
       deletedAt: null,
     };
 
