@@ -86,9 +86,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     targets.length > 0 &&
     targets.every((candidate) => candidate.settings.defaultModelSelection === null);
   const mixedFallback = useScopedSettingsMixed(["fallbackModelSelection"]);
-  const fallbackSelection = settings.fallbackModelSelection ?? selection;
+  const fallbackSelection = settings.fallbackModelSelection;
   const fallbackEntry = entries.find((entry) => entry.instanceId === fallbackSelection?.instanceId);
-  const fallbackModelOptions = getCustomModelOptionsByInstance(settings, providers);
+  const fallbackSharesDefaultAccount =
+    !mixedFallback &&
+    !mixedModel &&
+    fallbackSelection !== null &&
+    fallbackSelection.instanceId === selection?.instanceId;
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
@@ -240,7 +244,12 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       settingKeys={["fallbackModelSelection"]}
       mixed={mixedFallback}
       {...searchableSetting("fallback-model")}
-      description="Used for new threads when the default model's provider is out of usage."
+      description="Used for new threads when the default account is out of usage."
+      status={
+        fallbackSharesDefaultAccount
+          ? "Same account as the default model, so it cannot take over when that account runs out."
+          : null
+      }
       resetAction={
         mixedFallback || settings.fallbackModelSelection !== null ? (
           <SettingResetButton
@@ -250,23 +259,24 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         ) : null
       }
       control={
-        fallbackSelection ? (
+        fallbackSelection || selection ? (
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <ProviderModelPicker
               environmentId={representative?.environmentId ?? null}
-              activeInstanceId={fallbackSelection.instanceId}
-              model={fallbackSelection.model}
+              activeInstanceId={fallbackSelection?.instanceId ?? null}
+              model={fallbackSelection?.model ?? ""}
               lockedProvider={null}
               instanceEntries={entries}
-              modelOptionsByInstance={fallbackModelOptions}
+              modelOptionsByInstance={modelOptions}
               triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
               triggerAriaLabel="Fallback model"
               {...(mixedFallback
                 ? { triggerLabel: "Mixed" }
-                : settings.fallbackModelSelection === null
+                : fallbackSelection === null
                   ? { triggerLabel: "None" }
                   : {})}
               getModelDisabledReason={modelDisabledReason}
+              onSelectNone={() => updateSettings({ fallbackModelSelection: null })}
               onInstanceModelChange={(instanceId, model) => {
                 const reason = modelDisabledReason(instanceId, model);
                 if (reason) {
@@ -280,7 +290,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 updateSettings({ fallbackModelSelection: createModelSelection(instanceId, model) });
               }}
             />
-            {settings.fallbackModelSelection !== null && fallbackEntry && !mixedFallback ? (
+            {fallbackSelection && fallbackEntry && !mixedFallback ? (
               <TraitsPicker
                 provider={fallbackEntry.driverKind}
                 models={fallbackEntry.models}

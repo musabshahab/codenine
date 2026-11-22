@@ -88,7 +88,8 @@ export const DockedPickerContext = createContext<{ modelLabel: string }>({ model
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   environmentId: EnvironmentId | null;
-  activeInstanceId: ProviderInstanceId;
+  /** Null when nothing is selected; a None row, if offered, is then the checked one. */
+  activeInstanceId: ProviderInstanceId | null;
   model: string;
   selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
@@ -113,6 +114,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  /** Offers a None row above the models, for a setting that can be unset. */
+  onSelectNone?: () => void;
   /** Shown after the model name inside the same trigger, such as the effort level. */
   triggerSuffix?: ReactNode;
   /** Names the suffix for the tooltip and screen readers. */
@@ -157,7 +160,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     props.instanceEntries.find((entry) => entry.instanceId === props.activeInstanceId) ?? null;
 
   const activeInstanceId = props.activeInstanceId;
-  const selectedInstanceOptions = props.modelOptionsByInstance.get(activeInstanceId) ?? [];
+  const selectedInstanceOptions =
+    activeInstanceId === null ? [] : (props.modelOptionsByInstance.get(activeInstanceId) ?? []);
   const selectedModel =
     resolveModelPickerSelectedModel({
       model: props.model,
@@ -303,6 +307,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           : (props.getModelDisabledReason?.(instanceId, model) ?? null)
       }
       onInstanceModelChange={handleInstanceModelChange}
+      {...(props.onSelectNone
+        ? {
+            onSelectNone: () => {
+              if (props.disabled) return;
+              props.onSelectNone?.();
+              setIsMenuOpen(false);
+            },
+          }
+        : {})}
       {...(props.agents ? { agents: props.agents } : {})}
       {...(docked
         ? {

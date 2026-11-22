@@ -270,7 +270,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Fallback model",
     to: "/settings/threads",
     scope: "environment-defaults",
-    searchTerms: ["fallback agent provider out of usage new threads"],
+    searchTerms: ["fallback agent account provider out of usage new threads"],
     environmentOnly: true,
   },
   {

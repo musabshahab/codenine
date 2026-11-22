@@ -22,6 +22,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { CheckIcon, CircleOffIcon } from "lucide-react";
 import { ModelListRow } from "./ModelListRow";
 import {
   type ModelPickerAgent,
@@ -31,6 +32,7 @@ import {
 import { type ModelPickerListTab, ModelPickerSidebar } from "./ModelPickerSidebar";
 import { getProviderStatusMessage, hasProviderSetup } from "./ProviderStatusBanner";
 import {
+  MODEL_PICKER_NONE_KEY,
   modelPickerAgentKey,
   modelPickerLegacySectionKey,
   modelPickerModelKey,
@@ -99,7 +101,7 @@ export function resolveModelPickerSelectedModel(input: {
 function shouldIncludeModelPickerOption(input: {
   readonly entry: ProviderInstanceEntry;
   readonly option: ModelEsque;
-  readonly activeInstanceId: ProviderInstanceId;
+  readonly activeInstanceId: ProviderInstanceId | null;
   readonly activeModel: string;
 }): boolean {
   if (isProviderInstancePickerReady(input.entry)) return true;
@@ -319,7 +321,8 @@ function WindowKeyDownListener({ onKeyDown }: { onKeyDown: (event: KeyboardEvent
 
 export const ModelPickerContent = memo(function ModelPickerContent(props: {
   environmentId: EnvironmentId | null;
-  activeInstanceId: ProviderInstanceId;
+  /** Null when nothing is selected; a None row, if offered, is then the checked one. */
+  activeInstanceId: ProviderInstanceId | null;
   model: string;
   selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
@@ -333,6 +336,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  /** Offers a None row above the models, for a setting that can be unset. */
+  onSelectNone?: () => void;
   /** The owning popup moves focus here when it opens (its `initialFocus`). */
   searchInputRef: RefObject<HTMLInputElement | null>;
   /** Sits beside an effort column: fills the shared row, and stacks above it on narrow screens. */
@@ -354,6 +359,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     onToggleModel,
     onRequestClose,
     onOpenProviderSetup,
+    onSelectNone,
     agents,
   } = props;
   const [searchQuery, setSearchQuery] = useState("");
@@ -366,14 +372,23 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const activeEntry = props.instanceEntries.find(
     (entry) => entry.instanceId === props.activeInstanceId,
   );
+  const activeInstanceOptions =
+    props.activeInstanceId === null
+      ? []
+      : (modelOptionsByInstance.get(props.activeInstanceId) ?? []);
   const activeModel = resolveModelPickerSelectedModel({
     model: props.model,
-    options: modelOptionsByInstance.get(props.activeInstanceId) ?? [],
+    options: activeInstanceOptions,
   });
   const activeModelSlug = activeModel?.slug ?? props.model;
-  const activeModelKey = activeModelSlug
-    ? modelPickerModelKey(props.activeInstanceId, activeModelSlug)
-    : null;
+  const activeModelKey =
+    props.activeInstanceId === null
+      ? onSelectNone
+        ? MODEL_PICKER_NONE_KEY
+        : null
+      : activeModelSlug
+        ? modelPickerModelKey(props.activeInstanceId, activeModelSlug)
+        : null;
   const selectedModelKeys = props.selectedModels?.map((selection) => {
     const model = resolveModelPickerSelectedModel({
       model: selection.model,
@@ -386,7 +401,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   );
   const activeInstanceHasSelectableUnavailableModel =
     activeEntry !== undefined &&
-    (modelOptionsByInstance.get(props.activeInstanceId) ?? []).some((option) =>
+    activeInstanceOptions.some((option) =>
       shouldIncludeModelPickerOption({
         entry: activeEntry,
         option,
@@ -398,29 +413,31 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const activeInstanceNeedsSetup =
     onOpenProviderSetup !== undefined &&
     activeEntry !== undefined &&
-    shouldOfferModelPickerSetup(
-      activeEntry,
-      modelOptionsByInstance.get(props.activeInstanceId) ?? [],
-    );
+    shouldOfferModelPickerSetup(activeEntry, activeInstanceOptions);
   const [selectedInstanceId, setSelectedInstanceId] = useState<
     ProviderInstanceId | ModelPickerListTab
   >(() => {
     // A chat that talks to an agent opens on it.
     if (agents?.selected != null) return "agents";
+    const activeTab =
+      props.activeInstanceId ??
+      instanceEntries.find(isProviderInstancePickerReady)?.instanceId ??
+      "favorites";
     if (
       props.lockedProvider !== null ||
       activeInstanceHasSelectableUnavailableModel ||
       activeInstanceNeedsSetup
     ) {
-      return props.activeInstanceId;
+      return activeTab;
     }
-    return favorites.length > 0 ? "favorites" : props.activeInstanceId;
+    return favorites.length > 0 ? "favorites" : activeTab;
   });
   const favoritesSet = new Set(favorites.map((fav) => providerModelKey(fav.provider, fav.model)));
   const [expandedLegacyInstances, setExpandedLegacyInstances] = useState(
     () =>
       new Set<ProviderInstanceId>(
-        activeModel?.isLegacy &&
+        props.activeInstanceId !== null &&
+          activeModel?.isLegacy &&
           !favoritesSet.has(providerModelKey(props.activeInstanceId, activeModelSlug))
           ? [props.activeInstanceId]
           : [],
@@ -501,8 +518,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
 
   const selectableUnavailableInstanceIds = (() => {
     const instanceIds = new Set<ProviderInstanceId>();
-    if (activeInstanceHasSelectableUnavailableModel) {
-      instanceIds.add(props.activeInstanceId);
+    if (activeInstanceHasSelectableUnavailableModel && activeEntry) {
+      instanceIds.add(activeEntry.instanceId);
     }
     if (canOpenProviderSetup) {
       for (const entry of instanceEntries) {
@@ -584,7 +601,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       const rows = agents.items.length + 1;
       unitsByTab.set("agents", rows * AGENT_ROW_UNITS + (rows - 1) * ROW_SEPARATOR_UNITS);
     }
-    return Math.max(0, ...unitsByTab.values());
+    return (
+      Math.max(0, ...unitsByTab.values()) + (onSelectNone ? ROW_UNITS + ROW_SEPARATOR_UNITS : 0)
+    );
   })();
   const lockedDisabledInstanceIds = (() => {
     if (!isLocked) {
@@ -739,10 +758,12 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     agents.onPick(name);
     onRequestClose?.();
   };
+  const showNone = onSelectNone !== undefined && !isSearching && selectedInstanceId !== "agents";
   const allItemKeys = ((): string[] => [
     ...(agents === undefined
       ? []
       : [null, ...agents.items.map((agent) => agent.name)].map(modelPickerAgentKey)),
+    ...(onSelectNone ? [MODEL_PICKER_NONE_KEY] : []),
     ...flatModels.map((model) => modelPickerModelKey(model.instanceId, model.slug)),
     ...new Set(
       flatModels
@@ -755,7 +776,12 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       modelPickerModelKey(model.instanceId, model.slug),
     );
     // The toggle trails the list, so expanding it reveals older models above it.
-    return [...agentByKey.keys(), ...modelKeys, ...(legacySection ? [legacySection.key] : [])];
+    return [
+      ...agentByKey.keys(),
+      ...(showNone ? [MODEL_PICKER_NONE_KEY] : []),
+      ...modelKeys,
+      ...(legacySection ? [legacySection.key] : []),
+    ];
   })();
   const filteredModelByKey = ((): ReadonlyMap<string, ModelPickerItem> =>
     new Map(
@@ -763,6 +789,27 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         (model) => [modelPickerModelKey(model.instanceId, model.slug), model] as const,
       ),
     ))();
+
+  const pickItem = (key: string, additive: boolean) => {
+    if (key === MODEL_PICKER_NONE_KEY) {
+      onSelectNone?.();
+      return;
+    }
+    const agentChoice = parseModelPickerAgentKey(key);
+    if (agentChoice) {
+      pickAgent(agentChoice.name);
+      return;
+    }
+    const legacyInstanceId = parseModelPickerLegacySectionKey(key);
+    if (legacyInstanceId) {
+      toggleLegacySection(legacyInstanceId);
+      return;
+    }
+    const model = parseModelPickerModelKey(key);
+    if (model) {
+      handleModelSelect(model.slug, model.instanceId, additive);
+    }
+  };
 
   const modelJumpLabelByKey = modelJumpLabelsByKey(
     modelJumpModelKeys,
@@ -911,24 +958,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
             if (typeof modelKey !== "string") {
               return;
             }
-            const agentChoice = parseModelPickerAgentKey(modelKey);
-            if (agentChoice) {
-              pickAgent(agentChoice.name);
-              return;
-            }
-            const legacyInstanceId = parseModelPickerLegacySectionKey(modelKey);
-            if (legacyInstanceId) {
-              toggleLegacySection(legacyInstanceId);
-              return;
-            }
-            const model = parseModelPickerModelKey(modelKey);
-            if (model) {
-              handleModelSelect(
-                model.slug,
-                model.instanceId,
-                "shiftKey" in details.event && details.event.shiftKey === true,
-              );
-            }
+            pickItem(modelKey, "shiftKey" in details.event && details.event.shiftKey === true);
           }}
         >
           <div
@@ -1008,22 +1038,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                   (e as typeof e & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
                   e.preventDefault();
                   e.stopPropagation();
-                  const agentChoice = parseModelPickerAgentKey(highlightedModelKeyRef.current);
-                  if (agentChoice) {
-                    pickAgent(agentChoice.name);
-                    return;
-                  }
-                  const legacyInstanceId = parseModelPickerLegacySectionKey(
-                    highlightedModelKeyRef.current,
-                  );
-                  if (legacyInstanceId) {
-                    toggleLegacySection(legacyInstanceId);
-                    return;
-                  }
-                  const model = parseModelPickerModelKey(highlightedModelKeyRef.current);
-                  if (model) {
-                    handleModelSelect(model.slug, model.instanceId, e.shiftKey);
-                  }
+                  pickItem(highlightedModelKeyRef.current, e.shiftKey);
                   return;
                 }
                 e.stopPropagation();
@@ -1046,6 +1061,25 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                       agent={agent}
                       isSelected={(agents?.selected ?? null) === (agent?.name ?? null)}
                     />
+                  );
+                }
+                if (modelKey === MODEL_PICKER_NONE_KEY) {
+                  return (
+                    <ComboboxItem
+                      hideIndicator
+                      selectedFill={false}
+                      index={index}
+                      value={modelKey}
+                      className="w-full !min-w-0 max-w-full"
+                    >
+                      <CircleOffIcon className="size-4" aria-hidden="true" />
+                      <span className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                        <span className="truncate text-sm leading-snug">None</span>
+                        {activeModelKey === MODEL_PICKER_NONE_KEY ? (
+                          <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" />
+                        ) : null}
+                      </span>
+                    </ComboboxItem>
                   );
                 }
                 if (legacySection?.key === modelKey) {

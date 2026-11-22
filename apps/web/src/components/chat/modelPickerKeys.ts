@@ -4,6 +4,9 @@ const MODEL_KEY_PREFIX = "model:";
 const LEGACY_SECTION_KEY_PREFIX = "legacy-models:";
 const AGENT_KEY_PREFIX = "agent:";
 
+/** The None row, offered by pickers whose setting can be unset. */
+export const MODEL_PICKER_NONE_KEY = "none:";
+
 export function modelPickerModelKey(instanceId: ProviderInstanceId, slug: string): string {
   return `${MODEL_KEY_PREFIX}${instanceId.length}:${instanceId}${slug}`;
 }
