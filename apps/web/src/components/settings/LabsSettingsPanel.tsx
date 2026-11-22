@@ -24,7 +24,7 @@ function PromptSuggestionsRow() {
       serverScoped
       {...searchableSetting("prompt-suggestions-beta")}
       settingKeys={["promptSuggestionsEnabled"]}
-      description="Show a predicted next message in the empty composer after a Claude or Codex turn. Tab uses it. Each is an extra cached request on your plan. Needs Codex 0.165+. Claude threads update on restart."
+      description="Show a predicted next message in the empty composer after a Claude or Codex turn. Tab uses it. Each is an extra cached request on your plan. Needs Codex 0.165+. Claude chats update on restart."
       control={
         <ScopedSwitch
           settingKeys={["promptSuggestionsEnabled"]}
@@ -39,7 +39,7 @@ function PromptSuggestionsRow() {
   );
 }
 
-/** Shows only when every machine in scope is a Mac, since only macOS servers honor it. */
+/** Shows only when every environment in scope is a Mac, since only macOS servers honor it. */
 function FastWorktreeCheckoutRow() {
   const { scope, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();

@@ -82,7 +82,7 @@ function NewWorkspacesSection() {
         serverScoped
         settingKeys={["addProjectBaseDirectory"]}
         {...searchableSetting("add-project-starts-in")}
-        description="Where Browse opens when you add a workspace from a folder. With Clone into host folders on, clones go here too. Leave empty for your home folder."
+        description="The folder suggested when you add a workspace from a folder. With Clone into host folders on, clones go here too. Leave empty for your home folder."
         resetAction={
           settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
             <SettingResetButton
