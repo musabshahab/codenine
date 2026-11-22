@@ -1,7 +1,9 @@
 # Keybindings
 
-Customize shortcuts in **Settings → Keybindings**. That page
-also lists the command IDs and defaults available in your version.
+Customize shortcuts in **Settings → Keybindings**. That page lists every command
+in your version, including those with no default shortcut, and shows a command's ID
+when you hover its name. To see what a shortcut does, search for it as you would type
+or read it, such as `ctrl+k`, `cmd k`, or `⌘K`.
 
 ## Composer controls
 
@@ -10,10 +12,11 @@ In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires
 inserts a new line.
 
 **Follow-up behavior** chooses Queue or Steer while the agent runs. Use
-`mod+Enter` to do the opposite for one message, even when the send shortcut
-requires a modifier. `mod+Alt+Enter` sends, keeps that thread running in the
-background, and opens a new chat. In a new chat, `mod+Enter` does the same. Change
-these shortcuts in **Settings → Keybindings** under
+`mod+Enter` to do the opposite for one message. `mod+Alt+Enter` sends, keeps that
+thread running in the background, and opens a new chat. In a new chat, `mod+Enter`
+does the same. When the send shortcut requires `mod+Enter` for the current prompt,
+both `mod+Enter` shortcuts move to `mod+Shift+Enter`, so `mod+Enter` sends
+normally. Change these shortcuts in **Settings → Keybindings** under
 **Composer: Opposite Queue or Steer Action**, **Composer: Start in Background**,
 or **Composer: Send and Start New Chat**. These bindings take priority over the
 send shortcut. Click the send button to use the configured follow-up behavior.
@@ -67,6 +70,9 @@ find only searches the files loaded so far.
 
 Keybindings live on the environment's machine, in
 `~/.codenine/userdata/keybindings.json` by default. You can edit this file directly.
+The app takes its shortcuts from the primary environment, so **Settings → Keybindings**
+changes only that environment's file. To give a workspace command on another environment a
+shortcut, edit its action in **Settings → Workspaces**.
 It is a JSON array of rules:
 
 ```json
@@ -77,8 +83,9 @@ It is a JSON array of rules:
 ```
 
 Codenine creates the file with its defaults and adds new defaults on later startups.
-New defaults do not replace commands you customized. If a new default overlaps one
-of your shortcuts, [rule order](#precedence) decides which runs.
+When a default changes, Codenine updates the rule in your file only if you have not
+edited it. New defaults do not replace commands you customized. If a new default
+overlaps one of your shortcuts, [rule order](#precedence) decides which runs.
 Invalid rules are ignored; if the file cannot be parsed, Codenine uses defaults.
 
 ## Rule shape
@@ -98,13 +105,14 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `rightPanelOpen`,
-`modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+`modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, `isDesktop`, and `isMac`.
 `rightPanelOpen` applies only to `rightPanel.new` and is true while the right panel is
 open; the default `mod+t` uses it to open the panel's new-tab menu.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
-desktop app. Unknown keys evaluate to `false`.
+desktop app. `isMac` is true when the client runs on macOS, even if the server
+does not. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
 model picker is open. The thread jumps do not run while the model picker is open.
@@ -158,10 +166,18 @@ through the pages you have visited, like a browser's back and forward buttons.
 
 ## Reserved shortcuts
 
-In the desktop app, `mod+w` closes the focused terminal or the active right-panel
-tab. When nothing remains to close, it does nothing; it never closes the window. In a browser, `mod+w`
+In the desktop app, `mod+w` closes the active right-panel tab, and on macOS also the
+focused terminal. When nothing remains to close, it does nothing; it never closes the window. In a browser, `mod+w`
 closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an available
 shortcut such as `alt+w`.
+
+A focused terminal on Windows or Linux keeps `Ctrl+W`, `Ctrl+D`, and `Ctrl+N` for
+the shell. There, `Ctrl+Shift+5` splits the terminal and `Ctrl+Shift+D` splits it
+vertically. In the desktop app, `Ctrl+Shift+W` closes it and `Ctrl+Shift+N` opens
+a new one. A Windows or Linux browser keeps those two chords for closing its
+window and opening a private one, so **Terminal: Close** and **Terminal: New**
+have no default shortcut in a browser tab there; bind them to other keys if you
+want them. On macOS these are `Cmd+W`, `Cmd+N`, `Cmd+D`, and `Cmd+Shift+D`.
 
 `mod+shift+t` reopens the last closed tab across the app, including files and
 diffs, in the order you closed them. This shortcut does not undo deleted work.

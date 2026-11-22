@@ -13,7 +13,7 @@ import {
   US_SHIFTED_TO_UNSHIFTED_KEYS,
 } from "@codenine/shared/keybindings";
 
-import { shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
+import { formatShortcutLabel, shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -50,7 +50,8 @@ export interface KeybindingRow {
   readonly source: KeybindingSource;
   readonly defaultKey: string | null;
   readonly defaultWhen: string;
-  readonly binding: ResolvedKeybindingRule;
+  /** Null for a command with no shortcut; saving its row adds a rule. */
+  readonly binding: ResolvedKeybindingRule | null;
   readonly conflicts: ReadonlyArray<string>;
 }
 
@@ -62,6 +63,7 @@ const CORE_WHEN_VARIABLES = [
   "terminalOpen",
   "isWeb",
   "isDesktop",
+  "isMac",
   "true",
   "false",
 ] as const;
@@ -192,6 +194,7 @@ export function keybindingConflictLabels(
   for (const candidate of rows) {
     if (
       candidate.id !== input.rowId &&
+      candidate.binding !== null &&
       shortcutConflictKey(candidate.binding.shortcut, platform) === conflictKey &&
       conflictsWithWhen(candidate.when, input.when)
     ) {
@@ -268,6 +271,23 @@ export function buildKeybindingRows(
       conflicts: [],
     });
   }
+  const boundCommands = new Set(keybindings.map((binding) => binding.command));
+  for (const command of STATIC_KEYBINDING_COMMANDS) {
+    if (boundCommands.has(command)) continue;
+    const defaultBinding = DEFAULT_RESOLVED_KEYBINDINGS.find((entry) => entry.command === command);
+    const id = keybindingRowId(command, "", "");
+    rowsById.set(id, {
+      id,
+      command,
+      key: "",
+      when: "",
+      source: "Default",
+      defaultKey: defaultBinding ? shortcutToKeybindingInput(defaultBinding.shortcut) : null,
+      defaultWhen: whenAstToExpression(defaultBinding?.whenAst),
+      binding: null,
+      conflicts: [],
+    });
+  }
   const rows = [...rowsById.values()];
 
   const rowsWithConflicts = rows.map((row) => {
@@ -294,19 +314,70 @@ export function buildKeybindingRows(
   return rowsWithConflicts;
 }
 
+const SHORTCUT_SEARCH_MODIFIERS: ReadonlyArray<string> = ["mod", "cmd", "ctrl", "alt", "shift"];
+const SHORTCUT_SEARCH_ALIASES: Readonly<Record<string, string>> = {
+  "⌘": "cmd",
+  "⌃": "ctrl",
+  "⌥": "alt",
+  "⇧": "shift",
+  escape: "esc",
+};
+// Also plain words ("Source control", "Command Palette"), so they count as modifiers only in a chord.
+const SHORTCUT_SEARCH_MODIFIER_WORDS: Readonly<Record<string, string>> = {
+  command: "cmd",
+  meta: "cmd",
+  control: "ctrl",
+  option: "alt",
+};
+
+/** One spelling for a typed or shown chord: aliases resolved, modifiers in a fixed order. */
+export function normalizeShortcutSearchText(text: string): string {
+  const words = text
+    .toLowerCase()
+    .replace(/[⌘⌃⌥⇧]/gu, " $& ")
+    .split(/[\s+]+/u)
+    .filter((token) => token.length > 0);
+  const isChord = words.length > 1 || text.includes("+");
+  const tokens = words.map(
+    (token) =>
+      SHORTCUT_SEARCH_ALIASES[token] ??
+      (isChord ? SHORTCUT_SEARCH_MODIFIER_WORDS[token] : undefined) ??
+      token,
+  );
+  return [
+    ...SHORTCUT_SEARCH_MODIFIERS.filter((modifier) => tokens.includes(modifier)),
+    ...tokens.filter((token) => !SHORTCUT_SEARCH_MODIFIERS.includes(token)),
+  ].join("+");
+}
+
+/** A shortcut as stored and as each platform shows it, so any of them finds it. */
+export function shortcutSearchForms(shortcut: KeybindingShortcut): ReadonlyArray<string> {
+  return [
+    ...new Set(
+      [
+        shortcutToKeybindingInput(shortcut),
+        formatShortcutLabel(shortcut, "Win32"),
+        formatShortcutLabel(shortcut, "MacIntel"),
+      ].map(normalizeShortcutSearchText),
+    ),
+  ];
+}
+
 export function filterKeybindingRows(
   rows: ReadonlyArray<KeybindingRow>,
   query: string,
 ): ReadonlyArray<KeybindingRow> {
   const normalizedQuery = query.trim().toLowerCase();
   if (normalizedQuery.length === 0) return rows;
+  const shortcutQuery = normalizeShortcutSearchText(query);
   return rows.filter((row) => {
     return (
       row.command.toLowerCase().includes(normalizedQuery) ||
       commandLabel(row.command).toLowerCase().includes(normalizedQuery) ||
-      row.key.toLowerCase().includes(normalizedQuery) ||
       row.when.toLowerCase().includes(normalizedQuery) ||
-      row.source.toLowerCase().includes(normalizedQuery)
+      (row.binding !== null &&
+        (row.source.toLowerCase().includes(normalizedQuery) ||
+          shortcutSearchForms(row.binding.shortcut).some((form) => form.includes(shortcutQuery))))
     );
   });
 }

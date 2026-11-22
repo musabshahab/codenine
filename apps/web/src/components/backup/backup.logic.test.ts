@@ -46,7 +46,7 @@ const format: BackupDateFormat = {
 
 const settings: BackupSettings = {
   folder: "~/Library/Mobile Documents/com~apple~CloudDocs/Codenine Backups",
-  schedule: { frequency: "daily", time: "03:00", weekday: 0 },
+  schedule: { frequency: "daily", time: "03:00", weekday: 0, timeZone: null },
   keep: 7,
   includeWorktrees: false,
 };
@@ -193,23 +193,27 @@ describe("summarizeBackupStatus", () => {
 });
 
 describe("settingsForSetup", () => {
+  const timeZone = "Europe/London";
   it.each([
-    ["daily", { frequency: "daily", time: "03:00", weekday: 0 }],
-    ["weekly", { frequency: "weekly", time: "03:00", weekday: 0 }],
-    ["manual", { frequency: "off", time: "22:00", weekday: 3 }],
-  ] as const)("saves %s with the folder and the rest unchanged", (cadence, schedule) => {
-    const current: BackupSettings = {
-      ...settings,
-      folder: "",
-      keep: 14,
-      schedule: { frequency: "daily", time: "22:00", weekday: 3 },
-    };
-    expect(settingsForSetup(current, { folder: "  ~/Backups ", cadence })).toEqual({
-      ...current,
-      folder: "~/Backups",
-      schedule,
-    });
-  });
+    ["daily", { frequency: "daily", time: "03:00", weekday: 0, timeZone }],
+    ["weekly", { frequency: "weekly", time: "03:00", weekday: 0, timeZone }],
+    ["manual", { frequency: "off", time: "22:00", weekday: 3, timeZone }],
+  ] as const)(
+    "saves %s in the browser's zone, with the folder and the rest unchanged",
+    (cadence, schedule) => {
+      const current: BackupSettings = {
+        ...settings,
+        folder: "",
+        keep: 14,
+        schedule: { frequency: "daily", time: "22:00", weekday: 3, timeZone: "America/New_York" },
+      };
+      expect(settingsForSetup(current, { folder: "  ~/Backups ", cadence, timeZone })).toEqual({
+        ...current,
+        folder: "~/Backups",
+        schedule,
+      });
+    },
+  );
 });
 
 describe("schedule choices", () => {

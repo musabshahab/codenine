@@ -75,7 +75,7 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
 });
 
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironmentLive", (it) => {
-  it.effect("publishes proven install ownership only for manually updated servers", () =>
+  it.effect("publishes install ownership, self-update and host power by launch", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const baseDir = yield* fs.makeTempDirectoryScoped();
@@ -91,7 +91,12 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironmen
       yield* fs.symlink(entry, `${prefix}/bin/codenine`);
       const config = yield* makeServerConfig(baseDir);
       yield* fs.makeDirectory(config.stateDir, { recursive: true });
-      for (const mode of ["web", "desktop"] as const) {
+      for (const { mode, telemetry } of [
+        { mode: "web", telemetry: false },
+        // The desktop app's WSL backend runs in desktop mode without the telemetry pipes.
+        { mode: "desktop", telemetry: false },
+        { mode: "desktop", telemetry: true },
+      ] as const) {
         const descriptor = yield* Effect.gen(function* () {
           const environment = yield* ServerEnvironment.ServerEnvironment;
           return yield* environment.getDescriptor;
@@ -99,7 +104,13 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironmen
           Effect.provide(
             ServerEnvironment.layer.pipe(
               Layer.provide(layerEmptySecretStore),
-              Layer.provide(ServerConfig.layer({ ...config, mode })),
+              Layer.provide(
+                ServerConfig.layer({
+                  ...config,
+                  mode,
+                  ...(telemetry ? { desktopTelemetryFd: 4, desktopTelemetryControlFd: 5 } : {}),
+                }),
+              ),
             ),
           ),
           Effect.provideService(HostProcess.Arguments, ["node", entry]),
@@ -113,6 +124,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironmen
         expect(descriptor.capabilities.serverSelfUpdate).toBe(
           mode === "web" ? undefined : "desktop-managed",
         );
+        expect(descriptor.capabilities.hostPowerTelemetry).toBe(telemetry ? true : undefined);
         expect(descriptor.capabilities).toMatchObject({
           settledWorktreeCleanup: true,
           storageCleanupRun: true,

@@ -109,6 +109,12 @@ export function WorktreesDirectoryRow() {
   );
 }
 
+const NEW_RULE_DAYS = 30;
+
+/**
+ * Every rule change starts a cleanup sweep, so switching a rule on opens a draft. Enter, a stepper
+ * press, or leaving the control saves the days it shows; switching it off again saves nothing.
+ */
 function RetentionControl({
   label,
   value,
@@ -117,34 +123,60 @@ function RetentionControl({
 }: {
   label: string;
   value: number | null;
-  onChange: (value: number | null) => void;
+  onChange: (value: number | null, options?: { readonly onFailed: () => void }) => void;
   minimum?: number;
 }) {
-  const [draft, setDraft] = useState(value);
-  const [savedValue, setSavedValue] = useState(value);
-  if (savedValue !== value) {
-    setSavedValue(value);
-    setDraft(value);
+  const [field, setField] = useState({
+    saved: value,
+    draft: value,
+    committed: value,
+    opening: false,
+  });
+  if (field.saved !== value) {
+    setField({ saved: value, draft: value, committed: value, opening: false });
   }
+  const drafting = field.opening && field.committed === null;
+  const commit = (next: number | null) => {
+    if (next === null) {
+      setField((current) => ({
+        ...current,
+        draft: current.committed,
+        opening: current.opening && current.committed !== null,
+      }));
+      return;
+    }
+    const days = Math.min(3650, Math.max(minimum, Math.round(next)));
+    setField((current) => ({ ...current, draft: days, committed: days }));
+    if (days === field.committed) return;
+    onChange(days, {
+      onFailed: () =>
+        setField((current) =>
+          current.committed === days
+            ? { ...current, draft: current.saved, committed: current.saved, opening: false }
+            : current,
+        ),
+    });
+  };
 
   return (
-    <div className="flex items-center gap-3">
-      {value !== null ? (
+    <div
+      className="flex items-center gap-3"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) commit(field.draft);
+      }}
+    >
+      {value !== null || field.opening ? (
         <NumberField
-          value={draft}
+          value={field.draft}
           min={minimum}
           max={3650}
           step={1}
           size="sm"
           className="w-auto"
-          onValueChange={setDraft}
-          onValueCommitted={(next) => {
-            if (next === null) setDraft(value);
-            else {
-              const days = Math.min(3650, Math.max(minimum, Math.round(next)));
-              setDraft(days);
-              onChange(days);
-            }
+          onValueChange={(draft) => setField((current) => ({ ...current, draft }))}
+          // Leaving the control commits through onBlur above; committing here too would save twice.
+          onValueCommitted={(next, { reason }) => {
+            if (reason !== "input-blur") commit(next);
           }}
         >
           <NumberFieldGroup>
@@ -153,6 +185,13 @@ function RetentionControl({
               aria-label={`${label} in days`}
               size={5}
               className="w-auto grow-0 text-right"
+              autoFocus={drafting}
+              onFocus={(event) => {
+                if (drafting) event.currentTarget.select();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") commit(field.draft);
+              }}
             />
             <span aria-hidden="true" className="self-center pr-2 text-xs">
               days
@@ -165,8 +204,15 @@ function RetentionControl({
       )}
       <Switch
         aria-label={label}
-        checked={value !== null}
-        onCheckedChange={(enabled) => onChange(enabled ? 8 : null)}
+        checked={value !== null || field.opening}
+        onCheckedChange={(enabled) => {
+          if (!enabled && !drafting) onChange(null);
+          setField((current) =>
+            enabled
+              ? { ...current, draft: NEW_RULE_DAYS, committed: null, opening: true }
+              : { ...current, draft: current.committed, opening: false },
+          );
+        }}
       />
     </div>
   );
@@ -483,12 +529,16 @@ export function WorktreeCleanupSection() {
       ? "Mixed across selected machines"
       : undefined;
   // A policy locks these through worktreeCleanup, which also reaches each project's own rules.
-  const update = (patch: Partial<StorageCleanupSettings>) =>
-    updateSettings({ storageCleanup: patch });
-  const updateWorktree = (patch: Partial<WorktreeCleanupRules>) =>
-    isProjectScope
-      ? updateSettings({ worktreeCleanup: { mode: "custom", rules: patch } })
-      : update(patch);
+  const updateWorktree = (
+    patch: Partial<WorktreeCleanupRules>,
+    options?: Parameters<typeof updateSettings>[1],
+  ) =>
+    updateSettings(
+      isProjectScope
+        ? { worktreeCleanup: { mode: "custom", rules: patch } }
+        : { storageCleanup: patch },
+      options,
+    );
 
   if (
     isProjectScope &&
@@ -590,13 +640,15 @@ export function WorktreeCleanupSection() {
             <SettingsRow
               title="Delete inactive worktrees"
               status={ruleStatus("worktreeAfterDays")}
-              description="Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept."
+              description="Remove worktrees whose chats have had no activity for this many days. Branches and chat history are kept."
               serverScoped={!isProjectScope}
               control={
                 <RetentionControl
                   label="Delete inactive worktrees"
                   value={settings.worktreeAfterDays}
-                  onChange={(worktreeAfterDays) => updateWorktree({ worktreeAfterDays })}
+                  onChange={(worktreeAfterDays, options) =>
+                    updateWorktree({ worktreeAfterDays }, options)
+                  }
                 />
               }
             />
@@ -627,8 +679,8 @@ export function WorktreeCleanupSection() {
                         label="Delete worktrees of done threads"
                         value={settings.worktreeSettledAfterDays}
                         minimum={0}
-                        onChange={(worktreeSettledAfterDays) =>
-                          updateWorktree({ worktreeSettledAfterDays })
+                        onChange={(worktreeSettledAfterDays, options) =>
+                          updateWorktree({ worktreeSettledAfterDays }, options)
                         }
                       />
                     }
@@ -716,8 +768,6 @@ export function StorageCleanupSections() {
       ? "Mixed across selected machines"
       : undefined;
   if (scope.kind === "project" || scope.kind === "checkout") return null;
-  const update = (patch: Partial<StorageCleanupSettings>) =>
-    updateSettings({ storageCleanup: patch });
   const databaseStorageNotice = (
     <DatabaseStorageNotice
       environments={connectedEnvironments.filter(
@@ -751,7 +801,9 @@ export function StorageCleanupSections() {
               <RetentionControl
                 label="Delete old rotated logs"
                 value={settings.logsAfterDays}
-                onChange={(logsAfterDays) => update({ logsAfterDays })}
+                onChange={(logsAfterDays, options) =>
+                  updateSettings({ storageCleanup: { logsAfterDays } }, options)
+                }
               />
             }
           />

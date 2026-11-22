@@ -29,7 +29,7 @@ const state = vi.hoisted(() => ({
   threadRef: null as ScopedThreadRef | null,
   previews: new Map<string | null, ResultAtom<ReviewDiffPreviewResult>>(),
   patch: null as unknown as ResultAtom<ReviewDiffPreviewSource>,
-  diffFilesCollapsed: false,
+  settings: {} as Partial<ClientSettings>,
   config: null as unknown as Atom.Atom<null>,
   status: null as unknown as ResultAtom<VcsStatusResult>,
   localRefs: null as unknown as ResultAtom<VcsListRefsResult>,
@@ -68,7 +68,7 @@ vi.mock("~/state/filesystem", () => ({
 vi.mock("~/hooks/useThreadRouteTarget", () => ({ useThreadRouteRef: () => state.threadRef }));
 vi.mock("~/hooks/useSettings", () => ({
   useClientSettings: (select: (settings: ClientSettings) => unknown) =>
-    select({ ...DEFAULT_CLIENT_SETTINGS, diffFilesCollapsed: state.diffFilesCollapsed }),
+    select({ ...DEFAULT_CLIENT_SETTINGS, ...state.settings }),
   updateClientSettings: async () => {},
 }));
 vi.mock("~/hooks/useTheme", () => ({
@@ -126,7 +126,7 @@ function setup(failedBaseRef: string | null) {
     useDiffPanelSessionStore.setState({ collapsedFileKeysByScopeKey: {} });
   };
   reset();
-  state.diffFilesCollapsed = false;
+  state.settings = {};
   const patch = Atom.make<AsyncResult.AsyncResult<ReviewDiffPreviewSource, Error>>(
     AsyncResult.initial(),
   );
@@ -233,7 +233,7 @@ it.each([false, true])(
   "expands an unloaded file on the first click with default collapse %s",
   async (collapsed) => {
     using context = setup("origin/orphan");
-    state.diffFilesCollapsed = collapsed;
+    state.settings = { diffFilesCollapsed: collapsed };
     const path = `pending-${collapsed}.txt`;
     const metadata = preview();
     const source = {
@@ -268,3 +268,29 @@ it.each([false, true])(
     await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
   },
 );
+
+it("follows whitespace and wrap settings changed while the panel is open", async () => {
+  using context = setup("origin/orphan");
+  state.settings = { diffHideWhitespace: false, wordWrap: false };
+  const panel = () => (
+    <RegistryContext.Provider value={context.registry}>
+      <DiffPanel composerDraftTarget={context.threadRef} workspaceMutationId={null} visible />
+    </RegistryContext.Provider>
+  );
+  await using screen = await render(panel());
+  const whitespace = screen.getByRole("button", { name: /whitespace changes$/ });
+  const wrap = screen.getByRole("button", { name: /diff line wrapping$/ });
+  await expect.element(whitespace).toHaveAttribute("aria-pressed", "false");
+  await expect.element(wrap).toHaveAttribute("aria-pressed", "false");
+
+  state.settings = { diffHideWhitespace: true, wordWrap: true };
+  await screen.rerender(panel());
+  await expect.element(whitespace).toHaveAttribute("aria-pressed", "true");
+  await expect.element(wrap).toHaveAttribute("aria-pressed", "true");
+
+  await userEvent.click(whitespace);
+  state.settings = { diffHideWhitespace: true, wordWrap: false };
+  await screen.rerender(panel());
+  await expect.element(whitespace).toHaveAttribute("aria-pressed", "false");
+  await expect.element(wrap).toHaveAttribute("aria-pressed", "false");
+});

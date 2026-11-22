@@ -9,6 +9,7 @@ import {
   mcpClientScopes,
   sessionGrantsScope,
 } from "@codenine/contracts";
+import { environmentMcpUrl } from "@codenine/client-runtime/connection";
 import { useNavigate } from "@tanstack/react-router";
 import { Check, Copy } from "lucide";
 import * as Option from "effect/Option";
@@ -31,7 +32,11 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { type EnvironmentPresentation, usePrimaryEnvironmentId } from "~/state/environments";
 import { mintMcpApprovalCodeOn } from "~/state/peerPairingCode";
 import { relayEnvironmentDiscovery } from "~/state/relay";
-import { useEnvironmentScope, useEnvironmentSessionState } from "~/state/session";
+import {
+  useEnvironmentScope,
+  useEnvironmentSessionState,
+  usePreparedConnection,
+} from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useCodenineConnectAuthPrompt } from "../clerk/useCodenineConnectAuthPrompt";
 import { CommandBlock } from "../CommandBlock";
@@ -41,11 +46,19 @@ import { useAccessEnvironment } from "../settings/useAccessEnvironment";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { RadioGroup } from "../ui/radio-group";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup, WizardSteps } from "../ui/wizard";
 import { afterFailedCheck, resolveMcpGate } from "./mcpGate";
-import { MCP_APPS, type McpApp, mcpHandoffAction, OTHER_MCP_APP_STEPS } from "./mcpApps";
+import {
+  agentsCanSignInAt,
+  LOCAL_MCP_AGENTS,
+  MCP_APPS,
+  type McpApp,
+  mcpHandoffAction,
+  OTHER_MCP_APP_STEPS,
+} from "./mcpApps";
 
 const requestAtom = Atom.make<{ readonly environmentId: EnvironmentId | null } | null>(null).pipe(
   Atom.keepAlive,
@@ -71,24 +84,120 @@ function UseInAnotherAppDialog({ requested }: { readonly requested: EnvironmentI
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : close())}>
       <WizardPopup>
-        {environment !== null && hasCloudPublicConfig() ? (
-          <Wizard key={environment.environmentId} environment={environment} title={title} />
-        ) : (
+        {environment === null ? (
           <>
             <WizardHeader title={title} />
             <WizardPanel>
-              <GateMessage
-                title={
-                  environment === null
-                    ? "Connect to an environment first."
-                    : "Codenine Connect is not available in this build."
-                }
-              />
+              <GateMessage title="Connect to an environment first." />
             </WizardPanel>
           </>
+        ) : hasCloudPublicConfig() ? (
+          <Wizard key={environment.environmentId} environment={environment} title={title} />
+        ) : (
+          <DirectSetup key={environment.environmentId} environment={environment} title={title} />
         )}
       </WizardPopup>
     </Dialog>
+  );
+}
+
+/** Without Codenine Connect, agents on the user's own computers use the environment's own address. */
+function DirectSetup({
+  environment,
+  title,
+}: {
+  readonly environment: EnvironmentPresentation;
+  readonly title: string;
+}) {
+  const name = environment.label;
+  const prepared = usePreparedConnection(environment.environmentId);
+  const mcpUrl = environmentMcpUrl({
+    entry: environment.entry,
+    connectedTarget:
+      environment.connection.phase === "connected" && Option.isSome(prepared)
+        ? prepared.value.target
+        : null,
+  });
+  return (
+    <>
+      <WizardHeader title={title} />
+      <WizardPanel>
+        <section className="space-y-4">
+          {mcpUrl === null ? (
+            <GateMessage
+              title={`No address for agents on ${name}`}
+              lines={[
+                `Agents on ${name} itself can use http://localhost:<port>/mcp, with the port Codenine listens on.`,
+              ]}
+            />
+          ) : (
+            <>
+              <CopyRow label="URL" value={mcpUrl} />
+              {agentsCanSignInAt(mcpUrl) ? null : (
+                <p className="text-xs text-muted-foreground">
+                  Agents sign in only over https or localhost. On {name} itself, use localhost in
+                  the URL; elsewhere, {name} needs an https address.
+                </p>
+              )}
+              {LOCAL_MCP_AGENTS.map((agent) => (
+                <div key={agent.name} className="space-y-2">
+                  <h3 className="text-sm font-medium">{agent.name}</h3>
+                  {agent.commands(mcpUrl).map((command) => (
+                    <CommandBlock key={command} command={command} />
+                  ))}
+                </div>
+              ))}
+            </>
+          )}
+          <DirectApprovalCode environment={environment} />
+          <p className="text-xs text-muted-foreground">
+            Hosted assistants need a public https address.
+          </p>
+        </section>
+      </WizardPanel>
+      <WizardFooter leading={<ManageAccessButton environment={environment} />}>
+        <Button onClick={close}>Done</Button>
+      </WizardFooter>
+    </>
+  );
+}
+
+/** A sign-in page opened in a browser without a session on the environment needs a code. */
+function DirectApprovalCode({ environment }: { readonly environment: EnvironmentPresentation }) {
+  const levels = useGrantableLevels(environment);
+  const [picked, setPicked] = useState<AuthMcpClientAccess | null>(null);
+  const access = picked ?? DEFAULT_LEVELS.find((level) => levels.get(level) === undefined) ?? null;
+  if (
+    access === null ||
+    environment.serverConfig?.environment.capabilities.mcpApprovalCodes !== true
+  ) {
+    return null;
+  }
+  return (
+    <ApprovalCode
+      environmentId={environment.environmentId}
+      name={environment.label}
+      access={access}
+      level={
+        <Select
+          value={access}
+          onValueChange={(value) =>
+            setPicked(AuthMcpClientAccess.literals.find((level) => level === value) ?? null)
+          }
+        >
+          <SelectTrigger size="xs" variant="ghost" aria-label="What the agent can do">
+            <SelectValue>{accessConfig[access].label}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup alignItemWithTrigger={false}>
+            {AuthMcpClientAccess.literals.map((level) => (
+              <SelectItem key={level} value={level} disabled={levels.get(level) !== undefined}>
+                {accessConfig[level].label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
   );
 }
 
@@ -671,15 +780,20 @@ function ApprovalCode({
   environmentId,
   name,
   access,
+  level,
 }: {
   readonly environmentId: EnvironmentId;
   readonly name: string;
   readonly access: AuthMcpClientAccess;
+  /** Names the level, or lets the user change it. */
+  readonly level?: ReactNode;
 }) {
-  const [code, setCode] = useState<{
+  const [minted, setMinted] = useState<{
+    readonly access: AuthMcpClientAccess;
     readonly credential: string;
     readonly expiresAt: number;
   } | null>(null);
+  const code = minted?.access === access ? minted : null;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const now = useNowSecond();
@@ -690,7 +804,8 @@ function ApprovalCode({
     const result = await mintMcpApprovalCodeOn(environmentId, access);
     setPending(false);
     if (Result.isSuccess(result)) {
-      setCode({
+      setMinted({
+        access,
         credential: result.success.credential,
         expiresAt: result.success.expiresAt.epochMilliseconds,
       });
@@ -703,7 +818,8 @@ function ApprovalCode({
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm">
-          Code to approve <span className="font-medium">{accessConfig[access].label}</span>
+          Code to approve{" "}
+          {level ?? <span className="font-medium">{accessConfig[access].label}</span>}
         </span>
         {live ? null : (
           <Button size="sm" variant="outline" disabled={pending} onClick={() => void mint()}>

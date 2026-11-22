@@ -102,24 +102,61 @@ describe("composerSubmissionIntentForKey", () => {
     isDraftThread: false,
   };
   const enter = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
+  const chords = {
+    Enter: enter,
+    "Ctrl+Enter": { ...enter, ctrlKey: true },
+    "Ctrl+Shift+Enter": { ...enter, ctrlKey: true, shiftKey: true },
+  };
 
   it.each([
-    ["enter", "one line", false, "foreground"],
-    ["enter", "two\nlines", false, "foreground"],
-    ["mod-enter-multiline", "one line", false, "foreground"],
-    ["mod-enter-multiline", "two\nlines", false, null],
-    ["mod-enter-multiline", "two\nlines", true, "foreground"],
-    ["mod-enter", "one line", false, null],
-    ["mod-enter", "one line", true, "foreground"],
-  ] as const)("honors %s for %j", (sendShortcut, prompt, ctrlKey, expected) => {
+    ["enter", "one line", "Enter", false, "foreground"],
+    ["enter", "two\nlines", "Enter", false, "foreground"],
+    ["mod-enter-multiline", "one line", "Enter", false, "foreground"],
+    ["mod-enter-multiline", "two\nlines", "Enter", false, null],
+    ["mod-enter-multiline", "two\nlines", "Ctrl+Enter", false, "foreground"],
+    ["mod-enter", "one line", "Enter", false, null],
+    ["mod-enter", "one line", "Ctrl+Enter", false, "foreground"],
+    ["enter", "one line", "Ctrl+Enter", true, "background"],
+    ["mod-enter-multiline", "one line", "Ctrl+Enter", true, "background"],
+    ["mod-enter-multiline", "two\nlines", "Enter", true, null],
+    ["mod-enter-multiline", "two\nlines", "Ctrl+Enter", true, "foreground"],
+    ["mod-enter-multiline", "two\nlines", "Ctrl+Shift+Enter", true, "background"],
+    ["mod-enter", "one line", "Ctrl+Enter", true, "foreground"],
+    ["mod-enter", "one line", "Ctrl+Shift+Enter", true, "background"],
+  ] as const)(
+    "honors %s for %j with %s (new chat: %s)",
+    (sendShortcut, prompt, chord, isDraftThread, expected) => {
+      expect(
+        composerSubmissionIntentForKey({
+          ...input,
+          isDraftThread,
+          event: chords[chord],
+          sendShortcut,
+          prompt,
+        }),
+      ).toBe(expected);
+    },
+  );
+
+  it("starts a new chat in the background with Ctrl+Shift+Enter whatever the rule order", () => {
+    // Earlier installs got the mod+enter Start in Background rule at the top of their file.
+    const movedFirst = DEFAULT_RESOLVED_KEYBINDINGS.filter(
+      (binding) => binding.command === "composer.sendBackground" && !binding.shortcut.altKey,
+    );
+    const keybindings = [
+      ...movedFirst,
+      ...DEFAULT_RESOLVED_KEYBINDINGS.filter((binding) => !movedFirst.includes(binding)),
+    ];
     expect(
       composerSubmissionIntentForKey({
         ...input,
-        event: { ...enter, ctrlKey },
-        sendShortcut,
-        prompt,
+        keybindings,
+        isDraftThread: true,
+        sendShortcut: "mod-enter",
+        prompt: "one line",
+        event: chords["Ctrl+Shift+Enter"],
       }),
-    ).toBe(expected);
+    ).toBe("background");
   });
 
   it("honors the send preference with an existing install's saved alternate binding", () => {

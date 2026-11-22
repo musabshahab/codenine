@@ -8,11 +8,12 @@ import {
   sourceControlClients,
   type SourceControlDefinition,
 } from "@codenine/client-runtime/source-control-clients";
-import { DEFAULT_KEYBINDINGS } from "@codenine/shared/keybindings";
-import * as Schema from "effect/Schema";
-import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
-import { writeLocalStorageValue } from "../../hooks/useLocalStorage";
-import { commandLabel } from "./KeybindingsSettings.logic";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@codenine/shared/keybindings";
+import {
+  commandLabel,
+  normalizeShortcutSearchText,
+  shortcutSearchForms,
+} from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
@@ -49,6 +50,8 @@ export interface SettingsSearchItem {
   readonly to: SettingsPath;
   readonly targetId?: string;
   readonly searchTerms?: ReadonlyArray<string>;
+  /** A keybinding's chords, spelled by normalizeShortcutSearchText. */
+  readonly shortcuts?: ReadonlyArray<string>;
   readonly scope?: SettingsSearchScope;
   readonly desktopOnly?: boolean;
   readonly macOnly?: boolean;
@@ -149,19 +152,16 @@ export function keybindingSearchAnchorId<Command extends KeybindingCommand>(comm
 
 const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right) =>
   commandLabel(left).localeCompare(commandLabel(right)),
-).map((command) => {
-  const defaultKeys = DEFAULT_KEYBINDINGS.filter((binding) => binding.command === command).map(
-    (binding) => binding.key,
-  );
-  return {
-    id: keybindingSearchAnchorId(command),
-    title: commandLabel(command),
-    to: "/settings/keybindings" as const,
-    searchTerms: [command, ...defaultKeys],
-    secondary: true,
-    ...(defaultKeys.length === 0 ? { targetId: "keybindings" } : {}),
-  };
-});
+).map((command) => ({
+  id: keybindingSearchAnchorId(command),
+  title: commandLabel(command),
+  to: "/settings/keybindings" as const,
+  searchTerms: [command],
+  shortcuts: DEFAULT_RESOLVED_KEYBINDINGS.filter((binding) => binding.command === command).flatMap(
+    (binding) => shortcutSearchForms(binding.shortcut),
+  ),
+  secondary: true,
+}));
 
 export function sourceControlHostSettingsSearchId(kind: string) {
   return `source-control-host-${kind}` as const;
@@ -270,7 +270,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Fallback model",
     to: "/settings/threads",
     scope: "environment-defaults",
-    searchTerms: ["fallback agent provider out of usage new threads"],
+    searchTerms: ["fallback agent account provider out of usage new threads"],
     environmentOnly: true,
   },
   {
@@ -412,7 +412,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-order",
     title: "Workspace order",
     to: "/settings/general",
-    searchTerms: ["sort projects sidebar manual created recent"],
+    searchTerms: ["sort projects sidebar folders newest chat created recent message"],
   },
   {
     id: "snooze-options",
@@ -553,7 +553,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "hide-whitespace-changes",
     title: "Hide whitespace changes",
     to: "/settings/diffs",
-    searchTerms: ["diff ignore spaces edits default"],
+    searchTerms: ["diff ignore spaces indentation edits default"],
   },
   {
     id: "default-diff-file-state",
@@ -614,7 +614,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "backup-schedule",
     title: "Automatic backups",
     to: "/settings/backup",
-    searchTerms: ["backup schedule how often daily weekly off time day keep last older"],
+    searchTerms: ["backup schedule how often daily weekly off time zone day keep last older"],
   },
   {
     id: "backup-folder",
@@ -973,7 +973,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "This machine",
     to: "/settings/access",
     searchTerms: [
-      "connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint",
+      "connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint mcp another app",
     ],
   },
   {
@@ -1179,6 +1179,7 @@ export function searchSettings(
   const normalizedQuery = normalizeSearchText(query);
   if (normalizedQuery.length === 0) return [];
   const queryTokens = normalizedQuery.split(" ");
+  const shortcutQuery = normalizeShortcutSearchText(query);
 
   return settingsForThisPlatform(items)
     .flatMap((item, index) => {
@@ -1188,7 +1189,14 @@ export function searchSettings(
         normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]),
         ...(item.searchTerms ?? []).map(normalizeSearchText),
       ];
-      if (!queryTokens.every((token) => fields.some((field) => field.includes(token)))) return [];
+      const matchesShortcut =
+        item.shortcuts?.some((shortcut) => shortcut.includes(shortcutQuery)) === true;
+      if (
+        !matchesShortcut &&
+        !queryTokens.every((token) => fields.some((field) => field.includes(token)))
+      ) {
+        return [];
+      }
 
       const exactPhraseField = fields.findIndex((field) => field.includes(normalizedQuery));
       const rank =
@@ -1200,7 +1208,7 @@ export function searchSettings(
               ? 3
               : queryTokens.every((token) => title.includes(token))
                 ? 2
-                : exactPhraseField >= 0
+                : matchesShortcut || exactPhraseField >= 0
                   ? 1
                   : 0;
       return [{ item, index, rank }];
@@ -1212,25 +1220,4 @@ export function searchSettings(
         left.index - right.index,
     )
     .map(({ item }) => item);
-}
-
-// These rows only exist with separate fonts on, so a search jump to one turns them on.
-const ADVANCED_TYPOGRAPHY_TARGET_IDS: ReadonlySet<string> = new Set([
-  "prompt-font",
-  "terminal-font",
-]);
-
-export function isAdvancedTypographyTarget(targetId: string): boolean {
-  return ADVANCED_TYPOGRAPHY_TARGET_IDS.has(targetId);
-}
-
-/**
- * Opens the persisted section a search result lives in before jumping to it, so
- * its row is mounted to scroll to. The terminal reads the same flag, so it must
- * stay on after the jump.
- */
-export function revealSettingsSearchTarget(targetId: string): void {
-  if (isAdvancedTypographyTarget(targetId)) {
-    writeLocalStorageValue(TYPOGRAPHY_ADVANCED_STORAGE_KEY, true, false, Schema.Boolean);
-  }
 }

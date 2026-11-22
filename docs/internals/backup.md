@@ -93,8 +93,11 @@ backups use it.
 
 ## Schedule
 
-Automatic backups run in the server's local time. The next one is the first scheduled time after
-the last automatic run, so times missed while the computer was off are owed once, and a failed
-run retries within the hour. Pruning keeps `keep` automatic backups per computer, identified by a
-hash of the environment id in the header, so a cloud folder shared by two computers keeps both
-computers' backups.
+The schedule's time is wall-clock time in its `timeZone`, which the client sets to the browser's
+zone when the user picks a time or finishes setup, because the server may run in another zone. A
+schedule without a zone, or with one the server does not know, uses the server's local time. The
+zone is part of the schedule key, so a new zone starts the schedule afresh rather than owing a
+run. The next backup is the first scheduled time after the last automatic run, so times missed
+while the computer was off are owed once, and a failed run retries within the hour. Pruning keeps
+`keep` automatic backups per computer, identified by a hash of the environment id in the header,
+so a cloud folder shared by two computers keeps both computers' backups.

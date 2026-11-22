@@ -317,6 +317,7 @@ export function AddProviderInstanceDialog({
     return (
       <AddManagedCodexAccountDialog
         environmentId={environmentId}
+        environmentLabel={environmentLabel}
         onClose={() => onOpenChange(false)}
         onAccountCreated={(instanceId) => onCreated?.(instanceId, ProviderDriverKind.make("codex"))}
       />

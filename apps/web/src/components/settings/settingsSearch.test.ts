@@ -158,19 +158,24 @@ describe("searchSettings", () => {
   it("finds keybinding commands by label, command id, and default key", () => {
     expect(searchSettings("toggle sidebar")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("sidebar.toggle")[0]?.id).toBe("keybinding-sidebar.toggle");
-    expect(searchSettings("mod+b")[0]?.id).toBe("keybinding-sidebar.toggle");
+    for (const query of ["mod+b", "ctrl+b", "Ctrl B", "cmd b", "⌘B"]) {
+      expect(searchSettings(query)[0]?.id, query).toBe("keybinding-sidebar.toggle");
+    }
+    const keybindingIds = (query: string) =>
+      searchSettings(query)
+        .map((item) => item.id)
+        .filter((id) => id.startsWith("keybinding-"));
+    expect(keybindingIds("command")).toEqual(["keybinding-commandPalette.toggle"]);
+    expect(keybindingIds("control")).toEqual([]);
     expect(searchSettings("copy link")[0]).toMatchObject({
       id: "keybinding-thread.copyReference",
       to: "/settings/keybindings",
     });
   });
 
-  it("sends commands without a default binding to the section", () => {
-    expect(searchSettings("thread.stop")[0]).toMatchObject({
-      id: "keybinding-thread.stop",
-      targetId: "keybindings",
-    });
-    expect(searchSettings("sidebar.toggle")[0]?.targetId).toBeUndefined();
+  it("sends commands without a default binding to their own row", () => {
+    expect(searchSettings("thread.stop")[0]).toMatchObject({ id: "keybinding-thread.stop" });
+    expect(searchSettings("thread.stop")[0]?.targetId).toBeUndefined();
   });
 
   it("finds rows by the titles shown on their pages", () => {

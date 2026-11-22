@@ -19,6 +19,7 @@ import { toastManager } from "../ui/toast";
 import { WizardFooter, WizardHeader, WizardPanel, WizardPopup } from "../ui/wizard";
 import {
   type BackupCadence,
+  browserTimeZone,
   cadenceLabel,
   cadenceOf,
   settingsForSetup,
@@ -84,7 +85,11 @@ export function BackupSetupDialog({
       environmentId,
       input: {
         patch: {
-          backup: settingsForSetup(settings, { folder: folderChoice.folder, cadence }),
+          backup: settingsForSetup(settings, {
+            folder: folderChoice.folder,
+            cadence,
+            timeZone: browserTimeZone(),
+          }),
         },
       },
     });

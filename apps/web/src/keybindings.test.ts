@@ -296,6 +296,38 @@ describe("split/new/close terminal shortcuts", () => {
       }),
     );
   });
+
+  const ctrlShift5 = { key: "%", code: "Digit5", ctrlKey: true, shiftKey: true } as const;
+  it.each([
+    ["MacIntel", true, { key: "w", metaKey: true }, "terminal.close"],
+    ["MacIntel", true, { key: "d", metaKey: true }, "terminal.split"],
+    ["MacIntel", true, { key: "n", metaKey: true }, "terminal.new"],
+    ["Linux x86_64", true, { key: "w", ctrlKey: true }, null],
+    ["Linux x86_64", true, { key: "d", ctrlKey: true }, null],
+    ["Linux x86_64", true, { key: "n", ctrlKey: true }, null],
+    ["Win32", true, { key: "w", ctrlKey: true }, null],
+    ["Win32", true, { key: "d", ctrlKey: true }, null],
+    ["Win32", true, { key: "n", ctrlKey: true }, null],
+    ["Win32", true, { key: "W", ctrlKey: true, shiftKey: true }, "terminal.close"],
+    ["Linux x86_64", true, ctrlShift5, "terminal.split"],
+    ["Linux x86_64", true, { key: "N", ctrlKey: true, shiftKey: true }, "terminal.new"],
+    ["Linux x86_64", true, { key: "D", ctrlKey: true, shiftKey: true }, "terminal.splitVertical"],
+    // A Windows or Linux browser keeps Ctrl+Shift+W and Ctrl+Shift+N for its own windows.
+    ["Win32", false, { key: "W", ctrlKey: true, shiftKey: true }, null],
+    ["Linux x86_64", false, { key: "N", ctrlKey: true, shiftKey: true }, null],
+    ["Linux x86_64", false, ctrlShift5, "terminal.split"],
+  ] as const)(
+    "resolves %s (desktop: %s) %j in a focused terminal to %s by default",
+    (platform, isDesktop, keys, command) => {
+      assert.strictEqual(
+        resolveShortcutCommand(event(keys), DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { terminalFocus: true, terminalOpen: true, isDesktop, isWeb: !isDesktop },
+        }),
+        command,
+      );
+    },
+  );
 });
 
 describe("shortcutLabelForCommand", () => {

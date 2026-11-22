@@ -27,7 +27,7 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   confirmThreadUnpin: false,
   diffFilesCollapsed: true,
-  diffIgnoreWhitespace: true,
+  diffHideWhitespace: true,
   diffLayout: "stacked",
   environmentIdentificationMode: "artwork",
   favorites: [],
@@ -51,7 +51,7 @@ const clientSettings: ClientSettings = {
   sidebarProjectGroupingOverrides: {
     "environment-1:/tmp/project-a": "separate",
   },
-  sidebarProjectSortOrder: "manual",
+  sidebarProjectSortOrder: "created_at",
   sidebarThreadSortOrder: "created_at",
   sidebarGroupByProject: false,
   sidebarTwoLineRows: false,

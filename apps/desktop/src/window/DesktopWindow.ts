@@ -623,17 +623,17 @@ export const make = Effect.gen(function* () {
     });
     window.webContents.on("before-input-event", (event, input) => {
       quitShortcutHandler(event, input);
+      const isMac = environment.platform === "darwin";
+      const isCloseChord =
+        (isMac ? input.meta : input.control) &&
+        !input.alt &&
+        !input.shift &&
+        input.key.toLowerCase() === "w";
       // Cmd/Ctrl+W reaches the renderer; DevTools uses the native menu shortcut.
-      window.webContents.setIgnoreMenuShortcuts(
-        (environment.platform === "darwin" ? input.meta : input.control) &&
-          !input.alt &&
-          !input.shift &&
-          input.key.toLowerCase() === "w",
-      );
-      // A held Cmd/Ctrl+W closes one tab or terminal, not each one behind it.
-      if (input.type !== "keyDown" || !input.isAutoRepeat) return;
-      const modifier = environment.platform === "darwin" ? input.meta : input.control;
-      if (modifier && !input.alt && !input.shift && input.key.toLowerCase() === "w") {
+      window.webContents.setIgnoreMenuShortcuts(isCloseChord);
+      // A held Cmd+W closes one tab or terminal, not each one behind it. Off macOS a held
+      // Ctrl+W must reach a focused terminal's shell; the renderer ignores repeats itself.
+      if (isMac && isCloseChord && input.type === "keyDown" && input.isAutoRepeat) {
         event.preventDefault();
       }
     });

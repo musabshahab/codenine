@@ -274,6 +274,63 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("replaces an untouched old default in place once and keeps an edited one", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const oldClose = { key: "mod+w", command: "terminal.close", when: "terminalFocus" } as const;
+      const editedSplit = {
+        key: "alt+d",
+        command: "terminal.split",
+        when: "terminalFocus",
+      } as const;
+      const custom = { key: "mod+shift+y", command: "terminal.toggle" } as const;
+      const steer = "thread.steerQueuedMessage";
+      const terminalRules = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
+        rules.filter((entry) => entry.command.startsWith("terminal.")),
+      );
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        custom,
+        oldClose,
+        editedSplit,
+        { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
+        { key: "mod+shift+enter", command: steer, when: "!terminalFocus" },
+      ]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepStrictEqual(
+        (yield* readKeybindingsConfig(keybindingsConfigPath)).filter(
+          (entry) => entry.command === steer,
+        ),
+        [{ key: "mod+shift+enter", command: steer, when: "!terminalFocus && !draftThreadRoute" }],
+      );
+      assert.deepStrictEqual(yield* terminalRules, [
+        { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+        custom,
+        { key: "mod+w", command: "terminal.close", when: "terminalFocus && isMac" },
+        {
+          key: "ctrl+shift+w",
+          command: "terminal.close",
+          when: "terminalFocus && !isMac && isDesktop",
+        },
+        editedSplit,
+        { key: "mod+n", command: "terminal.new", when: "terminalFocus && isMac" },
+        {
+          key: "ctrl+shift+n",
+          command: "terminal.new",
+          when: "terminalFocus && !isMac && isDesktop",
+        },
+      ]);
+
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [custom, oldClose]);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepStrictEqual(
+        (yield* terminalRules).filter((entry) => entry.command === "terminal.close"),
+        [oldClose],
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("leaves a customized command without the late default", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
@@ -294,29 +351,31 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
-  it.effect("keeps a late default pending while the config is full", () =>
+  it.effect("keeps late defaults pending while the config is full", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
       const keybindings = yield* Keybindings.Keybindings;
       const when = "composerFocus && draftThreadRoute";
       const existing = { key: "mod+alt+enter", command: "composer.sendBackground", when } as const;
-      const fillers = Array.from({ length: MAX_KEYBINDINGS_COUNT - 1 }, (_, index) => ({
+      const oldClose = { key: "mod+w", command: "terminal.close", when: "terminalFocus" } as const;
+      const fillers = Array.from({ length: MAX_KEYBINDINGS_COUNT - 2 }, (_, index) => ({
         key: "mod+alt+f1",
         command: `script.filler-${index}.run` as const,
       }));
-      const hasModEnter = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
+      const lateDefaults = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) => [
         rules.some(
           (entry) => entry.command === "composer.sendBackground" && entry.key === "mod+enter",
         ),
-      );
+        rules.some((entry) => entry.command === "terminal.close" && entry.key === "ctrl+shift+w"),
+      ]);
 
-      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing, ...fillers]);
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing, oldClose, ...fillers]);
       yield* keybindings.syncDefaultKeybindingsOnStartup;
-      assert.isFalse(yield* hasModEnter);
+      assert.deepStrictEqual(yield* lateDefaults, [false, false]);
 
-      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing]);
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [existing, oldClose]);
       yield* keybindings.syncDefaultKeybindingsOnStartup;
-      assert.isTrue(yield* hasModEnter);
+      assert.deepStrictEqual(yield* lateDefaults, [true, true]);
     }).pipe(Effect.provide(layerKeybindings())),
   );
 

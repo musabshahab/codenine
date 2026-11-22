@@ -1021,6 +1021,8 @@ function OpenCommandPaletteDialog(props: {
       "another app",
       "poke",
       "claude",
+      "claude code",
+      "codex",
       "chatgpt",
       "grok",
       "muse",

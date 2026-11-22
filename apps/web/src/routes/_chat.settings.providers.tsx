@@ -20,12 +20,15 @@ function SettingsProvidersRoute() {
     <ProviderSettingsPanel
       environmentId={environment.environmentId}
       {...(target.instanceId ? { instanceId: target.instanceId } : {})}
-      projectIds={
+      workspace={
         scope.kind === "project" || scope.kind === "checkout"
-          ? scope.members
-              .filter((member) => member.environmentId === environment.environmentId)
-              .map((member) => member.id)
-          : []
+          ? {
+              name: scope.group.displayName,
+              projectIds: scope.members
+                .filter((member) => member.environmentId === environment.environmentId)
+                .map((member) => member.id),
+            }
+          : undefined
       }
       scoped
     />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { MCP_APPS, mcpHandoffAction } from "./mcpApps";
+import { agentsCanSignInAt, MCP_APPS, mcpHandoffAction } from "./mcpApps";
 
 const MCP_URL = "https://prod-a1.codeninerelay.com/mcp?x=1&y=two words";
 
@@ -24,5 +24,19 @@ describe("MCP app links", () => {
     for (const url of [link, app.docs].filter((value) => value != null)) {
       expect(new URL(url).protocol).toBe("https:");
     }
+  });
+});
+
+describe("agent sign-in", () => {
+  it.each([
+    ["https://machine.tailnet.ts.net/mcp", true],
+    ["http://localhost:3773/mcp", true],
+    ["http://127.0.0.1:3773/mcp", true],
+    ["http://[::1]:3773/mcp", true],
+    ["http://192.168.4.53:3773/mcp", false],
+    ["http://100.115.1.44:3773/mcp", false],
+    ["http://machine.local:3773/mcp", false],
+  ])("%s can sign in: %s", (url, expected) => {
+    expect(agentsCanSignInAt(url)).toBe(expected);
   });
 });

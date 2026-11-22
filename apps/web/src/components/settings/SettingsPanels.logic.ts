@@ -1,21 +1,26 @@
 import type {
   BackgroundActivityProfile,
   BackgroundActivitySettings,
+  ClientSettings,
+  ClientSettingsPatch,
   ProviderInstanceConfig,
   ProviderInstanceId,
   ServerSettings,
   SidebarProjectGroupingMode,
   UnifiedSettings,
 } from "@codenine/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@codenine/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS } from "@codenine/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
-  normalizeBackgroundActivitySettings,
+  getBackgroundActivityPresetSettings,
   normalizeServerBackgroundActivitySettings,
+  type ResolvedBackgroundActivitySettings,
   resolveServerBackgroundActivitySettings,
 } from "@codenine/shared/backgroundActivitySettings";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
+import { isDeviceSettingKey } from "./scopedSettings";
+import { searchableSetting, type SettingsSearchItemId } from "./settingsSearch";
 
 export function isProjectGroupingEnabled(mode: SidebarProjectGroupingMode): boolean {
   return mode !== "separate";
@@ -48,82 +53,107 @@ export function rememberEnabledProjectGroupingMode(mode: SidebarProjectGroupingM
   } catch {}
 }
 
-export function hasChangedBackgroundActivitySettings(
-  settings: Pick<
-    UnifiedSettings,
-    | "backgroundActivity"
-    | "backgroundActivityProfile"
-    | "automaticGitFetchInterval"
-    | "providerHealthRefreshInterval"
-  >,
-): boolean {
-  return (
-    !Equal.equals(settings.backgroundActivity, DEFAULT_UNIFIED_SETTINGS.backgroundActivity) ||
-    settings.backgroundActivityProfile !== DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile ||
-    !Equal.equals(
-      settings.automaticGitFetchInterval,
-      DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
-    ) ||
-    !Equal.equals(
-      settings.providerHealthRefreshInterval,
-      DEFAULT_UNIFIED_SETTINGS.providerHealthRefreshInterval,
-    )
+// Restore device defaults resets these rows. Server keys are filtered out so the button
+// never writes environment settings, and onboarding, favorites and per-workspace or
+// per-environment maps are left out because no row here names them.
+const DEVICE_RESTORE_ROWS: ReadonlyArray<{
+  readonly id: SettingsSearchItemId;
+  readonly keys: readonly (keyof ClientSettings)[];
+}> = [
+  { id: "setting-appearance-contrast", keys: ["appearanceContrast"] },
+  { id: "setting-glass-opacity", keys: ["glassOpacity"] },
+  { id: "diff-color-scheme", keys: ["diffColorScheme"] },
+  { id: "chat-width", keys: ["chatWidth"] },
+  { id: "effort-display", keys: ["effortDisplay"] },
+  { id: "math-rendering", keys: ["mathRenderingEnabled"] },
+  { id: "panel-animations", keys: ["panelAnimationDurationMs"] },
+  { id: "environment-identification", keys: ["environmentIdentificationMode"] },
+  { id: "thread-details-items", keys: ["threadDetailsItems", "threadDetailsUsageEnabled"] },
+  { id: "time-format", keys: ["timestampFormat"] },
+  { id: "thread-notifications", keys: ["notificationMode"] },
+  { id: "in-app-notifications", keys: ["inAppNotificationsEnabled"] },
+  { id: "project-grouping", keys: ["sidebarProjectGroupingMode"] },
+  { id: "project-order", keys: ["sidebarProjectSortOrder"] },
+  { id: "sidebar-group-by-project", keys: ["sidebarGroupByProject"] },
+  { id: "working-shelf", keys: ["sidebarWorkingShelfEnabled"] },
+  { id: "sidebar-two-line-rows", keys: ["sidebarTwoLineRows"] },
+  { id: "word-wrap", keys: ["wordWrap"] },
+  { id: "composer-context", keys: ["persistComposerContextStrip"] },
+  { id: "interface-font", keys: ["fontFamilySans", "fontSizeInterface"] },
+  { id: "prompt-font", keys: ["fontFamilyComposer", "fontSizePrompt"] },
+  { id: "code-font", keys: ["fontFamilyCode", "fontSizeCode"] },
+  { id: "terminal-font", keys: ["fontFamilyTerminal", "fontSizeTerminal"] },
+  { id: "font-smoothing", keys: ["fontSmoothing"] },
+  { id: "default-diff-file-state", keys: ["diffFilesCollapsed"] },
+  { id: "hide-whitespace-changes", keys: ["diffHideWhitespace"] },
+  { id: "diff-layout", keys: ["diffLayout"] },
+  { id: "proactive-panels", keys: ["proactivePanelsEnabled"] },
+  { id: "skills-in-slash-menu", keys: ["showSkillsInSlashMenu"] },
+  { id: "composer-rich-text", keys: ["composerRichTextEnabled"] },
+  { id: "send-shortcut", keys: ["sendShortcut"] },
+  { id: "follow-up-behavior", keys: ["followUpBehavior"] },
+  { id: "tool-call-visibility", keys: ["toolCallVisibility"] },
+  { id: "unpin-confirmation", keys: ["confirmThreadUnpin"] },
+  { id: "archive-confirmation", keys: ["confirmThreadArchive"] },
+  { id: "delete-confirmation", keys: ["confirmThreadDelete"] },
+  { id: "quit-confirmation", keys: ["confirmQuit"] },
+];
+
+/** The labels to confirm and the patch that resets exactly those rows on this device. */
+export function planDeviceSettingsRestore(settings: ClientSettings) {
+  const changedRows = DEVICE_RESTORE_ROWS.map((row) => ({
+    label: searchableSetting(row.id).title,
+    keys: row.keys.filter(isDeviceSettingKey),
+  })).filter((row) =>
+    row.keys.some((key) => !Equal.equals(settings[key], DEFAULT_CLIENT_SETTINGS[key])),
   );
+  return {
+    changedLabels: changedRows.map((row) => row.label),
+    patch: Object.fromEntries(
+      changedRows.flatMap((row) => row.keys.map((key) => [key, DEFAULT_CLIENT_SETTINGS[key]])),
+    ) as ClientSettingsPatch,
+  };
 }
 
-type TypographySettings = Pick<
-  UnifiedSettings,
-  | "fontFamilySans"
-  | "fontFamilyComposer"
-  | "fontFamilyCode"
-  | "fontFamilyTerminal"
-  | "fontSizeInterface"
-  | "fontSizePrompt"
-  | "fontSizeCode"
-  | "fontSizeTerminal"
->;
-
-export function getChangedTypographySettingLabels(settings: TypographySettings): string[] {
+// Nothing reports low power mode, and host power reaches only servers that advertise it.
+function effectiveBackgroundActivity(
+  settings: ResolvedBackgroundActivitySettings,
+  reportsHostPower: boolean,
+): ReadonlyArray<number | boolean> {
   return [
-    ...(settings.fontFamilySans !== DEFAULT_UNIFIED_SETTINGS.fontFamilySans ||
-    settings.fontSizeInterface !== DEFAULT_UNIFIED_SETTINGS.fontSizeInterface
-      ? ["Interface font"]
-      : []),
-    ...(settings.fontFamilyComposer !== DEFAULT_UNIFIED_SETTINGS.fontFamilyComposer ||
-    settings.fontSizePrompt !== DEFAULT_UNIFIED_SETTINGS.fontSizePrompt
-      ? ["Prompt font"]
-      : []),
-    ...(settings.fontFamilyCode !== DEFAULT_UNIFIED_SETTINGS.fontFamilyCode ||
-    settings.fontSizeCode !== DEFAULT_UNIFIED_SETTINGS.fontSizeCode
-      ? ["Code font"]
-      : []),
-    ...(settings.fontFamilyTerminal !== DEFAULT_UNIFIED_SETTINGS.fontFamilyTerminal ||
-    settings.fontSizeTerminal !== DEFAULT_UNIFIED_SETTINGS.fontSizeTerminal
-      ? ["Terminal font"]
+    Duration.toMillis(settings.automaticGitFetchInterval),
+    Duration.toMillis(settings.providerHealthRefreshInterval),
+    ...(reportsHostPower
+      ? [
+          Duration.toMillis(settings.hostPowerMonitorActiveInterval),
+          Duration.toMillis(settings.hostPowerMonitorIdleInterval),
+          settings.pauseWhenHostLocked,
+          settings.pauseWhenOnBattery,
+        ]
       : []),
   ];
 }
 
 export function resolveBackgroundActivityProfileOption(
   settings: ServerSettings,
+  reportsHostPower: boolean,
 ): BackgroundActivityProfile | "advanced" {
   const resolved = resolveServerBackgroundActivitySettings(settings);
-  const normalized = normalizeBackgroundActivitySettings({
-    schemaVersion: 1,
-    profile: "custom",
-    baseProfile: resolved.profile,
-    overrides: {
-      automaticGitFetchInterval: resolved.automaticGitFetchInterval,
-      providerHealthRefreshInterval: resolved.providerHealthRefreshInterval,
-      hostPowerMonitorActiveInterval: resolved.hostPowerMonitorActiveInterval,
-      hostPowerMonitorIdleInterval: resolved.hostPowerMonitorIdleInterval,
-      pauseWhenHostLocked: resolved.pauseWhenHostLocked,
-      pauseWhenHostLowPower: resolved.pauseWhenHostLowPower,
-      pauseWhenClientLowPower: resolved.pauseWhenClientLowPower,
-      pauseWhenOnBattery: resolved.pauseWhenOnBattery,
-    },
-  });
-  return normalized.profile === "custom" ? "advanced" : normalized.profile;
+  const current = effectiveBackgroundActivity(resolved, reportsHostPower);
+  const profiles: ReadonlyArray<BackgroundActivityProfile> = [
+    resolved.profile,
+    "balanced",
+    "performance",
+    "battery-saver",
+  ];
+  return (
+    profiles.find((profile) =>
+      effectiveBackgroundActivity(
+        getBackgroundActivityPresetSettings(profile),
+        reportsHostPower,
+      ).every((value, index) => value === current[index]),
+    ) ?? "advanced"
+  );
 }
 
 export function backgroundActivitySharedPolicySettings(

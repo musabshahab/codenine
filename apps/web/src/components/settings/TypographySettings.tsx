@@ -34,14 +34,10 @@ import { Switch } from "../ui/switch";
 import {
   SettingResetButton,
   SettingsRow,
+  SettingsSearchTargetFallbacks,
   SettingsSection,
-  useSettingsSearchTargetId,
 } from "./settingsLayout";
-import {
-  isAdvancedTypographyTarget,
-  revealSettingsSearchTarget,
-  searchableSetting,
-} from "./settingsSearch";
+import { searchableSetting } from "./settingsSearch";
 
 let fontDefaultFamilies: { readonly sans: string; readonly code: string } | undefined;
 
@@ -327,33 +323,35 @@ function SimpleFontRows() {
   );
 }
 
+// The prompt and terminal font rows exist only with separate fonts on. The terminal reads that
+// flag too, so a search jump lands on its switch rather than turning it on.
+const SEPARATE_FONTS_SEARCH_FALLBACKS = {
+  [searchableSetting("prompt-font").id]: searchableSetting("separate-fonts").id,
+  [searchableSetting("terminal-font").id]: searchableSetting("separate-fonts").id,
+};
+
 export function TypographySection() {
   const [advanced, setAdvanced] = useLocalStorage(
     TYPOGRAPHY_ADVANCED_STORAGE_KEY,
     false,
     Schema.Boolean,
   );
-  // A deep link or history step must persist the flag too: the terminal reads it, so advanced
-  // rows without it would make terminal font edits do nothing. The rows follow the target
-  // directly so its row mounts in the first commit; the target clears once handled.
-  const searchTargetId = useSettingsSearchTargetId();
-  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- writes the advanced typography flag to localStorage when a search target needs it
-  useEffect(() => {
-    if (searchTargetId !== null) revealSettingsSearchTarget(searchTargetId);
-  }, [searchTargetId]);
-  const showAdvanced =
-    advanced || (searchTargetId !== null && isAdvancedTypographyTarget(searchTargetId));
   return (
-    <SettingsSection id="typography" title="Typography">
-      {showAdvanced ? <FontSettingsGroup /> : <SimpleFontRows />}
-      <WordWrapRow />
-      <AdvancedSettings
-        targetIds={[searchableSetting("separate-fonts").id, searchableSetting("font-smoothing").id]}
-      >
-        <SeparateFontsRow checked={showAdvanced} onCheckedChange={setAdvanced} />
-        <FontSmoothingRow />
-      </AdvancedSettings>
-    </SettingsSection>
+    <SettingsSearchTargetFallbacks fallbacks={advanced ? {} : SEPARATE_FONTS_SEARCH_FALLBACKS}>
+      <SettingsSection id="typography" title="Typography">
+        {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
+        <WordWrapRow />
+        <AdvancedSettings
+          targetIds={[
+            searchableSetting("separate-fonts").id,
+            searchableSetting("font-smoothing").id,
+          ]}
+        >
+          <SeparateFontsRow checked={advanced} onCheckedChange={setAdvanced} />
+          <FontSmoothingRow />
+        </AdvancedSettings>
+      </SettingsSection>
+    </SettingsSearchTargetFallbacks>
   );
 }
 

@@ -1,39 +1,85 @@
 import { RegistryProvider } from "@effect/atom-react";
+import type { KeybindingRule } from "@codenine/contracts";
+import { compileResolvedKeybindingsConfig } from "@codenine/shared/keybindings";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent, type Locator } from "vite-plus/test/browser";
 
 import { render } from "../../../test/render";
 
+function testEnvironment(environmentId: string, keybindings: ReadonlyArray<KeybindingRule> = []) {
+  return {
+    environmentId,
+    label: environmentId,
+    connection: { phase: "connected" as const, error: null, traceId: null },
+    serverConfig: {
+      keybindings: compileResolvedKeybindingsConfig(keybindings),
+      keybindingsConfigPath: null,
+      availableEditors: [],
+    },
+  };
+}
+
+const mocks = vi.hoisted(() => ({
+  environments: [] as Array<ReturnType<typeof testEnvironment>>,
+  writableIds: new Set<string>(),
+  commands: new Map<unknown, ReturnType<typeof vi.fn>>(),
+}));
+
+// The mocked shortcutEnvironmentIdAtom names "env" as the source of this client's shortcuts.
+function setup({
+  environments = [testEnvironment("env")],
+  writableIds = environments.map(({ environmentId }) => environmentId),
+}: {
+  environments?: Array<ReturnType<typeof testEnvironment>>;
+  writableIds?: ReadonlyArray<string>;
+} = {}) {
+  mocks.environments = environments;
+  mocks.writableIds = new Set(writableIds);
+  mocks.commands.clear();
+}
+
 vi.mock(import("../../state/session"), async (original) => ({
   ...(await original()),
-  useEnvironmentScope: () => true,
+  useEnvironmentScope: ((environmentId: string | null) =>
+    environmentId !== null && mocks.writableIds.has(environmentId)) as never,
+  readEnvironmentScope: ((environmentId: string) => mocks.writableIds.has(environmentId)) as never,
   useEnvironmentsWithScope: ((environments: ReadonlyArray<{ environmentId: string }>) =>
-    new Set(environments.map(({ environmentId }) => environmentId))) as never,
-  readEnvironmentScope: () => true,
+    new Set(
+      environments
+        .map(({ environmentId }) => environmentId)
+        .filter((environmentId) => mocks.writableIds.has(environmentId)),
+    )) as never,
 }));
-vi.mock(import("../../state/use-atom-command"), async (original) => ({
-  ...(await original()),
-  useAtomCommand: (() => vi.fn()) as never,
-}));
+// Settings scope lists every connected environment; the page must not edit through it.
 vi.mock(import("./SettingsScopeContext"), async (original) => ({
   ...(await original()),
-  useSettingsScope: (() => {
-    const environment = {
-      environmentId: "env",
-      label: "Build workstation",
-      serverConfig: { keybindings: [], keybindingsConfigPath: null, availableEditors: [] },
-    };
-    return {
-      scope: { kind: "environment" },
-      environment,
-      environments: [environment],
-      connectedEnvironments: [environment],
-      targets: [],
-      target: null,
-    };
+  useSettingsScope: (() => ({
+    environment: mocks.environments[0] ?? null,
+    connectedEnvironments: mocks.environments,
+  })) as never,
+}));
+vi.mock(import("../../state/environments"), async (original) => ({
+  ...(await original()),
+  useEnvironment: ((environmentId: string | null) =>
+    mocks.environments.find((environment) => environment.environmentId === environmentId) ??
+    null) as never,
+}));
+vi.mock(import("../../state/server"), async (original) => {
+  const { Atom } = await import("effect/reactivity");
+  return { ...(await original()), shortcutEnvironmentIdAtom: Atom.make("env") as never };
+});
+vi.mock(import("../../state/use-atom-command"), async (original) => ({
+  ...(await original()),
+  useAtomCommand: ((command: unknown) => {
+    const existing = mocks.commands.get(command);
+    if (existing) return existing;
+    const created = vi.fn(async () => ({ _tag: "Success", value: undefined }));
+    mocks.commands.set(command, created);
+    return created;
   }) as never,
 }));
 
+import { serverEnvironment } from "../../state/server";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { KeybindingsSettingsPanel } from "./KeybindingsSettings";
 
@@ -77,6 +123,7 @@ describe("Esc in a shortcut recorder", () => {
       },
     },
   ])("leaves the $name field without closing Settings", async ({ field, open, expectReset }) => {
+    setup();
     const onOpenChange = vi.fn();
     await using _screen = await render(
       <Dialog open onOpenChange={onOpenChange}>
@@ -106,6 +153,7 @@ describe("Esc in a shortcut recorder", () => {
 });
 
 it("re-enables Save when a When editor closes on an expression it could not parse", async () => {
+  setup();
   await using screen = await render(
     <RegistryProvider>
       <KeybindingsSettingsPanel />
@@ -124,4 +172,57 @@ it("re-enables Save when a When editor closes on an expression it could not pars
 
   await expect.element(expression).toHaveValue("terminalFocus");
   await expect.element(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+});
+
+it("edits only the keybindings of the environment this client takes its shortcuts from", async () => {
+  setup({
+    environments: [
+      testEnvironment("env", [{ command: "chat.new", key: "mod+shift+y" }]),
+      testEnvironment("read-only remote"),
+    ],
+    writableIds: ["env"],
+  });
+  await using screen = await render(
+    <RegistryProvider>
+      <KeybindingsSettingsPanel />
+    </RegistryProvider>,
+  );
+
+  await expect
+    .element(screen.getByText("This connection can view keybindings but cannot change them."))
+    .not.toBeInTheDocument();
+  await screen.getByRole("button", { name: /^Edit shortcut for Sidebar: Toggle:/ }).click();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await screen.getByRole("button", { name: "Save" }).click();
+  await screen.getByRole("button", { name: "Actions for Chat: New" }).click();
+  await page.getByRole("menuitem", { name: "Remove" }).click();
+
+  expect(mocks.commands.get(serverEnvironment.upsertKeybinding)?.mock.calls).toEqual([
+    [
+      {
+        environmentId: "env",
+        input: expect.objectContaining({ command: "sidebar.toggle", key: "mod+k" }),
+      },
+    ],
+  ]);
+  expect(mocks.commands.get(serverEnvironment.removeKeybinding)?.mock.calls).toEqual([
+    [{ environmentId: "env", input: { command: "chat.new", key: "mod+shift+y" } }],
+  ]);
+});
+
+it("binds a command that has no shortcut yet as a new rule", async () => {
+  setup();
+  await using screen = await render(
+    <RegistryProvider>
+      <KeybindingsSettingsPanel />
+    </RegistryProvider>,
+  );
+
+  await screen.getByRole("button", { name: "Set shortcut for Thread: Stop" }).click();
+  await userEvent.keyboard("{Control>}k{/Control}");
+  await screen.getByRole("button", { name: "Save" }).click();
+
+  expect(mocks.commands.get(serverEnvironment.upsertKeybinding)?.mock.calls).toEqual([
+    [{ environmentId: "env", input: { command: "thread.stop", key: "mod+k" } }],
+  ]);
 });

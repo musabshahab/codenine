@@ -34,6 +34,9 @@ import {
 
 const EMPTY_SETTING_KEYS: readonly (keyof ServerSettings)[] = [];
 
+export const ENVIRONMENT_WIDE_SETTING_MESSAGE =
+  "Environment-wide setting. Select an environment to change it.";
+
 declare module "@tanstack/react-router" {
   interface HistoryState {
     settingsTargetHighlight?: boolean;
@@ -66,6 +69,24 @@ function SettingsSearchTargetProvider({
 }) {
   const value = { targetId, highlightTarget, onTargetHandled };
   return <SettingsSearchTargetContext value={value}>{children}</SettingsSearchTargetContext>;
+}
+
+/** Lands a jump to a row that is not mounted on the row that reveals it. */
+export function SettingsSearchTargetFallbacks({
+  fallbacks,
+  children,
+}: {
+  readonly fallbacks: Readonly<Record<string, string | undefined>>;
+  readonly children: ReactNode;
+}) {
+  const context = useContext(SettingsSearchTargetContext);
+  const targetId =
+    context.targetId === null ? null : (fallbacks[context.targetId] ?? context.targetId);
+  return (
+    <SettingsSearchTargetContext value={{ ...context, targetId }}>
+      {children}
+    </SettingsSearchTargetContext>
+  );
 }
 
 let pendingTargetScroll: AbortController | undefined;
@@ -421,7 +442,7 @@ export function SettingsRow({
               : PRIMARY_SETTINGS_UNAVAILABLE_MESSAGE,
         )
       : environmentWide && control
-        ? inertControl("Environment-wide setting. Select an environment to change it.")
+        ? inertControl(ENVIRONMENT_WIDE_SETTING_MESSAGE)
         : control;
   const customized =
     context !== null &&
@@ -574,12 +595,10 @@ export function SettingsPageContainer({
   children,
   className,
   width = "readable",
-  searchTargetFallbacks,
 }: {
   children: ReactNode;
   className?: string;
   width?: WorkspacePageWidth;
-  searchTargetFallbacks?: Readonly<Record<string, string | undefined>>;
 }) {
   const navigate = useNavigate();
   const hash = useLocation({ select: (location) => location.hash });
@@ -599,7 +618,7 @@ export function SettingsPageContainer({
 
   return (
     <SettingsSearchTargetProvider
-      targetId={targetId === null ? null : (searchTargetFallbacks?.[targetId] ?? targetId)}
+      targetId={targetId}
       highlightTarget={highlightTarget}
       onTargetHandled={clearTargetHash}
     >

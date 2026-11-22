@@ -278,6 +278,7 @@ export const make = Effect.gen(function* () {
         ? { serverSelfUpdateProgress: true }
         : {}),
       ...(desktopAppUpdate ? { desktopAppUpdate: true, desktopAppChannelSwitch: true } : {}),
+      ...(serverConfig.desktopTelemetryFd === undefined ? {} : { hostPowerTelemetry: true }),
       mcpApprovalCodes: true,
     },
   };

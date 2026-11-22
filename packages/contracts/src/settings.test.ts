@@ -317,6 +317,25 @@ describe("ClientSettings sidebar grouping", () => {
     expect(settings.sidebarGroupByProject).toBe(true);
     expect(encodeClientSettings(settings)).not.toHaveProperty("boringSidebarEnabled");
   });
+
+  it("loads the retired manual workspace order as the default order", () => {
+    const settings = decodeClientSettings({ sidebarProjectSortOrder: "manual" });
+
+    expect(settings.sidebarProjectSortOrder).toBe("updated_at");
+    expect(encodeClientSettings(settings).sidebarProjectSortOrder).toBe("updated_at");
+    expect(decodeClientSettings({ sidebarProjectSortOrder: "created_at" })).toMatchObject({
+      sidebarProjectSortOrder: "created_at",
+    });
+  });
+});
+
+describe("ClientSettings diff whitespace", () => {
+  it("shows whitespace changes on installs that stored the old hide-by-default value", () => {
+    const settings = decodeClientSettings({ diffIgnoreWhitespace: true });
+
+    expect(settings.diffHideWhitespace).toBe(false);
+    expect(encodeClientSettings(settings)).not.toHaveProperty("diffIgnoreWhitespace");
+  });
 });
 
 describe("ClientSettings quit confirmation", () => {
@@ -490,7 +509,7 @@ describe("ServerSettings backup", () => {
     });
     expect(settings.backup).toEqual({
       folder: "~/Codenine Backups",
-      schedule: { frequency: "daily", time: "04:30", weekday: 0 },
+      schedule: { frequency: "daily", time: "04:30", weekday: 0, timeZone: null },
       keep: 7,
       includeWorktrees: false,
     });

@@ -10,6 +10,7 @@ import { resolveShortcutCommand } from "../../keybindings";
 import {
   buildKeybindingRows,
   buildWhenVariableOptions,
+  filterKeybindingRows,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
   parseWhenExpressionDraft,
@@ -17,6 +18,10 @@ import {
   unknownWhenVariables,
   whenAstToExpression,
 } from "./KeybindingsSettings.logic";
+
+function boundKeybindingRows(...args: Parameters<typeof buildKeybindingRows>) {
+  return buildKeybindingRows(...args).filter((row) => row.binding !== null);
+}
 
 describe("KeybindingsSettings.logic", () => {
   it("keeps sibling row identities when a saved binding moves to the end", () => {
@@ -47,7 +52,7 @@ describe("KeybindingsSettings.logic", () => {
       { command: "terminal.toggle", key: "mod+j", when: "terminalFocus" },
       { command: "chat.new", key: "mod+esc", when: "terminalFocus" },
     ]);
-    const rows = buildKeybindingRows(bindings);
+    const rows = boundKeybindingRows(bindings);
     expect(rows.map(({ command, key, when }) => ({ command, key, when }))).toEqual([
       { command: "chat.new", key: "mod+esc", when: "terminalFocus" },
       { command: "terminal.toggle", key: "mod+esc", when: "terminalFocus" },
@@ -56,9 +61,55 @@ describe("KeybindingsSettings.logic", () => {
     ]);
     expect(new Set(rows.map((row) => row.id)).size).toBe(4);
     expect(rows.find((row) => row.command === "chat.new")?.conflicts).toEqual(["Terminal: Toggle"]);
-    expect(buildKeybindingRows(bindings.slice(1)).map((row) => row.id)).toEqual(
+    expect(boundKeybindingRows(bindings.slice(1)).map((row) => row.id)).toEqual(
       rows.map((row) => row.id),
     );
+  });
+
+  it("lists commands without a binding as empty rows the conflict scan skips", () => {
+    const rows = buildKeybindingRows(
+      compileResolvedKeybindingsConfig([
+        { command: "chat.new", key: "mod+k" },
+        { command: "chat.find", key: "mod+f", when: "!terminalFocus" },
+      ]),
+    );
+    const stop = rows.find((row) => row.command === "thread.stop");
+
+    expect(stop).toMatchObject({ key: "", when: "", binding: null, conflicts: [] });
+    expect(rows.filter((row) => row.command === "chat.new").map((row) => row.key)).toEqual([
+      "mod+k",
+    ]);
+    expect(rows.some((row) => String(row.command).startsWith("script."))).toBe(false);
+    expect(
+      keybindingConflictLabels(rows, { rowId: stop?.id ?? "", key: "mod+k", when: "" }),
+    ).toEqual(["Chat: New"]);
+    expect(filterKeybindingRows(rows, "default").map((row) => String(row.command))).toEqual([
+      "chat.find",
+    ]);
+  });
+
+  it("finds a shortcut by its stored, displayed, and typed spellings", () => {
+    const rows = buildKeybindingRows(
+      compileResolvedKeybindingsConfig([
+        { command: "commandPalette.toggle", key: "mod+k" },
+        { command: "chat.new", key: "mod+shift+k" },
+        { command: "chat.find", key: "mod+f" },
+      ]),
+    );
+    const found = (query: string) =>
+      filterKeybindingRows(rows, query).map((row) => String(row.command));
+
+    for (const query of ["mod+k", "ctrl+k", "Ctrl K", "cmd k", "⌘K", "command+k"]) {
+      expect(found(query), query).toEqual(["commandPalette.toggle"]);
+    }
+    for (const query of ["⇧⌘K", "shift+ctrl+k", "ctrl shift k"]) {
+      expect(found(query), query).toEqual(["chat.new"]);
+    }
+    expect(found("ctrl")).toEqual(["chat.find", "chat.new", "commandPalette.toggle"]);
+    expect(found("command")).toEqual(["commandPalette.toggle"]);
+    for (const word of ["control", "meta"]) {
+      expect(found(word), word).toEqual([]);
+    }
   });
 
   it("captures platform-specific mod shortcuts", () => {
@@ -230,7 +281,7 @@ describe("KeybindingsSettings.logic", () => {
   });
 
   it("reports conflicting shortcuts that share an active when context", () => {
-    const rows = buildKeybindingRows([
+    const rows = boundKeybindingRows([
       {
         command: "chat.new",
         shortcut: {
@@ -296,7 +347,7 @@ describe("KeybindingsSettings.logic", () => {
   });
 
   it("keeps mod and ctrl shortcuts apart when their when contexts differ", () => {
-    const rows = buildKeybindingRows(
+    const rows = boundKeybindingRows(
       compileResolvedKeybindingsConfig([
         { command: "chat.new", key: "mod+k", when: "!terminalFocus" },
         { command: "chat.newLocal", key: "ctrl+k", when: "terminalFocus" },

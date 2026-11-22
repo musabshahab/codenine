@@ -66,10 +66,15 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+b", command: "rightPanel.toggle" },
   { key: "mod+shift+b", command: "threadPanel.toggle", when: "!terminalFocus" },
   { key: "mod+t", command: "rightPanel.new", when: "rightPanelOpen && !terminalFocus" },
-  { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+  // Off macOS, mod+d/n/w would be Ctrl+D/N/W, which the shell needs. Browsers there keep
+  // Ctrl+Shift+N and Ctrl+Shift+W for their own windows, so those two are desktop-only.
+  { key: "mod+d", command: "terminal.split", when: "terminalFocus && isMac" },
+  { key: "ctrl+shift+5", command: "terminal.split", when: "terminalFocus && !isMac" },
   { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
-  { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
-  { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
+  { key: "mod+n", command: "terminal.new", when: "terminalFocus && isMac" },
+  { key: "ctrl+shift+n", command: "terminal.new", when: "terminalFocus && !isMac && isDesktop" },
+  { key: "mod+w", command: "terminal.close", when: "terminalFocus && isMac" },
+  { key: "ctrl+shift+w", command: "terminal.close", when: "terminalFocus && !isMac && isDesktop" },
   { key: "mod+w", command: "rightPanel.close", when: "!terminalFocus" },
   { key: "mod+shift+t", command: "view.reopenClosed" },
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
@@ -81,7 +86,12 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+shift+a", command: "appearance.cycle", when: "!terminalFocus" },
   { key: "mod+alt+shift+t", command: "themeEditor.toggle" },
   { key: "mod+s", command: "composer.stash", when: "!terminalFocus" },
-  { key: "mod+shift+enter", command: "thread.steerQueuedMessage", when: "!terminalFocus" },
+  // A draft has no queue; leaving it free lets the Shift-moved Start in Background win.
+  {
+    key: "mod+shift+enter",
+    command: "thread.steerQueuedMessage",
+    when: "!terminalFocus && !draftThreadRoute",
+  },
   { key: "alt+arrowup", command: "thread.editQueuedMessage", when: "composerFocus" },
   { key: "mod+enter", command: "composer.sendAlternate", when: "composerFocus && turnRunning" },
   {

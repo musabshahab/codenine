@@ -650,27 +650,54 @@ export function useThreadActions() {
       );
     }
 
-    if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
+    if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject || !localApi) {
       return deleteResult;
     }
 
-    const removeResult = readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope)
-      ? await removeWorktree({
-          environmentId: threadRef.environmentId,
-          input: {
-            cwd: threadProject.workspaceRoot,
-            path: orphanedWorktreePath,
-            force: true,
-          },
-        })
-      : AsyncResult.failure(
-          Cause.fail(
-            new EnvironmentAuthorizationError({
-              message: "This connection can no longer remove worktrees.",
-              requiredScope: AuthSourceControlWriteScope,
-            }),
-          ),
-        );
+    const canRemoveWorktree = () =>
+      readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope);
+    const removeOrphanedWorktree = async (force: boolean) =>
+      canRemoveWorktree()
+        ? await removeWorktree({
+            environmentId: threadRef.environmentId,
+            input: { cwd: threadProject.workspaceRoot, path: orphanedWorktreePath, force },
+          })
+        : AsyncResult.failure(
+            Cause.fail(
+              new EnvironmentAuthorizationError({
+                message: "This connection can no longer remove worktrees.",
+                requiredScope: AuthSourceControlWriteScope,
+              }),
+            ),
+          );
+    let removeResult = await removeOrphanedWorktree(false);
+    // Git keeps worktrees with local changes or submodules. Forcing discards those changes and
+    // the submodule repositories, unpushed commits included, even when the status reads clean.
+    if (removeResult._tag === "Failure" && canRemoveWorktree()) {
+      const status = await refreshVcsStatus({
+        environmentId: threadRef.environmentId,
+        input: { cwd: orphanedWorktreePath, localOnly: true },
+      });
+      const hasChanges =
+        status._tag === "Success" &&
+        status.value.isRepo &&
+        status.value.workingTree.files.length > 0;
+      const worktreeName = displayWorktreePath ?? orphanedWorktreePath;
+      const discard = await settlePromise(() =>
+        localApi.dialogs.confirm(
+          [
+            hasChanges
+              ? `The worktree ${worktreeName} has uncommitted changes.`
+              : `Git could not remove the worktree ${worktreeName} without force. It may contain submodules with unpushed commits or changes.`,
+            "",
+            "Delete it anyway and discard them?",
+          ].join("\n"),
+          { variant: "destructive" },
+        ),
+      );
+      if (discard._tag === "Failure" || !discard.value) return deleteResult;
+      removeResult = await removeOrphanedWorktree(true);
+    }
     const refreshResult =
       removeResult._tag === "Success"
         ? await refreshVcsStatus({

@@ -51,6 +51,8 @@ export const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   // Access and Backup pick their environment on the page itself.
   "/settings/access",
   "/settings/backup",
+  // Keybindings edits the environment this client's shortcuts come from.
+  "/settings/keybindings",
   "/settings/about",
 ]);
 

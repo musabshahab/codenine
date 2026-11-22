@@ -37,7 +37,7 @@ export function useOpenChangeRequestLink(
   targetEnvironmentId?: EnvironmentId,
   onCommitUnavailable?: () => void,
 ) => boolean {
-  const ignoreWhitespace = useClientSettings((settings) => settings.diffIgnoreWhitespace);
+  const ignoreWhitespace = useClientSettings((settings) => settings.diffHideWhitespace);
   const readDiffPreview = useAtomQueryRunner(reviewEnvironment.diffPreview, {
     reportFailure: false,
     refresh: true,
