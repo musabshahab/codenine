@@ -629,7 +629,7 @@ function WhenExpressionBuilder({
             value={expressionDraft}
             onChange={(event) => updateExpressionDraft(event.currentTarget.value)}
             placeholder="Always"
-            aria-invalid={Boolean(parseError)}
+            aria-invalid={parseError ? true : undefined}
             aria-label="When expression"
             size="compact"
             font="mono"
