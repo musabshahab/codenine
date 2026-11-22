@@ -159,7 +159,7 @@ function SwitchPlan({
       rows={everything.rows}
       notes={[
         ...(everything.rows.length === 0 && !crossesLocal
-          ? [`Every connected machine is already on ${label}. This only saves the track.`]
+          ? [`Every connected environment is already on ${label}. This only saves the track.`]
           : []),
         ...(crossesLocal && updatesOff
           ? ["This app's updates are off here, so reinstall it yourself to switch."]

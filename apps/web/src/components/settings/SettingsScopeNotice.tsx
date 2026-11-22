@@ -15,6 +15,7 @@ import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
 import type { SettingsScopeSearch } from "./settingsScope";
 import {
+  projectScopeMenuGroups,
   settingsScopeEnvironmentAddress,
   settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines,
@@ -81,7 +82,7 @@ export function SettingsScopeNotice({
           };
         })
       : target === "project"
-        ? groups.map((group) => ({
+        ? projectScopeMenuGroups(groups, search).map((group) => ({
             label: group.displayName,
             secondary: [
               ...(group.archived ? ["Archived"] : []),
@@ -94,7 +95,10 @@ export function SettingsScopeNotice({
               group.workspaceRoot,
             ].join(" · "),
             icon: <ProjectFavicon project={group} className="size-4 shrink-0" />,
-            search: { project: group.projectKey },
+            search: {
+              project: group.projectKey,
+              ...(search.machine ? { machine: search.machine } : {}),
+            },
           }))
         : target === "environment"
           ? environments
@@ -114,11 +118,17 @@ export function SettingsScopeNotice({
               })
           : [
               {
-                label: "Open all environments",
+                label: "Show all workspaces",
                 icon: <LayersIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />,
-                search: {},
+                search: search.machine ? { machine: search.machine } : {},
               },
             ];
+    if (choices.length === 0 && target === "project")
+      return (
+        <p className="px-3 py-3 text-sm text-muted-foreground sm:px-4">
+          {search.machine ? "No workspaces on this environment." : "No workspaces yet."}
+        </p>
+      );
     return choices.map((choice) => (
       <button
         key={JSON.stringify(choice.search)}

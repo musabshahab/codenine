@@ -84,8 +84,7 @@ Use Settings → Accounts → **Models** to add an unlisted model with a custom
 name and options. Only options supported by the provider integration affect turns.
 
 To rename a built-in model on every client, edit the server's `settings.json` in its `userdata`
-directory. Add a custom model entry with the built-in model ID and a new name under that provider
-instance:
+directory. Add a custom model entry with the built-in model ID and a new name under that account:
 
 ```json
 {
@@ -100,7 +99,7 @@ instance:
 
 ## Model defaults
 
-Codenine remembers your provider, model, and model options for new threads. A
+Codenine remembers your provider, model, and model options for new chats. A
 workspace's configured model takes precedence; resetting that workspace setting
 returns to the remembered selection.
 
@@ -127,9 +126,9 @@ The quoted text and comment count toward the message limit.
 
 ## Recall a sent prompt
 
-Press `ArrowUp` in an empty composer to bring back the last prompt you sent in this thread. Press
+Press `ArrowUp` in an empty composer to bring back the last prompt you sent in this chat. Press
 `ArrowUp` again to go further back, and `ArrowDown` to come forward. Moving forward past the newest
-prompt clears the composer. Recall walks the prompts loaded in the thread. Attachments, terminal
+prompt clears the composer. Recall walks the prompts loaded in the chat. Attachments, terminal
 context, and other extras from the original message are not restored, only the text you typed. A
 composer that holds an attachment does not count as empty.
 
@@ -144,9 +143,9 @@ Turn on **Suggest next prompt** in Settings > Labs. After a Claude or Codex turn
 empty composer shows a predicted next message. Press `Tab` to fill it in, then edit or send it, or
 press `Escape` to dismiss it. Each suggestion is one extra request that reuses the turn's prompt
 cache, so it uses a little of your plan's usage. Claude skips suggestions on the first turn of a
-thread and near usage limits. Codex needs version 0.165 or later; if Codenine manages
+chat and near usage limits. Codex needs version 0.165 or later; if Codenine manages
 Codex, update it in Settings > Accounts. Codex follows a change to the setting at once; open Claude
-threads follow it after they restart.
+chats follow it after they restart.
 
 ## Edit an earlier prompt
 
@@ -154,14 +153,14 @@ Choose **Edit from here** beneath a sent message to rewind
 the conversation to before that message. Choose **Revert and keep changes** to
 leave workspace files as they are, or **Revert files too** to put the workspace back
 to its checkpoint from before that message. That also undoes edits you made yourself.
-File restore is only offered for threads running in a worktree, and it is
-refused when another thread or agent session also uses that directory, a folder
+File restore is only offered for chats running in a worktree, and it is
+refused when another chat or agent session also uses that directory, a folder
 inside it, or a folder that contains it, since
-restoring would erase their changes. A thread that works in the workspace directory
+restoring would erase their changes. A chat that works in the workspace directory
 rewinds the conversation only. The selected prompt and its attachments return to the composer for editing and
 resending. Any unsent draft stays above the restored prompt.
 
-This removes the selected message and later conversation from the active thread
+This removes the selected message and later conversation from the active chat
 and provider history. It does not undo external actions or separate provider
 memory. The action is available only when the provider supports rewind.
 
@@ -185,7 +184,7 @@ Steer. Click it or press your send shortcut to use that action. Hold `Cmd` on ma
 Windows and Linux to switch the button to the opposite action, then click, or use the opposite-action
 shortcut described above.
 
-Queued messages appear at the end of the thread as dashed messages that have
+Queued messages appear at the end of the chat as dashed messages that have
 not been sent yet. Each shows its text and any attached
 images. **Send now** sends a message right away, into the running turn if there is one. You can
 also edit or remove it.
@@ -212,8 +211,7 @@ The **+** menu next to the message box keeps a skill on for the whole chat (**Ad
 turns the chat's [connectors](./connectors.md) on or off. What the chat uses shows above the message
 box, where you can remove it. In a chat with an [agent](./agents.md), the agent decides both.
 
-The slash menu also includes skills unless you turn off **Settings → Chat →
-Show skills in slash menu**, under Advanced. Only skills enabled for the provider are listed.
+The slash menu also lists skills. Only skills enabled for the provider are listed.
 
 After you add or change skills, plugins, or MCP servers, use **Restart agent
 session** in the command palette. The conversation continues,
@@ -226,24 +224,24 @@ Send `/compact` in an existing conversation to reduce context usage when the
 provider supports it.
 
 Send `/clear` on its own, or pick it from the slash menu, to start a fresh session
-in the same thread. Your next message goes to a new provider session that doesn't see the
-earlier messages, and the thread marks where it began with **New session**.
-Earlier messages and diffs stay in the thread. Dismiss the notice above the
+in the same chat. Your next message goes to a new provider session that doesn't see the
+earlier messages, and the chat marks where it began with **New session**.
+Earlier messages and diffs stay in the chat. Dismiss the notice above the
 composer to keep the current session instead.
 
 Turn on **Context window** in **Settings → Appearance →
-Thread details** to see context usage in the thread details card. It appears
+Chat details** to see context usage in the chat details card. It appears
 once the provider reports usage.
 
-Claude instances can also compact idle threads for you. See
+Claude accounts can also compact idle chats for you. See
 [compact long conversations](./providers-claude.md#compact-long-conversations).
 
 ## Goals
 
 With Codex and Claude, send `/goal` followed by what "done" means, for example
 `/goal all tests in packages/api pass`. The agent keeps working across turns
-until it judges the goal met. The thread shows **Goal** while it works, and a
-line at the end of the thread shows the goal and
+until it judges the goal met. The chat shows **Goal** while it works, and a
+line at the end of the chat shows the goal and
 its progress.
 
 - `/goal` alone shows the current goal. `/goal clear` removes it.
@@ -261,8 +259,8 @@ its progress.
 Turn on **Team**, next to the attach button, to have the agent plan a
 [team](./thread-sidebar.md#run-a-team) for your message instead of starting the work. The sent
 message shows **Team requested**. Team turns off once the message is sent or you reload, and it
-does not apply to a message that starts with a `/` command. It is not offered in a thread that
-already leads a team or works for one, in subagent threads and side chats, or in a Personal chat, since a team works in
+does not apply to a message that starts with a `/` command. It is not offered in a chat that
+already leads a team or works for one, in subagent chats and side chats, or in a Personal chat, since a team works in
 one workspace's folder. To toggle it from
 the keyboard, bind **Composer: Toggle Team** in **Settings → Keybindings**.
 
@@ -298,21 +296,21 @@ excerpt, Terminal 1 lines 3-4" and similar to screen readers.
 A pull request appears as its icon and number. Its color reflects whether it was open, draft,
 merged, or closed when it was attached. Select it to inspect the captured title and branches,
 then choose **Open pull request** to visit the pull request. Type `#` to browse the newest
-pull requests in the current workspace's repository. Pull requests linked to the thread are included
+pull requests in the current workspace's repository. Pull requests linked to the chat are included
 from any repository and listed first, after any exact number match. Continue typing digits to filter the recent list
 by any part of its pull request numbers. A complete number is also resolved directly, even when that
 pull request is older than the recent list. Type a single word after `#` to search pull requests in
 the repository by text. Choose a result to insert it as a chip.
 
-Another thread can be context too. Type `@` followed by part of its title to pick one from
-the same server. You can also drag a thread out of the sidebar and
+Another chat can be context too. Type `@` followed by part of its title to pick one from
+the same server. You can also drag a chat out of the sidebar and
 drop it on the composer; a multi-selection drops together. **Copy chat link** copies a
-link to the thread that pastes into a composer as its chip. The chip shows the thread's
-current title and opens it when selected. Your prompt only carries a reference: the agent reads the thread's
-history on demand, so attaching a long thread costs nothing until the agent looks. Attaching a
-thread does not change it, and the agent cannot send messages to it unless you ask.
+link to the chat that pastes into a composer as its chip. The chip shows the chat's
+current title and opens it when selected. Your prompt only carries a reference: the agent reads the chat's
+history on demand, so attaching a long chat costs nothing until the agent looks. Attaching a
+chat does not change it, and the agent cannot send messages to it unless you ask.
 
-A pasted link to a thread on another machine stays a link. Dropping a thread
+A pasted link to a chat on another environment stays a link. Dropping a chat
 from another environment attaches a saved transcript file. The source
 environment must be connected and up to date. The transcript includes the visible history and
 saved text context at the time of the drop; later messages and the contents of attached files
@@ -320,7 +318,7 @@ are not copied. The agent can read the saved transcript after the source disconn
 file attachment limits apply.
 
 Type `@` and part of a model or provider name, such as `@opus`, to name that model for the
-agent, for example when delegating. It does not change the thread's model. Join words with
+agent, for example when delegating. It does not change the chat's model. Join words with
 `:`, `/` or `-`, as in `@opus:claude`.
 
 Images keep their thumbnail shelf above the text and also get a chip at your cursor, so you can
@@ -328,7 +326,7 @@ say exactly which image you mean. Deleting an image chip leaves the image on the
 the thumbnail asks first when the image is still mentioned in your text, then removes both. Files
 exist only as chips: deleting a file's last chip removes the file from the message.
 
-Copy text that holds chips and paste it into another draft, in the same thread or another one,
+Copy text that holds chips and paste it into another draft, in the same chat or another one,
 and the chips come along with what they point to. Images and files are fetched again from the
 environment they came from; while that happens the chip shows a dashed outline, and if it cannot
 complete Codenine tells you and leaves the chip for you to remove or replace. A chip whose

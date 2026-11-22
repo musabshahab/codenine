@@ -1,9 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as Tracer from "effect/Tracer";
 import { ChildProcessSpawner } from "effect/process";
 import * as HostProcess from "@codenine/shared/HostProcess";
 
@@ -291,6 +294,42 @@ describe("tailscale", () => {
         Effect.provide(layer),
       );
       assert.equal(degraded, null);
+    });
+  });
+
+  it.effect("ends the probe span successfully when tailscale is not installed", () => {
+    const notFound = PlatformError.systemError({
+      _tag: "NotFound",
+      module: "ChildProcess",
+      method: "spawn",
+      description: "spawn tailscale ENOENT",
+    });
+    const layer = layerSpawner(ChildProcessSpawner.make(() => Effect.fail(notFound)));
+    const ended: Array<Tracer.NativeSpan> = [];
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options);
+        const end = span.end.bind(span);
+        span.end = (endTime, exit) => {
+          end(endTime, exit);
+          ended.push(span);
+        };
+        return span;
+      },
+    });
+
+    return Effect.gen(function* () {
+      const error = yield* readTailscaleStatus.pipe(
+        Effect.flip,
+        Effect.provide(layer),
+        Effect.withTracer(tracer),
+      );
+      assert.instanceOf(error, TailscaleCommandSpawnError);
+      assert.strictEqual(error.cause, notFound);
+
+      const probe = ended.find((span) => span.name === "tailscale.readTailscaleOutput");
+      assert.isTrue(probe?.status._tag === "Ended" && Exit.isSuccess(probe.status.exit));
+      assert.equal(probe?.attributes.get("probe.miss"), "not-installed");
     });
   });
 

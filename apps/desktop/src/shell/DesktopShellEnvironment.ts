@@ -109,6 +109,7 @@ const LOGIN_SHELL_ENV_NAMES = [
   "NODE_EXTRA_CA_CERTS",
   "CODENINE_TELEMETRY_ENABLED",
   "CODENINE_GITHUB_APP_CLIENT_ID",
+  "CODENINE_GITHUB_APP_SLUG",
   "__MISE_DIFF",
   "JAVA_HOME",
 ] as const;
@@ -486,6 +487,7 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
       "JAVA_HOME",
       "CODENINE_TELEMETRY_ENABLED",
       "CODENINE_GITHUB_APP_CLIENT_ID",
+      "CODENINE_GITHUB_APP_SLUG",
     ] as const) {
       if (!config.env[name] && shellEnvironment[name]) {
         config.env[name] = shellEnvironment[name];

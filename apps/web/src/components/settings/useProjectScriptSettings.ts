@@ -77,7 +77,7 @@ export function useProjectScriptSettings(
     keybinding?: string | null,
   ): Promise<AtomCommandResult<void, unknown>> {
     if (savingRef.current || targets.length === 0) {
-      const message = "No available machine, or another action change is saving.";
+      const message = "No available environment, or another action change is saving.";
       toastManager.add({ type: "error", title: "Actions not saved", description: message });
       return AsyncResult.failure(Cause.fail(new Error(message)));
     }

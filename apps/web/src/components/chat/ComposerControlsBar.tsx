@@ -266,7 +266,7 @@ export function ComposerControlsBar(props: {
       className="shrink-0"
     >
       <CircleAlertIcon className="size-4" />
-      {providerSetupInstanceId ? "Open provider settings" : "Set up agents"}
+      {providerSetupInstanceId ? "Open account settings" : "Set up agents"}
     </ComposerControl>
   ) : (
     <>

@@ -25,6 +25,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   type KeybindingCommand,
+  type KeybindingShortcut,
   type KeybindingWhenNode,
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
@@ -37,7 +38,7 @@ import {
 
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
-import { formatShortcutLabel } from "../../keybindings";
+import { formatShortcutLabel, formatShortcutParts } from "../../keybindings";
 import { cn } from "../../lib/utils";
 import { useEnvironment } from "../../state/environments";
 import { serverEnvironment, shortcutEnvironmentIdAtom } from "../../state/server";
@@ -78,36 +79,11 @@ import { keybindingSearchAnchorId, searchableSetting } from "./settingsSearch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
 
-function KeybindingPill({ value }: { value: string }) {
-  // Keys dedupe repeated parts; a literal "+" in a shortcut splits into empty strings.
-  const seenParts = new Map<string, number>();
-  const parts = value.split("+").map((part) => {
-    const seen = seenParts.get(part) ?? 0;
-    seenParts.set(part, seen + 1);
-    return { part, key: seen === 0 ? part : `${part}-${seen}` };
-  });
+function KeybindingPill({ shortcut }: { shortcut: KeybindingShortcut }) {
   return (
     <KbdGroup>
-      {parts.map(({ part, key }) => (
-        <Kbd key={key}>
-          {part === "mod"
-            ? navigator.platform.toLowerCase().includes("mac")
-              ? "⌘"
-              : "Ctrl"
-            : part === "shift"
-              ? "⇧"
-              : part === "alt"
-                ? navigator.platform.toLowerCase().includes("mac")
-                  ? "⌥"
-                  : "Alt"
-                : part === "ctrl"
-                  ? navigator.platform.toLowerCase().includes("mac")
-                    ? "⌃"
-                    : "Ctrl"
-                  : part.length === 1
-                    ? part.toUpperCase()
-                    : part}
-        </Kbd>
+      {formatShortcutParts(shortcut).map((part) => (
+        <Kbd key={part}>{part}</Kbd>
       ))}
     </KbdGroup>
   );
@@ -629,7 +605,7 @@ function WhenExpressionBuilder({
             value={expressionDraft}
             onChange={(event) => updateExpressionDraft(event.currentTarget.value)}
             placeholder="Always"
-            aria-invalid={Boolean(parseError)}
+            aria-invalid={parseError ? true : undefined}
             aria-label="When expression"
             size="compact"
             font="mono"
@@ -740,22 +716,24 @@ function useKeybindingRowEditor({
     });
   };
 
+  const discard = () => {
+    flushSync(() => setDraft(createKeybindingRowDraft(row)));
+    // The edited controls unmount for the pill; focus would otherwise drop to the page.
+    pillRef.current?.focus();
+  };
+
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Tab" && !isRecording) return;
+    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
+      layoutCharacter: true,
+    });
+    if (event.key === "Tab" && (!isRecording || next === null)) return;
     event.preventDefault();
     if (event.key === "Escape") {
       // An unhandled Escape closes the settings page.
       event.stopPropagation();
-      const field = event.currentTarget;
-      flushSync(() => setDraft({ keyDraft: row.key, isRecording: false }));
-      // The field may unmount for the pill; focus would otherwise drop to the page.
-      if (pillRef.current) pillRef.current.focus();
-      else field.blur();
+      discard();
       return;
     }
-    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
-      layoutCharacter: true,
-    });
     if (!next) return;
     setDraft({ keyDraft: next, isRecording: false });
   };
@@ -770,6 +748,7 @@ function useKeybindingRowEditor({
     conflictLabels,
     setDraft,
     save,
+    discard,
     captureKeybinding,
     pillRef,
   };
@@ -809,6 +788,7 @@ function KeybindingKeyControl({
     isWhenDraftValid,
     setDraft,
     save,
+    discard,
     captureKeybinding,
     pillRef,
   } = editor;
@@ -817,13 +797,18 @@ function KeybindingKeyControl({
   return (
     <>
       {isDirty ? (
-        <Button
-          size="sm"
-          disabled={isSaving || keyDraft.trim().length === 0 || !isWhenDraftValid}
-          onClick={save}
-        >
-          {isSaving ? "Saving" : "Save"}
-        </Button>
+        <>
+          <Button size="sm" variant="ghost" disabled={isSaving} onClick={discard}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={isSaving || keyDraft.trim().length === 0 || !isWhenDraftValid}
+            onClick={save}
+          >
+            {isSaving ? "Saving" : "Save"}
+          </Button>
+        </>
       ) : null}
       {showPill ? (
         <button
@@ -841,7 +826,7 @@ function KeybindingKeyControl({
             pillClassName,
           )}
         >
-          {row.binding ? <KeybindingPill value={row.key} /> : "Set shortcut"}
+          {row.binding ? <KeybindingPill shortcut={row.binding.shortcut} /> : "Set shortcut"}
         </button>
       ) : (
         <Input
@@ -1079,7 +1064,10 @@ function useNewKeybindingDraft({
   };
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Tab" && !isRecording) return;
+    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
+      layoutCharacter: true,
+    });
+    if (event.key === "Tab" && (!isRecording || next === null)) return;
     event.preventDefault();
     if (event.key === "Escape") {
       // An unhandled Escape closes the settings page.
@@ -1088,9 +1076,6 @@ function useNewKeybindingDraft({
       event.currentTarget.blur();
       return;
     }
-    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
-      layoutCharacter: true,
-    });
     if (!next) return;
     setDraft({ keyDraft: next, isRecording: false });
   };

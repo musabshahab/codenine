@@ -152,6 +152,19 @@ function commandAtom<W, A, E, B>(
   }).pipe(Atom.setIdleTTL(5 * 60_000), Atom.withLabel(label));
 }
 
+/** Changes when a backup lands, one is deleted, or the folder changes, so open lists read the folder again. */
+export function backupListRevision(
+  refresh: number,
+  status: Pick<BackupStatus, "folderPath" | "lastSuccessAt" | "lastFile"> | null,
+): string {
+  return JSON.stringify([
+    refresh,
+    status?.folderPath ?? null,
+    status?.lastSuccessAt ?? null,
+    status?.lastFile?.path ?? null,
+  ]);
+}
+
 export function createBackupEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry.EnvironmentRegistry | R, E>,
 ) {
@@ -163,16 +176,13 @@ export function createBackupEnvironmentAtoms<R, E>(
   const listRefresh = Atom.family((environmentId: EnvironmentId) =>
     Atom.make(0).pipe(Atom.keepAlive, Atom.withLabel(`backup-list-refresh:${environmentId}`)),
   );
-  // Changes when a backup lands or one is deleted, so open lists read the folder again.
   const listRevision = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make((get) => {
-      const current = AsyncResult.getOrElse(get(status({ environmentId, input: {} })), () => null);
-      return JSON.stringify([
+    Atom.make((get) =>
+      backupListRevision(
         get(listRefresh(environmentId)),
-        current?.lastSuccessAt ?? null,
-        current?.lastFile?.path ?? null,
-      ]);
-    }).pipe(Atom.withLabel(`backup-list-revision:${environmentId}`)),
+        AsyncResult.getOrElse(get(status({ environmentId, input: {} })), () => null),
+      ),
+    ).pipe(Atom.withLabel(`backup-list-revision:${environmentId}`)),
   );
 
   const list = createEnvironmentRpcCommand(runtime, {

@@ -263,7 +263,7 @@ describe("EnvironmentProviderSettings routing", () => {
     await setProviders([provider()]);
     await using _screen = await render(panel({ targetInstanceId: customId }));
     await expect
-      .element(page.getByText("This provider instance is no longer available on this device."))
+      .element(page.getByText("This account is no longer available on this environment."))
       .toBeVisible();
     expect(state.updateSettings).not.toHaveBeenCalled();
   });
@@ -379,18 +379,21 @@ describe("EnvironmentProviderSettings instance removal", () => {
       providerInstances: {
         [codexId]: {
           driver: ProviderDriverKind.make("codex"),
-          enabled: true,
+          enabled: false,
           config: { binaryPath: "/opt/codex/bin/codex" },
         },
       },
     };
     await setProviders([provider()]);
     await using _screen = await render(panel({ targetInstanceId: codexId }));
-    const reset = page.getByRole("button", { name: "Reset Codex provider settings to default" });
+    const reset = page.getByRole("button", { name: "Reset Codex account settings to default" });
     await userEvent.click(reset);
 
     expect(state.mutateProviderInstance).not.toHaveBeenCalled();
-    expect(state.confirm).toHaveBeenCalledOnce();
+    expect(state.confirm).toHaveBeenCalledWith(
+      expect.stringMatching(/It will also be turned back on\.$/),
+      { variant: "destructive" },
+    );
 
     state.confirm.mockResolvedValue(true);
     await userEvent.click(reset);
@@ -411,11 +414,14 @@ describe("EnvironmentProviderSettings instance removal", () => {
       },
     };
     await using _screen = await render(panel({ targetInstanceId: customId }));
-    const remove = page.getByRole("button", { name: `Delete instance ${customId}` });
+    const remove = page.getByRole("button", { name: `Delete account ${customId}` });
     await userEvent.click(remove);
 
     expect(state.mutateProviderInstance).not.toHaveBeenCalled();
-    expect(state.confirm).toHaveBeenCalledOnce();
+    expect(state.confirm).toHaveBeenCalledWith(
+      expect.stringMatching(/^Remove the Codex Work account\?/),
+      { variant: "destructive" },
+    );
 
     state.confirm.mockResolvedValue(true);
     await userEvent.click(remove);

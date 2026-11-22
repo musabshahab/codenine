@@ -34,6 +34,7 @@ import {
   toCustomModelSetting,
 } from "@codenine/shared/model";
 import { isOpenRouterProvider } from "@codenine/shared/openRouter";
+import { resolveProviderInstanceDisplayName } from "@codenine/client-runtime/state/provider-instance-display";
 import { cn } from "../../lib/utils";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useStableCallback } from "../../hooks/useStableCallback";
@@ -418,7 +419,7 @@ export function ProviderEnvironmentSection(props: {
   return (
     <SettingsRow
       title="Variables"
-      description="API keys, base URLs, and other per-instance CLI settings."
+      description="API keys, base URLs, and other per-account CLI settings."
       control={
         <Button type="button" size="sm" variant="outline" onClick={addVariable}>
           <PlusIcon className="size-3" />
@@ -562,7 +563,7 @@ function ProjectOverrideInheritance({
 }) {
   const layers = [
     { key: "project", label: "Workspace", enabled: projectEnabled, effective: true },
-    { key: "device", label: "Device", enabled: deviceEnabled, effective: false },
+    { key: "device", label: "Environment", enabled: deviceEnabled, effective: false },
   ];
   return (
     <Popover>
@@ -740,8 +741,7 @@ export function ProviderInstanceCard({
     : versionAdvisory?.targetVersion
       ? onInstallRecommended
       : onRunUpdate;
-  const displayName =
-    instance.displayName?.trim() || driverOption?.label || String(instance.driver);
+  const displayName = resolveProviderInstanceDisplayName({ instanceId, ...instance });
   const accentColor = normalizeProviderAccentColor(instance.accentColor);
   const { copyToClipboard } = useCopyToClipboard<{ providerName: string }>({
     onCopy: ({ providerName }) => {
@@ -1087,7 +1087,7 @@ export function ProviderInstanceCard({
               />
               <SettingResetButton
                 label={`${displayName} enablement`}
-                tooltip="Reset to the device setting"
+                tooltip="Reset to the environment setting"
                 disabled={readOnly || !canWriteSettings}
                 onClick={projectOverride.onReset}
               />
@@ -1127,7 +1127,7 @@ export function ProviderInstanceCard({
             variant="ghost-destructive"
             disabled={readOnly}
             onClick={onDelete}
-            aria-label={`Delete instance ${instanceId}`}
+            aria-label={`Delete account ${instanceId}`}
           >
             <Trash2Icon />
           </Button>
@@ -1164,7 +1164,7 @@ export function ProviderInstanceCard({
       title="Driver"
       description={
         <span>
-          This instance uses <code className="text-foreground">{String(instance.driver)}</code>,
+          This account uses <code className="text-foreground">{String(instance.driver)}</code>,
           which is not available in this build. Its configuration is preserved.
         </span>
       }
@@ -1198,7 +1198,10 @@ export function ProviderInstanceCard({
                 className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
                 value={instance.displayName ?? ""}
                 onCommit={updateDisplayName}
-                placeholder={driverOption?.label ?? "Instance label"}
+                placeholder={resolveProviderInstanceDisplayName({
+                  instanceId,
+                  driver: instance.driver,
+                })}
                 spellCheck={false}
               />
             </div>

@@ -41,6 +41,8 @@ export interface SourceControlSignIn {
   ) => Effect.Effect<SourceControlSignInResult, SourceControlSignInError>;
   /** Ends the sign-in pending for `host`; its `wait` fails as cancelled. */
   readonly cancel: (host: string) => Effect.Effect<void>;
+  /** Where an account or organization installs the app; null when the server does not know. */
+  readonly installUrl: string | null;
   /** Whether the sign-in reaches `owner/name`, so clients can suggest installing the app there. */
   readonly access: (
     host: string,

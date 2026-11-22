@@ -64,7 +64,7 @@ export function RemoveCodenineConnectEnvironmentDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {shown.label} from this device?</AlertDialogTitle>
             <AlertDialogDescription>
-              This forgets its pairing, credentials, and cached threads here.
+              This forgets its pairing, credentials, and cached chats here.
             </AlertDialogDescription>
             <AlertDialogDescription>
               {shown.registration === "registered" ? (

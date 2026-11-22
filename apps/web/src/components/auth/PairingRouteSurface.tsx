@@ -146,8 +146,8 @@ export function HostedPairingRouteSurface() {
   );
   const [message, setMessage] = useState(
     request
-      ? "Connecting to this backend."
-      : "This pairing link is missing its backend host or token.",
+      ? "Connecting to this environment."
+      : "This pairing link is missing its environment host or token.",
   );
   const [canRetry, setCanRetry] = useState(false);
   const submitAttemptedRef = useRef(false);
@@ -156,7 +156,7 @@ export function HostedPairingRouteSurface() {
   const submitHostedPairingRequest = async () => {
     if (!request) {
       setStatus("error");
-      setMessage("This pairing link is missing its backend host or token.");
+      setMessage("This pairing link is missing its environment host or token.");
       setCanRetry(false);
       return;
     }
@@ -169,7 +169,7 @@ export function HostedPairingRouteSurface() {
     }
 
     setStatus("pairing");
-    setMessage("Connecting to this backend.");
+    setMessage("Connecting to this environment.");
     setCanRetry(false);
     tokenSubmittedRef.current = true;
 
@@ -187,7 +187,7 @@ export function HostedPairingRouteSurface() {
     setStatus("error");
     setCanRetry(true);
     setMessage(
-      `${errorMessageFromUnknown(squashAtomCommandFailure(result))} If the backend accepted this one-time token, request a new pairing link before retrying.`,
+      `${errorMessageFromUnknown(squashAtomCommandFailure(result))} If the environment accepted this one-time token, request a new pairing link before retrying.`,
     );
   };
 
@@ -211,10 +211,10 @@ export function HostedPairingRouteSurface() {
       <StandalonePageHeader
         title={
           status === "paired"
-            ? "Backend paired"
+            ? "Environment paired"
             : status === "error"
               ? "Pairing failed"
-              : "Pairing backend"
+              : "Pairing environment"
         }
         description={message}
       />
@@ -228,8 +228,8 @@ export function HostedPairingRouteSurface() {
       {status === "error" ? (
         <Alert variant="error" className="mt-5">
           <AlertDescription>
-            Verify the backend is reachable from this browser, supports CORS for hosted clients, and
-            is served over HTTPS when opening this page from HTTPS.
+            Verify the environment is reachable from this browser, supports CORS for hosted clients,
+            and is served over HTTPS when opening this page from HTTPS.
           </AlertDescription>
         </Alert>
       ) : null}

@@ -866,17 +866,17 @@ describe("subagent worktree ownership", () => {
         outcome: removed ? "removed" : "kept",
         reason: removed
           ? scenario === "immediate"
-            ? "Settled for 0 days"
-            : "Settled for 20 days"
+            ? "Chat done for 0 days"
+            : "Chat done for 20 days"
           : scenario === "settle-grace"
-            ? "Settled moments ago"
+            ? "Chat done moments ago"
             : scenario === "recent-settle"
-              ? "Settled for 0 of 8 days"
+              ? "Chat done for 0 of 8 days"
               : scenario === "recent-child-activity"
-                ? "Settled for 2 of 8 days"
+                ? "Chat done for 2 of 8 days"
                 : scenario === "running-child" || scenario === "pending-child"
-                  ? "Thread is running or has pending work"
-                  : "Not settled",
+                  ? "Chat is running or has pending work"
+                  : "Chat not done",
       });
     }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
   );
@@ -936,7 +936,7 @@ describe("subagent worktree ownership", () => {
         yield* Deferred.succeed(fixture.resume, undefined);
         expect((yield* Fiber.join(run)).entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Parent settlement changed since check",
+          reason: "Parent chat's done state changed since check",
         });
         expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
       }),
@@ -1067,20 +1067,20 @@ describe("subagent worktree ownership", () => {
         threadId: shared ? child.id : root.id,
         outcome: removed ? "removed" : "kept",
         reason: removed
-          ? "Settled for 20 days"
+          ? "Chat done for 20 days"
           : scenario === "running" || scenario === "pending"
-            ? "Thread is running or has pending work"
+            ? "Chat is running or has pending work"
             : shared
-              ? "Shared by 2 threads"
+              ? "Shared by 2 chats"
               : scenario === "null-branch" || scenario === "stale-branch"
-                ? "A subagent thread's branch differs from this worktree's branch"
+                ? "A subagent chat's branch differs from this worktree's branch"
                 : scenario === "recent-activity"
-                  ? "Settled for 2 of 8 days"
+                  ? "Chat done for 2 of 8 days"
                   : scenario === "recent-inactive"
                     ? "Inactive for 2 of 8 days"
                     : ["recent-grace", "recent-settle", "child-settled-now"].includes(scenario)
-                      ? "Settled moments ago"
-                      : "Not settled",
+                      ? "Chat done moments ago"
+                      : "Chat not done",
       });
     }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
   );
@@ -1134,7 +1134,7 @@ describe("subagent worktree ownership", () => {
         yield* Deferred.succeed(fixture.resume, undefined);
         expect((yield* Fiber.join(run)).entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Thread activity or shared worktree changed since check",
+          reason: "Chat activity or shared worktree changed since check",
         });
         expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
       }),
@@ -1183,7 +1183,7 @@ describe("deleted thread worktrees", () => {
         expect(report.entries[0]).toMatchObject({
           threadId: owner.id,
           outcome: "removed",
-          reason: "Thread was deleted",
+          reason: "Chat was deleted",
         });
         expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
       }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
@@ -1444,7 +1444,7 @@ describe("deleted thread worktrees", () => {
             expect((yield* fixture.service.latestReport)?.entries[0]).toMatchObject({
               threadId: owner.id,
               outcome: "kept",
-              reason: "Thread deletion is still pending",
+              reason: "Chat deletion is still pending",
             });
           }),
           fixture.repo,
@@ -1542,7 +1542,7 @@ describe("deleted thread worktrees", () => {
       expect(report.entries[0]).toMatchObject({
         threadId: owner.id,
         outcome: "kept",
-        reason: "Settled moments ago",
+        reason: "Chat done moments ago",
       });
       expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
     }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
@@ -1656,7 +1656,7 @@ describe("orphan worktree reports", () => {
             {
               kind: "worktree",
               outcome: "kept",
-              reason: "No thread uses this worktree",
+              reason: "No chat uses this worktree",
               path: orphan,
               projectPath: null,
               threadId: null,
@@ -1791,7 +1791,7 @@ describe("orphan worktree reports", () => {
             path: folder,
             outcome: "kept",
             bytes: yield* allocatedBytes(fixture.fs, `${folder}/payload`),
-            reason: "No thread uses this folder, and it isn't a git worktree",
+            reason: "No chat uses this folder, and it isn't a git worktree",
           }),
         ]);
         expect(report.bytesFreed).toBe(0);
@@ -1825,7 +1825,7 @@ describe("orphan worktree reports", () => {
           report.entries
             .map((entry) => ({ path: entry.path, reason: entry.reason }))
             .sort((left, right) => String(left.path).localeCompare(String(right.path))),
-        ).toEqual(worktrees.map((path) => ({ path, reason: "No thread uses this worktree" })));
+        ).toEqual(worktrees.map((path) => ({ path, reason: "No chat uses this worktree" })));
       }),
     ),
   );
@@ -2123,7 +2123,7 @@ describe("storage cleanup reports and local file policies", () => {
           const report = yield* Fiber.join(cleanup);
           expect(report.entries[0]).toMatchObject({
             outcome: "kept",
-            reason: "Contains a project checkout",
+            reason: "Contains a workspace checkout",
           });
           expect(yield* fixture.fs.readFileString(`${fixture.worktree}/tracked.txt`)).toBe(
             "original\n",
@@ -2297,7 +2297,7 @@ describe("storage cleanup reports and local file policies", () => {
         const report = yield* Fiber.join(cleanup);
         expect(report.entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Thread activity or shared worktree changed since check",
+          reason: "Chat activity or shared worktree changed since check",
           bytes: null,
         });
         expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
@@ -2369,7 +2369,7 @@ describe("storage cleanup reports and local file policies", () => {
         const report = yield* Fiber.join(cleanup);
         expect(report.entries[0]).toMatchObject({
           outcome: "kept",
-          reason: "Thread activity or shared worktree changed since check",
+          reason: "Chat activity or shared worktree changed since check",
           bytes: null,
         });
         expect(report.bytesFreed).toBe(0);
@@ -2494,9 +2494,9 @@ describe("storage cleanup reports and local file policies", () => {
     ),
   );
   it.live.each([
-    ["unchanged", "removed", "No commits beyond the project branch"],
-    ["unmerged", "kept", "Has commits beyond the project branch"],
-    ["detached", "kept", "Project branch is unavailable"],
+    ["unchanged", "removed", "No commits beyond the workspace branch"],
+    ["unmerged", "kept", "Has commits beyond the workspace branch"],
+    ["detached", "kept", "Workspace branch is unavailable"],
     ["merged-only", "kept", "No remote is configured for merged-worktree cleanup"],
   ] as const)("cleans archived local-only worktrees: %s", ([state, outcome, reason]) =>
     runCleanupTest(
@@ -2809,7 +2809,7 @@ describe("settled worktree rechecks", () => {
           yield* Deferred.succeed(fixture.resume, undefined);
           const report = yield* Fiber.join(run);
           expect(report.entries[0]?.reason).toBe(
-            "Thread activity or shared worktree changed since check",
+            "Chat activity or shared worktree changed since check",
           );
           expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
         }),

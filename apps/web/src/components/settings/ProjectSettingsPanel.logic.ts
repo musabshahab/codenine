@@ -1,9 +1,7 @@
 import type { ProjectIconOverride } from "@codenine/contracts";
-import { PERSONAL_WORKSPACE_NAME } from "@codenine/client-runtime/state/projects";
 
 import type { Project } from "../../types";
 
-export const SCRATCH_PROJECT_TITLE = PERSONAL_WORKSPACE_NAME;
 const SCRATCH_PROJECT_ICON = {
   kind: "lucide",
   name: "message-square-dashed",
@@ -16,6 +14,10 @@ export function projectGroupTitleNeedsUpdate(
   wasEdited: boolean,
 ): boolean {
   return wasEdited && memberTitles.some((title) => title !== nextTitle);
+}
+
+export function isPersonalWorkspace(members: ReadonlyArray<Pick<Project, "isScratch">>): boolean {
+  return members.length > 0 && members.every((member) => member.isScratch === true);
 }
 
 export function defaultProjectIcon(project: Pick<Project, "isScratch">) {

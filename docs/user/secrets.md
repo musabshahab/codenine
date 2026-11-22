@@ -4,7 +4,7 @@ Agents can ask you for a secret in a private card instead of in the chat.
 
 ## When an agent asks for a secret
 
-An agent that needs a token or password shows a secret request card in the thread instead of asking
+An agent that needs a token or password shows a secret request card in the chat instead of asking
 you to paste it into the chat. Type or paste the value and select **Save securely**, or select
 **Decline**.
 

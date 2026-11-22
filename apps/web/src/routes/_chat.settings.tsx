@@ -18,13 +18,13 @@ import { SETTINGS_DEVICE_ONLY_PATHS } from "../components/settings/SettingsScope
 import { SettingsPageContainer } from "../components/settings/settingsLayout";
 import {
   retainSettingsScope,
+  settingsRedirect,
   validateSettingsRouteSearch,
 } from "../components/settings/settingsScopeNavigation";
 import {
   getSettingsSearchTargetScope,
   getThreadAutoSettlementSearchAvailability,
   isSettingsSearchScopeAvailable,
-  movedSettingsPath,
 } from "../components/settings/settingsSearch";
 
 function RestoreDeviceDefaultsButton({ onRestored }: { onRestored: () => void }) {
@@ -79,9 +79,15 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
       searchTarget.scope === "checkout"
         ? searchTarget.scope
         : "all";
+    const message = {
+      all: `${searchTarget.title} applies to the whole environment, not to one workspace.`,
+      environment: `${searchTarget.title} is set per environment. Choose one:`,
+      project: `Choose a workspace to see ${searchTarget.title}.`,
+      checkout: `Choose a checkout to see ${searchTarget.title}.`,
+    }[target];
     return (
       <SettingsScopeNotice target={target} targetId={hash}>
-        {`${searchTarget.title} is not available for the selected target. Choose its owning scope to continue.`}
+        {message}
       </SettingsScopeNotice>
     );
   }
@@ -95,10 +101,15 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
       </SettingsPageContainer>
     );
   if (scope.kind === "environment" && connectedEnvironments.length === 0) {
+    const connecting =
+      environments.find((environment) => environment.environmentId === scope.environmentId)
+        ?.connection.phase === "connecting";
     return (
       <SettingsPageContainer>
         <p className="text-sm text-muted-foreground">
-          Reconnect {scope.label} to change its settings.
+          {connecting
+            ? `Connecting to ${scope.label}…`
+            : `Reconnect ${scope.label} to change its settings.`}
         </p>
       </SettingsPageContainer>
     );
@@ -150,7 +161,7 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers"}
+      singleEnvironment={pathname === "/settings/providers" || pathname === "/settings/diagnostics"}
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({
@@ -177,8 +188,8 @@ export const Route = createFileRoute("/_chat/settings")({
     if (location.pathname === "/settings") {
       throw redirect({ to: "/settings/general", replace: true });
     }
-    const moved = movedSettingsPath(location.pathname, location.hash);
-    if (moved) throw redirect({ to: moved, search: true, hash: true, replace: true });
+    const target = settingsRedirect(location);
+    if (target) throw redirect({ ...target, hash: true, replace: true });
   },
   component: SettingsRouteLayout,
 });

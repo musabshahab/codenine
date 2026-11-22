@@ -209,7 +209,7 @@ export function PullRequestThreadDialog({
           </DialogTitle>
           <DialogDescription>
             Resolve a {sourceControlPresentation.providerName} {terminology.singular}, then create
-            the draft thread in the main repo or in a dedicated worktree.
+            the draft chat in the main repo or in a dedicated worktree.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

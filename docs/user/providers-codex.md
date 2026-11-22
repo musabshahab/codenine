@@ -16,7 +16,7 @@ Fast and Ultrafast speeds are unavailable with this connection. To use the speed
 options your account supports, [sign in with the Codex CLI](#sign-in-with-the-codex-cli).
 
 When reconnecting, choose the same account in Codenine and on OpenAI's sign-in
-page. Disconnecting stops running threads but keeps their history and lets you
+page. Disconnecting stops running chats but keeps their history and lets you
 reconnect later.
 
 If remote sign-in cannot return automatically, paste the full URL from the final
@@ -85,7 +85,7 @@ sign in again.
 
 ## Answer questions while Codex works
 
-Codex can ask a question and keep working. Answer it in the thread's question
+Codex can ask a question and keep working. Answer it in the chat's question
 panel. The answer becomes a new message: it reaches the active turn, or starts
 another turn if Codex has finished. Unanswered questions survive reconnects.
 If you do not want to answer, dismiss the question from its panel. Dismissing
@@ -95,20 +95,20 @@ supports async questions.
 ## Approve app access
 
 Codex tools can request access to another app. Respond to the named app's request
-in the thread. Some tools offer access for one request,
+in the chat. Some tools offer access for one request,
 the current session, or permanently. See [Permission modes](./permission-modes.md)
 for command and file approvals.
 
 ## Codex says I hit a usage limit
 
-When Codex stops on a usage limit, the thread names the window that ran out and
+When Codex stops on a usage limit, the chat names the window that ran out and
 when it resets, when Codex reports them. Send the message again after the reset. On a workspace plan the
 message also says whether your workspace owner needs to add credits or raise the
 spend limit to continue sooner.
 
 ## Send feedback to OpenAI
 
-In an existing Codex thread, send `/feedback` with an optional description, for
+In an existing Codex chat, send `/feedback` with an optional description, for
 example `/feedback The agent stopped before finishing the tests`. This uploads
 the conversation and Codex logs to OpenAI. The returned thread ID can be shared
 with OpenAI support.

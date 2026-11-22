@@ -1,6 +1,12 @@
+import * as Option from "effect/Option";
+import type { SourceControlProviderAuth } from "@codenine/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { groupHostAccounts, nextHostAccountChoices } from "./SourceControlAccountSettings.logic";
+import {
+  credentialProblem,
+  groupHostAccounts,
+  nextHostAccountChoices,
+} from "./SourceControlAccountSettings.logic";
 
 describe("groupHostAccounts", () => {
   it("groups logins by host, keeping broken and environment logins out of the picker", () => {
@@ -37,6 +43,15 @@ describe("groupHostAccounts", () => {
       },
     ]);
   });
+
+  it("keeps a host turned off in Settings switchable after its logins are gone", () => {
+    expect(
+      groupHostAccounts(
+        [{ host: "ghe.acme.test", account: "jm", active: true, authenticated: true }],
+        { "github.com": { enabled: false }, "ghe.acme.test": { enabled: false } },
+      ).map((group) => group.host),
+    ).toEqual(["ghe.acme.test", "github.com"]);
+  });
 });
 
 describe("nextHostAccountChoices", () => {
@@ -51,5 +66,55 @@ describe("nextHostAccountChoices", () => {
     expect(
       nextHostAccountChoices(disabled, "github.com", { enabled: true, account: null }),
     ).toEqual(other);
+  });
+});
+
+describe("credentialProblem", () => {
+  const brokenLogin = {
+    host: "github.com",
+    account: "jm",
+    active: true,
+    authenticated: false,
+    error: "The token in keyring is invalid.",
+  };
+  const auth = (
+    detail: string,
+    host?: string,
+    accounts?: SourceControlProviderAuth["accounts"],
+  ): SourceControlProviderAuth => ({
+    status: "unauthenticated",
+    account: Option.none(),
+    host: Option.fromNullishOr(host),
+    detail: Option.some(detail),
+    ...(accounts === undefined ? {} : { accounts }),
+  });
+
+  it.each([
+    {
+      name: "gh not signed in",
+      auth: auth(
+        "Run `gh auth login` to authenticate GitHub CLI with an active account.",
+        undefined,
+        [],
+      ),
+      expected: null,
+    },
+    {
+      name: "gh login error",
+      auth: auth(brokenLogin.error, "github.com", [brokenLogin]),
+      expected: null,
+    },
+    {
+      name: "refused GH_TOKEN beside a broken gh login",
+      auth: auth("GitHub refused the token in GH_TOKEN.", "github.com", [brokenLogin]),
+      expected: "GitHub refused the token in GH_TOKEN.",
+    },
+    {
+      name: "unreadable saved token",
+      auth: auth("Could not read the credential.", "github.com"),
+      expected: "Could not read the credential.",
+    },
+  ])("$name", ({ auth, expected }) => {
+    expect(credentialProblem(auth)).toBe(expected);
   });
 });

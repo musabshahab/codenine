@@ -4,6 +4,7 @@ import {
   settlePromise,
   squashAtomCommandFailure,
 } from "@codenine/client-runtime/state/runtime";
+import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 
 import { useEnvironmentProviders, useEnvironments } from "~/state/environments";
@@ -28,30 +29,52 @@ export function useCheckProviderUpdates() {
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
+  const navigate = useNavigate();
   const inFlight = useRef<Promise<void> | null>(null);
 
   const check = async (quiet: boolean) => {
-    const failures = await Promise.all(
-      environments
-        .filter(
-          (environment) =>
-            environment.connection.phase === "connected" &&
-            manageableIds.has(environment.environmentId),
-        )
-        .map(async ({ environmentId, label }) => {
-          const result = await refreshProviders({ environmentId, input: { refreshModels: true } });
-          if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return [];
-          const error = squashAtomCommandFailure(result);
-          return [`${label}: ${error instanceof Error ? error.message : "Refresh failed."}`];
-        }),
+    const targets = environments.filter(
+      (environment) =>
+        environment.connection.phase === "connected" &&
+        manageableIds.has(environment.environmentId),
     );
+    const failures = await Promise.all(
+      targets.map(async ({ environmentId, label }) => {
+        const result = await refreshProviders({ environmentId, input: { refreshModels: true } });
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return [];
+        const error = squashAtomCommandFailure(result);
+        return [`${label}: ${error instanceof Error ? error.message : "Refresh failed."}`];
+      }),
+    );
+    if (quiet) return;
     const lines = failures.flat();
-    if (quiet || lines.length === 0) return;
-    toastManager.add(
+    if (lines.length > 0) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not check provider updates",
+          description: <span className="whitespace-pre-line">{lines.join("\n")}</span>,
+        }),
+      );
+    }
+    const checksOff = targets.filter(
+      (environment) => environment.serverConfig?.settings.enableProviderUpdateChecks === false,
+    );
+    if (checksOff.length === 0) return;
+    const where =
+      targets.length > 1 ? `Off on ${checksOff.map(({ label }) => label).join(", ")}. ` : "";
+    const toastId = toastManager.add(
       stackedThreadToast({
-        type: "error",
-        title: "Could not check provider updates",
-        description: <span className="whitespace-pre-line">{lines.join("\n")}</span>,
+        type: "info",
+        title: "Provider update checks are off",
+        description: `${where}Turn them on in Settings › Maintenance to look for newer Codex and Claude versions.`,
+        actionProps: {
+          children: "Open settings",
+          onClick: () => {
+            toastManager.close(toastId);
+            void navigate({ to: "/settings/maintenance", hash: "provider-update-checks" });
+          },
+        },
       }),
     );
   };

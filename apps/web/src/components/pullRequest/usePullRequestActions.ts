@@ -97,8 +97,8 @@ export function usePullRequestHandoffs({
       setHandoff(null);
       toastManager.update(toastId, {
         type: "error",
-        title: "Could not open a thread for the checkout",
-        description: "Try again from the workspace, or open a thread first.",
+        title: "Could not open a chat for the checkout",
+        description: "Try again from the workspace, or open a chat first.",
       });
       return;
     }
@@ -130,8 +130,8 @@ export function usePullRequestHandoffs({
       setHandoff(null);
       toastManager.update(toastId, {
         type: "error",
-        title: "Checked out, but the thread stayed where it was",
-        description: `The checkout is ready on \`${prepared.value.branch}\`. Point a thread at it from the branch picker, then ask again.`,
+        title: "Checked out, but the chat stayed where it was",
+        description: `The checkout is ready on \`${prepared.value.branch}\`. Point a chat at it from the branch picker, then ask again.`,
       });
       return;
     }
@@ -145,8 +145,8 @@ export function usePullRequestHandoffs({
               title: mode === "local" ? "Checked out here" : "Checked out",
               description:
                 mode === "local"
-                  ? `This repository is on the ${terminology.singular}'s branch, with a thread open on it.`
-                  : `The ${terminology.singular} is in its own worktree, with a thread open on it.`,
+                  ? `This repository is on the ${terminology.singular}'s branch, with a chat open on it.`
+                  : `The ${terminology.singular} is in its own worktree, with a chat open on it.`,
             }
           : offHeadPullRequestCheckoutToast(terminology),
       );

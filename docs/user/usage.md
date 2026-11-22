@@ -9,7 +9,7 @@ when the terminal is not focused. Customize `usage.open` in
 **Usage** combines Codex and Claude Code history
 from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost, split by token type and by speed. These estimates are not your subscription bill.
-While an [OpenRouter](./providers-claude.md#use-openrouter) instance is enabled, OpenRouter models
+While an [OpenRouter](./providers-claude.md#use-openrouter) account is enabled, OpenRouter models
 are estimated from their token counts at OpenRouter's published prices; OpenRouter's activity page
 shows what it billed.
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
@@ -17,7 +17,7 @@ split, such as a provider-reported cost for a model without public rates, shows 
 Select a model under **Breakdown** to see its trend, cache hit rate, and cost per million tokens.
 
 Totals depend on the history available on each server.
-Text generation (thread titles, commit messages, PR text and branch names) is not in
+Text generation (chat titles, commit messages, PR text and branch names) is not in
 the totals for Codex or Claude Code 2.0.63 and newer, because those runs save no session history.
 
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
@@ -110,7 +110,7 @@ Keychain. On narrow screens, numbered rows below
 the bar show each account's use, countdown, and credits. Select a row to open its details.
 
 The same account signed in on more than one environment, or reported by a hub as well, counts once.
-Filter with the environment dropdown to see what a single machine has.
+Filter with the environment dropdown to see what a single environment has.
 
 When a Claude or Codex account has no overall weekly quota left, its pooled session contribution
 shows 100% used. The next refill depends on both reset times: an exhausted session must also reset,
@@ -127,10 +127,10 @@ current model's limits without leaving the conversation. The result opens above 
 closes when you dismiss it or send your next message. It uses the same snapshot as **Usage → Limits**, so it does not run the agent or refresh
 anything. The command is offered only for providers that appear under **Usage → Limits**.
 
-To keep them in view, turn on **Usage limits** in **Settings → Appearance → Thread details**, or right-click the thread details card.
-The bottom of the thread details card then shows how much of each limit window of the current
+To keep them in view, turn on **Usage limits** in **Settings → Appearance → Chat details**, or right-click the chat details card.
+The bottom of the chat details card then shows how much of each limit window of the current
 provider account is used. Some windows, such as a weekly Opus limit, count only one model. Hover a
-row to see when it resets and your pace. Turn on **Context window** to also show the thread's
+row to see when it resets and your pace. Turn on **Context window** to also show the chat's
 context use against the model's limit. A tick on the bar marks where the provider compacts
 automatically, when it reports that point.
 
@@ -140,7 +140,7 @@ has none; Limits links to its activity page instead.
 
 ## Connect a CLIProxyAPI hub
 
-To see pooled accounts, open **Settings → Accounts → Usage providers → Add hub**. Choose the
+To see pooled accounts, open **Settings → Accounts → Usage sources → Add hub**. Choose the
 environment that will connect to the hub and enter its URL and management key.
 
 The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an

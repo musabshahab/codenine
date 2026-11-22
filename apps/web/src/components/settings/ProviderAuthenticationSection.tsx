@@ -291,7 +291,7 @@ export function ProviderAuthenticationSection({
                 onClick={() => {
                   void ensureLocalApi()
                     .dialogs.confirm(
-                      `Sign out of ${provider.displayName ?? provider.driver} on ${environmentLabel}? This stops running threads that share this sign-in. Thread history is kept.`,
+                      `Sign out of ${provider.displayName ?? provider.driver} on ${environmentLabel}? This stops running chats that share this sign-in. Chat history is kept.`,
                     )
                     .then((confirmed) => {
                       if (confirmed) void run(() => logout(target));

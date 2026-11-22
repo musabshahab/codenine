@@ -62,8 +62,8 @@ export function PullRequestRoutingSettings({
       }
     >
       <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-        Machines you trust here can read linked PR status through each other's source control
-        access. Enable both machines. This applies only to this device.
+        Environments you trust here can read linked PR status through each other's source control
+        access. Enable both environments. This applies only to this device.
       </p>
       {environments.map((environment) => (
         <EnvironmentRow

@@ -391,7 +391,7 @@ function DiagnosticsSettingsBody() {
             value={data ? formatCount(data.slowSpanCount) : "..."}
             tooltip={
               data
-                ? `Spans with a duration of ${formatDuration(data.slowSpanThresholdMs)} or longer.`
+                ? `Spans with a duration of ${formatDuration(data.slowSpanThresholdMs)} or longer, not counting open subscriptions.`
                 : "Spans at or above the configured slow-span threshold."
             }
             tone={data && data.slowSpanCount > 0 ? "warning" : "default"}

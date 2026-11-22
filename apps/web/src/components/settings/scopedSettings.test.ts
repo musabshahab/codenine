@@ -13,6 +13,7 @@ import { resolveWorktreeCleanup } from "@codenine/shared/projectSettings";
 
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import {
+  listProjectOverrides,
   persistScopedSettingsPatch,
   planProjectOverridesClear,
   planScopedSettingsClear,
@@ -591,6 +592,55 @@ describe("project overrides at environment scope", () => {
         },
       },
     ]);
+  });
+
+  it("lists and resets only the given fields of an object override", () => {
+    const style = DEFAULT_SERVER_SETTINGS.sourceControlWritingStyle;
+    const environments = [
+      environment(laptop, {
+        [fleet]: {
+          sourceControlWritingStyle: {
+            ...style,
+            mode: "custom",
+            customInstructions: "Be terse.",
+            followChangeRequestTemplates: false,
+          },
+        },
+        [codenine]: {
+          sourceControlWritingStyle: { ...style, followChangeRequestTemplates: false },
+        },
+      }),
+    ];
+    const both = [
+      { environmentId: laptop, projectId: fleet },
+      { environmentId: laptop, projectId: codenine },
+    ];
+    expect(
+      listProjectOverrides(
+        environments,
+        ["sourceControlWritingStyle"],
+        ["mode", "customInstructions"],
+      ),
+    ).toEqual([{ environmentId: laptop, projectId: fleet }]);
+    expect(
+      planProjectOverridesClear(
+        environments,
+        both,
+        ["sourceControlWritingStyle"],
+        ["followChangeRequestTemplates"],
+      ).serverWrites[0]?.patch,
+    ).toEqual({
+      projectSettingsOverrides: {
+        [fleet]: {
+          sourceControlWritingStyle: {
+            mode: "custom",
+            customInstructions: "Be terse.",
+            followChangeRequestTemplates: true,
+          },
+        },
+        [codenine]: null,
+      },
+    });
   });
 });
 

@@ -10,6 +10,7 @@ import { resolveShortcutCommand } from "../../keybindings";
 import {
   buildKeybindingRows,
   buildWhenVariableOptions,
+  commandLabel,
   filterKeybindingRows,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
@@ -88,6 +89,22 @@ describe("KeybindingsSettings.logic", () => {
     ]);
   });
 
+  it("labels chat and workspace commands in user words and still finds them by their ids", () => {
+    expect(
+      (["thread.next", "thread.jump.1", "threadPanel.toggle", "projectSearch.toggle"] as const).map(
+        (command) => commandLabel(command),
+      ),
+    ).toEqual(["Chat: Next", "Chat: Jump: 1", "Chat Panel: Toggle", "Workspace Search: Toggle"]);
+    expect(commandLabel("chat.newWithoutProject")).toBe("Chat: New Without Workspace");
+
+    const rows = buildKeybindingRows(compileResolvedKeybindingsConfig([]));
+    const found = (query: string) =>
+      filterKeybindingRows(rows, query).map((row) => String(row.command));
+    expect(found("projectSearch")).toEqual(["projectSearch.toggle"]);
+    expect(found("workspace search")).toEqual(["projectSearch.toggle"]);
+    expect(found("thread.next")).toEqual(["thread.next"]);
+  });
+
   it("finds a shortcut by its stored, displayed, and typed spellings", () => {
     const rows = buildKeybindingRows(
       compileResolvedKeybindingsConfig([
@@ -127,20 +144,23 @@ describe("KeybindingsSettings.logic", () => {
     ).toBe("mod+shift+k");
   });
 
-  it("waits for a key when only a modifier is pressed", () => {
+  it.each([
+    ["only a modifier", { key: "Meta", code: "MetaLeft", metaKey: true, shiftKey: false }],
+    ["bare Tab", { key: "Tab", code: "Tab", metaKey: false, shiftKey: false }],
+    ["Shift+Tab", { key: "Tab", code: "Tab", metaKey: false, shiftKey: true }],
+  ])("records nothing for %s", (_name, pressed) => {
+    expect(
+      keybindingFromKeyboardEvent({ ...pressed, ctrlKey: false, altKey: false }, "MacIntel"),
+    ).toBeNull();
+  });
+
+  it("records Tab with a command modifier", () => {
     expect(
       keybindingFromKeyboardEvent(
-        {
-          key: "Meta",
-          code: "MetaLeft",
-          metaKey: true,
-          ctrlKey: false,
-          altKey: false,
-          shiftKey: false,
-        },
-        "MacIntel",
+        { key: "Tab", code: "Tab", metaKey: false, ctrlKey: true, altKey: false, shiftKey: false },
+        "Win32",
       ),
-    ).toBeNull();
+    ).toBe("mod+tab");
   });
 
   it.each([

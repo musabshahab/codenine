@@ -148,3 +148,30 @@ export function resolveSettingsScope(
     environmentIds: environments.map((candidate) => candidate.environmentId),
   };
 }
+
+/** Names where a server-setting write lands, for rows on pages without the scope sentence. */
+export function settingsScopeSavedTarget(
+  scope: ResolvedSettingsScope,
+  environments: readonly Pick<EnvironmentPresentation, "environmentId" | "label">[],
+): string | null {
+  const labelOf = (environmentId: EnvironmentId) =>
+    environments.find((candidate) => candidate.environmentId === environmentId)?.label ??
+    environmentId;
+  const on =
+    scope.environmentIds.length === 1
+      ? labelOf(scope.environmentIds[0]!)
+      : scope.kind === "project"
+        ? "all its environments"
+        : "all environments";
+  switch (scope.kind) {
+    case "unavailable":
+      return null;
+    case "all":
+    case "environment":
+      return `Saved on ${on}.`;
+    case "project":
+      return `Saved for ${scope.group.displayName} on ${on}.`;
+    case "checkout":
+      return `Saved for ${scope.group.displayName} at ${scope.checkout.workspaceRoot} on ${on}.`;
+  }
+}

@@ -1,4 +1,9 @@
-import { DEFAULT_SERVER_SETTINGS, EnvironmentId, ProjectId } from "@codenine/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  EnvironmentId,
+  ProjectId,
+  withIdleCompaction,
+} from "@codenine/contracts";
 import { resolveProjectSettings } from "@codenine/shared/projectSettings";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -97,6 +102,61 @@ describe("settingInheritanceLayers", () => {
       ["Current checkout", true],
       ["Inherits", false],
       ["Current checkout", false],
+    ]);
+  });
+
+  it("reads idle compaction as the mode both servers' forms resolve to", () => {
+    const settings = withIdleCompaction(DEFAULT_SERVER_SETTINGS, "onReturn");
+    const target = {
+      environmentId,
+      label: "Laptop",
+      projectId: null,
+      ...resolveProjectSettings(settings, null),
+    };
+    expect(
+      settingInheritanceLayers(target, settings, "idleCompaction").map((layer) => [
+        layer.key,
+        layer.value,
+        layer.effective,
+      ]),
+    ).toEqual([
+      ["environment", "Inherits", false],
+      ["built-in", "When you return", true],
+    ]);
+  });
+
+  it("follows only a row's own fields of a shared object setting", () => {
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: {
+        [projectId]: {
+          sourceControlWritingStyle: {
+            ...DEFAULT_SERVER_SETTINGS.sourceControlWritingStyle,
+            mode: "custom" as const,
+            customInstructions: "Keep it short.",
+          },
+        },
+      },
+    };
+    const target = {
+      environmentId,
+      label: "Laptop",
+      projectId,
+      ...resolveProjectSettings(settings, projectId),
+    };
+    const layers = (fields: readonly string[]) =>
+      settingInheritanceLayers(target, settings, "sourceControlWritingStyle", fields).map(
+        (layer) => [layer.key, layer.value, layer.effective],
+      );
+    expect(layers(["followChangeRequestTemplates"])).toEqual([
+      ["project", "Inherits", false],
+      ["environment", "Inherits", false],
+      ["built-in", "On", true],
+    ]);
+    expect(layers(["mode", "customInstructions"])).toEqual([
+      ["project", "Custom instructions", true],
+      ["environment", "Inherits", false],
+      ["built-in", "Repository conventions", false],
     ]);
   });
 });

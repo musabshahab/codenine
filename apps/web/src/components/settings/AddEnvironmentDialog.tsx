@@ -214,12 +214,12 @@ export function AddEnvironmentDialog({
         pairingCode: savedBackendPairingCode,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to add backend.";
+      const message = error instanceof Error ? error.message : "Failed to add environment.";
       onErrorChange(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not add backend",
+          title: "Could not add environment",
           description: message,
         }),
       );
@@ -234,12 +234,12 @@ export function AddEnvironmentDialog({
     if (result._tag === "Failure") {
       if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
-        const message = error instanceof Error ? error.message : "Failed to add backend.";
+        const message = error instanceof Error ? error.message : "Failed to add environment.";
         onErrorChange(message);
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not add backend",
+            title: "Could not add environment",
             description: message,
           }),
         );
@@ -258,7 +258,7 @@ export function AddEnvironmentDialog({
           }
         : {
             type: "success",
-            title: "Backend added",
+            title: "Environment added",
             description: "The environment is saved and will reconnect on app startup.",
           },
     );
@@ -397,7 +397,7 @@ export function AddEnvironmentDialog({
           <Input
             value={savedBackendHost}
             onChange={(event) => handleSavedBackendHostChange(event.target.value)}
-            placeholder="backend.example.com"
+            placeholder="codenine.example.com"
             disabled={isAddingSavedBackend}
             spellCheck={false}
           />
@@ -457,7 +457,7 @@ export function AddEnvironmentDialog({
       {relayRouteOffer !== null ? (
         <div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
           <p className="text-xs text-muted-foreground">
-            This machine is on your Codenine Connect account. Use it as a fallback route.
+            This environment is on your Codenine Connect account. Use it as a fallback route.
           </p>
           <Button
             size="xs"
@@ -629,7 +629,7 @@ export function AddEnvironmentDialog({
           </DialogTitle>
           <DialogDescription>
             {routeTarget
-              ? "Pair this machine again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second machine."
+              ? "Pair this environment again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second environment."
               : "Pair another environment to this client."}
           </DialogDescription>
         </DialogHeader>
@@ -639,14 +639,14 @@ export function AddEnvironmentDialog({
               {renderConnectionModeCard({
                 mode: "remote",
                 title: "Remote link",
-                description: "Enter a backend host and pairing code.",
+                description: "Enter an environment host and pairing code.",
                 icon: <ChevronsLeftRightEllipsisIcon aria-hidden className="size-4" />,
               })}
               {desktopBridge
                 ? renderConnectionModeCard({
                     mode: "ssh",
                     title: "SSH",
-                    description: "Use local SSH config, agent, and tunnels for the backend.",
+                    description: "Use local SSH config, agent, and tunnels for the environment.",
                     icon: <TerminalIcon aria-hidden className="size-4" />,
                   })
                 : null}

@@ -109,9 +109,9 @@ export function useThreadActionMenu(input: {
   });
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
     onCopy: ({ threadId }) => {
-      toastManager.add({ type: "success", title: "Thread ID copied", description: threadId });
+      toastManager.add({ type: "success", title: "Chat ID copied", description: threadId });
     },
-    onError: (error) => failureToast("Failed to copy thread ID", error),
+    onError: (error) => failureToast("Failed to copy chat ID", error),
   });
 
   const openMenu = (position: { x: number; y: number }) => {

@@ -868,7 +868,7 @@ export default function ChatView(props: ChatViewProps) {
         });
   const parentThreadLink = (() => {
     if (sideChatParentRef !== null) {
-      const title = sideChatParent?.title ?? "Parent thread";
+      const title = sideChatParent?.title ?? "Parent chat";
       // Embedded, the parent is the view around it.
       if (embedded) return { title, sideChat: true };
       return {
@@ -884,7 +884,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     if (parentSubagentThreadRef !== null) {
       return {
-        title: parentSubagentThread?.title ?? "Parent thread",
+        title: parentSubagentThread?.title ?? "Parent chat",
         open: (): void => {
           void navigate({
             to: "/$environmentId/$threadId",
@@ -900,7 +900,7 @@ export default function ChatView(props: ChatViewProps) {
     parentSubagentThreadRef !== null
       ? {
           threadId: parentSubagentThreadRef.threadId,
-          title: parentSubagentThread?.title ?? "Parent thread",
+          title: parentSubagentThread?.title ?? "Parent chat",
           task: false,
         }
       : teamAgentThread?.leadTitle != null
@@ -2729,7 +2729,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.lineage.sideChat === true
       ? "Side chats cannot start side chats."
       : isSubagentThread
-        ? "Subagent threads cannot start side chats."
+        ? "Subagent chats cannot start side chats."
         : serverConfig === null
           ? "Side chats are not ready yet. Try again in a moment."
           : serverConfig.environment.capabilities.sideChats !== true
@@ -2741,7 +2741,7 @@ export default function ChatView(props: ChatViewProps) {
                     activeThread?.worktreePath ?? null,
                     serverProjection?.runs ?? [],
                   )
-                ? "Available once the thread's worktree is set up."
+                ? "Available once the chat's worktree is set up."
                 : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const sendSideChatStable = useStableCallback((prompt: string) => sideChat.open(prompt));
@@ -3554,9 +3554,9 @@ export default function ChatView(props: ChatViewProps) {
                                 isRevertingCheckpoint={isRevertingCheckpoint}
                                 sendDisabledReason={
                                   !canOperateThread
-                                    ? "This connection cannot change threads."
+                                    ? "This connection cannot change chats."
                                     : isEnvironmentChanging
-                                      ? "Preparing machine"
+                                      ? "Preparing environment"
                                       : isRevertingCheckpoint
                                         ? "Rewinding conversation"
                                         : feedbackUploading

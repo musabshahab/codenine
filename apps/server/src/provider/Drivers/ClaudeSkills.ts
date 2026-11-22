@@ -577,8 +577,16 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
       const userInvocationOnly =
         (frontmatter.kind === "parsed" && frontmatter.userInvocationOnly === true) ||
         override?.userInvocationOnly === true;
+      // Claude lists a folder skill's slash command under its frontmatter name, plugin-prefixed.
+      const declaredName =
+        !singleSkill && frontmatter.kind === "parsed" ? frontmatter.name : undefined;
+      const alias =
+        declaredName && root.prefix && !declaredName.startsWith(`${root.prefix}:`)
+          ? `${root.prefix}:${declaredName}`
+          : declaredName;
       skillsByName.set(name, {
         name,
+        ...(alias && alias !== name ? { alias } : {}),
         path: skillPath,
         enabled: override?.enabled ?? true,
         scope: root.scope,

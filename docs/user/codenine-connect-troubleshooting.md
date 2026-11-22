@@ -57,7 +57,7 @@ Common causes:
 If you cannot unblock the port, you can connect without Codenine Connect. When the
 host and this device are on the same Tailscale network, add the host's
 Tailscale address as a direct route. See
-[Reach one machine several ways](./remote-access.md#reach-one-machine-several-ways).
+[Reach one environment several ways](./remote-access.md#reach-one-environment-several-ways).
 
 ## The tunnel works, but Codenine does not answer
 
@@ -97,7 +97,7 @@ Fix:
    Connect. Turn it off for a moment to test.
 3. Try another network, or add a direct route to the host, such as its
    Tailscale address. See
-   [Reach one machine several ways](./remote-access.md#reach-one-machine-several-ways).
+   [Reach one environment several ways](./remote-access.md#reach-one-environment-several-ways).
 
 ## Sign-in, account, or link problems
 

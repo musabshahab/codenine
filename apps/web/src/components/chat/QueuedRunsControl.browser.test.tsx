@@ -145,7 +145,7 @@ it("shows who sent a queued message and folds agent prompts", async () => {
   await using _screen = await renderQueue({ onOpenThread });
 
   await expect.element(page.getByRole("button", { name: /Release lead/ })).toBeVisible();
-  await page.getByRole("button", { name: "Open thread" }).click({ force: true });
+  await page.getByRole("button", { name: "Open chat" }).click({ force: true });
   expect(onOpenThread).toHaveBeenCalledExactlyOnceWith("thread:lead");
 
   await expect.element(page.getByText("Sent by Codenine")).toBeVisible();

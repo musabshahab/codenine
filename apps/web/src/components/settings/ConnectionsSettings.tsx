@@ -144,12 +144,8 @@ const BACKEND_VALUE_WSL_OFF = "backend:wsl-off";
 
 // Subscribes on its own so desktop download progress does not re-render the page.
 function LocalVersionStatusLabel() {
-  const updateState = useDesktopUpdateState();
-  return (
-    <span className="text-xs text-muted-foreground">
-      {resolveLocalVersionStatusLabel(updateState)}
-    </span>
-  );
+  const label = resolveLocalVersionStatusLabel(useDesktopUpdateState());
+  return label === null ? null : <span className="text-xs text-muted-foreground">{label}</span>;
 }
 
 /** Environments lists the machines this app connects to; access covers who may reach one of them. */
@@ -607,12 +603,12 @@ function ConnectionsSettingsContent({
       const message =
         error instanceof Error
           ? error.message
-          : `Failed to switch the backend ${enabled ? "on" : "off"}.`;
+          : `Failed to switch the environment ${enabled ? "on" : "off"}.`;
       setSavedBackendError(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: `Could not switch backend ${enabled ? "on" : "off"}`,
+          title: `Could not switch environment ${enabled ? "on" : "off"}`,
           description: message,
         }),
       );
@@ -627,12 +623,12 @@ function ConnectionsSettingsContent({
     setRemovingSavedEnvironmentId(null);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
-      const message = error instanceof Error ? error.message : "Failed to remove backend.";
+      const message = error instanceof Error ? error.message : "Failed to remove environment.";
       setSavedBackendError(message);
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Could not remove backend",
+          title: "Could not remove environment",
           description: message,
         }),
       );
@@ -649,7 +645,7 @@ function ConnectionsSettingsContent({
       return;
     }
     const confirmed = await requestConfirmDialog(
-      `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved.`,
+      `Remove ${environment.label} from this device?\nThis forgets its pairing, credentials, and cached chats here. Switch it off instead to keep it saved.`,
       { variant: "destructive" },
     );
     if (confirmed === true) await removeSavedBackend(environment);
@@ -956,7 +952,7 @@ function ConnectionsSettingsContent({
         tailscaleHttpsEndpoint
           ? tailscaleHttpsEndpoint.status === "available"
             ? tailscaleHttpsEndpoint.httpBaseUrl
-            : "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+            : "Use Tailscale Serve to expose this environment through a MagicDNS HTTPS URL."
           : missingTailscaleEndpointDescription(desktopServerExposureState)
       }
       control={
@@ -1089,7 +1085,8 @@ function ConnectionsSettingsContent({
           <SettingsSection
             {...searchableSetting("connections-environment")}
             title={
-              accessEnvironment?.label ?? (desktopBridge ? "This machine" : "Primary environment")
+              accessEnvironment?.label ??
+              (desktopBridge ? "This environment" : "Primary environment")
             }
             icon={
               <EnvironmentMachineIcon
@@ -1109,7 +1106,7 @@ function ConnectionsSettingsContent({
                         type="button"
                         variant="ghost-muted"
                         size="icon-xs"
-                        aria-label="More actions for this machine"
+                        aria-label="More actions for this environment"
                       />
                     }
                   >
@@ -1323,8 +1320,8 @@ function ConnectionsSettingsContent({
                 <AlertDialogDescription>
                   {pendingWslChange?.kind === "disable"
                     ? pendingWslChange.wasWslOnly
-                      ? "Codenine will restart on the Windows backend. Threads and workspaces opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
-                      : "The WSL backend will stop. Threads and workspaces opened against WSL stay safe inside the distro, but they'll be unavailable in Codenine until you re-enable WSL."
+                      ? "Codenine will restart on the Windows backend. Chats and workspaces opened against WSL stay safe inside the distro and become available again when you re-enable WSL."
+                      : "The WSL backend will stop. Chats and workspaces opened against WSL stay safe inside the distro, but they'll be unavailable in Codenine until you re-enable WSL."
                     : pendingWslChange?.kind === "distro"
                       ? "Codenine will restart the WSL backend on the new distro. Sessions still running on the current distro will be interrupted."
                       : pendingWslChange?.kind === "enable"
@@ -1573,6 +1570,7 @@ function ConnectionsSettingsContent({
         <CloudRemoteEnvironmentRows
           primaryEnvironmentId={primaryEnvironmentId}
           savedEnvironments={savedEnvironments}
+          listedEnvironmentCount={listedEnvironments.length}
         />
       </SettingsSection>
       {hasCloudPublicConfig() ? (

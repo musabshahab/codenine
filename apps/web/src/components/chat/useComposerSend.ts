@@ -507,7 +507,7 @@ export function useComposerSend(input: ComposerSendInput) {
           type: "warning",
           title: "Choose models and a base branch",
           description:
-            "Multiple models need a new thread in a Git workspace. Each gets its own worktree.",
+            "Multiple models need a new chat in a Git workspace. Each gets its own worktree.",
         }),
       );
       return;
@@ -534,12 +534,12 @@ export function useComposerSend(input: ComposerSendInput) {
     if (strandedThread) {
       const owner =
         readEnvironmentPresentation(strandedThread.environmentId)?.entry.target.label ??
-        "its machine";
+        "its environment";
       toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: "Attached thread is on another machine",
-          description: `This machine's agent can't read "${strandedThread.title}". Remove it, or switch back to ${owner} to send.`,
+          title: "Attached chat is on another environment",
+          description: `This environment's agent can't read "${strandedThread.title}". Remove it, or switch back to ${owner} to send.`,
         }),
       );
       return;
@@ -590,7 +590,7 @@ export function useComposerSend(input: ComposerSendInput) {
         toastManager.add(
           stackedThreadToast({
             type: "warning",
-            title: "Start a Codex thread first",
+            title: "Start a Codex chat first",
             description: "Send a message before you submit feedback.",
           }),
         );
@@ -862,7 +862,7 @@ export function useComposerSend(input: ComposerSendInput) {
       setThreadError(
         threadIdForSend,
         attachmentCapabilitiesBeforeDispatch.fileBlockReason ??
-          "This connection cannot change threads.",
+          "This connection cannot change chats.",
       );
       setDockedDraftHeroThreadKey((currentThreadKey) =>
         currentThreadKey === activeThreadKey ? null : currentThreadKey,
@@ -1324,7 +1324,7 @@ export function useComposerSend(input: ComposerSendInput) {
               title:
                 submissionIntent === "background"
                   ? "Background task failed"
-                  : "Could not start thread",
+                  : "Could not start chat",
               description: error instanceof Error ? error.message : "Failed to send message.",
               actionProps: {
                 children: "Open draft",

@@ -100,16 +100,16 @@ created in Settings can only be copied from the client that created them while
 its Sharing & access page stays open. If you leave or reload that page, create
 another link to share.
 
-### Reach one machine several ways
+### Reach one environment several ways
 
-A machine can have more than one route: LAN, Tailscale, another VPN, a public
+An environment can have more than one route: LAN, Tailscale, another VPN, a public
 URL, SSH, or Codenine Connect. Tailscale shares its `100.64.0.0/10` address range with
 other VPNs such as Cloudflare WARP, so an address in that range shows as VPN
-unless the machine confirms it is on Tailscale. To add a route, choose **Add
-route** in the machine's route list, or next to it in the Codenine Connect list.
-A pairing link for a saved machine is refused when it comes from an address
-that machine does not have yet; add that address with **Add route** instead.
-Pairing again over an address the machine already has still works. A new route
+unless the environment confirms it is on Tailscale. To add a route, choose **Add
+route** in the environment's route list, or next to it in the Codenine Connect list.
+A pairing link for a saved environment is refused when it comes from an address
+that environment does not have yet; add that address with **Add route** instead.
+Pairing again over an address the environment already has still works. A new route
 is placed by speed, in that order, and you can reorder routes at any time.
 
 While connected through Codenine Connect or a paired address, Codenine also learns the
@@ -120,7 +120,7 @@ the learned route follows it. The machine must allow network access for its LAN
 address to be learned: **Network access** in the desktop app, or the
 [local network](./background-service.md#local-network-access) choice in `codenine up`.
 You can reorder a learned route, but not remove it; it
-goes away with the route it was learned through, or when the machine stops
+goes away with the route it was learned through, or when the environment stops
 reporting that address.
 
 Codenine connects over the first route that answers. Away from home, a LAN
@@ -129,9 +129,9 @@ again, after the other routes, if none of them connect. While connected over a
 later route, Codenine checks the earlier ones when your network changes, when you
 return to the app, and every minute, and moves back as soon as one works.
 
-Select the route count under the machine's name in
+Select the route count under the environment's name in
 **Settings → Environments** to see its routes. Drag a route to change the order,
-or remove it. Signing out of Codenine Connect removes only that route; a machine
+or remove it. Signing out of Codenine Connect removes only that route; an environment
 you can still reach another way stays saved.
 
 Open **Permissions** next to **Routes** to see what your current connection can do on that
@@ -140,22 +140,22 @@ shown there apply only to the route marked **In use**; other routes are not
 checked. Direct pairing and Codenine Connect have separate sessions and may grant
 different permissions.
 
-### Balance new threads across machines
+### Balance new chats across environments
 
 Auto balance is off by default. Enable it in
-**Settings → Environments → Load balancing** to automatically choose a machine for
-new threads in workspaces grouped across connected environments. The section
-appears once two or more machines are switched on.
-Each machine starts at **Normal**. Choose **Prefer** to favor it when it has CPU and
+**Settings → Environments → Load balancing** to automatically choose an environment for
+new chats in workspaces grouped across connected environments. The section
+appears once two or more environments are switched on.
+Each environment starts at **Normal**. Choose **Prefer** to favor it when it has CPU and
 memory available, **Less often** to reduce its share, or **Manual only** to exclude
 it from automatic selection. These are preferences, not fixed traffic percentages.
 Preferences are saved separately in each client.
 
-The composer checks eligible machines when choosing a draft's environment, then keeps
+The composer checks eligible environments when choosing a draft's environment, then keeps
 that choice stable. Choose **Auto balance** again to check current resources, or choose
-a specific machine to override it. Choosing a branch or worktree also keeps the draft
-on that machine. Existing threads stay where they started. If resource checks are
-unavailable or all eligible machines are full, choose a machine manually to continue.
+a specific environment to override it. Choosing a branch or worktree also keeps the draft
+on that environment. Existing chats stay where they started. If resource checks are
+unavailable or all eligible environments are full, choose an environment manually to continue.
 
 ### Tailscale HTTPS
 
@@ -217,7 +217,7 @@ again on its next connect.
 ## Connect an outside agent
 
 Claude Code, Codex and other agents Codenine did not start can drive
-threads on an environment through its MCP server. See
+chats on an environment through its MCP server. See
 [outside agents](./outside-agents.md) for setup.
 
 ## Manage or revoke access

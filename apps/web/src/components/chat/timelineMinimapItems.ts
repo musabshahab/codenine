@@ -88,7 +88,7 @@ function markdownNodeText(node: Nodes): string {
   const text = node.children.map(markdownNodeText).join(separator);
   // A thread autolink's only text is its URL.
   return node.type === "link" && parseThreadLinkHref(text, configuredHostedAppUrl()) !== null
-    ? "a thread"
+    ? "a chat"
     : text;
 }
 

@@ -108,6 +108,21 @@ function authAccounts(accounts: ReadonlyArray<GitHubAuthStatusAccount>) {
   }));
 }
 
+type ReportedAccount = NonNullable<SourceControlProviderDiscoveryItem["auth"]["accounts"]>[number];
+
+/** Says the token overrides the Settings choice only when gh has a stored login to choose. */
+function environmentTokenDetail(
+  variable: string,
+  host: string,
+  accounts: ReadonlyArray<ReportedAccount> = [],
+): string {
+  const choosable = accounts.some(
+    (entry) =>
+      entry.host === host && entry.authenticated && entry.environmentVariable === undefined,
+  );
+  return `Using the ${variable} environment variable${choosable ? "; it overrides the account chosen in Settings" : ""}.`;
+}
+
 export function parseGitHubAuth(
   input: SourceControlAuthProbeInput,
   settings: GitHubClient.GitHubSettings = readSourceControlHostSettings(GitHubClient.settings, {}),
@@ -122,7 +137,8 @@ export function parseGitHubAuth(
   const chosen = orderedHosts
     .map((host) => effectiveGitHubAccount(host, authStatus.accounts, settings))
     .find((entry) => entry !== undefined);
-  const accounts = authStatus.parsed ? { accounts: authAccounts(authStatus.accounts) } : {};
+  const reported = authAccounts(authStatus.accounts);
+  const accounts = authStatus.parsed ? { accounts: reported } : {};
 
   if (chosen) {
     return {
@@ -133,7 +149,7 @@ export function parseGitHubAuth(
         detail:
           chosen.environmentVariable === null
             ? undefined
-            : `Using ${chosen.environmentVariable} from the server environment; it overrides the account chosen in Settings.`,
+            : environmentTokenDetail(chosen.environmentVariable, chosen.host, reported),
       }),
       ...accounts,
     };
@@ -144,7 +160,7 @@ export function parseGitHubAuth(
       ...providerAuth({
         status: "unauthenticated",
         host: fallback.host,
-        detail: "Every GitHub host gh is signed in to is turned off in Settings → Source Control.",
+        detail: "Every GitHub host gh is signed in to is turned off in Settings → Source control.",
       }),
       ...accounts,
     };
@@ -214,7 +230,13 @@ export const makeDiscovery = Effect.gen(function* () {
   const environment = yield* HostProcess.Environment;
   const appSignIn = yield* GitHubAppSignIn.GitHubAppSignIn;
   const offerAppSignIn = <A extends SourceControlProviderDiscoveryItem>(item: A): A =>
-    appSignIn.enabled ? { ...item, appSignIn: true } : item;
+    appSignIn.enabled
+      ? {
+          ...item,
+          appSignIn: true,
+          ...(appSignIn.installUrl === null ? {} : { appInstallUrl: appSignIn.installUrl }),
+        }
+      : item;
 
   return {
     type: "managed-cli",
@@ -239,7 +261,8 @@ export const makeDiscovery = Effect.gen(function* () {
       const saved = yield* Effect.result(
         requireSettingsSecretLiteral(settings.tokens["github.com"], current?.secretProviders ?? {}),
       );
-      if (Result.isFailure(saved) && settings.hosts["github.com"]?.enabled !== false) {
+      const githubOff = settings.hosts["github.com"]?.enabled === false;
+      if (Result.isFailure(saved) && !githubOff) {
         return offerAppSignIn({
           ...cli,
           status: "available" as const,
@@ -260,7 +283,20 @@ export const makeDiscovery = Effect.gen(function* () {
         : signedIn
           ? `the ${appName} sign-in`
           : variable;
-      if (tokenSource === null || settings.hosts["github.com"]?.enabled === false) {
+      if (githubOff && !cli.auth.accounts?.some((entry) => entry.authenticated)) {
+        return offerAppSignIn({
+          ...cli,
+          auth: {
+            ...cli.auth,
+            ...providerAuth({
+              status: "unauthenticated",
+              host: "github.com",
+              detail: "github.com is turned off in Settings → Source control.",
+            }),
+          },
+        });
+      }
+      if (tokenSource === null || githubOff) {
         return offerAppSignIn(cli);
       }
       const viewer = yield* api
@@ -282,8 +318,8 @@ export const makeDiscovery = Effect.gen(function* () {
                 detail: savedToken
                   ? "Using the token saved in Settings; it overrides GH_TOKEN and the gh login."
                   : signedIn
-                    ? `Signed in with ${appName}.`
-                    : `Using ${variable} from the server environment; it overrides the account chosen in Settings.`,
+                    ? `Signed in with the ${appName}.`
+                    : environmentTokenDetail(tokenSource, "github.com", cli.auth.accounts),
               })
             : Result.isFailure(viewer) && viewer.failure._tag !== "GitHubApiAuthenticationError"
               ? providerAuth({
@@ -295,9 +331,9 @@ export const makeDiscovery = Effect.gen(function* () {
                   status: "unauthenticated",
                   host: "github.com",
                   detail: savedToken
-                    ? "GitHub refused the token saved in Settings. Replace or remove it in Settings → Source Control."
+                    ? "GitHub refused the token saved in Settings. Replace or remove it in Settings → Source control."
                     : signedIn
-                      ? `GitHub refused the ${appName} sign-in. Sign in again in Settings → Source Control.`
+                      ? `GitHub refused the ${appName} sign-in. Sign in again in Settings → Source control.`
                       : `GitHub refused the token in ${tokenSource}. Replace it, or unset it to use \`gh auth login\`.`,
                 })),
           ...accounts,
@@ -347,7 +383,7 @@ function fromGitHubApiError(
   switch (error._tag) {
     case "GitHubCliMissingError":
       return failure(
-        "No GitHub credential on the server. Set GH_TOKEN, or install the GitHub CLI and run `gh auth login`.",
+        "No GitHub credential in this environment. Paste a token in Settings → Source control, set GH_TOKEN, or run `gh auth login`.",
         error,
       );
     case "GitHubNotSignedInError":
@@ -356,7 +392,7 @@ function fromGitHubApiError(
       return failure(error.message, error);
     case "GitHubApiAuthenticationError":
       return failure(
-        "GitHub is not authenticated. Run `gh auth login` (or set GH_TOKEN) and retry.",
+        "GitHub is not authenticated. Check the token in Settings → Source control or GH_TOKEN, or run `gh auth login`, then retry.",
         error,
       );
     case "GitHubApiRateLimitError":
@@ -567,7 +603,7 @@ export const make = Effect.gen(function* () {
         // 50 default-branch lookups can each match 100 fork PRs and exceed the usual cap.
         maxResponseBytes: HEAD_LOOKUP_MAX_RESPONSE_BYTES,
       },
-      "GitHub returned an invalid change request list.",
+      "GitHub returned an invalid pull request list.",
       GraphQLResolver.request(
         {
           owner: locator.owner,

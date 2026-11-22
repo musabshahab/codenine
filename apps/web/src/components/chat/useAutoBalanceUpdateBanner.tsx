@@ -81,7 +81,7 @@ export function useAutoBalanceUpdateBanner(
   const count = running || failed || machines.length;
   const status = running ? "running" : failed ? "failed" : "idle";
   const prefix = running ? "Updating" : failed ? "Could not update" : "Update available for";
-  const title = `${prefix} ${count} ${count === 1 ? "machine" : "machines"}`;
+  const title = `${prefix} ${count} ${count === 1 ? "environment" : "environments"}`;
   return {
     id: `auto-balance-server-updates-${dismissedNotices.size}`,
     variant: failed ? "error" : "default",
@@ -92,7 +92,7 @@ export function useAutoBalanceUpdateBanner(
         <PopoverTrigger
           render={<InlineButton />}
           className="max-w-full"
-          aria-label={`${title}. View machines`}
+          aria-label={`${title}. View environments`}
         >
           <span className="min-w-0 truncate">{title}</span>
         </PopoverTrigger>
@@ -112,7 +112,7 @@ export function useAutoBalanceUpdateBanner(
                   <div className="text-muted-foreground">
                     {machine.connected
                       ? `Ready to update to ${machine.targetVersion}`
-                      : "Reconnect this machine to update"}
+                      : "Reconnect this environment to update"}
                   </div>
                 )}
               </div>
@@ -133,7 +133,7 @@ export function useAutoBalanceUpdateBanner(
               ? "Retry"
               : targets.length === machines.length
                 ? "Update all"
-                : `Update ${targets.length} ${targets.length === 1 ? "machine" : "machines"}`
+                : `Update ${targets.length} ${targets.length === 1 ? "environment" : "environments"}`
           }
         />
       ) : undefined,

@@ -3,9 +3,11 @@ import {
   type ModelSelection,
   type WorktreeSubmodules,
 } from "@codenine/contracts";
+import { resolveServerBackgroundActivitySettings } from "@codenine/shared/backgroundActivitySettings";
 import { createModelSelection } from "@codenine/shared/model";
 import { resolveProjectSettings } from "@codenine/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
+import * as Duration from "effect/Duration";
 
 import { useClientSettings } from "../../hooks/useSettings";
 import {
@@ -28,6 +30,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
 import type { ProjectSettingsCategory } from "./ProjectSettingsPanel";
+import { isPersonalWorkspace } from "./ProjectSettingsPanel.logic";
 import { searchableSetting } from "./settingsSearch";
 import { useSettingsScope } from "./SettingsScopeContext";
 import {
@@ -99,6 +102,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
+  const isPersonal = isPersonalWorkspace(scope.members);
   const unavailable = connectedEnvironments.length === 0;
   const effective = target
     ? resolveProjectSettings(target.settings, null, null, null).settings
@@ -127,10 +131,10 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       title="Account and model"
       description={
         isProjectScope
-          ? "Account and model for new threads in this workspace."
+          ? "Account and model for new chats in this workspace."
           : !unavailable && modelSource !== "project" && automaticModel
-            ? "Account and model for new threads, selected automatically. Workspaces can override it."
-            : "Account and model for new threads. Workspaces can override it."
+            ? "Account and model for new chats, selected automatically. Workspaces can override it."
+            : "Account and model for new chats. Workspaces can override it."
       }
       status={
         mixedModel
@@ -184,13 +188,14 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">
-            {mixedModel ? "Mixed" : "No providers available"}
+            {mixedModel ? "Mixed" : "No accounts available"}
           </span>
         )
       }
     />
   );
-  const workspaceRow = (
+  // Personal has no repository, so the server starts its chats in their own folder regardless.
+  const workspaceRow = isPersonal ? null : (
     <SettingsRow
       serverScoped
       settingKeys={["defaultThreadEnvMode"]}
@@ -199,8 +204,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       title="Workspace"
       description={
         isProjectScope
-          ? "Where new threads in this workspace start."
-          : "Where new threads start. Workspaces and their codenine.json can override it."
+          ? "Where new chats in this workspace start."
+          : "Where new chats start. A workspace can override this. Until you change it here, a repository's codenine.json decides."
       }
       resetAction={
         !isProjectScope && settings.defaultThreadEnvMode !== null ? (
@@ -244,7 +249,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       settingKeys={["fallbackModelSelection"]}
       mixed={mixedFallback}
       {...searchableSetting("fallback-model")}
-      description="Used for new threads when the default account is out of usage."
+      description="Used for new chats when the default account is out of usage."
       status={
         fallbackSharesDefaultAccount
           ? "Same account as the default model, so it cannot take over when that account runs out."
@@ -311,7 +316,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             ) : null}
           </div>
         ) : (
-          <span className="text-sm text-muted-foreground">No providers available</span>
+          <span className="text-sm text-muted-foreground">No accounts available</span>
         )
       }
     />
@@ -320,7 +325,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   return (
     <SettingsSection
       id={category === "source-control" ? "source-control-defaults" : "project-defaults"}
-      title={category === "source-control" ? "Repositories" : "New threads"}
+      title={category === "source-control" ? "Repositories" : "New chats"}
     >
       {category === "project" ? (
         <>
@@ -339,8 +344,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             {...searchableSetting("default-permissions")}
             description={
               isProjectScope
-                ? "Permissions for new threads in this workspace."
-                : "Default permissions for new threads. Workspaces can override them."
+                ? "Permissions for new chats in this workspace."
+                : "Default permissions for new chats. Workspaces can override them."
             }
             resetAction={
               settings.defaultRuntimeMode !== DEFAULT_SERVER_SETTINGS.defaultRuntimeMode ? (
@@ -408,6 +413,16 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 ? "Keeps this workspace's default branch current when the checkout has no local changes or commits."
                 : "Keeps the default branch current when the checkout has no local changes or commits. Workspaces can override it."
             }
+            status={
+              targets.some((candidate) =>
+                Duration.isZero(
+                  resolveServerBackgroundActivitySettings(candidate.settings)
+                    .automaticGitFetchInterval,
+                ),
+              )
+                ? "Paused while Git fetch is off (Maintenance › Background activity)."
+                : null
+            }
             resetAction={
               settings.defaultAutoPull ? (
                 <SettingResetButton
@@ -452,7 +467,7 @@ export function WorktreeSubmodulesRow() {
       description={
         isProjectScope
           ? "How new worktrees in this workspace populate git submodules."
-          : "How new worktrees populate git submodules. Workspaces and their codenine.json can override it."
+          : "How new worktrees populate git submodules. A workspace can override this. Until you change it here, a repository's codenine.json decides."
       }
       resetAction={
         !isProjectScope && settings.worktreeSubmodules !== null ? (

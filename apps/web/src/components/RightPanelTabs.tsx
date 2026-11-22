@@ -110,9 +110,9 @@ const TASK_SURFACE_SHORTCUT = "K";
 const WORKFLOW_SURFACE_SHORTCUT = "W";
 
 const SURFACE_DISABLED_REASONS = {
-  terminal: "Terminal surfaces are only available from a workspace thread.",
+  terminal: "Terminal surfaces are only available from a workspace chat.",
   files: "Files are only available when a workspace is open.",
-  diff: "Diff is only available for server threads in Git repositories.",
+  diff: "Diff is only available for server chats in Git repositories.",
   sideChat: "Side chats start after the first message.",
 } as const;
 
@@ -278,7 +278,7 @@ function RightPanelEmptyState(props: {
       ? [
           {
             label: "Side chat",
-            description: "Ask a side question while this thread keeps working.",
+            description: "Ask a side question while this chat keeps working.",
             icon: MessagesSquare,
             shortcut: "S",
             available: props.sideChatAvailable && !props.sideChatDisabledReason,

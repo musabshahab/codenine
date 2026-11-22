@@ -34,6 +34,7 @@ import { driver } from "./driver.ts";
 
 const appSignedOut = Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
   enabled: false,
+  installUrl: null,
   token: () => Effect.succeedNone,
   invalidate: () => Effect.void,
 });
@@ -558,6 +559,7 @@ describe("GitHubCredentials", () => {
       Layer.provide(TestSourceControlHost.layer({ process: { run } })),
       Layer.provide(NodeCrypto.layer),
       Layer.provide(Layer.succeed(HttpClient.HttpClient, unexpectedHttp)),
+      Layer.provide(Layer.succeed(HostProcess.Environment, {})),
     );
 
   it.effect("does not cache a gh failure that is not about signing in", () => {

@@ -354,7 +354,7 @@ export const ChatHeader = memo(function ChatHeader({
     >
       <div ref={breadcrumbContainerRef} className="flex min-w-0 flex-1 flex-col justify-center">
         <WorkspaceBreadcrumb
-          ariaLabel="Thread breadcrumb"
+          ariaLabel="Chat breadcrumb"
           className="overflow-clip [overflow-clip-margin:2px]"
         >
           {activeProject ? (
@@ -409,7 +409,7 @@ export const ChatHeader = memo(function ChatHeader({
                     render={
                       <button
                         type="button"
-                        aria-label={`${parentThreadLink.task ? "Open task" : "Open parent thread"}: ${parentThreadLink.title}`}
+                        aria-label={`${parentThreadLink.task ? "Open task" : "Open parent chat"}: ${parentThreadLink.title}`}
                         onClick={() => onOpenThread(parentThreadLink.threadId)}
                         className="inline-flex min-w-0 max-w-full cursor-pointer items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                       />
@@ -539,7 +539,7 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
       <div
         role="toolbar"
-        aria-label="Thread tools"
+        aria-label="Chat tools"
         className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
       >
         {tools}

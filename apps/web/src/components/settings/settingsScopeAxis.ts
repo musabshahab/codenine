@@ -105,8 +105,10 @@ export function selectSingleEnvironmentScope(
     readonly connection: Pick<EnvironmentPresentation["connection"], "phase">;
   }[],
   primaryEnvironmentId: string | null,
+  singleEnvironment: boolean,
 ): SettingsScopeSearch {
   if (search.machine || scope.kind === "unavailable") return search;
+  if (!singleEnvironment && environments.length !== 1) return search;
   const selectedIds = new Set(scope.environmentIds);
   const candidates = environments.filter((environment) =>
     selectedIds.has(environment.environmentId),

@@ -3,7 +3,8 @@
 Customize shortcuts in **Settings → Keybindings**. That page lists every command
 in your version, including those with no default shortcut, and shows a command's ID
 when you hover its name. To see what a shortcut does, search for it as you would type
-or read it, such as `ctrl+k`, `cmd k`, or `⌘K`.
+or read it, such as `ctrl+k`, `cmd k`, or `⌘K`. While you record a shortcut, Tab and
+Shift+Tab still move between fields, so a Tab shortcut needs `mod`, `ctrl`, or `alt`.
 
 ## Composer controls
 
@@ -13,7 +14,7 @@ inserts a new line.
 
 **Follow-up behavior** chooses Queue or Steer while the agent runs. Use
 `mod+Enter` to do the opposite for one message. `mod+Alt+Enter` sends, keeps that
-thread running in the background, and opens a new chat. In a new chat, `mod+Enter`
+chat running in the background, and opens a new chat. In a new chat, `mod+Enter`
 does the same. When the send shortcut requires `mod+Enter` for the current prompt,
 both `mod+Enter` shortcuts move to `mod+Shift+Enter`, so `mod+Enter` sends
 normally. Change these shortcuts in **Settings → Keybindings** under
@@ -21,12 +22,12 @@ normally. Change these shortcuts in **Settings → Keybindings** under
 or **Composer: Send and Start New Chat**. These bindings take priority over the
 send shortcut. Click the send button to use the configured follow-up behavior.
 
-When a thread has queued messages, `mod+Shift+Enter` sends the first one as a steer
-while a turn is running, or as a new turn when the thread is stopped. Change it under
+When a chat has queued messages, `mod+Shift+Enter` sends the first one as a steer
+while a turn is running, or as a new turn when the chat is stopped. Change it under
 **Queue: Send First Queued Message** in Keybindings.
 
 Use `mod+shift+m` to choose a model and `mod+shift+h` to choose a host.
-To step a new thread to the next machine instead of opening the menu, bind
+To step a new chat to the next environment instead of opening the menu, bind
 **Composer: Cycle Host** in Keybindings. It has no default shortcut. Neither does
 **Composer: Toggle Team**, which turns [Team](./composer.md#ask-for-a-team) on or off.
 Use `mod+shift+e` for effort, `mod+shift+a` for permissions, `mod+shift+x` for the
@@ -50,12 +51,12 @@ on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
 
-## Copy a thread or its pull request
+## Copy a chat or its pull request
 
-In a thread with a linked pull request, `mod+shift+c` copies the pull request's
-URL. Without one, it copies the thread itself, which pastes into a composer as a
-thread chip. It leaves terminal input alone. Change it in Settings by searching
-for “Copy Link or Thread”.
+In a chat with a linked pull request, `mod+shift+c` copies the pull request's
+URL. Without one, it copies the chat itself, which pastes into a composer as a
+chat chip. It leaves terminal input alone. Change it in Settings by searching
+for “Copy Link or Chat”.
 
 ## Find in a diff
 
@@ -71,7 +72,7 @@ find only searches the files loaded so far.
 Keybindings live on the environment's machine, in
 `~/.codenine/userdata/keybindings.json` by default. You can edit this file directly.
 The app takes its shortcuts from the primary environment, so **Settings → Keybindings**
-changes only that environment's file. To give a workspace command on another environment a
+changes only that environment's file. To give a workspace action on another environment a
 shortcut, edit its action in **Settings → Workspaces**.
 It is a JSON array of rules:
 
@@ -93,8 +94,8 @@ Invalid rules are ignored; if the file cannot be parsed, Codenine uses defaults.
 Each rule requires a `key` shortcut and a `command` ID. An optional `when`
 expression restricts when it runs.
 
-Workspace commands use `script.{id}.run`, such as `script.test.run`. Settings lists
-them as **Run Command: Test** and so on.
+Workspace actions use `script.{id}.run`, such as `script.test.run`. Settings lists
+them under **Workspace actions** as **Run Action: Test** and so on.
 
 ## Key syntax
 
@@ -108,14 +109,14 @@ Available context keys are `terminalFocus`, `terminalOpen`, `rightPanelOpen`,
 `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`, `turnRunning`, `editableFocus`, `isWeb`, `isDesktop`, and `isMac`.
 `rightPanelOpen` applies only to `rightPanel.new` and is true while the right panel is
 open; the default `mod+t` uses it to open the panel's new-tab menu.
-`draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
+`draftThreadRoute` is true on a draft chat, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. `isMac` is true when the client runs on macOS, even if the server
 does not. Unknown keys evaluate to `false`.
 
-`mod+1` through `mod+9` jump to the first nine threads, and to models while the
-model picker is open. The thread jumps do not run while the model picker is open.
+`mod+1` through `mod+9` jump to the first nine chats, and to models while the
+model picker is open. The chat jumps do not run while the model picker is open.
 Those defaults use `isDesktop` so they do not steal the
 browser's tab-switch shortcuts. Remove that condition in Settings if you want
 the same jumps in a browser.
@@ -126,10 +127,10 @@ Combine keys with `!` for not, `&&` for and, `||` for or, and parentheses:
 { "key": "mod+j", "command": "terminal.toggle", "when": "terminalOpen && !terminalFocus" }
 ```
 
-## Find in the current thread
+## Find in the current chat
 
-`chat.find` searches conversation messages and proposed plans in the active thread. Entering a
-query searches the entire thread, including older messages. Thread search requires server support;
+`chat.find` searches conversation messages and proposed plans in the active chat. Entering a
+query searches the entire chat, including older messages. Chat search requires server support;
 update an older server to enable it. Select **Retry** if a search fails. It defaults to
 `mod+f` outside terminals. Press **Enter** or **Shift+Enter** to move between matches,
 and **Escape** to close find.
@@ -142,11 +143,11 @@ a shortcut.
 
 ## Commands with special behavior
 
-`thread.stop` interrupts the running turn in the focused thread. It has no default
+`thread.stop` interrupts the running turn in the focused chat. It has no default
 shortcut; assign one in **Settings → Keybindings**.
 
-`thread.settle` (`mod+shift+s` by default) is **Thread: Mark Done** in Settings. It marks
-the current thread done, or not done when it already is.
+`thread.settle` (`mod+shift+s` by default) is **Chat: Mark Done** in Settings. It marks
+the current chat done, or not done when it already is.
 
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
 bottom of the sidebar, such as unpin, mark done, snooze, archive, or discarding a
@@ -161,7 +162,7 @@ through the pages you have visited, like a browser's back and forward buttons.
 
 `chat.new` may ask you to choose a workspace when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
-[new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`
+[new-chat defaults](./thread-sidebar.md#start-a-chat). `chat.newWithoutProject`
 (`mod+alt+n`) starts a chat [in Personal](./thread-sidebar.md#start-in-personal).
 
 ## Reserved shortcuts

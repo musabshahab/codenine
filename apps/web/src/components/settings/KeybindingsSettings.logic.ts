@@ -216,12 +216,12 @@ const KEYBINDING_GROUPS = [
     title: "Navigation",
     prefixes: ["sidebar", "rightPanel", "commandPalette", "filePicker", "projectSearch", "editor"],
   },
-  { id: "threads", title: "Threads", prefixes: ["thread", "chat", "pullRequest"] },
+  { id: "threads", title: "Chats", prefixes: ["thread", "chat", "pullRequest"] },
   { id: "composer", title: "Composer", prefixes: ["composer", "modelPicker"] },
   { id: "terminal", title: "Terminal", prefixes: ["terminal"] },
   { id: "preview", title: "Preview & diff", prefixes: ["preview", "diff"] },
   { id: "appearance", title: "Appearance", prefixes: ["theme", "appearance", "themeEditor"] },
-  { id: "scripts", title: "Workspace commands", prefixes: ["script"] },
+  { id: "scripts", title: "Workspace actions", prefixes: ["script"] },
 ] as const;
 const OTHER_KEYBINDING_GROUP = { id: "other", title: "Other" } as const;
 
@@ -444,10 +444,10 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "composer.sendAlternate") return "Composer: Opposite Queue or Steer Action";
   if (command === "composer.sendBackground") return "Composer: Start in Background";
   if (command === "composer.sendAndNewThread") return "Composer: Send and Start New Chat";
-  if (command === "thread.settle") return "Thread: Mark Done";
+  if (command === "thread.settle") return "Chat: Mark Done";
   if (command === "thread.steerQueuedMessage") return "Queue: Send First Queued Message";
   if (command === "thread.editQueuedMessage") return "Queue: Edit Last Queued Message";
-  if (command === "thread.copyReference") return "Pull Request: Copy Link or Thread";
+  if (command === "thread.copyReference") return "Pull Request: Copy Link or Chat";
   const usageMetric = METRIC_OPTIONS.find((option) => option.command === command);
   if (usageMetric) return `Usage: ${usageMetric.label}`;
   const usagePeriod = WINDOW_OPTIONS.find((option) => option.command === command);
@@ -455,10 +455,21 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
   const raw = String(command);
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
-    return `Run Command: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;
+    return `Run Action: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;
   }
-  return raw.split(".").map(titleCaseCommandSegment).join(": ");
+  return raw
+    .split(".")
+    .map((segment) => COMMAND_SEGMENT_LABELS.get(segment) ?? titleCaseCommandSegment(segment))
+    .join(": ");
 }
+
+// Command ids keep their old words; search still matches them through the id.
+const COMMAND_SEGMENT_LABELS: ReadonlyMap<string, string> = new Map([
+  ["thread", "Chat"],
+  ["threadPanel", "Chat Panel"],
+  ["projectSearch", "Workspace Search"],
+  ["newWithoutProject", "New Without Workspace"],
+]);
 
 function titleCaseCommandSegment(segment: string): string {
   const words: Array<string> = [];
@@ -523,6 +534,8 @@ export function keybindingFromKeyboardEvent(
     options?.layoutCharacter ? recordedLayoutShortcutKey(event) : shortcutKeyFromEvent(event),
   );
   if (!keyToken) return null;
+  // Bare Tab and Shift+Tab move focus; binding them would break keyboard navigation.
+  if (keyToken === "tab" && !event.metaKey && !event.ctrlKey && !event.altKey) return null;
 
   const parts: string[] = [];
   if (isMacPlatform(platform)) {

@@ -7,7 +7,7 @@ import { toastManager } from "./ui/toast";
 
 /**
  * After a clone, suggests installing the forge app on the repository's owner when the server is
- * signed in with it but the app does not reach the repository.
+ * signed in with it, knows where it installs, and the app does not reach the repository.
  */
 export async function suggestAppAccessForRemote(
   environmentId: EnvironmentId,
@@ -22,16 +22,18 @@ export async function suggestAppAccessForRemote(
     { label: "check app access", reportFailure: false, reportDefect: false },
   );
   if (result._tag !== "Success" || result.value.status !== "not-covered") return;
+  const { installUrl } = result.value;
+  if (installUrl === undefined) return;
   const owner = target.input.repository.split("/")[0] ?? target.input.repository;
   const id = toastManager.add({
     type: "info",
-    title: `Give ${target.appSignIn.appName} access to ${owner}`,
+    title: `Give the ${target.appSignIn.appName} access to ${owner}`,
     description: `It isn't installed there, so GitHub requests for ${target.input.repository} use your own login and its lower rate limit.`,
     actionProps: {
       children: "Install",
       onClick: () => {
         toastManager.close(id);
-        window.open(target.appSignIn.installUrl, "_blank", "noopener,noreferrer");
+        window.open(installUrl, "_blank", "noopener,noreferrer");
       },
     },
   });

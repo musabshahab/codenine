@@ -125,7 +125,7 @@ export function SkillsPage(props: {
           </div>
         ) : null}
         {environment === null ? (
-          <p className="text-sm text-muted-foreground">Connect a computer to see its skills.</p>
+          <p className="text-sm text-muted-foreground">Connect an environment to see its skills.</p>
         ) : (
           <SkillsOnMachine
             key={`${environment.environmentId}:${workspace?.id ?? ""}`}

@@ -793,11 +793,11 @@ describe("MessagesTimeline agent messages", () => {
     expect(row.textContent).toContain("Review finished");
     expect(row.getAttribute("aria-expanded")).toBe("false");
     expect(screen.text()).not.toContain("drops the index");
-    expect(screen.buttons("Open thread")).toHaveLength(0);
+    expect(screen.buttons("Open chat")).toHaveLength(0);
 
     await click(row);
     expect(screen.text()).toContain("The migration drops the index before backfilling it.");
-    await click(screen.button("Open thread"));
+    await click(screen.button("Open chat"));
     expect(onOpenThread).toHaveBeenCalledWith(SENDER_THREAD_ID);
 
     await click(screen.button(/^Agent/));

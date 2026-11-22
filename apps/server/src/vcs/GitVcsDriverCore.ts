@@ -1745,14 +1745,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return parsedRemoteRef?.branchName ?? branchName;
   });
 
-  const resolvePrimaryRemoteName = Effect.fn("resolvePrimaryRemoteName")(function* (cwd: string) {
+  const findPrimaryRemoteName = Effect.fn("findPrimaryRemoteName")(function* (cwd: string) {
     if (yield* originRemoteExists(cwd)) {
       return "origin";
     }
-    const remotes = yield* listRemoteNames(cwd);
-    const [firstRemote] = remotes;
+    const [firstRemote] = yield* listRemoteNames(cwd);
     if (firstRemote) {
       return firstRemote;
+    }
+    yield* Effect.annotateCurrentSpan("probe.miss", "no-remote");
+    return null;
+  });
+
+  const resolvePrimaryRemoteName = Effect.fn("resolvePrimaryRemoteName")(function* (cwd: string) {
+    const remoteName = yield* findPrimaryRemoteName(cwd);
+    if (remoteName !== null) {
+      return remoteName;
     }
     return yield* new GitCommandError({
       ...gitCommandContext({
@@ -1788,7 +1796,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       return pushDefaultRemote;
     }
 
-    return yield* resolvePrimaryRemoteName(cwd).pipe(Effect.orElseSucceed(() => null));
+    return yield* findPrimaryRemoteName(cwd).pipe(Effect.orElseSucceed(() => null));
   });
 
   const ensureRemote: GitVcsDriver.GitVcsDriver["Service"]["ensureRemote"] = Effect.fn(
@@ -1914,7 +1922,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
     if (configuredBase !== null) return configuredBase;
 
-    const primaryRemoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
+    const primaryRemoteName = yield* findPrimaryRemoteName(cwd).pipe(
       Effect.orElseSucceed(() => null),
     );
     const candidates = [
@@ -3891,9 +3899,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       { allowNonZeroExit: true },
     );
     if (result.exitCode !== 0) {
-      const remoteName = yield* resolvePrimaryRemoteName(cwd).pipe(
-        Effect.orElseSucceed(() => null),
-      );
+      const remoteName = yield* findPrimaryRemoteName(cwd).pipe(Effect.orElseSucceed(() => null));
       return remoteName && (yield* remoteBranchExists({ cwd, remoteName, refName }))
         ? { baseRef: `refs/remotes/${remoteName}/${refName}`, branchName: refName }
         : null;

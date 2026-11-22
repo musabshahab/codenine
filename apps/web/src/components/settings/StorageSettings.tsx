@@ -5,6 +5,7 @@ import type {
 } from "@codenine/contracts";
 import { resolvePastedPath } from "@codenine/shared/path";
 import { resolveWorktreeCleanup } from "@codenine/shared/projectSettings";
+import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -19,7 +20,7 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useDebouncedValue } from "../../state/queries";
 import { AnimatedHeight } from "../AnimatedHeight";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { toastManager } from "../ui/toast";
 
 import { Input } from "../ui/input";
@@ -226,13 +227,16 @@ const KEEP_WHEN_LABELS = {
 
 function lastRunSummary(
   entries: readonly { readonly label: string; readonly counts: string }[],
-  machineCount: number,
+  environmentCount: number,
 ) {
   const first = entries[0];
   if (!first) return "";
-  if (machineCount <= 1) return first.counts;
-  if (entries.length === machineCount && entries.every((entry) => entry.counts === first.counts)) {
-    return `${first.counts} on every machine`;
+  if (environmentCount <= 1) return first.counts;
+  if (
+    entries.length === environmentCount &&
+    entries.every((entry) => entry.counts === first.counts)
+  ) {
+    return `${first.counts} on every environment`;
   }
   return entries.map((entry) => `${entry.label}: ${entry.counts}`).join(" · ");
 }
@@ -242,8 +246,9 @@ function CleanupResults({
   environmentLabel,
 }: {
   report: StorageCleanupReport;
-  environmentLabel: string;
+  environmentLabel: string | null;
 }) {
+  const prefix = environmentLabel === null ? "" : `${environmentLabel}: `;
   return (
     <>
       {report.entries.map((entry, index) => {
@@ -265,8 +270,12 @@ function CleanupResults({
                   {entry.reason}
                 </span>
                 <span className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-l border-border/60 pl-3">
-                  <span>Machine</span>
-                  <span className="text-foreground/80">{environmentLabel}</span>
+                  {environmentLabel !== null && (
+                    <>
+                      <span>Environment</span>
+                      <span className="text-foreground/80">{environmentLabel}</span>
+                    </>
+                  )}
                   {entry.projectPath && (
                     <>
                       <span>Workspace</span>
@@ -281,7 +290,7 @@ function CleanupResults({
                   )}
                   {entry.threadTitle && (
                     <>
-                      <span>Thread</span>
+                      <span>Chat</span>
                       <span>{entry.threadTitle}</span>
                     </>
                   )}
@@ -308,12 +317,13 @@ function CleanupResults({
       })}
       {report.omittedCount > 0 && (
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-          {environmentLabel}: {report.omittedCount.toLocaleString()} more results.
+          {prefix}
+          {report.omittedCount.toLocaleString()} more results.
         </p>
       )}
       {report.entries.length === 0 && report.omittedCount === 0 && (
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-          {environmentLabel}: Nothing needed cleanup.
+          {prefix}Nothing needed cleanup.
         </p>
       )}
     </>
@@ -329,7 +339,7 @@ const storageCleanupPermissionsAtom = environmentAtomList(
   serverEnvironment.runStorageCleanup.permissionAtom,
 );
 
-function CleanupSection() {
+function CleanupRun() {
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}:00.000Z`);
   const { connectedEnvironments } = useSettingsScope();
@@ -389,7 +399,7 @@ function CleanupSection() {
             : "Cleanup hasn't run yet.",
     };
   });
-  const deleteNow = async () => {
+  const runNow = async () => {
     if (pending) return;
     setPending(true);
     await Promise.all(
@@ -418,20 +428,22 @@ function CleanupSection() {
     ).finally(() => setPending(false));
   };
   return (
-    <SettingsSection id="storage-cleanup" title="Cleanup" variant="plain">
+    <>
       <SettingsGroup>
         <SettingsRow
           {...searchableSetting("storage-delete-now")}
           description={
             <span>
-              {!hasRules
-                ? "Turn on a cleanup rule to use this."
-                : summaries.map(({ environment, label, description }) => (
-                    <span key={environment.environmentId} className="block">
-                      {supported.length > 1 ? `${label}: ` : ""}
-                      {description}
-                    </span>
-                  ))}
+              {hasRules
+                ? "Runs the rules above, and deletes rotated logs older than the retention set in Maintenance."
+                : "Turn on a rule above, or Delete old rotated logs in Maintenance."}
+              {hasRules &&
+                summaries.map(({ environment, label, description }) => (
+                  <span key={environment.environmentId} className="block">
+                    {supported.length > 1 ? `${label}: ` : ""}
+                    {description}
+                  </span>
+                ))}
             </span>
           }
           control={
@@ -439,21 +451,21 @@ function CleanupSection() {
               variant="outline"
               size="sm"
               disabled={pending || !hasRules || !state.some((entry) => entry.allowed)}
-              onClick={() => void deleteNow()}
+              onClick={() => void runNow()}
             >
-              {pending ? "Deleting…" : "Delete now"}
+              {pending ? "Running…" : "Run now"}
             </Button>
           }
         />
       </SettingsGroup>
-      {summaries.some(({ report }) => report !== null) && (
+      {hasRules && summaries.some(({ report }) => report !== null) && (
         <FoldedSettingsSection
           id="storage-cleanup-last-run"
           title="Last run"
           headerPlacement="inside"
           summary={lastRunSummary(
             summaries.filter(({ report }) => report !== null),
-            connectedEnvironments.length,
+            supported.length,
           )}
         >
           {summaries.map(
@@ -462,13 +474,30 @@ function CleanupSection() {
                 <CleanupResults
                   key={environment.environmentId}
                   report={report}
-                  environmentLabel={label}
+                  environmentLabel={supported.length > 1 ? label : null}
                 />
               ),
           )}
         </FoldedSettingsSection>
       )}
-    </SettingsSection>
+    </>
+  );
+}
+
+/** The run sweeps a whole environment, so a workspace selection shows it without the button working. */
+function WorkspaceCleanupRunNotice() {
+  return (
+    <SettingsGroup>
+      <SettingsRow
+        {...searchableSetting("storage-delete-now")}
+        description="Runs cleanup for the whole environment. Select an environment to run it."
+        control={
+          <Button variant="outline" size="sm" disabled>
+            Run now
+          </Button>
+        }
+      />
+    </SettingsGroup>
   );
 }
 
@@ -484,7 +513,7 @@ function supportsStorageCleanup(
   );
 }
 
-/** Narrows a mixed selection to the machines that support cleanup. */
+/** Narrows a mixed selection to the environments that support cleanup. */
 function StorageCleanupScopeNotice() {
   const { connectedEnvironments } = useSettingsScope();
   return (
@@ -498,7 +527,7 @@ function StorageCleanupScopeNotice() {
         )
         .map((environment) => environment.environmentId)}
     >
-      Update the selected environments to use storage cleanup, or choose a machine that supports it.
+      Update the selected environments to use storage cleanup, or choose one that supports it.
     </SettingsScopeNotice>
   );
 }
@@ -526,7 +555,7 @@ export function WorktreeCleanupSection() {
           key
         ] !== settings[key],
     )
-      ? "Mixed across selected machines"
+      ? "Mixed across selected environments"
       : undefined;
   // A policy locks these through worktreeCleanup, which also reaches each project's own rules.
   const updateWorktree = (
@@ -550,7 +579,8 @@ export function WorktreeCleanupSection() {
     return (
       <SettingsSection id="storage-worktrees" title="Cleanup" variant="plain">
         <SettingsScopeNotice inline target="all">
-          Update the selected machines to configure workspace worktree cleanup.
+          Update the selected environments to set cleanup per workspace, or show all workspaces to
+          change cleanup for each environment.
         </SettingsScopeNotice>
       </SettingsSection>
     );
@@ -564,8 +594,8 @@ export function WorktreeCleanupSection() {
   }
 
   return (
-    <SettingsSection id="storage-worktrees" title="Cleanup">
-      <>
+    <SettingsSection id="storage-worktrees" title="Cleanup" variant="plain">
+      <SettingsGroup>
         {isProjectScope && (
           <SettingsRow
             title="Automatic worktree cleanup"
@@ -574,7 +604,7 @@ export function WorktreeCleanupSection() {
                 ? "Keep this workspace's worktrees until you delete them manually."
                 : mode === "custom"
                   ? "Use these rules for this workspace."
-                  : "Use each machine's worktree cleanup settings."
+                  : "Use each environment's worktree cleanup settings."
             }
             serverScoped
             settingKeys={["worktreeCleanup"]}
@@ -612,13 +642,13 @@ export function WorktreeCleanupSection() {
         {(!isProjectScope || (!mixedModes && mode === "custom")) && (
           <>
             <SettingsRow
-              title="Delete worktrees with deleted threads"
+              title="Delete worktrees with deleted chats"
               status={ruleStatus("worktreeOnDelete")}
-              description="Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept."
+              description="Remove unused worktrees when active or archived chats are deleted. Worktrees with local changes are kept."
               serverScoped={!isProjectScope}
               control={
                 <Switch
-                  aria-label="Delete worktrees with deleted threads"
+                  aria-label="Delete worktrees with deleted chats"
                   checked={settings.worktreeOnDelete}
                   onCheckedChange={(worktreeOnDelete) => updateWorktree({ worktreeOnDelete })}
                 />
@@ -663,20 +693,20 @@ export function WorktreeCleanupSection() {
                     true,
                 ) && (
                   <SettingsRow
-                    title="Delete worktrees of done threads"
+                    title="Delete worktrees of done chats"
                     status={[
                       ruleStatus("worktreeSettledAfterDays"),
                       environments.length > connectedEnvironments.length
-                        ? "Offline machines will not get this setting"
+                        ? "Offline environments will not get this setting"
                         : undefined,
                     ]
                       .filter(Boolean)
                       .join(". ")}
-                    description="Remove worktrees this many days after their thread is marked done. Set 0 days to remove them at the next cleanup. Branches and thread history are kept."
+                    description="Remove worktrees this many days after their chat is marked done. Set 0 days to remove them at the next cleanup. Branches and chat history are kept."
                     serverScoped={!isProjectScope}
                     control={
                       <RetentionControl
-                        label="Delete worktrees of done threads"
+                        label="Delete worktrees of done chats"
                         value={settings.worktreeSettledAfterDays}
                         minimum={0}
                         onChange={(worktreeSettledAfterDays, options) =>
@@ -745,12 +775,13 @@ export function WorktreeCleanupSection() {
             </AdvancedSettings>
           </>
         )}
-      </>
+      </SettingsGroup>
+      {isProjectScope ? <WorkspaceCleanupRunNotice /> : <CleanupRun />}
     </SettingsSection>
   );
 }
 
-/** Retention for logs, and the manual cleanup run, which covers worktrees too. */
+/** Log retention; the cleanup run on Worktrees deletes the logs. */
 export function StorageCleanupSections() {
   const { scope, connectedEnvironments, targets } = useSettingsScope();
   const scopedSettings = useScopedSettings();
@@ -765,7 +796,7 @@ export function StorageCleanupSections() {
   const settledLogsStatus = useDebouncedValue(`${targetIdsKey}:${logsMixed}`, 300);
   const logsStatus =
     targets.length > 1 && settledLogsStatus === `${targetIdsKey}:true`
-      ? "Mixed across selected machines"
+      ? "Mixed across selected environments"
       : undefined;
   if (scope.kind === "project" || scope.kind === "checkout") return null;
   const databaseStorageNotice = (
@@ -795,7 +826,19 @@ export function StorageCleanupSections() {
           <SettingsRow
             title="Delete old rotated logs"
             status={logsStatus}
-            description="Delete inactive rotated log files after this many days. Current logs are kept."
+            description={
+              <>
+                Delete inactive rotated log files after this many days. Current logs are kept.
+                <span className="block">
+                  Worktree cleanup deletes them in the same run.{" "}
+                  <InlineButton
+                    render={<Link to="/settings/worktrees" hash="storage-delete-now" />}
+                  >
+                    Worktrees › Cleanup
+                  </InlineButton>
+                </span>
+              </>
+            }
             serverScoped
             control={
               <RetentionControl
@@ -809,7 +852,6 @@ export function StorageCleanupSections() {
           />
         </AnimatedHeight>
       </SettingsSection>
-      <CleanupSection />
     </>
   );
 }

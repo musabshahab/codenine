@@ -23,11 +23,11 @@ export function ThreadTitleInstructionsSettings() {
       serverScoped
       settingKeys={["threadTitleInstructions"]}
       {...searchableSetting("thread-title-instructions")}
-      description="Appended to the prompt for new and regenerated thread titles."
+      description="Appended to the prompt for new and regenerated chat titles."
       resetAction={
         mixed || settings.threadTitleInstructions !== "" ? (
           <SettingResetButton
-            label="thread title instructions"
+            label="chat title instructions"
             onClick={() => updateSettings({ threadTitleInstructions: "" })}
           />
         ) : null
@@ -36,7 +36,7 @@ export function ThreadTitleInstructionsSettings() {
       <div className="mt-3 max-w-2xl pb-3.5">
         <Textarea
           key={`${scopeKey}:${mixed}:${settings.threadTitleInstructions}`}
-          aria-label="Thread title instructions"
+          aria-label="Chat title instructions"
           onChange={() => {
             edited.current = true;
           }}

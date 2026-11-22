@@ -38,7 +38,7 @@ export function ThreadContextChip(props: {
             kind="thread"
             {...(props.unreadable ? { state: "invalid" as const } : {})}
             render={<Link to="/$environmentId/$threadId" params={{ environmentId, threadId }} />}
-            aria-label={`Thread, ${title}`}
+            aria-label={`Chat, ${title}`}
             data-markdown-copy={props.copyMarkdown}
             className="no-underline"
           >
@@ -53,8 +53,8 @@ export function ThreadContextChip(props: {
       />
       <TooltipPopup side="top">
         {props.unreadable
-          ? "On another machine, so this machine's agent can't read it. Remove it or switch back to send."
-          : "Open thread"}
+          ? "On another environment, so this environment's agent can't read it. Remove it or switch back to send."
+          : "Open chat"}
       </TooltipPopup>
     </Tooltip>
   );

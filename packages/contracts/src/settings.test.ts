@@ -329,6 +329,33 @@ describe("ClientSettings sidebar grouping", () => {
   });
 });
 
+describe("ClientSettings removed settings", () => {
+  it("loads settings that stored the retired slash-menu and chat-order fields", () => {
+    const settings = decodeClientSettings({
+      showSkillsInSlashMenu: false,
+      sidebarThreadSortOrder: "created_at",
+      wordWrap: false,
+    });
+
+    expect(settings.wordWrap).toBe(false);
+    expect(encodeClientSettings(settings)).not.toHaveProperty("showSkillsInSlashMenu");
+    expect(encodeClientSettings(settings)).not.toHaveProperty("sidebarThreadSortOrder");
+  });
+
+  it.each([
+    ["nightly-artwork", "artwork"],
+    ["dev-artwork", "artwork"],
+    ["artwork", "artwork"],
+    ["pill", "pill"],
+    ["none", "none"],
+  ] as const)("loads environment identification %s as %s", (stored, mode) => {
+    const settings = decodeClientSettings({ environmentIdentificationMode: stored });
+
+    expect(settings.environmentIdentificationMode).toBe(mode);
+    expect(encodeClientSettings(settings).environmentIdentificationMode).toBe(mode);
+  });
+});
+
 describe("ClientSettings diff whitespace", () => {
   it("shows whitespace changes on installs that stored the old hide-by-default value", () => {
     const settings = decodeClientSettings({ diffIgnoreWhitespace: true });
@@ -374,6 +401,13 @@ describe("provider enabled defaults", () => {
     expect(
       resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: { enabled: true } }),
     ).toBe(false);
+  });
+
+  it("keeps provider update checks off until turned on", () => {
+    expect(decodeServerSettings({}).enableProviderUpdateChecks).toBe(false);
+    expect(
+      decodeServerSettings({ enableProviderUpdateChecks: true }).enableProviderUpdateChecks,
+    ).toBe(true);
   });
 });
 

@@ -17,6 +17,7 @@ import * as GitHubAppSignIn from "./GitHubAppSignIn.ts";
 
 const appSignedOut = Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
   enabled: false,
+  installUrl: null,
   token: () => Effect.succeedNone,
   invalidate: () => Effect.void,
 });
@@ -58,6 +59,7 @@ function harness(
       ? appSignedOut
       : Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
           enabled: true,
+          installUrl: null,
           token: () => Effect.succeedSome(options.appToken ?? ""),
           invalidate: () => Effect.void,
         }),

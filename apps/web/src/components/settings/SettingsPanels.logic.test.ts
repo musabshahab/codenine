@@ -101,7 +101,7 @@ describe("device settings restore", () => {
     });
 
     expect(changedLabels).toEqual([
-      "Thread details",
+      "Chat details",
       "Workspace grouping",
       "Two-line chat rows",
       "Code font",
@@ -119,9 +119,18 @@ describe("device settings restore", () => {
     expect(
       planDeviceSettingsRestore({ ...DEFAULT_CLIENT_SETTINGS, threadDetailsUsageEnabled: true }),
     ).toEqual({
-      changedLabels: ["Thread details"],
+      changedLabels: ["Chat details"],
       patch: { threadDetailsItems: {}, threadDetailsUsageEnabled: false },
     });
+    expect(
+      planDeviceSettingsRestore({ ...DEFAULT_CLIENT_SETTINGS, notificationMode: "sound" }),
+    ).toEqual({ changedLabels: ["Sound"], patch: { notificationMode: "off" } });
+    expect(
+      planDeviceSettingsRestore({
+        ...DEFAULT_CLIENT_SETTINGS,
+        notificationMode: "notifications-and-sound",
+      }).changedLabels,
+    ).toEqual(["System notifications", "Sound"]);
     expect(planDeviceSettingsRestore(DEFAULT_CLIENT_SETTINGS)).toEqual({
       changedLabels: [],
       patch: {},
@@ -138,7 +147,6 @@ describe("device settings restore", () => {
       "loadBalancingEnabled",
       "loadBalancingWeights",
       "sidebarProjectGroupingOverrides",
-      "sidebarThreadSortOrder",
     ]);
     const deviceKeys = Object.keys(ClientSettingsSchema.fields).filter(
       (key) => !Object.hasOwn(ServerSettings.fields, key) && !leftAlone.has(key),

@@ -9,6 +9,7 @@ import * as PlatformError from "effect/PlatformError";
 import * as References from "effect/References";
 import * as Stream from "effect/Stream";
 
+import { LONG_LIVED_SPAN_ATTRIBUTE } from "../observability/Attributes.ts";
 import * as TraceDiagnostics from "./TraceDiagnostics.ts";
 
 function ns(ms: number): string {
@@ -19,22 +20,25 @@ function record(input: {
   readonly name: string;
   readonly traceId: string;
   readonly spanId: string;
+  readonly parentSpanId?: string;
   readonly startMs: number;
   readonly durationMs: number;
   readonly exit?: { readonly _tag: "Success" | "Failure" | "Interrupted"; readonly cause?: string };
   readonly events?: ReadonlyArray<unknown>;
+  readonly attributes?: Readonly<Record<string, unknown>>;
 }) {
   return JSON.stringify({
     type: "effect-span",
     name: input.name,
     traceId: input.traceId,
     spanId: input.spanId,
+    ...(input.parentSpanId ? { parentSpanId: input.parentSpanId } : {}),
     sampled: true,
     kind: "internal",
     startTimeUnixNano: ns(input.startMs),
     endTimeUnixNano: ns(input.startMs + input.durationMs),
     durationMs: input.durationMs,
-    attributes: {},
+    attributes: input.attributes ?? {},
     events: input.events ?? [],
     links: [],
     exit: input.exit ?? { _tag: "Success" },
@@ -170,6 +174,93 @@ describe("TraceDiagnostics", () => {
       assert.equal(diagnostics.latestWarningAndErrorLogs[0]?.message, "status delayed");
       assert.equal(diagnostics.topSpansByCount[0]?.name, "orchestration.dispatch");
     }),
+  );
+
+  it.effect(
+    "leaves long-lived spans out of slow spans and counts a failure at its innermost span",
+    () =>
+      Effect.sync(() => {
+        const spawnFailure = {
+          _tag: "Failure",
+          cause: "Failed to spawn jj\n    at spawn (VcsProcess.ts:10)",
+        } as const;
+        const diagnostics = aggregateLines([
+          record({
+            name: "ws.rpc.subscribeVcsBranch",
+            traceId: "trace-a",
+            spanId: "span-a",
+            startMs: 1_000,
+            durationMs: 594_000,
+            attributes: { [LONG_LIVED_SPAN_ATTRIBUTE]: true },
+          }),
+          record({
+            name: "server.getConfig",
+            traceId: "trace-a",
+            spanId: "span-b",
+            startMs: 2_000,
+            durationMs: 1_200,
+          }),
+          record({
+            name: "VcsProcess.spawn",
+            traceId: "trace-c",
+            spanId: "span-spawn",
+            parentSpanId: "span-run",
+            startMs: 3_000,
+            durationMs: 5,
+            exit: spawnFailure,
+          }),
+          record({
+            name: "VcsProcess.run",
+            traceId: "trace-c",
+            spanId: "span-run",
+            parentSpanId: "span-probe",
+            startMs: 3_000,
+            durationMs: 6,
+            exit: { ...spawnFailure, cause: "Failed to spawn jj\n    at run (VcsProcess.ts:20)" },
+          }),
+          record({
+            name: "discovery.probe",
+            traceId: "trace-c",
+            spanId: "span-probe",
+            startMs: 3_000,
+            durationMs: 7,
+            exit: { _tag: "Failure", cause: "Probe gave up" },
+          }),
+          record({
+            name: "VcsProcess.run",
+            traceId: "trace-d",
+            spanId: "span-run",
+            startMs: 4_000,
+            durationMs: 6,
+            exit: spawnFailure,
+          }),
+        ]);
+
+        assert.equal(diagnostics.slowSpanCount, 1);
+        assert.deepStrictEqual(
+          diagnostics.slowestSpans.map((span) => span.name),
+          [
+            "server.getConfig",
+            "discovery.probe",
+            "VcsProcess.run",
+            "VcsProcess.run",
+            "VcsProcess.spawn",
+          ],
+        );
+        assert.equal(diagnostics.failureCount, 3);
+        assert.deepStrictEqual(
+          diagnostics.commonFailures.map((failure) => [failure.name, failure.count]),
+          [
+            ["VcsProcess.run", 1],
+            ["discovery.probe", 1],
+            ["VcsProcess.spawn", 1],
+          ],
+        );
+        assert.deepStrictEqual(
+          diagnostics.latestFailures.map((failure) => failure.spanId),
+          ["span-run", "span-probe", "span-spawn"],
+        );
+      }),
   );
 
   it.effect("streams rotated files into the same result as reading them whole", () =>

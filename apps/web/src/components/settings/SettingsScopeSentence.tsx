@@ -28,6 +28,7 @@ import {
 } from "../ui/menu";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope";
+import { SETTINGS_WORKSPACE_SCOPE_PATHS } from "./settingsSearch";
 import {
   ALL_ENVIRONMENTS_VALUE,
   ALL_PROJECTS_VALUE,
@@ -54,6 +55,14 @@ export const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   // Keybindings edits the environment this client's shortcuts come from.
   "/settings/keybindings",
   "/settings/about",
+  "/settings/open-source-licenses",
+]);
+
+const SETTINGS_DEVICE_SAVED_PATHS: ReadonlySet<string> = new Set([
+  "/settings/general",
+  "/settings/appearance",
+  "/settings/chat",
+  "/settings/diffs",
 ]);
 
 interface SettingsScopeMenuProps {
@@ -68,7 +77,12 @@ export function SettingsScopeSentence() {
   const scope = useOptionalSettingsScope();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { environments } = useEnvironments();
-  if (scope === null || SETTINGS_DEVICE_ONLY_PATHS.has(pathname)) return null;
+  const showsWorkspace = SETTINGS_WORKSPACE_SCOPE_PATHS.has(pathname);
+  // A device page that gains a row a workspace can override needs the full sentence instead.
+  if (!showsWorkspace && SETTINGS_DEVICE_SAVED_PATHS.has(pathname)) {
+    return <p className="px-3 text-sm text-muted-foreground sm:px-4">Saved on this device.</p>;
+  }
+  if (scope === null || (!showsWorkspace && SETTINGS_DEVICE_ONLY_PATHS.has(pathname))) return null;
   const props: SettingsScopeMenuProps = {
     value: scope.search,
     singleEnvironment: scope.singleEnvironment,
@@ -76,17 +90,33 @@ export function SettingsScopeSentence() {
     environments,
     onChange: scope.selectScope,
   };
+  const onlyEnvironment =
+    environments.length === 1 &&
+    (scope.search.machine === undefined || scope.search.machine === environments[0]?.environmentId)
+      ? environments[0]
+      : undefined;
   return (
     <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 px-3 text-sm text-muted-foreground sm:px-4">
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className="shrink-0">Applying settings for</span>
-        <ProjectScopeMenu {...props} />
+        <span className="shrink-0">Applying settings{showsWorkspace ? " for" : ""}</span>
+        {showsWorkspace ? <ProjectScopeMenu {...props} /> : null}
       </span>
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="shrink-0">
           {scope.search.machine || scope.scope.kind === "checkout" ? "on" : "across"}
         </span>
-        <EnvironmentScopeMenu {...props} />
+        {onlyEnvironment ? (
+          <span className="flex min-w-0 items-center gap-1.5 text-foreground">
+            <EnvironmentMachineIcon
+              aria-hidden
+              kind={resolveEnvironmentMachineKind(onlyEnvironment.serverConfig)}
+              className="size-3.5 shrink-0"
+            />
+            <span className="min-w-0 truncate">{onlyEnvironment.label}</span>
+          </span>
+        ) : (
+          <EnvironmentScopeMenu {...props} />
+        )}
       </span>
     </p>
   );

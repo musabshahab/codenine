@@ -33,29 +33,29 @@ Encode the prompt for a URL. In JavaScript, use `encodeURIComponent`.
 
 ## Open a link
 
-- **No `repo`**: the draft opens in Personal, on the machine you used last.
+- **No `repo`**: the draft opens in Personal, on the environment you used last.
 - **`repo`**: the draft opens in your most recently used workspace for that repository. A fork
   counts only for its own owner. When you do not have the repository, choose **Clone** or **Use
   without workspace**.
 - **`provider` and `model`**: used when you have that provider set up. Otherwise your default
   model is used, and Codenine tells you.
-- **`pr`**: opens the thread linked to that pull request on any connected machine, with the prompt
-  in its composer. When no thread is linked, the draft goes on the pull request branch in a new
+- **`pr`**: opens the chat linked to that pull request on any connected environment, with the prompt
+  in its composer. When no chat is linked, the draft goes on the pull request branch in a new
   worktree. Codenine checks the code out only after you confirm, because the checkout runs your
   setup script on it.
 
-A thread link with a prompt puts the prompt in that thread's composer. If you already typed a draft there, Codenine asks
+A chat link with a prompt puts the prompt in that chat's composer. If you already typed a draft there, Codenine asks
 before it replaces it.
 
 Codenine removes characters you cannot see, such as zero-width and hidden tag characters, because
 they can hide instructions for the agent. When a prompt had them, Codenine warns you that it may be
 malicious.
 
-## Share a thread
+## Share a chat
 
 **Copy chat link** copies a `codenine-thread://` link. Paste it anywhere, such as Slack, a GitHub
-comment, or your notes. Only someone connected to the machine that runs the thread can see it. In
-Codenine, a thread link in a message opens the thread in the app.
+comment, or your notes. Only someone connected to the environment that runs the chat can see it. In
+Codenine, a chat link in a message opens the chat in the app.
 
 A build that names its own hosted web app with `CODENINE_HOSTED_APP_URL` copies `https://` links
-to that app instead, for both prompts and threads.
+to that app instead, for both prompts and chats.

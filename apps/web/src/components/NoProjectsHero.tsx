@@ -31,7 +31,7 @@ export function NoProjectsHero() {
               <EmptyTitle>What would you like to do?</EmptyTitle>
               <EmptyDescription>
                 {scratchTargetEnvironmentId === null
-                  ? "Add a workspace to start your first thread."
+                  ? "Add a workspace to start your first chat."
                   : "Add a workspace, or start without one."}
               </EmptyDescription>
               <div className="mt-6 flex justify-center gap-2">

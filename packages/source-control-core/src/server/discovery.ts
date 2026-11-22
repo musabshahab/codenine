@@ -175,55 +175,75 @@ function isCliRemoteRefinementSpec(
   return spec.type === "cli" && spec.refineUnknownRemote !== undefined;
 }
 
+/**
+ * Runs a discovery command under one span. A missing CLI is an expected answer, so the span ends as
+ * a success marked `probe.miss`; the caller still receives the spawn error.
+ */
+export const runProbe = Effect.fn("discovery.runProbe")(function* (
+  process: SourceControlHost.SourceControlHost["Service"]["process"],
+  input: SourceControlHost.SourceControlProcessInput,
+) {
+  yield* Effect.annotateCurrentSpan("process.command", input.command);
+  const outcome = yield* process.run(input).pipe(
+    // The process spans would each record a missing CLI as a failure.
+    Effect.withTracerEnabled(false),
+    Effect.result,
+  );
+  if (Result.isFailure(outcome)) {
+    if (!isMissingExecutable(outcome.failure)) return yield* outcome.failure;
+    yield* Effect.annotateCurrentSpan("probe.miss", "not-installed");
+  }
+  return outcome;
+});
+
 function probeCli(input: {
   readonly spec: SourceControlCliDiscoverySpec;
   readonly process: SourceControlHost.SourceControlHost["Service"]["process"];
   readonly cwd: string;
 }): Effect.Effect<DiscoveryProbeResult> {
-  return input.process
-    .run({
-      operation: "source-control.discovery.probe",
-      command: input.spec.executable,
-      args: input.spec.versionArgs,
-      cwd: input.cwd,
-      timeoutMs: probeTimeoutMs(input.spec),
-      maxOutputBytes: 8_000,
-      appendTruncationMarker: true,
-    })
-    .pipe(
-      Effect.map(
-        (result) =>
-          ({
-            kind: input.spec.kind,
-            label: input.spec.label,
-            executable: input.spec.executable,
-            status: "available" as const,
-            version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
-              firstNonEmptyLine(result.stderr),
-            ),
-            installHint: input.spec.installHint,
-            detail: Option.none<string>(),
-          }) satisfies DiscoveryProbeResult,
-      ),
-      Effect.catch((cause) =>
-        Effect.gen(function* () {
-          const installHint = yield* unavailableInstallHint(
-            input.spec.executable,
-            input.spec.installHint,
-            cause,
-          );
-          return {
-            kind: input.spec.kind,
-            label: input.spec.label,
-            executable: input.spec.executable,
-            status: "missing" as const,
-            version: Option.none<string>(),
-            installHint,
-            detail: detailFromCause(cause),
-          } satisfies DiscoveryProbeResult;
-        }),
-      ),
-    );
+  return runProbe(input.process, {
+    operation: "source-control.discovery.probe",
+    command: input.spec.executable,
+    args: input.spec.versionArgs,
+    cwd: input.cwd,
+    timeoutMs: probeTimeoutMs(input.spec),
+    maxOutputBytes: 8_000,
+    appendTruncationMarker: true,
+  }).pipe(
+    Effect.flatMap(Effect.fromResult),
+    Effect.map(
+      (result) =>
+        ({
+          kind: input.spec.kind,
+          label: input.spec.label,
+          executable: input.spec.executable,
+          status: "available" as const,
+          version: Option.orElse(firstNonEmptyLine(result.stdout), () =>
+            firstNonEmptyLine(result.stderr),
+          ),
+          installHint: input.spec.installHint,
+          detail: Option.none<string>(),
+        }) satisfies DiscoveryProbeResult,
+    ),
+    Effect.catch((cause) =>
+      Effect.gen(function* () {
+        const installHint = yield* unavailableInstallHint(
+          input.spec.executable,
+          input.spec.installHint,
+          cause,
+        );
+        return {
+          kind: input.spec.kind,
+          label: input.spec.label,
+          executable: input.spec.executable,
+          status: "missing" as const,
+          version: Option.none<string>(),
+          installHint,
+          detail: detailFromCause(cause),
+        } satisfies DiscoveryProbeResult;
+      }),
+    ),
+  );
 }
 
 export function probeSourceControlProvider(input: {
@@ -257,23 +277,22 @@ export function probeSourceControlProvider(input: {
 
   const spec = input.spec;
   const runAuth = (args: ReadonlyArray<string>) =>
-    input.process
-      .run({
-        operation: "source-control.discovery.auth",
-        command: spec.executable,
-        args,
-        cwd: input.cwd,
-        allowNonZeroExit: true,
-        timeoutMs: probeTimeoutMs(spec),
-        maxOutputBytes: 8_000,
-        appendTruncationMarker: true,
-      })
-      .pipe(
-        Effect.map(spec.parseAuth),
-        Effect.catch((cause) =>
-          Effect.succeed(unknownAuth(Option.getOrUndefined(detailFromCause(cause)))),
-        ),
-      );
+    runProbe(input.process, {
+      operation: "source-control.discovery.auth",
+      command: spec.executable,
+      args,
+      cwd: input.cwd,
+      allowNonZeroExit: true,
+      timeoutMs: probeTimeoutMs(spec),
+      maxOutputBytes: 8_000,
+      appendTruncationMarker: true,
+    }).pipe(
+      Effect.flatMap(Effect.fromResult),
+      Effect.map(spec.parseAuth),
+      Effect.catch((cause) =>
+        Effect.succeed(unknownAuth(Option.getOrUndefined(detailFromCause(cause)))),
+      ),
+    );
   const retryArgs = spec.authRetryArgs;
   const auth =
     retryArgs === undefined
@@ -371,27 +390,25 @@ function refineWithSpec(input: {
     return spec.refineUnknownRemote({ cwd: input.cwd, context });
   }
   if (!isCliRemoteRefinementSpec(spec)) return Effect.succeed(null);
-  return input.process
-    .run({
-      operation: "source-control.discovery.refine-unknown-remote",
-      command: spec.executable,
-      args: spec.remoteRefinementArgs?.(context) ?? spec.authArgs,
-      cwd: input.cwd,
-      allowNonZeroExit: true,
-      timeoutMs: probeTimeoutMs(spec),
-      maxOutputBytes: 8_000,
-      appendTruncationMarker: true,
-    })
-    .pipe(
-      Effect.catchIf(isMissingExecutable, () => Effect.void),
-      Effect.flatMap((auth) => {
-        const provider =
-          auth === undefined ? null : spec.refineUnknownRemote({ cwd: input.cwd, context, auth });
-        return provider === undefined
-          ? Effect.fail(new UnknownRemoteUnanswered())
-          : Effect.succeed(provider);
-      }),
-    );
+  return runProbe(input.process, {
+    operation: "source-control.discovery.refine-unknown-remote",
+    command: spec.executable,
+    args: spec.remoteRefinementArgs?.(context) ?? spec.authArgs,
+    cwd: input.cwd,
+    allowNonZeroExit: true,
+    timeoutMs: probeTimeoutMs(spec),
+    maxOutputBytes: 8_000,
+    appendTruncationMarker: true,
+  }).pipe(
+    Effect.flatMap((outcome) => {
+      const provider = Result.isFailure(outcome)
+        ? null
+        : spec.refineUnknownRemote({ cwd: input.cwd, context, auth: outcome.success });
+      return provider === undefined
+        ? Effect.fail(new UnknownRemoteUnanswered())
+        : Effect.succeed(provider);
+    }),
+  );
 }
 
 export const refineUnknownRemoteProvider = Effect.fn("refineUnknownRemoteProvider")(

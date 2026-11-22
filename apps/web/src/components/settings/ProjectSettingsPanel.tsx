@@ -4,9 +4,9 @@ import { useEnvironmentsWithScope } from "../../state/session";
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@codenine/contracts";
 import { useProjectGroupUpdate, type ProjectGroupUpdate } from "../../hooks/useProjectGroupUpdate";
 import { useProjectRemoval } from "../../hooks/useProjectRemoval";
-import { Navigate, useLocation, useNavigate } from "@tanstack/react-router";
-import { InfoIcon, Trash2Icon } from "lucide-react";
-import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "@tanstack/react-router";
+import { Trash2Icon } from "lucide-react";
+import { Fragment, lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
 import { persistClientSettingsUpdate, useClientSettings } from "../../hooks/useSettings";
 import { derivePhysicalProjectKey } from "@codenine/client-runtime/state/project-grouping";
@@ -18,8 +18,7 @@ import {
 } from "../../sidebarProjectGrouping";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { Alert, AlertDescription } from "../ui/alert";
-import { Button } from "../ui/button";
+import { Button, InlineButton } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
@@ -40,11 +39,20 @@ import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import {
   defaultProjectIcon,
   hasDefaultProjectIcon,
+  isPersonalWorkspace,
   projectGroupTitleNeedsUpdate,
-  SCRATCH_PROJECT_TITLE,
 } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
+import {
+  SETTINGS_NAV_GROUPS,
+  SETTINGS_SECTION_LABELS,
+  SETTINGS_WORKSPACE_SCOPE_PATHS,
+} from "./settingsSearch";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
+
+const WORKSPACE_OVERRIDE_PAGES = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths).filter(
+  (path) => path !== "/settings/projects" && SETTINGS_WORKSPACE_SCOPE_PATHS.has(path),
+);
 
 const ProjectIconPickerDialog = lazy(() =>
   import("./ProjectIconPickerDialog").then((module) => ({
@@ -243,7 +251,7 @@ function ProjectDetail({
   hasOtherMembers,
 }: {
   group: SidebarProjectSnapshot;
-  /** Pin and archive belong to the whole project, even when one machine is picked. */
+  /** Name, icon, pin and archive belong to the whole workspace, even when one environment is picked. */
   allMembers: ReadonlyArray<SidebarProjectGroupMember>;
   hasOtherMembers: boolean;
 }) {
@@ -257,6 +265,7 @@ function ProjectDetail({
   const canEditGroup = group.memberProjects.every((member) =>
     editableIds.has(member.environmentId),
   );
+  const canEditShared = allMembers.every((member) => editableIds.has(member.environmentId));
   const representative =
     group.memberProjects.find(
       (member) => environmentById.get(member.environmentId)?.serverConfig != null,
@@ -268,7 +277,7 @@ function ProjectDetail({
   const projectIcon = representative.projectIcon ?? null;
   const pickProjectFavicon =
     typeof window !== "undefined" &&
-    group.memberProjects.every(
+    allMembers.every(
       (member) =>
         member.environmentId === primaryEnvironmentId &&
         canPickExternalProjectFavicon(member.workspaceRoot, navigator.platform),
@@ -280,10 +289,8 @@ function ProjectDetail({
   const updateAllMembers = (
     input: ProjectGroupUpdate | ((member: SidebarProjectGroupMember) => ProjectGroupUpdate),
     failureTitle: string,
-  ) => updateProjectGroup(group.memberProjects, input, failureTitle);
-  const canOrganize =
-    allMembers.every((member) => editableIds.has(member.environmentId)) &&
-    canOrganizeProjectGroup(allMembers);
+  ) => updateProjectGroup(allMembers, input, failureTitle);
+  const canOrganize = canEditShared && canOrganizeProjectGroup(allMembers);
   const [isOrganizing, setIsOrganizing] = useState(false);
   const organize = async (input: ProjectGroupUpdate, failureTitle: string) => {
     setIsOrganizing(true);
@@ -291,15 +298,16 @@ function ProjectDetail({
     setIsOrganizing(false);
   };
 
-  const renameGroup = async (nextTitle: string, wasEdited: boolean) => {
-    const title = nextTitle.trim();
+  const renameGroup = async (input: HTMLInputElement, wasEdited: boolean) => {
+    const title = input.value.trim();
     if (!title) {
-      toastManager.add({ type: "warning", title: "Workspace title cannot be empty" });
+      input.value = group.displayName;
+      toastManager.add({ type: "warning", title: "Workspace name cannot be empty" });
       return;
     }
     if (
       !projectGroupTitleNeedsUpdate(
-        group.memberProjects.map((member) => member.title),
+        allMembers.map((member) => member.title),
         title,
         wasEdited,
       )
@@ -309,8 +317,8 @@ function ProjectDetail({
     await updateAllMembers({ title }, "Failed to rename workspace");
   };
 
-  const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditGroup);
-  const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditGroup);
+  const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditShared);
+  const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditShared);
   const [isSavingFavicon, setIsSavingFavicon] = useState(false);
   const savingFaviconRef = useRef(false);
   const setProjectIcon = async (input: Parameters<typeof updateAllMembers>[0]) => {
@@ -322,6 +330,8 @@ function ProjectDetail({
     setIsSavingFavicon(false);
   };
 
+  const isPersonal = isPersonalWorkspace(group.memberProjects);
+  const hasDefaultIcon = allMembers.every(hasDefaultProjectIcon);
   const hasMultipleCheckouts = group.memberProjects.length > 1;
   // Codenine owns the folder of chats without a project; the server refuses to delete it.
   const folderMembers = group.memberProjects.filter(
@@ -330,9 +340,6 @@ function ProjectDetail({
       environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
         .projectFolderDeletion === true,
   );
-  const canResetScratchTitle =
-    group.memberProjects.every((member) => member.isScratch) &&
-    group.memberProjects.some((member) => member.title !== SCRATCH_PROJECT_TITLE);
 
   const removeMembers = async (
     members: ReadonlyArray<SidebarProjectGroupMember>,
@@ -361,31 +368,34 @@ function ProjectDetail({
     else checkoutsByEnvironment.set(member.environmentId, [member]);
   }
   // A lone checkout is removed from the Danger section, but it still needs its grouping
-  // rule here so "Keep separate" can be undone.
-  const checkoutControls = (member: SidebarProjectGroupMember) => (
-    <div className="flex w-full min-w-0 items-center gap-2 @min-[32rem]/settings-row:w-auto">
-      <div className="min-w-0 flex-1 @min-[32rem]/settings-row:w-72 @min-[32rem]/settings-row:flex-none">
-        <CheckoutGroupingSelect member={member} />
+  // rule here so "Keep separate" can be undone. Personal's folder is not a repository.
+  const checkoutControls = (member: SidebarProjectGroupMember) =>
+    isPersonal ? undefined : (
+      <div className="flex w-full min-w-0 items-center gap-2 @min-[32rem]/settings-row:w-auto">
+        <div className="min-w-0 flex-1 @min-[32rem]/settings-row:w-72 @min-[32rem]/settings-row:flex-none">
+          <CheckoutGroupingSelect member={member} />
+        </div>
+        {hasMultipleCheckouts ? (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!editableIds.has(member.environmentId)}
+            onClick={() => void removeMembers([member])}
+            aria-label={`Remove checkout ${member.workspaceRoot}`}
+          >
+            Remove
+          </Button>
+        ) : null}
       </div>
-      {hasMultipleCheckouts ? (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!editableIds.has(member.environmentId)}
-          onClick={() => void removeMembers([member])}
-          aria-label={`Remove checkout ${member.workspaceRoot}`}
-        >
-          Remove
-        </Button>
-      ) : null}
-    </div>
-  );
+    );
   const checkoutChoices = (
-    <SettingsSection title="Checkouts">
-      <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-        Grouping rule decides how each checkout joins workspace groups in the sidebar. Changing it
-        can move a checkout to a different workspace.
-      </p>
+    <SettingsSection title={isPersonal ? "Location" : "Checkouts"}>
+      {isPersonal ? null : (
+        <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
+          Grouping rule decides how each checkout joins workspace groups in the sidebar. Changing it
+          can move a checkout to a different workspace.
+        </p>
+      )}
       {Array.from(checkoutsByEnvironment, ([environmentId, members]) => {
         if (checkoutsByEnvironment.size === 1) {
           return members.map((member) => (
@@ -455,76 +465,75 @@ function ProjectDetail({
   return (
     <>
       <SettingsPageContainer className="gap-6">
-        <Alert variant="info">
-          <InfoIcon aria-hidden />
-          <AlertDescription>
-            Can't find a setting? Keep this project picked above and hop to any other settings page.
-          </AlertDescription>
-        </Alert>
+        <p className="px-3 text-sm text-muted-foreground sm:px-4">
+          More settings for {group.displayName}:{" "}
+          {WORKSPACE_OVERRIDE_PAGES.map((to, index) => (
+            <Fragment key={to}>
+              {index > 0 ? " · " : null}
+              <InlineButton render={<Link to={to} />}>{SETTINGS_SECTION_LABELS[to]}</InlineButton>
+            </Fragment>
+          ))}
+        </p>
         <SettingsSection id="project-overview" title="Workspace" hideTitle>
-          {!canEditGroup ? (
+          {!canEditShared ? (
             <p className="px-3 py-2 text-sm text-muted-foreground sm:px-4">
-              {group.memberProjects.length > 1
+              {allMembers.length > 1
                 ? "Shared settings require permission to change every checkout in this group."
                 : "This connection cannot change this workspace."}
             </p>
           ) : null}
           <SettingsRow
             title="Name"
-            description="The shared name for this workspace group in the sidebar and thread lists."
-            resetAction={
-              canResetScratchTitle ? (
-                <SettingResetButton
-                  label="workspace name"
-                  disabled={!canEditGroup}
-                  onClick={() =>
-                    void updateAllMembers(
-                      { title: SCRATCH_PROJECT_TITLE },
-                      "Failed to rename workspace",
-                    )
-                  }
-                />
-              ) : null
+            description={
+              isPersonal
+                ? "Holds chats started without a workspace."
+                : "Shown in the sidebar, workspace pickers and chat headers."
             }
             control={
-              <Input
-                key={`${group.projectKey}:${group.displayName}`}
-                size="sm"
-                className="w-full sm:w-64"
-                aria-label="Workspace name"
-                disabled={!canEditGroup}
-                defaultValue={group.displayName}
-                onChange={() => {
-                  projectNameEditedRef.current = true;
-                }}
-                onBlur={(event) => {
-                  const wasEdited = projectNameEditedRef.current;
-                  projectNameEditedRef.current = false;
-                  void renameGroup(event.currentTarget.value, wasEdited);
-                }}
-                onKeyDown={(event) => {
-                  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-                  if (event.key === "Enter") event.currentTarget.blur();
-                }}
-              />
+              isPersonal ? (
+                <span className="text-sm">{group.displayName}</span>
+              ) : (
+                <Input
+                  key={`${group.projectKey}:${group.displayName}`}
+                  size="sm"
+                  className="w-full sm:w-64"
+                  aria-label="Workspace name"
+                  disabled={!canEditShared}
+                  defaultValue={group.displayName}
+                  onChange={() => {
+                    projectNameEditedRef.current = true;
+                  }}
+                  onBlur={(event) => {
+                    const wasEdited = projectNameEditedRef.current;
+                    projectNameEditedRef.current = false;
+                    void renameGroup(event.currentTarget, wasEdited);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                />
+              )
             }
           />
           <SettingsRow
             title="Workspace icon"
             description={
-              projectIcon?.kind === "lucide"
-                ? `${projectIcon.name} · ${projectIcon.color}`
-                : projectIcon?.kind === "monogram"
-                  ? `${projectIcon.text} · ${projectIcon.color}`
-                  : projectIcon?.kind === "emoji"
-                    ? projectIcon.emoji
-                    : (faviconPath ?? "Automatic")
+              isPersonal && hasDefaultIcon
+                ? "Default"
+                : projectIcon?.kind === "lucide"
+                  ? `${projectIcon.name} · ${projectIcon.color}`
+                  : projectIcon?.kind === "monogram"
+                    ? `${projectIcon.text} · ${projectIcon.color}`
+                    : projectIcon?.kind === "emoji"
+                      ? projectIcon.emoji
+                      : (faviconPath ?? "Automatic")
             }
             resetAction={
-              group.memberProjects.some((member) => !hasDefaultProjectIcon(member)) ? (
+              !hasDefaultIcon ? (
                 <SettingResetButton
                   label="workspace icon"
-                  disabled={isSavingFavicon || !canEditGroup}
+                  disabled={isSavingFavicon || !canEditShared}
                   onClick={() => void setProjectIcon(defaultProjectIcon)}
                 />
               ) : null
@@ -537,7 +546,7 @@ function ProjectDetail({
                   variant="outline"
                   type="button"
                   aria-label="Choose a workspace icon"
-                  disabled={isSavingFavicon || !canEditGroup}
+                  disabled={isSavingFavicon || !canEditShared}
                   onClick={() => setIconPickerOpen(true)}
                 >
                   Choose icon
@@ -547,7 +556,7 @@ function ProjectDetail({
                   variant="outline"
                   type="button"
                   aria-label="Choose a workspace icon file"
-                  disabled={isSavingFavicon || !canEditGroup}
+                  disabled={isSavingFavicon || !canEditShared}
                   onClick={() => setFaviconPickerOpen(true)}
                 >
                   Choose file
@@ -574,139 +583,145 @@ function ProjectDetail({
                   />
                 }
               />
-              <SettingsRow
-                title="Archive"
-                description={
-                  group.archived
-                    ? "Hidden from workspace pickers. Threads and files are kept."
-                    : "Hides the workspace from workspace pickers. Threads and files are kept."
-                }
-                control={
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={isOrganizing}
-                    onClick={() =>
-                      void organize(
-                        { archived: !group.archived },
-                        group.archived
-                          ? "Failed to unarchive workspace"
-                          : "Failed to archive workspace",
-                      )
-                    }
-                  >
-                    {group.archived ? "Unarchive" : "Archive"}
-                  </Button>
-                }
-              />
+              {isPersonal && !group.archived ? null : (
+                <SettingsRow
+                  title="Archive"
+                  description={
+                    group.archived
+                      ? "Hidden from workspace pickers. Chats and files are kept."
+                      : "Hides the workspace from workspace pickers. Chats and files are kept."
+                  }
+                  control={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isOrganizing}
+                      onClick={() =>
+                        void organize(
+                          { archived: !group.archived },
+                          group.archived
+                            ? "Failed to unarchive workspace"
+                            : "Failed to archive workspace",
+                        )
+                      }
+                    >
+                      {group.archived ? "Unarchive" : "Archive"}
+                    </Button>
+                  }
+                />
+              )}
             </>
           ) : null}
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
         {checkoutChoices}
-        <SettingsSection title="Danger">
-          <SettingsRow
-            title={
-              hasOtherMembers
-                ? "Remove checkout"
-                : group.memberProjects.length > 1
-                  ? "Remove this workspace everywhere"
-                  : "Remove workspace"
-            }
-            description={
-              hasOtherMembers
-                ? "Deletes the selected machine's checkout entries and their threads. Other machines and files on disk are not touched."
-                : group.memberProjects.length > 1
-                  ? `Deletes all ${group.memberProjects.length} checkout entries and their threads on every machine. Files on disk are not touched.`
-                  : "Deletes the workspace entry and its threads. Files on disk are not touched."
-            }
-            control={
-              <Button
-                size="sm"
-                variant="destructive-outline"
-                disabled={!canEditGroup}
-                onClick={() => void removeMembers(group.memberProjects)}
-              >
-                <Trash2Icon />
-                {hasOtherMembers
-                  ? "Remove checkout"
-                  : group.memberProjects.length > 1
-                    ? "Remove all entries"
-                    : "Remove workspace"}
-              </Button>
-            }
-          />
-          {folderMembers.length > 0 ? (
+        {isPersonal ? null : (
+          <SettingsSection title="Danger">
             <SettingsRow
               title={
-                hasMultipleCheckouts
-                  ? "Delete a checkout and its folder"
-                  : hasOtherMembers
-                    ? "Delete checkout and folder"
-                    : "Delete workspace and folder"
+                hasOtherMembers
+                  ? "Remove checkout"
+                  : group.memberProjects.length > 1
+                    ? "Remove this workspace everywhere"
+                    : "Remove workspace"
               }
               description={
-                hasMultipleCheckouts
-                  ? "Deletes one checkout entry, its threads, and its folder on that machine, including uncommitted work. Other checkouts are not touched."
-                  : hasOtherMembers
-                    ? "Deletes the selected machine's checkout entry, its threads, and its folder on that machine, including uncommitted work. Other machines are not touched."
-                    : "Deletes the workspace entry, its threads, and its folder on disk, including uncommitted work."
+                hasOtherMembers
+                  ? "Deletes the selected environment's checkout entries and their chats. Other environments and files on disk are not touched."
+                  : group.memberProjects.length > 1
+                    ? `Deletes all ${group.memberProjects.length} checkout entries and their chats on every environment. Files on disk are not touched.`
+                    : "Deletes the workspace entry and its chats. Files on disk are not touched."
               }
               control={
-                hasMultipleCheckouts ? undefined : (
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={!canEditGroup}
-                    onClick={() => void removeMembers(folderMembers, { deleteFolder: true })}
-                  >
-                    <Trash2Icon />
-                    {hasOtherMembers ? "Delete checkout and folder" : "Delete workspace and folder"}
-                  </Button>
-                )
+                <Button
+                  size="sm"
+                  variant="destructive-outline"
+                  disabled={!canEditGroup}
+                  onClick={() => void removeMembers(group.memberProjects)}
+                >
+                  <Trash2Icon />
+                  {hasOtherMembers
+                    ? "Remove checkout"
+                    : group.memberProjects.length > 1
+                      ? "Remove all entries"
+                      : "Remove workspace"}
+                </Button>
               }
-            >
-              {hasMultipleCheckouts ? (
-                <div className="space-y-3 pb-2 pt-1">
-                  {folderMembers.map((member) => {
-                    const location = [member.environmentLabel, member.workspaceRoot]
-                      .filter(Boolean)
-                      .join(" · ");
-                    return (
-                      <div
-                        key={member.physicalProjectKey}
-                        className="flex min-w-0 items-center justify-between gap-3"
-                      >
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <span className="min-w-0 truncate text-xs text-muted-foreground/80" />
-                            }
-                          >
-                            {location}
-                          </TooltipTrigger>
-                          <TooltipPopup>{location}</TooltipPopup>
-                        </Tooltip>
-                        <div className="shrink-0">
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={!editableIds.has(member.environmentId)}
-                            onClick={() => void removeMembers([member], { deleteFolder: true })}
-                            aria-label={`Delete checkout and folder ${member.workspaceRoot}`}
-                          >
-                            Delete folder
-                          </Button>
+            />
+            {folderMembers.length > 0 ? (
+              <SettingsRow
+                title={
+                  hasMultipleCheckouts
+                    ? "Delete a checkout and its folder"
+                    : hasOtherMembers
+                      ? "Delete checkout and folder"
+                      : "Delete workspace and folder"
+                }
+                description={
+                  hasMultipleCheckouts
+                    ? "Deletes one checkout entry, its chats, and its folder in that environment, including uncommitted work. Other checkouts are not touched."
+                    : hasOtherMembers
+                      ? "Deletes the selected environment's checkout entry, its chats, and its folder there, including uncommitted work. Other environments are not touched."
+                      : "Deletes the workspace entry, its chats, and its folder on disk, including uncommitted work."
+                }
+                control={
+                  hasMultipleCheckouts ? undefined : (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={!canEditGroup}
+                      onClick={() => void removeMembers(folderMembers, { deleteFolder: true })}
+                    >
+                      <Trash2Icon />
+                      {hasOtherMembers
+                        ? "Delete checkout and folder"
+                        : "Delete workspace and folder"}
+                    </Button>
+                  )
+                }
+              >
+                {hasMultipleCheckouts ? (
+                  <div className="space-y-3 pb-2 pt-1">
+                    {folderMembers.map((member) => {
+                      const location = [member.environmentLabel, member.workspaceRoot]
+                        .filter(Boolean)
+                        .join(" · ");
+                      return (
+                        <div
+                          key={member.physicalProjectKey}
+                          className="flex min-w-0 items-center justify-between gap-3"
+                        >
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <span className="min-w-0 truncate text-xs text-muted-foreground/80" />
+                              }
+                            >
+                              {location}
+                            </TooltipTrigger>
+                            <TooltipPopup>{location}</TooltipPopup>
+                          </Tooltip>
+                          <div className="shrink-0">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={!editableIds.has(member.environmentId)}
+                              onClick={() => void removeMembers([member], { deleteFolder: true })}
+                              aria-label={`Delete checkout and folder ${member.workspaceRoot}`}
+                            >
+                              Delete folder
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </SettingsRow>
-          ) : null}
-        </SettingsSection>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </SettingsRow>
+            ) : null}
+          </SettingsSection>
+        )}
       </SettingsPageContainer>
 
       <ProjectFaviconPickerDialog
@@ -718,14 +733,14 @@ function ProjectDetail({
           ? { onPickExternal: () => pickProjectFavicon(representative.workspaceRoot) }
           : {})}
         onSelect={(path) => void setProjectIcon({ faviconPath: path, projectIcon: null })}
-        open={faviconPickerOpen && canEditGroup}
+        open={faviconPickerOpen && canEditShared}
         projectName={group.displayName}
       />
-      {iconPickerOpen && canEditGroup ? (
+      {iconPickerOpen && canEditShared ? (
         <Suspense fallback={null}>
           <ProjectIconPickerDialog
             current={projectIcon}
-            projectName={representative.title}
+            projectName={group.displayName}
             open
             onOpenChange={setIconPickerOpen}
             onSelect={(icon) => void setProjectIcon({ faviconPath: null, projectIcon: icon })}

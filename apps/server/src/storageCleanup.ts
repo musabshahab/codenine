@@ -533,8 +533,8 @@ const make = Effect.gen(function* () {
           kind: "worktree",
           outcome: "kept",
           reason: linked
-            ? "No thread uses this worktree"
-            : "No thread uses this folder, and it isn't a git worktree",
+            ? "No chat uses this worktree"
+            : "No chat uses this folder, and it isn't a git worktree",
           path: worktreePath,
           projectPath: null,
           threadId: null,
@@ -931,15 +931,15 @@ const make = Effect.gen(function* () {
         if (!(yield* fs.exists(worktreePath))) return;
         if (deleted && !settings.worktreeOnDelete) return keep("no rules apply");
         if (members.length > 1 && worktreeOwner(members) === undefined)
-          return keep(`shared by ${members.length} threads`);
-        if (project === undefined) return keep("project is unavailable");
+          return keep(`shared by ${members.length} chats`);
+        if (project === undefined) return keep("workspace is unavailable");
         if (
           thread.branch === null ||
           !group.every((member) => storageCleanupThreadIdle(member, now, serverSettings))
         )
-          return keep(waitForStop("thread is running or has pending work"));
+          return keep(waitForStop("chat is running or has pending work"));
         if (group.some((member) => member.branch !== thread.branch))
-          return keep("a subagent thread's branch differs from this worktree's branch");
+          return keep("a subagent chat's branch differs from this worktree's branch");
         if (hasTerminal(worktreePath)) return keep(waitForStop("open terminal"));
         if (
           [...group, ...settlementChain.slice(1)].some(
@@ -949,7 +949,7 @@ const make = Effect.gen(function* () {
                 SETTLE_SCRIPT_GRACE_MS,
           )
         )
-          return keep(waitForStop("settled moments ago"));
+          return keep(waitForStop("chat done moments ago"));
         const old =
           !deleted &&
           settings.worktreeAfterDays !== null &&
@@ -965,17 +965,17 @@ const make = Effect.gen(function* () {
           settledFor >= settings.worktreeSettledAfterDays * DAY_MS;
         let eligible = deleted || old || settled;
         let removalReason = deleted
-          ? "thread was deleted"
+          ? "chat was deleted"
           : old
             ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} days`
-            : `settled for ${settledDays} days`;
+            : `chat done for ${settledDays} days`;
         const notDueReason =
           !deleted && settings.worktreeAfterDays !== null
             ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} of ${settings.worktreeAfterDays} days`
             : settings.worktreeSettledAfterDays !== null
               ? settledFor === null
-                ? "not settled"
-                : `settled for ${settledDays} of ${settings.worktreeSettledAfterDays} days`
+                ? "chat not done"
+                : `chat done for ${settledDays} of ${settings.worktreeSettledAfterDays} days`
               : settings.worktreeOnMerge
                 ? "not merged"
                 : settings.worktreeUnchanged
@@ -987,7 +987,7 @@ const make = Effect.gen(function* () {
         const pathReason = yield* worktreePathReason(worktreePath);
         if (pathReason !== null) return keep(pathReason);
         if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.projects]))
-          return keep("contains a project checkout");
+          return keep("contains a workspace checkout");
         if (yield* branchChanged(worktreePath, thread.branch))
           return keep("repository or branch changed");
         const changes = yield* localChangesReason(worktreePath, settings);
@@ -1015,7 +1015,7 @@ const make = Effect.gen(function* () {
               args: ["symbolic-ref", "--quiet", "HEAD"],
               allowNonZeroExit: true,
             });
-            if (projectHead.exitCode !== 0) return keep("project branch is unavailable");
+            if (projectHead.exitCode !== 0) return keep("workspace branch is unavailable");
             defaultRef = projectHead.stdout.trim();
             branch = defaultRef.slice("refs/heads/".length);
           } else {
@@ -1071,7 +1071,7 @@ const make = Effect.gen(function* () {
           if (eligible)
             removalReason =
               remote === null
-                ? "no commits beyond the project branch"
+                ? "no commits beyond the workspace branch"
                 : "no commits beyond the default branch";
           if (!eligible && remote !== null && settings.worktreeOnMerge && thread.branch !== null) {
             const pullRequest = yield* gitManager.branchPullRequest(
@@ -1086,14 +1086,14 @@ const make = Effect.gen(function* () {
             });
             if (eligible) removalReason = "pull request was merged";
           }
-          if (!eligible && remote === null) return keep("has commits beyond the project branch");
+          if (!eligible && remote === null) return keep("has commits beyond the workspace branch");
         }
         if (!eligible) return keep(notDueReason);
         // Re-read this path's threads and sessions so new activity cancels removal; full per-worktree snapshots take seconds.
         const blockedSinceCheck = Effect.fnUntraced(function* () {
           const latestProjects = yield* projectStore.listShells();
           if (yield* containsProjectRoot(worktreePath, [project, ...latestProjects]))
-            return "contains a project checkout";
+            return "contains a workspace checkout";
           const latest = (yield* projections.getThreadWorktreePaths({
             includeArchived: true,
           })).filter((entry) => path.resolve(entry.worktreePath) === worktreePath);
@@ -1103,7 +1103,7 @@ const make = Effect.gen(function* () {
               !resolveWorktreeCleanup(yield* settingsService.getSettings, thread.projectId)
                 .worktreeOnDelete
             )
-              return "thread or cleanup settings changed since check";
+              return "chat or cleanup settings changed since check";
             // Durable deletion cleanup must succeed or be explicitly cancelled before removing its checkout.
             const pendingCleanup = yield* sql<{ status: string }>`
               SELECT status FROM orchestration_v2_effect_outbox
@@ -1111,8 +1111,8 @@ const make = Effect.gen(function* () {
             `.pipe(NodeSqliteClient.readOnly);
             // Failed effects never retry, so only running work can finish and free the path.
             if (pendingCleanup.some((row) => row.status !== "failed"))
-              return waitForStop("thread deletion is still pending");
-            if (pendingCleanup.length > 0) return "thread deletion is still pending";
+              return waitForStop("chat deletion is still pending");
+            if (pendingCleanup.length > 0) return "chat deletion is still pending";
           }
           const latestShells = yield* Effect.forEach(latest, (entry) =>
             projections.getThreadShell(entry.threadId),
@@ -1136,7 +1136,7 @@ const make = Effect.gen(function* () {
               );
             })
           )
-            return waitForStop("thread activity or shared worktree changed since check");
+            return waitForStop("chat activity or shared worktree changed since check");
           if (settlementChain.length > 1) {
             const ancestors = yield* Effect.forEach(settlementChain.slice(1), (ancestor) =>
               projections.getThreadShell(ancestor.id),
@@ -1156,7 +1156,7 @@ const make = Effect.gen(function* () {
               !Equal.equals(latestSettlement?.settledAt, settledThread?.settledAt) ||
               !Equal.equals(latestSettlement?.updatedAt, settledThread?.updatedAt)
             )
-              return "parent settlement changed since check";
+              return "parent chat's done state changed since check";
           }
           // Sessions can outlive their run and can be shared across app threads.
           const sessionRows = yield* sql<{ payload_json: string }>`

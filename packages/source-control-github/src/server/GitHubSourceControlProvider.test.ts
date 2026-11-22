@@ -26,6 +26,7 @@ import * as GitHubAppSignIn from "./GitHubAppSignIn.ts";
 
 const appSignedOut = Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
   enabled: false,
+  installUrl: null,
   token: () => Effect.succeedNone,
   invalidate: () => Effect.void,
 });
@@ -473,7 +474,10 @@ describe("GitHubSourceControlProvider change request lookups by head", () => {
           .pipe(Effect.flip, Effect.forkChild);
       const missing = yield* read("missing");
       yield* TestClock.adjust("500 millis");
-      assert.include((yield* Fiber.join(missing)).detail, "No GitHub credential on the server");
+      assert.include(
+        (yield* Fiber.join(missing)).detail,
+        "No GitHub credential in this environment",
+      );
       signedIn = true;
       const limited = yield* read("limited");
       yield* TestClock.adjust("500 millis");
@@ -989,31 +993,41 @@ it("reports unauthenticated when Settings turn off every signed-in host", () => 
   assert.strictEqual(auth.status, "unauthenticated");
   assert.deepStrictEqual(
     auth.detail,
-    Option.some("Every GitHub host gh is signed in to is turned off in Settings → Source Control."),
+    Option.some("Every GitHub host gh is signed in to is turned off in Settings → Source control."),
   );
 });
 
-it("names the environment token that overrides the Settings choice", () => {
-  const auth = GitHubSourceControlProvider.parseGitHubAuth(
-    multiAccountStatus([
-      {
-        state: "success",
-        active: false,
-        host: "github.com",
-        login: "bot",
-        tokenSource: "GH_TOKEN",
-      },
-    ]),
-    { hosts: { "github.com": { account: "work", enabled: true } }, tokens: {}, signIns: {} },
-  );
+const environmentTokenLogin = {
+  state: "success",
+  active: false,
+  host: "github.com",
+  login: "bot",
+  tokenSource: "GH_TOKEN",
+};
+
+it.each([
+  {
+    name: "says the environment token overrides a stored gh login",
+    status: multiAccountStatus([environmentTokenLogin]),
+    detail: "Using the GH_TOKEN environment variable; it overrides the account chosen in Settings.",
+  },
+  {
+    name: "names the environment token alone when gh has no login to choose",
+    status: processResult(JSON.stringify({ hosts: { "github.com": [environmentTokenLogin] } })),
+    detail: "Using the GH_TOKEN environment variable.",
+  },
+])("$name", ({ status, detail }) => {
+  const auth = GitHubSourceControlProvider.parseGitHubAuth(status, {
+    hosts: { "github.com": { account: "work", enabled: true } },
+    tokens: {},
+    signIns: {},
+  });
   assert.deepStrictEqual(auth.account, Option.some("bot"));
-  assert.deepStrictEqual(
-    auth.detail,
-    Option.some(
-      "Using GH_TOKEN from the server environment; it overrides the account chosen in Settings.",
-    ),
+  assert.deepStrictEqual(auth.detail, Option.some(detail));
+  assert.strictEqual(
+    auth.accounts?.find((entry) => entry.account === "bot")?.environmentVariable,
+    "GH_TOKEN",
   );
-  assert.strictEqual(auth.accounts?.[2]?.environmentVariable, "GH_TOKEN");
 });
 
 it.live.each([

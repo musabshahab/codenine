@@ -20,26 +20,26 @@ checkout on each machine, so they stay on the same version.
 ## Before you update
 
 Restarting a server drops its connections and can interrupt active agents and
-terminal commands. Saved threads, settings, and workspace files remain.
+terminal commands. Saved chats, settings, and workspace files remain.
 
-**Settings → Maintenance → Continue threads after restarts** is on by default.
-It resumes supported active threads after an update, crash, or machine
+**Settings → Chats → Continue chats after restarts** is on by default.
+It resumes supported active chats after an update, crash, or machine
 restart. Changes are saved to the connected environments selected at the top of Settings. An
 environment that was offline keeps its previous value; set it again after it connects.
 Codenine must start again on that machine;
 the setting does not enable automatic startup. Terminal commands may still be
-interrupted, and threads without saved provider resume state need a new message.
-A thread that finished its turn to wait on a subagent, a background task, or a
+interrupted, and chats without saved provider resume state need a new message.
+A chat that finished its turn to wait on a subagent, a background task, or a
 command or monitor the agent said it was waiting on is woken and told that this work
 stopped. Other background shells and monitors, such as a dev server and its
-watchdog, do not wake it; the thread learns about them with your next message.
-A thread is not resumed while it waits for your approval, answer, or secret, or
+watchdog, do not wake it; the chat learns about them with your next message.
+A chat is not resumed while it waits for your approval, answer, or secret, or
 while it is archived, snoozed, or done. After three automatic resumes in a row,
-the thread waits for your next message.
+the chat waits for your next message.
 
-Threads created by a much older version keep their transcripts but not every kind of runtime
-history. Read [Threads from an older database](./thread-migration.md) before continuing an
-important older thread.
+Chats created by a much older version keep their transcripts but not every kind of runtime
+history. Read [Chats from an older database](./thread-migration.md) before continuing an
+important older chat.
 
 ## When versions don't match
 
@@ -58,16 +58,19 @@ directory and pair with the running server.
 
 ## Update providers
 
+Codenine does not look up newer provider versions until you turn on
+**Settings → Maintenance → Provider update checks** for that environment.
+
 **Settings → Accounts** shows provider updates for the selected environment.
 **Update all** updates every outdated provider on every connected environment
 at once. Hover it to see which providers it will update. A provider is left out
-when any of its enabled, outdated instances offers only a manual update command,
-or when its instances use different update commands, such as two instances that
-run different CLI installs. Update those by hand, or point every instance of the
+when any of its enabled, outdated accounts offers only a manual update command,
+or when its accounts use different update commands, such as two accounts that
+run different CLI installs. Update those by hand, or point every account of the
 provider at the same CLI.
 
 After a successful provider CLI update, Codenine refreshes model discovery for
-every enabled instance of that provider using its own configuration. Connected
+every enabled account of that provider using its own configuration. Connected
 clients receive the refreshed catalogs automatically.
 
 Provider updates do not restart running chats. An existing session can keep

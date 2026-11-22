@@ -3,8 +3,7 @@ import { AuthSettingsWriteScope } from "@codenine/contracts";
 import { usePrimaryEnvironmentId, usePrimaryEnvironment } from "../../state/environments";
 import { useEnvironmentScope, useEnvironmentsWithScope } from "../../state/session";
 import { InfoIcon, Undo2Icon } from "lucide-react";
-import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@codenine/contracts";
-import * as Equal from "effect/Equal";
+import type { ServerSettings } from "@codenine/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { createContext, type ComponentPropsWithoutRef, type ReactNode, useContext } from "react";
 
@@ -24,9 +23,11 @@ import {
   type ProjectOverrideEntry,
   scopedSettingsAreMixed,
   scopedSettingsSource,
+  settingSource,
 } from "./scopedSettings";
 import { useClearProjectOverrides, useClearScopedSettings } from "./useScopedSettings";
 import {
+  environmentSettingIsSet,
   SettingInheritance,
   type SettingInheritanceState,
   type SettingOverridingProject,
@@ -35,7 +36,7 @@ import {
 const EMPTY_SETTING_KEYS: readonly (keyof ServerSettings)[] = [];
 
 export const ENVIRONMENT_WIDE_SETTING_MESSAGE =
-  "Environment-wide setting. Select an environment to change it.";
+  "Applies to the whole environment. Choose All workspaces to change it.";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {
@@ -294,27 +295,30 @@ export function SettingsUnavailableGroup({
 function projectOverrides(
   context: ReturnType<typeof useOptionalSettingsScope>,
   scopedKeys: ReadonlyArray<keyof ServerSettings>,
+  fields: readonly string[] | undefined,
 ): SettingOverridingProject[] {
   if (context === null || scopedKeys.length === 0) return [];
-  return listProjectOverrides(context.connectedEnvironments, scopedKeys).flatMap((entry) => {
-    const group = context.groups.find((candidate) =>
-      candidate.memberProjects.some(
-        (member) => member.environmentId === entry.environmentId && member.id === entry.projectId,
-      ),
-    );
-    if (!group) return [];
-    return [
-      {
-        ...entry,
-        label: group.displayName,
-        open: () =>
-          context.selectScope({
-            project: group.projectKey,
-            ...(context.search.machine ? { machine: context.search.machine } : {}),
-          }),
-      },
-    ];
-  });
+  return listProjectOverrides(context.connectedEnvironments, scopedKeys, fields).flatMap(
+    (entry) => {
+      const group = context.groups.find((candidate) =>
+        candidate.memberProjects.some(
+          (member) => member.environmentId === entry.environmentId && member.id === entry.projectId,
+        ),
+      );
+      if (!group) return [];
+      return [
+        {
+          ...entry,
+          label: group.displayName,
+          open: () =>
+            context.selectScope({
+              project: group.projectKey,
+              ...(context.search.machine ? { machine: context.search.machine } : {}),
+            }),
+        },
+      ];
+    },
+  );
 }
 
 export function SettingsRow({
@@ -327,6 +331,7 @@ export function SettingsRow({
   controlPlacement = "stack",
   serverScoped = false,
   settingKeys = EMPTY_SETTING_KEYS,
+  settingFields,
   mixed: mixedOverride,
   children,
   className,
@@ -342,6 +347,8 @@ export function SettingsRow({
   controlPlacement?: "stack" | "inline";
   serverScoped?: boolean;
   settingKeys?: readonly (keyof ServerSettings)[];
+  /** The fields of an object setting this row edits, when other rows edit the rest. */
+  settingFields?: readonly string[];
   mixed?: boolean;
   children?: ReactNode;
 }) {
@@ -367,8 +374,34 @@ export function SettingsRow({
   const environmentWide = isProjectScope && serverScoped && scopedKeys.length === 0;
   const mixed =
     mixedOverride ?? (context !== null && scopedSettingsAreMixed(context.targets, settingKeys));
+  const environmentSettingsById = new Map(
+    (context?.connectedEnvironments ?? []).flatMap((environment) =>
+      environment.serverConfig
+        ? [[environment.environmentId, environment.serverConfig.settings] as const]
+        : [],
+    ),
+  );
+  const sourceTargets =
+    settingFields === undefined
+      ? context?.targets
+      : context?.targets.map((target) => {
+          const environmentSettings = environmentSettingsById.get(target.environmentId);
+          return {
+            sources: {
+              ...target.sources,
+              ...Object.fromEntries(
+                scopedKeys.map((key) => [
+                  key,
+                  environmentSettings
+                    ? settingSource(target, environmentSettings, key, settingFields)
+                    : target.sources[key],
+                ]),
+              ),
+            },
+          };
+        });
   const source =
-    context && isProjectScope ? scopedSettingsSource(context.targets, scopedKeys) : null;
+    sourceTargets && isProjectScope ? scopedSettingsSource(sourceTargets, scopedKeys) : null;
   const unavailable =
     serverScoped &&
     (!canWriteSettings ||
@@ -379,20 +412,17 @@ export function SettingsRow({
           (environment) => environment.environmentId === context.scope.environmentIds[0],
         )?.label ?? "environment")
       : "environment";
-  const environmentSettingsById = new Map(
-    (context?.connectedEnvironments ?? []).flatMap((environment) =>
-      environment.serverConfig
-        ? [[environment.environmentId, environment.serverConfig.settings] as const]
-        : [],
-    ),
-  );
-  const overridingProjects = isProjectScope ? [] : projectOverrides(context, scopedKeys);
+  const overridingProjects = isProjectScope
+    ? []
+    : projectOverrides(context, scopedKeys, settingFields);
   const renderedReset = unavailable ? null : isProjectScope && scopedKeys.length > 0 ? (
     source === "project" || source === "mixed" ? (
       <SettingResetButton
         label={typeof title === "string" ? title : "override"}
         tooltip="Reset to inherited value"
-        onClick={() => (onResetOverride ? onResetOverride() : clearOverrides(scopedKeys))}
+        onClick={() =>
+          onResetOverride ? onResetOverride() : clearOverrides(scopedKeys, settingFields)
+        }
       />
     ) : null
   ) : (
@@ -451,7 +481,7 @@ export function SettingsRow({
         const environmentSettings = environmentSettingsById.get(candidate.environmentId);
         return (
           environmentSettings !== undefined &&
-          !Equal.equals(environmentSettings[key], DEFAULT_SERVER_SETTINGS[key])
+          environmentSettingIsSet(environmentSettings, key, settingFields)
         );
       }),
     );
@@ -474,11 +504,12 @@ export function SettingsRow({
         targets={context.targets}
         environments={context.connectedEnvironments}
         keys={settingKeys}
+        {...(settingFields ? { fields: settingFields } : {})}
         overridingProjects={overridingProjects}
         {...(canWriteSettings
           ? {
               onClearOverrides: (entries: readonly ProjectOverrideEntry[]) =>
-                clearProjectOverrides(entries, scopedKeys),
+                clearProjectOverrides(entries, scopedKeys, settingFields),
             }
           : {})}
       />

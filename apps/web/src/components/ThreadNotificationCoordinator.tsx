@@ -134,13 +134,13 @@ export function startThreadNotifications(
     };
     const title =
       kind === "completion"
-        ? "Thread completed"
+        ? "Chat finished"
         : status === "approval"
           ? "Approval needed"
           : status === "limited"
             ? "Usage limit reached"
             : status === "failed"
-              ? "Thread failed"
+              ? "Chat failed"
               : "Input needed";
     if (hasNotificationSound(mode)) {
       void playNotificationSound(kind, () =>
@@ -175,7 +175,7 @@ export function startThreadNotifications(
             ),
         },
         actionProps: {
-          children: "Open thread",
+          children: "Open chat",
           onClick: () => {
             toastManager.close(toastId);
             void router.navigate({

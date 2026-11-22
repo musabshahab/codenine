@@ -24,10 +24,12 @@ import * as HostProcess from "@codenine/shared/HostProcess";
 import * as GitHubClient from "../shared/definition.ts";
 
 /**
- * The public client ID of the Codenine for GitHub app, which the device flow needs (no secret).
+ * The public client ID of the deployer's GitHub App, which the device flow needs (no secret).
  * Unset turns the app sign-in off: no app tokens, no sign-in, nothing for clients to show.
  */
 export const CLIENT_ID_VARIABLE = "CODENINE_GITHUB_APP_CLIENT_ID";
+/** The app's URL name on GitHub, for its install page. Unset hides the install suggestions. */
+export const SLUG_VARIABLE = "CODENINE_GITHUB_APP_SLUG";
 
 const KIND = SourceControlProviderKind.make("github");
 const REQUEST_TIMEOUT = Duration.seconds(15);
@@ -82,6 +84,8 @@ export class GitHubAppSignIn extends Context.Service<
   {
     /** Whether the server is configured with the app's client ID. */
     readonly enabled: boolean;
+    /** Where an account or organization installs the app; null unless the deployer named it. */
+    readonly installUrl: string | null;
     /** The signed-in access token for `host`, refreshed when due; none when not signed in. */
     readonly token: (host: string) => Effect.Effect<Option.Option<string>, GitHubAppSessionError>;
     /** Refreshes on the next `token` when `rejected` is the token GitHub just refused. */
@@ -107,8 +111,14 @@ const signInError = (host: string, reason: SourceControlSignInFailure, detail: s
 export const make = Effect.gen(function* () {
   const sourceControlHost = yield* SourceControlHost.SourceControlHost;
   const httpClient = yield* HttpClient.HttpClient;
-  const clientId = (yield* HostProcess.Environment)[CLIENT_ID_VARIABLE]?.trim() ?? "";
+  const environment = yield* HostProcess.Environment;
+  const clientId = environment[CLIENT_ID_VARIABLE]?.trim() ?? "";
   const enabled = clientId !== "";
+  const slug = environment[SLUG_VARIABLE]?.trim() ?? "";
+  const installUrl =
+    enabled && /^[a-z0-9-]+$/iu.test(slug)
+      ? `https://github.com/apps/${slug}/installations/new`
+      : null;
   const scope = yield* Effect.scope;
   const refreshLock = yield* Semaphore.make(1);
   const refused = yield* Ref.make<ReadonlySet<string>>(new Set());
@@ -371,14 +381,14 @@ export const make = Effect.gen(function* () {
         return yield* signInError(
           host,
           "unsupported",
-          `This server is not set up to sign in with ${GitHubClient.APP_SIGN_IN.appName}.`,
+          `This server is not set up to sign in with the ${GitHubClient.APP_SIGN_IN.appName}.`,
         );
       }
       if (!isAppHost(host)) {
         return yield* signInError(
           host,
           "unsupported",
-          `${GitHubClient.APP_SIGN_IN.appName} only signs in to ${GitHubClient.APP_SIGN_IN.hosts.join(", ")}. Use a token or the GitHub CLI for ${host}.`,
+          `The ${GitHubClient.APP_SIGN_IN.appName} only signs in to ${GitHubClient.APP_SIGN_IN.hosts.join(", ")}. Use a token or the GitHub CLI for ${host}.`,
         );
       }
       const code = yield* postForm(
@@ -461,7 +471,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return GitHubAppSignIn.of({ enabled, token, invalidate, start, wait, cancel });
+  return GitHubAppSignIn.of({ enabled, installUrl, token, invalidate, start, wait, cancel });
 });
 
 export const layer = Layer.effect(GitHubAppSignIn, make);

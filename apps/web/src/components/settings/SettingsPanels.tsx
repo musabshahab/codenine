@@ -21,7 +21,6 @@ import {
 } from "@codenine/contracts/settings";
 import { desktopUpdateChannelOf } from "@codenine/shared/cliRelease";
 import { createModelSelection } from "@codenine/shared/model";
-import { resolvePastedPath } from "@codenine/shared/path";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../../branding";
@@ -53,6 +52,7 @@ import {
 } from "./useScopedSettings";
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
+import { settingsScopeSavedTarget } from "./settingsScope";
 import { scopedIdleCompaction } from "./scopedSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ThreadTitleInstructionsSettings } from "./ThreadTitleInstructionsSettings";
@@ -74,7 +74,6 @@ import {
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { Button } from "../ui/button";
 import { CodenineFolderSettings } from "./CodenineFolderSettings";
-import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { ScopedSwitch } from "./ScopedSwitch";
@@ -316,8 +315,8 @@ function AboutVersionSection() {
             unswitchedMachines > 0 ? (
               <>
                 {unswitchedMachines === 1
-                  ? "1 machine still runs"
-                  : `${unswitchedMachines} machines still run`}{" "}
+                  ? "1 environment still runs"
+                  : `${unswitchedMachines} environments still run`}{" "}
                 {channelSwitchLabel(selectedUpdateChannel === "nightly" ? "latest" : "nightly")}.{" "}
                 {/* The dialog moves what it can and says why it skips the rest. */}
                 <Button
@@ -330,7 +329,7 @@ function AboutVersionSection() {
                 </Button>
               </>
             ) : (
-              "Switches this app and every connected machine whose database the target release supports."
+              "Switches this app and every connected environment whose database the target release supports."
             )
           }
           control={
@@ -493,18 +492,6 @@ export function GeneralSettingsPanel() {
       <CodenineFolderSettings />
       <SettingsSection id="notifications" title="Notifications">
         <NotificationSettings />
-        <SettingsRow
-          {...searchableSetting("in-app-notifications")}
-          description="Show a toast when another thread finishes, fails, or needs input or approval while this app has focus."
-          controlPlacement="inline"
-          control={
-            <Switch
-              checked={settings.inAppNotificationsEnabled}
-              onCheckedChange={(checked) => updateSettings({ inAppNotificationsEnabled: checked })}
-              aria-label="In-app notifications"
-            />
-          }
-        />
       </SettingsSection>
 
       <SettingsSection id="sidebar" title="Sidebar">
@@ -531,6 +518,73 @@ export function GeneralSettingsPanel() {
                 updateSettings({ sidebarGroupByProject: Boolean(checked) })
               }
               aria-label="Group chats by workspace"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("sidebar-two-line-rows")}
+          aria-disabled={!settings.sidebarGroupByProject || undefined}
+          description="Show each chat in a workspace folder on two lines: the title, then the branch, pull request, and agent."
+          status={
+            settings.sidebarGroupByProject
+              ? undefined
+              : "Turn on Group chats by workspace to use this."
+          }
+          resetAction={
+            settings.sidebarTwoLineRows !== DEFAULT_UNIFIED_SETTINGS.sidebarTwoLineRows ? (
+              <SettingResetButton
+                label="two-line chat rows"
+                onClick={() =>
+                  updateSettings({
+                    sidebarTwoLineRows: DEFAULT_UNIFIED_SETTINGS.sidebarTwoLineRows,
+                  })
+                }
+              />
+            ) : null
+          }
+          controlPlacement="inline"
+          control={
+            <Switch
+              checked={settings.sidebarTwoLineRows}
+              disabled={!settings.sidebarGroupByProject}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarTwoLineRows: Boolean(checked) })
+              }
+              aria-label="Two-line chat rows"
+            />
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("working-shelf")}
+          aria-disabled={settings.sidebarGroupByProject || undefined}
+          description="In the single list, fold working and monitoring chats into a Working section. They return to the top of the list when they need you."
+          status={
+            settings.sidebarGroupByProject
+              ? "Turn off Group chats by workspace to use this."
+              : undefined
+          }
+          resetAction={
+            settings.sidebarWorkingShelfEnabled !==
+            DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
+              <SettingResetButton
+                label="working section"
+                onClick={() =>
+                  updateSettings({
+                    sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          controlPlacement="inline"
+          control={
+            <Switch
+              checked={settings.sidebarWorkingShelfEnabled}
+              disabled={settings.sidebarGroupByProject}
+              onCheckedChange={(checked) =>
+                updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
+              }
+              aria-label="Working section"
             />
           }
         />
@@ -608,33 +662,6 @@ export function GeneralSettingsPanel() {
                 ))}
               </SelectPopup>
             </Select>
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("working-shelf")}
-          description="In the single list, fold working and monitoring chats into a Working section. They return to the top of the list when they need you. Chats grouped by workspace have no Working section."
-          resetAction={
-            settings.sidebarWorkingShelfEnabled !==
-            DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled ? (
-              <SettingResetButton
-                label="working section"
-                onClick={() =>
-                  updateSettings({
-                    sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
-                  })
-                }
-              />
-            ) : null
-          }
-          controlPlacement="inline"
-          control={
-            <Switch
-              checked={settings.sidebarWorkingShelfEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ sidebarWorkingShelfEnabled: Boolean(checked) })
-              }
-              aria-label="Working section"
-            />
           }
         />
       </SettingsSection>
@@ -894,34 +921,6 @@ export function ChatSettingsPanel() {
             </Select>
           }
         />
-        <AdvancedSettings targetIds={[searchableSetting("skills-in-slash-menu").id]}>
-          <SettingsRow
-            {...searchableSetting("skills-in-slash-menu")}
-            description="Also include skills in the / command menu. Skills always appear when you type $."
-            resetAction={
-              settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu ? (
-                <SettingResetButton
-                  label="skills in slash menu"
-                  onClick={() =>
-                    updateSettings({
-                      showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
-                    })
-                  }
-                />
-              ) : null
-            }
-            controlPlacement="inline"
-            control={
-              <Switch
-                checked={settings.showSkillsInSlashMenu}
-                onCheckedChange={(checked) =>
-                  updateSettings({ showSkillsInSlashMenu: Boolean(checked) })
-                }
-                aria-label="Show skills in slash menu"
-              />
-            }
-          />
-        </AdvancedSettings>
       </SettingsSection>
 
       <SettingsSection id="follow-ups" title="Follow-ups">
@@ -970,6 +969,9 @@ export function ChatSettingsPanel() {
 
       <SettingsSection id="activity" title="Activity">
         <ToolCallVisibilityRow />
+        <AdvancedSettings targetIds={[searchableSetting("response-streaming").id]}>
+          <ResponseStreamingRow />
+        </AdvancedSettings>
       </SettingsSection>
     </SettingsPageContainer>
   );
@@ -983,6 +985,66 @@ const TOOL_CALL_VISIBILITY_LABELS: Record<ToolCallVisibility, string> = {
 };
 
 const isToolCallVisibility = Schema.is(ToolCallVisibility);
+
+// The Chat page shows no scope sentence, so this server row names where it saves.
+function ResponseStreamingRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
+  const { scope } = useSettingsScope();
+  const { environments } = useEnvironments();
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["responseStreamingMode"]}
+      {...searchableSetting("response-streaming")}
+      description={
+        mixedResponseStreamingMode
+          ? "Your environments use different streaming modes."
+          : RESPONSE_STREAMING_MODE_DESCRIPTIONS[settings.responseStreamingMode]
+      }
+      status={settingsScopeSavedTarget(scope, environments)}
+      resetAction={
+        settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode ? (
+          <SettingResetButton
+            label="response streaming"
+            onClick={() =>
+              updateSettings({
+                responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={mixedResponseStreamingMode ? null : settings.responseStreamingMode}
+          onValueChange={(value) => {
+            if (value === "turn" || value === "paragraph") {
+              updateSettings({ responseStreamingMode: value });
+            }
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Response streaming">
+            <SelectValue>
+              {(value: ResponseStreamingMode | null) =>
+                value === null ? "Mixed" : RESPONSE_STREAMING_MODE_LABELS[value]
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            <SelectItem hideIndicator value="turn">
+              {RESPONSE_STREAMING_MODE_LABELS.turn}
+            </SelectItem>
+            <SelectItem hideIndicator value="paragraph">
+              {RESPONSE_STREAMING_MODE_LABELS.paragraph}
+            </SelectItem>
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
 
 function ToolCallVisibilityRow() {
   const settings = useScopedSettings();
@@ -1238,11 +1300,11 @@ function ScopedCompactIdleThreadsRow() {
       settingKeys={["idleCompaction", "compactIdleThreads"]}
       mixed={idleCompaction.mixed}
       {...searchableSetting("compact-idle-threads")}
-      description="When to compact an idle Claude thread over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude provider can override this."
+      description="When to compact an idle Claude chat over 200,000 tokens: after you return, just before its prompt cache expires, or never. Each Claude account can override this."
       resetAction={
         globalIdleCompaction(settings) !== globalIdleCompaction(DEFAULT_UNIFIED_SETTINGS) ? (
           <SettingResetButton
-            label="compact idle threads"
+            label="compact idle chats"
             onClick={() =>
               updateSettings({ idleCompaction: globalIdleCompaction(DEFAULT_UNIFIED_SETTINGS) })
             }
@@ -1257,7 +1319,7 @@ function ScopedCompactIdleThreadsRow() {
             if (mode) updateSettings({ idleCompaction: mode.value });
           }}
         >
-          <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Compact idle threads">
+          <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Compact idle chats">
             <SelectValue>
               {(value: string | null) =>
                 value === null
@@ -1293,7 +1355,6 @@ export function ThreadsSettingsPanel() {
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
   const environmentId = environment?.environmentId ?? null;
   const hasServerTargets = connectedEnvironments.length > 0;
-  const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
   const providersByEnvironment = useEnvironmentProviders();
   const serverProviders =
     (environment?.serverConfig
@@ -1339,70 +1400,10 @@ export function ThreadsSettingsPanel() {
     settings,
     textGenerationModelInstanceEntries,
   );
-  const mixedAddProjectBaseDirectory = useScopedSettingsMixed(["addProjectBaseDirectory"]);
   const mixedTextGenerationModel = useScopedSettingsMixed(["textGenerationModelSelection"]);
 
   return (
     <SettingsPageContainer>
-      <SettingsSection id="new-projects" title="New workspaces">
-        <SettingsRow
-          serverScoped
-          settingKeys={["addProjectBaseDirectory"]}
-          {...searchableSetting("add-project-starts-in")}
-          description='Where browsing for a folder starts, and where Clone into host folders puts clones. Leave empty to use "~/".'
-          resetAction={
-            settings.addProjectBaseDirectory !==
-            DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory ? (
-              <SettingResetButton
-                label="add workspace base directory"
-                onClick={() =>
-                  updateSettings({
-                    addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <DraftInput
-              size="sm"
-              className="w-full sm:w-72"
-              value={mixedAddProjectBaseDirectory ? "" : settings.addProjectBaseDirectory}
-              onCommit={(next) => updateSettings({ addProjectBaseDirectory: next })}
-              normalizeDraft={resolvePastedPath}
-              placeholder={mixedAddProjectBaseDirectory ? "Mixed" : "~/"}
-              spellCheck={false}
-              aria-label="Add workspace base directory"
-            />
-          }
-        />
-        <SettingsRow
-          serverScoped
-          settingKeys={["ghqCloneLayout"]}
-          {...searchableSetting("ghq-clone-layout")}
-          description="Clones go to github.com/owner/repo under the folder above, like ghq."
-          resetAction={
-            settings.ghqCloneLayout !== DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout ? (
-              <SettingResetButton
-                label="clone into host folders"
-                onClick={() =>
-                  updateSettings({ ghqCloneLayout: DEFAULT_UNIFIED_SETTINGS.ghqCloneLayout })
-                }
-              />
-            ) : null
-          }
-          controlPlacement="inline"
-          control={
-            <ScopedSwitch
-              settingKeys={["ghqCloneLayout"]}
-              checked={settings.ghqCloneLayout}
-              onCheckedChange={(checked) => updateSettings({ ghqCloneLayout: Boolean(checked) })}
-              aria-label="Clone into host folders"
-            />
-          }
-        />
-      </SettingsSection>
-
       <ProjectDefaultsSettings category="general" />
 
       {!isProjectScope ? (
@@ -1415,7 +1416,7 @@ export function ThreadsSettingsPanel() {
         <SettingsRow
           serverScoped
           {...searchableSetting("auto-resume-limited-threads")}
-          description="Automatically resume threads when their usage limits reset. You can cancel auto-resume in each thread."
+          description="Automatically resume chats when their usage limits reset. You can cancel auto-resume in each chat."
           settingKeys={["autoResumeLimitedThreads"]}
           controlPlacement="inline"
           control={
@@ -1432,7 +1433,7 @@ export function ThreadsSettingsPanel() {
         <SettingsRow
           serverScoped
           {...searchableSetting("snooze-limited-threads")}
-          description="Snooze threads until their usage limits reset. Enable auto-resume to continue the agent after the reset."
+          description="Snooze chats until their usage limits reset. Enable auto-resume to continue the agent after the reset."
           settingKeys={["snoozeLimitedThreads"]}
           controlPlacement="inline"
           control={
@@ -1448,18 +1449,54 @@ export function ThreadsSettingsPanel() {
         />
       </SettingsSection>
 
+      <SettingsSection id="restarts" title="Restarts">
+        <SettingsRow
+          {...searchableSetting("continue-threads-after-server-update")}
+          serverScoped
+          settingKeys={["continueThreadsAfterServerUpdate"]}
+          description="Resume chats that were working when Codenine stopped for an update, crash, or restart. Codenine has to start again for them to resume."
+          resetAction={
+            hasServerTargets &&
+            settings.continueThreadsAfterServerUpdate !==
+              DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate ? (
+              <SettingResetButton
+                label="continue chats after restarts"
+                onClick={() =>
+                  updateSettings({
+                    continueThreadsAfterServerUpdate:
+                      DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
+                  })
+                }
+              />
+            ) : null
+          }
+          controlPlacement="inline"
+          control={
+            <ScopedSwitch
+              settingKeys={["continueThreadsAfterServerUpdate"]}
+              checked={settings.continueThreadsAfterServerUpdate}
+              disabled={!hasServerTargets}
+              onCheckedChange={(checked) =>
+                updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
+              }
+              aria-label="Continue chats after restarts"
+            />
+          }
+        />
+      </SettingsSection>
+
       {hasServerTargets ? (
         <SettingsSection id="auto-settle" title="Mark done automatically">
           <SettingsRow
             serverScoped
             settingKeys={["sidebarAutoSettleOnMerge"]}
             {...searchableSetting("auto-settle-merged-threads")}
-            description="Mark a thread done when its pull request merges. A closed pull request still marks it done."
+            description="Mark a chat done when its pull request merges. A closed pull request still marks it done."
             resetAction={
               settings.sidebarAutoSettleOnMerge !==
               DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge ? (
                 <SettingResetButton
-                  label="marking merged threads done"
+                  label="marking merged chats done"
                   onClick={() =>
                     updateSettings({
                       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
@@ -1476,7 +1513,7 @@ export function ThreadsSettingsPanel() {
                 onCheckedChange={(checked) =>
                   updateSettings({ sidebarAutoSettleOnMerge: Boolean(checked) })
                 }
-                aria-label="Mark merged threads done"
+                aria-label="Mark merged chats done"
               />
             }
           />
@@ -1485,12 +1522,12 @@ export function ThreadsSettingsPanel() {
             serverScoped
             settingKeys={["sidebarAutoSettleAfterDays"]}
             {...searchableSetting("auto-settle-inactive-threads")}
-            description="Sidebar threads with no activity for this long are marked done."
+            description="Sidebar chats with no activity for this long are marked done."
             resetAction={
               settings.sidebarAutoSettleAfterDays !==
               DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays ? (
                 <SettingResetButton
-                  label="marking inactive threads done"
+                  label="marking inactive chats done"
                   onClick={() =>
                     updateSettings({
                       sidebarAutoSettleAfterDays:
@@ -1510,7 +1547,7 @@ export function ThreadsSettingsPanel() {
                     sidebarAutoSettleAfterDays: checked ? AUTO_SETTLE_DEFAULT_DAYS : null,
                   })
                 }
-                aria-label="Mark inactive threads done"
+                aria-label="Mark inactive chats done"
               />
             }
           />
@@ -1519,7 +1556,7 @@ export function ThreadsSettingsPanel() {
               serverScoped
               settingKeys={["sidebarAutoSettleAfterDays"]}
               title={searchableSetting("days-before-auto-settle").title}
-              description="Any new activity marks a thread not done again."
+              description="Any new activity marks a chat not done again."
               control={
                 <AutoSettleDaysInput
                   value={settings.sidebarAutoSettleAfterDays}
@@ -1532,8 +1569,8 @@ export function ThreadsSettingsPanel() {
             <SettingsRow
               serverScoped
               settingKeys={["sidebarAutoSettleKeepPullRequests"]}
-              title="Keep threads with a PR"
-              description="Inactivity does not mark threads with a pull request done. Merge and close still do."
+              title="Keep chats with a PR"
+              description="Inactivity does not mark chats with a pull request done. Merge and close still do."
               controlPlacement="inline"
               control={
                 <ScopedSwitch
@@ -1542,7 +1579,7 @@ export function ThreadsSettingsPanel() {
                   onCheckedChange={(checked) =>
                     updateSettings({ sidebarAutoSettleKeepPullRequests: checked })
                   }
-                  aria-label="Keep threads with a PR"
+                  aria-label="Keep chats with a PR"
                 />
               }
             />
@@ -1555,7 +1592,7 @@ export function ThreadsSettingsPanel() {
           serverScoped
           settingKeys={["textGenerationModelSelection"]}
           {...searchableSetting("text-generation-model")}
-          description="For thread titles and other generated text. Source control has its own setting. Text generators from Providers also appear here."
+          description="For chat titles and other generated text. Source control has its own setting. Text generators from Accounts also appear here."
           resetAction={
             hasServerTargets && isTextGenerationModelDirty ? (
               <SettingResetButton
@@ -1651,61 +1688,8 @@ export function ThreadsSettingsPanel() {
             )
           }
         />
-        <AdvancedSettings
-          targetIds={[
-            searchableSetting("thread-title-instructions").id,
-            searchableSetting("response-streaming").id,
-          ]}
-        >
+        <AdvancedSettings targetIds={[searchableSetting("thread-title-instructions").id]}>
           <ThreadTitleInstructionsSettings />
-          <SettingsRow
-            serverScoped
-            settingKeys={["responseStreamingMode"]}
-            {...searchableSetting("response-streaming")}
-            description={
-              mixedResponseStreamingMode
-                ? "The selected targets use different streaming modes."
-                : RESPONSE_STREAMING_MODE_DESCRIPTIONS[settings.responseStreamingMode]
-            }
-            resetAction={
-              settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode ? (
-                <SettingResetButton
-                  label="response streaming"
-                  onClick={() =>
-                    updateSettings({
-                      responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Select
-                value={mixedResponseStreamingMode ? null : settings.responseStreamingMode}
-                onValueChange={(value) => {
-                  if (value === "turn" || value === "paragraph") {
-                    updateSettings({ responseStreamingMode: value });
-                  }
-                }}
-              >
-                <SelectTrigger size="sm" className="w-full sm:w-56" aria-label="Response streaming">
-                  <SelectValue>
-                    {(value: ResponseStreamingMode | null) =>
-                      value === null ? "Mixed" : RESPONSE_STREAMING_MODE_LABELS[value]
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="turn">
-                    {RESPONSE_STREAMING_MODE_LABELS.turn}
-                  </SelectItem>
-                  <SelectItem hideIndicator value="paragraph">
-                    {RESPONSE_STREAMING_MODE_LABELS.paragraph}
-                  </SelectItem>
-                </SelectPopup>
-              </Select>
-            }
-          />
         </AdvancedSettings>
       </SettingsSection>
     </SettingsPageContainer>
@@ -1715,10 +1699,9 @@ export function ThreadsSettingsPanel() {
 export function MaintenanceSettingsPanel() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
-  const { scope, environment, connectedEnvironments } = useSettingsScope();
+  const { scope, environment } = useSettingsScope();
   const environmentId = environment?.environmentId ?? null;
   const isEnvironmentScope = scope.environmentIds.length === 1 && environmentId !== null;
-  const hasServerTargets = connectedEnvironments.length > 0;
 
   return (
     <SettingsPageContainer>
@@ -1750,44 +1733,6 @@ export function MaintenanceSettingsPanel() {
                 updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
               }
               aria-label="Check provider versions"
-            />
-          }
-        />
-        <SettingsRow
-          {...searchableSetting("continue-threads-after-server-update")}
-          serverScoped
-          settingKeys={["continueThreadsAfterServerUpdate"]}
-          description="Automatically resume interrupted threads after an update, crash, or machine restart on the selected environments."
-          status={
-            !hasServerTargets
-              ? "All selected connected environments must support restart continuation."
-              : undefined
-          }
-          resetAction={
-            hasServerTargets &&
-            settings.continueThreadsAfterServerUpdate !==
-              DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate ? (
-              <SettingResetButton
-                label="continue threads after restarts"
-                onClick={() =>
-                  updateSettings({
-                    continueThreadsAfterServerUpdate:
-                      DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
-                  })
-                }
-              />
-            ) : null
-          }
-          controlPlacement="inline"
-          control={
-            <ScopedSwitch
-              settingKeys={["continueThreadsAfterServerUpdate"]}
-              checked={settings.continueThreadsAfterServerUpdate}
-              disabled={!hasServerTargets}
-              onCheckedChange={(checked) =>
-                updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
-              }
-              aria-label="Continue threads after restarts"
             />
           }
         />

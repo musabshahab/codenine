@@ -12,7 +12,7 @@ Codex receives historical messages directly when its installed version supports 
 Other providers receive the same selection as attributed conversation context. A handoff does not
 copy the outgoing provider's reasoning, tool-call state, or attachments.
 
-The handoff includes references to omitted history. The agent can use Codenine's thread-reading tool
+The handoff includes references to omitted history. The agent can use Codenine's chat-reading tool
 to retrieve saved messages and activity, including the remainder of a long item. For an important
 constraint, you can still repeat it in your next message. A handoff is a budgeted selection, not an
 agent-written summary.

@@ -258,14 +258,26 @@ describe("GitHubAppSignIn", () => {
     const { layer, requests } = harness({ handle: () => ({ body: {} }) });
     return Effect.gen(function* () {
       const signIn = yield* GitHubAppSignIn.GitHubAppSignIn;
+      expect(signIn.installUrl).toBeNull();
       expect((yield* Effect.flip(signIn.start("ghe.acme.test"))).reason).toBe("unsupported");
       expect((yield* Effect.flip(signIn.wait("github.com"))).reason).toBe("not-started");
       expect(requests).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("links the install page of the app the deployer named", () => {
+    vi.stubEnv(GitHubAppSignIn.SLUG_VARIABLE, " acme-codenine ");
+    const { layer } = harness({ handle: () => ({ body: {} }) });
+    return Effect.gen(function* () {
+      expect((yield* GitHubAppSignIn.GitHubAppSignIn).installUrl).toBe(
+        "https://github.com/apps/acme-codenine/installations/new",
+      );
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("does nothing with the app when the server has no client ID", () => {
     vi.stubEnv(GitHubAppSignIn.CLIENT_ID_VARIABLE, "");
+    vi.stubEnv(GitHubAppSignIn.SLUG_VARIABLE, "acme-codenine");
     const { layer, requests } = harness({
       signIns: { "github.com": session() },
       handle: () => ({ body: { login: "octocat" } }),
@@ -273,6 +285,7 @@ describe("GitHubAppSignIn", () => {
     return Effect.gen(function* () {
       const signIn = yield* GitHubAppSignIn.GitHubAppSignIn;
       expect(signIn.enabled).toBe(false);
+      expect(signIn.installUrl).toBeNull();
       expect((yield* Effect.flip(signIn.start("github.com"))).reason).toBe("unsupported");
       expect(yield* (yield* GitHubAppAccess.GitHubAppAccess).reach("github.com", "acme/one")).toBe(
         "signed-out",

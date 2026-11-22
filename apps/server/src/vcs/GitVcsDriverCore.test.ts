@@ -23,6 +23,7 @@ import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import * as Tracer from "effect/Tracer";
 import { ChildProcess, ChildProcessSpawner, CommandLine } from "effect/process";
 
 import {
@@ -404,6 +405,40 @@ it.effect.each(["origin", "github"] as const)(
       assert.equal((yield* driver.statusDetailsLocal(cwd)).hasOriginRemote, true);
       assert.equal((yield* driver.listRefs({ cwd })).hasPrimaryRemote, true);
     }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("reads the status of a repository without a remote without failing a span", () =>
+  Effect.gen(function* () {
+    const ended: Array<Tracer.NativeSpan> = [];
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options);
+        const end = span.end.bind(span);
+        span.end = (endTime, exit) => {
+          end(endTime, exit);
+          ended.push(span);
+        };
+        return span;
+      },
+    });
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    const cwd = yield* makeTmpDir();
+    yield* initRepoWithCommit(cwd);
+
+    yield* driver.statusDetailsLocal(cwd).pipe(Effect.withTracer(tracer));
+
+    const failed = ended.filter(
+      (span) => span.status._tag === "Ended" && Exit.isFailure(span.status.exit),
+    );
+    assert.deepStrictEqual(
+      failed.map((span) => span.name),
+      [],
+    );
+    assert.equal(
+      ended.find((span) => span.name === "findPrimaryRemoteName")?.attributes.get("probe.miss"),
+      "no-remote",
+    );
+  }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect.each([

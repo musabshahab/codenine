@@ -27,6 +27,7 @@ import * as GitHubAppSignIn from "./GitHubAppSignIn.ts";
 
 const appSignedOut = Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
   enabled: false,
+  installUrl: null,
   token: () => Effect.succeedNone,
   invalidate: () => Effect.void,
 });
@@ -192,6 +193,7 @@ const layer = it.layer(
     Layer.provideMerge(
       Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
         enabled: false,
+        installUrl: null,
         token: (host) => mockedAppToken(host),
         invalidate: () => Effect.void,
       }),

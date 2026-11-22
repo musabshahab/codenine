@@ -2,6 +2,18 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ThreadId } from "@codenine/contracts";
 import { planProjectRemoval } from "@codenine/client-runtime/state/projects";
 
+import { isPersonalWorkspace } from "./ProjectSettingsPanel.logic";
+
+it.each([
+  [[], false],
+  [[{ isScratch: true as const }], true],
+  [[{ isScratch: true as const }, { isScratch: true as const }], true],
+  [[{ isScratch: true as const }, {}], false],
+  [[{}], false],
+])("treats %j as the Personal workspace: %s", (members, expected) => {
+  expect(isPersonalWorkspace(members)).toBe(expected);
+});
+
 describe("project removal confirmation", () => {
   const local = {
     id: ProjectId.make("shared-id"),
@@ -43,7 +55,7 @@ describe("project removal confirmation", () => {
     });
     expect(plan.projectThreads).toHaveLength(3);
     expect(plan.confirmationMessage).toBe(
-      'Remove checkout "Repo" and its 1 chat?\nPath: /work/repo\nEnvironment: Local\nAny archived chats are deleted from Codenine.\nOther entries in this grouped project are unaffected.\nThis can\'t be undone.',
+      'Remove checkout "Repo" and its 1 chat?\nPath: /work/repo\nEnvironment: Local\nAny archived chats are deleted from Codenine.\nOther checkouts of this workspace are unaffected.\nThis can\'t be undone.',
     );
     const folderPlan = planProjectRemoval({
       members: [local],
@@ -54,7 +66,7 @@ describe("project removal confirmation", () => {
       deleteFolder: true,
     });
     expect(folderPlan.confirmationMessage).toBe(
-      'Delete project "Repo" and its folder?\nFolder: /work/repo\nEnvironment: Local\nThis permanently deletes the folder and everything in it, including uncommitted work and the worktrees Codenine made for its chats.\nIts 1 chat and any archived chats are deleted from Codenine.\nThis can\'t be undone.',
+      'Delete workspace "Repo" and its folder?\nFolder: /work/repo\nEnvironment: Local\nThis permanently deletes the folder and everything in it, including uncommitted work and the worktrees Codenine made for its chats.\nIts 1 chat and any archived chats are deleted from Codenine.\nIts workspace settings and actions are deleted too.\nThis can\'t be undone.',
     );
   });
 
@@ -68,9 +80,8 @@ describe("project removal confirmation", () => {
     });
     expect(plan.targetKind).toBe("checkout");
     expect(plan.confirmationMessage).toContain("Environment: Remote");
-    expect(plan.confirmationMessage).toContain(
-      "Other entries in this grouped project are unaffected.",
-    );
+    expect(plan.confirmationMessage).toContain("Other checkouts of this workspace are unaffected.");
+    expect(plan.confirmationMessage).not.toContain("workspace settings");
     expect(plan.confirmationMessage).toContain("Any archived chats are deleted from Codenine.");
   });
 
@@ -83,8 +94,9 @@ describe("project removal confirmation", () => {
       displayName: "Repo",
       threads: [],
     });
-    expect(plan.targetKind).toBe("project");
-    expect(plan.confirmationMessage).toContain("This removes 2 grouped project entries.");
-    expect(plan.confirmationMessage).toContain("Files on disk are kept.");
+    expect(plan.targetKind).toBe("workspace");
+    expect(plan.confirmationMessage).toBe(
+      'Remove workspace "Repo"?\nThis removes its 2 checkouts.\nAny archived chats are deleted from Codenine.\nIts workspace settings and actions are deleted too.\nFiles on disk are kept.\nThis can\'t be undone.',
+    );
   });
 });

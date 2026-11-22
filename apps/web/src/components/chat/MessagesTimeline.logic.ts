@@ -198,7 +198,7 @@ export function threadReadTargetTitle(
 
 export function threadReadLabelPrefix(label: string) {
   return label.endsWith(THREAD_READ_OBJECT)
-    ? `${label.slice(0, -THREAD_READ_OBJECT.length)} thread`
+    ? `${label.slice(0, -THREAD_READ_OBJECT.length)} chat`
     : null;
 }
 

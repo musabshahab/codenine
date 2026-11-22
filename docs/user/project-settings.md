@@ -1,9 +1,13 @@
 # Settings and workspace overrides
 
 The "Applying settings for …" sentence at the top of Settings pages picks
-the workspace and environment a change applies to. Pages that only hold device preferences, such as
-Appearance, don't show it. They start at **All workspaces** and **All environments**
-and stay selected as you move between categories or search for a setting.
+the workspace and environment a change applies to. Pages that hold only preferences saved in this
+browser or app, such as Appearance, say **Saved on this device** instead. With one environment, its
+name shows in place of a menu.
+
+Only pages with settings a workspace can override, such as Chats and Source control, offer a
+workspace. Other pages pick only the environment, and opening one clears the workspace you picked.
+The environment stays selected as you move between pages or search for a setting.
 
 Preferences saved on this device, such as appearance and confirmations, always
 show and ignore the selection. Everything else is stored on a server. Choose one environment to
@@ -13,7 +17,7 @@ Offline environments keep their current values; this is a bulk edit, not a synce
 Choose a workspace to override settings for it on the selected environments. A layers icon beside
 each server row's title shows where the value comes from: the built-in default, the environment,
 or a workspace override. Click it to see that chain on every selected environment. An override can
-be reset to inherit again. Settings that cannot be overridden by a workspace are shown read-only
+be reset to inherit again. Settings that cannot be overridden by a workspace are read-only or hidden
 while a workspace is selected.
 
 When the selected environments disagree, the control shows **Mixed** in place of a value and the
@@ -24,38 +28,41 @@ setting you are editing, the layers icon counts them and the chain lists each on
 click a workspace to jump to it, or **Reset all** to make those workspaces follow the environment
 again.
 
-Providers and diagnostics are per machine: they show one environment at a time, the primary
-one until you pick another. Keybindings ignore the selection and edit only the primary
-environment, whose shortcuts this app uses. Every other setting fans out to the selection.
+Accounts and Diagnostics show one environment at a time, the primary one until you pick another.
+Keybindings edit only the primary environment, whose shortcuts this app uses. Every other setting
+fans out to the selection.
 
 With a workspace selected, a provider's switch in **Settings → Accounts** turns it on or off for
-that workspace only, in either direction: a provider off on the machine can be used in one workspace,
+that workspace only, in either direction: a provider off on the environment can be used in one workspace,
 and one on everywhere can be kept out of another. That workspace's model pickers follow the switch,
 and no new turn there can start on a provider it turned off, including queued messages and
 follow-ups from delegated tasks. A turn already running when the switch flips finishes. A delegated
-task's result still lands in its parent thread, which sees it on its next turn. Reset returns the workspace to the
-machine's setting. Every other provider setting stays per machine.
+task's result still lands in its parent chat, which sees it on its next turn. Reset returns the workspace to the
+environment's setting. Every other provider setting stays per environment.
 
 ## Pin, archive, and remove workspaces
 
 Pinned workspaces come first in the workspace pickers: the workspace picker on a new chat, the
 **New chat in...** list, the command palette, and the sidebar workspace filter. When chats are
-grouped by workspace, pinned workspaces get the top folders, even with no active threads. Pin or unpin
-a workspace from its row in any of those lists, or press the thread pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
+grouped by workspace, pinned workspaces get the top folders, even with no active chats. Pin or unpin
+a workspace from its row in any of those lists, or press the chat pin shortcut (`mod+shift+p` by default) on the highlighted row. **Pin
 workspace** in the command palette and **Settings → Workspaces** work too. A list keeps its order
 while it is open, so a new pin moves up the next time you open it.
 
 Archive a workspace you are done with in **Settings → Workspaces**. It leaves the workspace pickers.
-Its threads, settings, and files stay as they are, and archived workspaces still show in the
+Its chats, settings, and files stay as they are, and archived workspaces still show in the
 Settings workspace list, marked **Archived**. Choose one there and select **Unarchive** to bring it
 back.
 
-A workspace on several machines must have every machine connected to pin or archive it.
+A workspace on several environments must have every environment connected to pin or archive it.
 
 Remove a workspace from its folder's right-click menu in the sidebar or from **Settings → Workspaces**.
-Removing it deletes its threads from Codenine and leaves its folder on disk; **Delete workspace and
+Removing it deletes its chats from Codenine and leaves its folder on disk; **Delete workspace and
 folder** also permanently deletes the folder, including uncommitted work, and the workspace's
 Codenine worktrees on the machine that holds it.
+
+[Personal](./thread-sidebar.md#start-in-personal) can be pinned, but not renamed, archived, or
+removed, since it always holds the chats you start without a workspace.
 
 ## Worktree branch names
 
@@ -73,8 +80,8 @@ branch name remains.
 
 ## Defaults and inheritance
 
-Threads contains the model and workspace for new threads. Source control contains automatic pull
-and text generation. The same rows edit environment defaults or workspace overrides depending on
+Chats contains the model and workspace for new chats, and text generation. Source control contains
+automatic pull and writing. The same rows edit environment defaults or workspace overrides depending on
 the selected workspace.
 
 The Workspaces category, under Code, holds the workspace's name, icon, actions,
@@ -82,22 +89,23 @@ checkouts and removal. Actions belong to a workspace: editing them creates the w
 on each selected environment, and reset returns to the environment's shared list. A workspace's
 `codenine.json` actions can be imported there.
 
-Settings a repository can also declare in `codenine.json`, such as the workspace for new threads,
+Settings a repository can also declare in `codenine.json`, such as the workspace for new chats,
 resolve in one order: a workspace override, then the environment setting, then `codenine.json`, then the
-built-in default. Leave a setting on **Inherit** to let the next tier decide.
+built-in default. An environment setting you have not changed, or have reset, lets `codenine.json`
+decide; once you pick a value for the environment, the repository's file no longer applies there.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the workspace
 selected to override it there) to **Top level only** to stop at the ones the repository declares
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
 workspace default: a `"worktreeSubmodules"` value in the `codenine.json` of the branch being checked out
-applies when the workspace and environment are both on **Inherit**.
+applies while neither the workspace nor the environment has a value of its own.
 
 ## Worktree location
 
 New worktrees go in the `worktrees` folder of the Codenine home directory. To put them somewhere else,
 such as another drive, set **Settings → Worktrees → Worktree location** to an absolute path like
-`D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
+`D:\worktrees` or `~/worktrees`. The setting is per environment. Existing worktrees stay where they
 are, and cleanup covers both the default folder and the custom one.
 
 ## Fast worktree checkout on macOS
@@ -115,39 +123,41 @@ repositories whose checkout settings changed.
 
 ## Storage cleanup
 
-Open **Settings → Worktrees → Cleanup** to enable automatic cleanup on one machine or all connected
+Open **Settings → Worktrees → Cleanup** to enable automatic cleanup on one environment or all connected
 environments. Policies are off by default and run on the server at startup, when changed, and
-hourly. Offline machines keep their existing policies.
+hourly. Offline environments keep their existing policies.
 
 Select a workspace to set **Automatic worktree cleanup** to **Inherit**, **Off**, or **Custom**.
-Inherit follows each machine's rules; Off keeps that workspace's worktrees until you remove them
+Inherit follows each environment's rules; Off keeps that workspace's worktrees until you remove them
 manually. Custom applies separate worktree rules to the selected workspace or checkout. Log retention
-remains machine-wide.
+remains environment-wide.
 
-Worktrees can be removed after a chosen number of inactive days, after a thread is marked done,
+Worktrees can be removed after a chosen number of inactive days, after a chat is marked done,
 after merging, or when they have no commits beyond the default branch. Set **Delete worktrees of
-done threads** to 0 days to remove a worktree at the next cleanup after its thread is marked done. In repositories without remotes,
-unchanged-worktree cleanup compares against the branch checked out in the workspace workspace;
+done chats** to 0 days to remove a worktree at the next cleanup after its chat is marked done. In repositories without remotes,
+unchanged-worktree cleanup compares against the branch checked out in the workspace;
 if that checkout has a detached HEAD, the worktree is kept. Only Codenine-managed worktrees are eligible.
 Active sessions and shared worktrees prevent removal. **Keep worktrees with local changes** defaults
 to **Uncommitted changes**, which protects tracked edits and untracked files but deletes ignored
 files such as `.env` and build output. **Any local files** also protects ignored files other than
 `node_modules`. **Edited tracked files** protects only tracked edits and allows untracked and
-ignored files to be deleted. Branches and thread history stay; starting another turn recreates the checkout.
+ignored files to be deleted. Branches and chat history stay; starting another turn recreates the checkout.
 Merge cleanup requires a merged pull request whose commits are included in the remote default
 branch. A squash or rebase merge on GitHub also counts when the pull request targeted the default
 branch and the worktree is still at the pull request's last commit.
 
-Enable **Delete worktrees with deleted threads** to remove safe worktrees after their last
-thread is deleted, including archived threads and worktrees left by earlier deletions. The
+Enable **Delete worktrees with deleted chats** to remove safe worktrees after their last
+chat is deleted, including archived chats and worktrees left by earlier deletions. The
 server waits for sessions and terminals to stop and retries skipped worktrees after restart.
 Existing prompts for deleting a worktree manually remain available when this policy is off.
 
-Choose **Delete now** to run the enabled rules immediately. The latest results show which
+Choose **Run now** at the end of the section to run the enabled rules immediately, for the whole
+environment. The same run deletes rotated logs past their retention. **Last run** shows which
 worktrees were removed or kept and why, plus any failures.
-Results also list folders in the worktree folder that no thread uses, with their sizes; cleanup never removes them, so remove them manually if you want.
+Results also list folders in the worktree folder that no chat uses, with their sizes; cleanup never removes them, so remove them manually if you want.
 
-Rotated logs have their own retention period. Current logs and message attachments are kept.
+Rotated logs have their own retention period, under **Settings → Maintenance → Logs**. Current logs
+and message attachments are kept.
 
 ## Workspace icons
 
@@ -169,3 +179,6 @@ with its configured upstream. Choose an environment to set the default or a work
 Codenine only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.
+
+Automatic pulls also stop while Git fetch is off, as it is with the **Battery saver** profile in
+**Settings → Maintenance → Background activity**.

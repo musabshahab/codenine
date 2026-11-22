@@ -7,7 +7,7 @@ to run a team of agents on one task: a lead agent proposes a team built from you
 Codex or Claude Code with a recommended model and effort, and you adjust that team before it starts.
 [Run a team](./thread-sidebar.md#run-a-team)
 
-Codenine also runs single Codex and Claude threads, lets an agent delegate work to subagents, and
+Codenine also runs single Codex and Claude chats, lets an agent delegate work to subagents, and
 gives you checkpoints, diffs, a terminal, worktrees, and pull requests. [Install](./install.md)
 
 ## Is Codenine a harness?
@@ -49,9 +49,9 @@ show its pooled limits under Usage. [Connect a hub](./usage.md#connect-a-cliprox
 
 ## Can I use an API key or OpenRouter instead of a subscription?
 
-Yes. Add another provider instance in Settings and give it its own keys and endpoint. Your
+Yes. Add another account in Settings and give it its own keys and endpoint. Your
 subscription setup stays untouched. [OpenRouter](./providers-claude.md#use-openrouter) ·
-[Provider instances](./install.md#providers)
+[Accounts](./install.md#providers)
 
 ## Does Codenine support local models?
 
@@ -104,5 +104,5 @@ on that machine first, with `codex login` or `claude auth login`. If it is still
 
 ## Why does Codenine Connect keep disconnecting?
 
-Open **Settings → Environments**, find the machine, and select **Details**. The first part marked
+Open **Settings → Environments**, find the environment, and select **Details**. The first part marked
 as failed is the cause. [Codenine Connect troubleshooting](./codenine-connect-troubleshooting.md)

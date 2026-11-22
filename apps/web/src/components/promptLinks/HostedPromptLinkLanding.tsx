@@ -46,12 +46,13 @@ function summarize(
       value:
         prompt.value === null
           ? {
-              title: "Open this thread",
-              description: "It opens in Codenine if you're connected to the machine it runs on.",
+              title: "Open this chat",
+              description:
+                "It opens in Codenine if you're connected to the environment it runs on.",
               prompt: null,
               details: [],
             }
-          : { ...PROMPT_HEADER, prompt: prompt.value, details: ["Opens one of your threads."] },
+          : { ...PROMPT_HEADER, prompt: prompt.value, details: ["Opens one of your chats."] },
     };
   }
   const link = parseNewThreadLink(url.search);

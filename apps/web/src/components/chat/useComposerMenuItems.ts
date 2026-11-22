@@ -54,7 +54,6 @@ export function useComposerMenuItems({
   selectedProvider,
   selectedProviderSkills,
   selectedProviderSlashCommands,
-  showSkillsInSlashMenu,
   workspaceSkillsScanning,
   modelMentions,
   agents,
@@ -73,7 +72,6 @@ export function useComposerMenuItems({
   readonly selectedProvider: ProviderDriverKind;
   readonly selectedProviderSkills: ServerProvider["skills"];
   readonly selectedProviderSlashCommands: ServerProvider["slashCommands"];
-  readonly showSkillsInSlashMenu: boolean;
   readonly workspaceSkillsScanning: boolean;
   readonly modelMentions: {
     readonly instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
@@ -137,7 +135,7 @@ export function useComposerMenuItems({
           type: "slash-command",
           command: "model",
           label: "/model",
-          description: "Switch response model for this thread",
+          description: "Switch response model for this chat",
         },
         ...(sideChatAvailable
           ? ([
@@ -169,10 +167,7 @@ export function useComposerMenuItems({
             ] as const)
           : []),
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
-      const slashMenuSkills = getProviderSkillsForSlashMenu(
-        selectedProviderSkills,
-        showSkillsInSlashMenu,
-      );
+      const slashMenuSkills = getProviderSkillsForSlashMenu(selectedProviderSkills);
       const providerSlashCommandItems = getProviderSlashCommandsForSlashMenu(
         selectedProviderSlashCommands,
         slashMenuSkills,
@@ -277,7 +272,7 @@ export function useComposerMenuItems({
       }
       return composerTrigger?.query
         ? `No pull request matches ${composerTrigger.query}.`
-        : "No pull requests are linked to this thread.";
+        : "No pull requests are linked to this chat.";
     }
     return composerTriggerKind === "path"
       ? "No matching files or folders."

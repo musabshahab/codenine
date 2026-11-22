@@ -96,6 +96,12 @@ describe("searchSettings", () => {
         .slice(0, 2)
         .map((item) => item.id),
     ).toEqual(["network-access", "connections-environment"]);
+    expect(searchSettings("environment")[0]?.to).toBe("/settings/connections");
+    expect(searchSettings("chats")[0]?.to).toBe("/settings/threads");
+    expect(searchSettings("tailscale")[0]?.id).toBe("remote-environments");
+    expect(searchSettings("pull request").map((item) => item.id)).not.toContain(
+      "diff-color-scheme",
+    );
   });
 
   it("hides desktop-only settings from browser search", () => {
@@ -132,6 +138,7 @@ describe("searchSettings", () => {
       "auto-settle-inactive-threads",
       "auto-settle-merged-threads",
       "days-before-auto-settle",
+      "environment-identification",
     ]);
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
@@ -181,7 +188,7 @@ describe("searchSettings", () => {
   it("finds rows by the titles shown on their pages", () => {
     for (const [title, id] of [
       ["Automatic worktree cleanup", "storage-worktrees"],
-      ["Delete worktrees of done threads", "storage-worktrees"],
+      ["Delete worktrees of done chats", "storage-worktrees"],
       ["Delete old rotated logs", "storage-artifacts"],
       ["Native sessions", "providers"],
       ["CODEX_HOME path", "providers"],
@@ -219,9 +226,20 @@ describe("settings search targets", () => {
     expect(isSettingsSearchScopeAvailable(fallback.scope, "environment")).toBe(true);
     expect(isSettingsSearchScopeAvailable(fallback.scope, "all")).toBe(true);
     expect(isSettingsSearchScopeAvailable(fallback.scope, "project")).toBe(false);
-    expect(getSettingsSearchTargetScope("response-streaming")?.scope).toBe("project-defaults");
+    for (const id of [
+      "response-streaming",
+      "source-control-writing-style",
+      "follow-change-request-templates",
+    ]) {
+      expect(getSettingsSearchTargetScope(id)?.scope).toBe("project-defaults");
+    }
     for (const scope of ["all", "environment", "project"] as const) {
       expect(isSettingsSearchScopeAvailable("project-defaults", scope)).toBe(true);
+    }
+    for (const id of ["prompt-suggestions-beta", "worktree-fast-checkout"]) {
+      const labs = getSettingsSearchTargetScope(id)!;
+      expect(isSettingsSearchScopeAvailable(labs.scope, "all")).toBe(true);
+      expect(isSettingsSearchScopeAvailable(labs.scope, "environment")).toBe(true);
     }
     for (const id of ["tool-call-visibility", "sidebar-group-by-project"]) {
       expect(getSettingsSearchTargetScope(id)!.scope).toBeNull();
@@ -343,6 +361,16 @@ describe("movedSettingsPath", () => {
     expect(movedSettingsPath("/settings/storage", "storage-worktrees")).toBe("/settings/worktrees");
     expect(movedSettingsPath("/settings/storage", "")).toBe("/settings/maintenance");
     expect(movedSettingsPath("/settings/beta", "")).toBe("/settings/labs");
+    expect(movedSettingsPath("/settings/integrations", "")).toBe("/settings/general");
+    expect(movedSettingsPath("/settings/threads", "add-project-starts-in")).toBe(
+      "/settings/projects",
+    );
+    expect(movedSettingsPath("/settings/threads", "new-projects")).toBe("/settings/projects");
+    expect(movedSettingsPath("/settings/threads", "response-streaming")).toBe("/settings/chat");
+    expect(movedSettingsPath("/settings/maintenance", "continue-threads-after-server-update")).toBe(
+      "/settings/threads",
+    );
+    expect(movedSettingsPath("/settings/labs", "sidebar-two-line-rows")).toBe("/settings/general");
   });
 
   it("leaves current pages alone", () => {
@@ -350,5 +378,9 @@ describe("movedSettingsPath", () => {
     expect(movedSettingsPath("/settings/projects", "project-defaults")).toBeNull();
     expect(movedSettingsPath("/settings/connections", "remote-environments")).toBeNull();
     expect(movedSettingsPath("/settings/appearance", "theme")).toBeNull();
+    expect(movedSettingsPath("/settings/threads", "")).toBeNull();
+    expect(movedSettingsPath("/settings/threads", "text-generation")).toBeNull();
+    expect(movedSettingsPath("/settings/maintenance", "updates")).toBeNull();
+    expect(movedSettingsPath("/settings/labs", "")).toBeNull();
   });
 });

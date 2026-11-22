@@ -197,6 +197,7 @@ import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+import { LONG_LIVED_SPAN_ATTRIBUTE } from "./observability/Attributes.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
@@ -2890,6 +2891,7 @@ export const layer = Layer.unwrap(
               ),
             )
           : rpcWebSocketHttpEffect;
+        yield* Effect.annotateCurrentSpan(LONG_LIVED_SPAN_ATTRIBUTE, true);
         return yield* Effect.acquireUseRelease(
           sessions.markConnected(session.sessionId),
           () =>

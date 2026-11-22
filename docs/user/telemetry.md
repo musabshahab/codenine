@@ -26,7 +26,7 @@ if the server has opted out. The browser app has no relay tracing toggle.
 ## Agent activity
 
 When **Publish agent activity** is enabled on a host linked to Codenine Connect, the host sends
-workspace and thread titles, model names, activity status, and environment and thread identifiers to
+workspace and chat titles, model names, activity status, and environment and chat identifiers to
 that relay. This is separate from relay diagnostics, and the telemetry opt-out does not disable it.
 
 To stop publishing, turn off **Publish agent activity** under **Settings > Sharing & access** on

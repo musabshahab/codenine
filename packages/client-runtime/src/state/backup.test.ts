@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
-import { restoreAfterLostRequest } from "./backup.ts";
+import { backupListRevision, restoreAfterLostRequest } from "./backup.ts";
 
 const job = (
   phase: BackupJobSnapshot["phase"],
@@ -55,4 +55,13 @@ describe("restoreAfterLostRequest", () => {
       expect(yield* outcome({ running: [], refused: true })).toEqual({ outcome: "restarted" });
     }),
   );
+});
+
+describe("backupListRevision", () => {
+  it("changes when the folder changes", () => {
+    const status = { folderPath: "/backups/old", lastSuccessAt: null, lastFile: null };
+    expect(backupListRevision(0, status)).not.toBe(
+      backupListRevision(0, { ...status, folderPath: "/backups/new" }),
+    );
+  });
 });

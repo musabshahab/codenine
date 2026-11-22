@@ -264,7 +264,9 @@ async function mountPanel(search: Omit<SettingsScopeSearch, "project"> = {}) {
       { router: false },
     ),
   );
-  await vi.waitFor(() => expect(nameInput(screen)).not.toBeNull());
+  await vi.waitFor(() =>
+    expect(screen.container.querySelector('[aria-label="Choose a workspace icon"]')).not.toBeNull(),
+  );
   stack.move();
   return { ...screen, router };
 }
@@ -334,6 +336,38 @@ async function expectProjectAccessDeniedToast(title: string) {
 }
 
 describe("project organization", () => {
+  it.each([
+    ["renames", (screen: Screen) => rename(screen, "Renamed"), { title: "Renamed" }],
+    [
+      "resets the icon of",
+      (_screen: Screen) =>
+        userEvent.click(page.getByRole("button", { name: "Reset workspace icon to default" })),
+      { faviconPath: null, projectIcon: null },
+    ],
+  ] as const)(
+    "%s the checkout on every machine while one machine is picked",
+    async (_action, run, input) => {
+      setup();
+      state.projects = state.projects.map((project) => ({ ...project, faviconPath: "logo.png" }));
+      await using screen = await mountPanel({ machine: primaryId });
+      await run(screen);
+      await vi.waitFor(() => expect(state.update).toHaveBeenCalledTimes(2));
+      expect(
+        state.update.mock.calls.map(([request]) => [request.environmentId, request.input]),
+      ).toEqual([
+        [primaryId, { projectId: state.projects[0]!.id, ...input }],
+        [remoteId, { projectId: state.projects[1]!.id, ...input }],
+      ]);
+    },
+  );
+
+  it("disables the shared name while another machine's checkout is read-only", async () => {
+    setup();
+    await grant(remoteId, AsyncResult.success(session([AuthSettingsWriteScope])));
+    await using screen = await mountPanel({ machine: primaryId });
+    expect(nameInput(screen).disabled).toBe(true);
+  });
+
   it("archives the checkout on every machine while one machine is picked", async () => {
     setup();
     await using _screen = await mountPanel({ machine: primaryId });
@@ -491,18 +525,25 @@ describe("project identity reset", () => {
     projectIcon: { kind: "emoji", emoji: "📝" },
   });
 
-  it("restores a renamed scratch project's built-in name and icon", async () => {
+  it("shows Personal by its fixed name with only the controls that apply to it", async () => {
     setup();
     state.projects = [{ ...asScratch(state.projects[0]!), faviconPath: null, projectIcon: null }];
     await using screen = await mountPanel();
 
-    await userEvent.click(resetButton(screen, "workspace name")!);
-    await vi.waitFor(() =>
-      expect(state.update).toHaveBeenCalledWith({
-        environmentId: primaryId,
-        input: { projectId: state.projects[0]!.id, title: "Personal" },
-      }),
+    expect(screen.container.querySelector('[aria-label="Workspace name"]')).toBeNull();
+    expect(resetButton(screen, "workspace name")).toBeNull();
+    const text = screen.container.textContent ?? "";
+    expect(text).toContain("Personal");
+    expect(text).not.toContain("Notes");
+    expect(text).toContain("/codenine/scratch");
+    expect(screen.container.querySelector('[aria-label="Pin workspace"]')).not.toBeNull();
+    expect(screen.container.querySelector('[aria-label^="Grouping rule for"]')).toBeNull();
+    const buttons = [...screen.container.querySelectorAll("button")].map(
+      (button) => button.textContent,
     );
+    expect(buttons).not.toContain("Archive");
+    expect(buttons.some((label) => label?.includes("Remove"))).toBe(false);
+
     await userEvent.click(resetButton(screen, "workspace icon")!);
     await vi.waitFor(() =>
       expect(state.update).toHaveBeenLastCalledWith({
@@ -534,7 +575,7 @@ describe("project identity reset", () => {
   });
 });
 
-it("opens the fallback search target across all environments from a checkout", async () => {
+it("opens the fallback search target for all workspaces from a checkout", async () => {
   setup();
   const root = createRootRoute();
   const settings = createRoute({
@@ -549,7 +590,7 @@ it("opens the fallback search target across all environments from a checkout", a
     component: () => (
       <SettingsScopeProvider search={settings.useSearch()} onChange={() => {}}>
         <SettingsScopeNotice target="all" targetId="fallback-model">
-          Choose all environments to edit the fallback model.
+          Fallback model applies to the whole environment, not to one workspace.
         </SettingsScopeNotice>
       </SettingsScopeProvider>
     ),
@@ -571,8 +612,8 @@ it("opens the fallback search target across all environments from a checkout", a
     </RegistryContext.Provider>,
     { router: false },
   );
-  await userEvent.click(page.getByRole("button", { name: "Open all environments" }));
-  await vi.waitFor(() => expect(router.state.location.search).toEqual({}));
+  await userEvent.click(page.getByRole("button", { name: "Show all workspaces" }));
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ machine: primaryId }));
   expect(router.state.location.hash).toBe("fallback-model");
 });
 
@@ -600,6 +641,34 @@ describe("project settings scope", () => {
     await userEvent.click(environmentMenu());
     await expect.element(primaryOption()).toBeVisible();
     await expect.element(remoteOption()).not.toBeInTheDocument();
+  });
+
+  it("lists only the picked environment's workspaces and keeps it when one is opened", async () => {
+    setup();
+    state.projects = state.projects.map((project) =>
+      project.environmentId === remoteId
+        ? { ...project, title: "Remote only", repositoryIdentity: null }
+        : { ...project, title: "Primary only", repositoryIdentity: null },
+    );
+    const remoteKey = buildSidebarProjectSnapshots({
+      projects: state.projects,
+      settings: DEFAULT_CLIENT_SETTINGS,
+      primaryEnvironmentId: primaryId,
+      resolveEnvironmentLabel: (id) => id,
+    }).find((group) => group.displayName === "Remote only")!.projectKey;
+    await using screen = await mountSettings({ machine: remoteId });
+
+    await expect.element(page.getByRole("button", { name: /^Remote only/ })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: /^Primary only/ }))
+      .not.toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: /^Remote only/ }));
+    await vi.waitFor(() =>
+      expect(screen.router.state.location.search).toEqual({
+        project: remoteKey,
+        machine: remoteId,
+      }),
+    );
   });
 
   it("keeps an unknown project recoverable from any environment", async () => {
@@ -673,6 +742,20 @@ it("returns to the project overview after removal, clearing the selection but ke
 });
 
 describe("project name composition", () => {
+  it("restores the saved name when an empty name is rejected", async () => {
+    setup();
+    await using screen = await mountPanel();
+    await userEvent.fill(nameInput(screen), "   ");
+    await userEvent.keyboard("{Tab}");
+    await vi.waitFor(() =>
+      expect(state.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Workspace name cannot be empty" }),
+      ),
+    );
+    expect(nameInput(screen).value).toBe("Shared repo");
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
   it.each([
     { isComposing: true, keyCode: 13 },
     { isComposing: false, keyCode: 229 },

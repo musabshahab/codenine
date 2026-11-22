@@ -58,7 +58,7 @@ export function ProjectPage(props: { projectKey: string }) {
             </EmptyMedia>
             <EmptyTitle>This workspace is not here</EmptyTitle>
             <EmptyDescription>
-              It may have been removed, or its machine is not connected yet.
+              It may have been removed, or its environment is not connected yet.
             </EmptyDescription>
           </EmptyHeader>
           <EmptyContent>

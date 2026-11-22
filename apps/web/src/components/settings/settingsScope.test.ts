@@ -5,7 +5,11 @@ import type {
   SidebarProjectGroupMember,
   SidebarProjectSnapshot,
 } from "../../sidebarProjectGrouping";
-import { resolveSettingsScope, validateSettingsScopeSearch } from "./settingsScope";
+import {
+  resolveSettingsScope,
+  settingsScopeSavedTarget,
+  validateSettingsScopeSearch,
+} from "./settingsScope";
 
 const laptopId = EnvironmentId.make("laptop");
 const serverId = EnvironmentId.make("server");
@@ -158,5 +162,25 @@ describe("settings scope resolution", () => {
       members: [],
       environmentIds: [],
     });
+  });
+});
+
+describe("settings scope saved target", () => {
+  it.each([
+    [{}, environments, "Saved on all environments."],
+    [{}, environments.slice(0, 1), "Saved on Laptop."],
+    [{ machine: serverId }, environments, "Saved on Server."],
+    [{ project: "codenine" }, environments, "Saved for codenine on all its environments."],
+    [{ project: "codenine", machine: laptopId }, environments, "Saved for codenine on Laptop."],
+    [{ project: "other" }, environments, "Saved for other on Server."],
+    [
+      { project: "codenine", checkout: second.physicalProjectKey },
+      environments,
+      "Saved for codenine at /repos/second on Laptop.",
+    ],
+    [{ project: "missing" }, environments, null],
+  ])("names where a write from %j lands", (search, available, expected) => {
+    const scope = resolveSettingsScope(search, groups, available);
+    expect(settingsScopeSavedTarget(scope, available)).toBe(expected);
   });
 });

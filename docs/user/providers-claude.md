@@ -40,7 +40,7 @@ For presets that differ only in API keys or endpoints, use the account's
 **Environment variables**. Variable assignments do not belong in **Launch arguments**.
 
 Claude Code's verbose mode can stay enabled when you use Claude for text generation, including
-thread titles, branch names, commit messages, and pull request descriptions. On a remote connection,
+chat titles, branch names, commit messages, and pull request descriptions. On a remote connection,
 Codenine uses the Claude configuration on the connected server.
 
 ## Compact long conversations
@@ -54,21 +54,21 @@ You can also send `/compact` in an existing conversation. Claude Code also
 compacts automatically. To see context usage, see
 [commands and skills](./composer.md#commands-and-skills).
 
-When you return to a large thread after Claude's prompt cache expires, a
-**Compact** chip with the thread's token count shows
+When you return to a large chat after Claude's prompt cache expires, a
+**Compact** chip with the chat's token count shows
 next to the send button. While it is on, Enter summarizes the history first, then
 sends your message. Click the chip to switch it to **Keep** and keep the full
 history for that message. The cache lasts about an hour on a Claude
 subscription and 5 minutes with an API key, Bedrock, or Vertex. See [commands and skills](./composer.md#commands-and-skills) for using
 composer commands.
 
-**Compact idle threads** in **Settings > Accounts > Advanced** controls this for threads
+**Compact idle chats** in **Settings > Accounts > Advanced** controls this for chats
 over 200,000 tokens. Each Claude provider's settings can override it:
 
 - **When you return** shows the **Compact** chip described above. This is the default.
-- **Before the cache expires (beta)** tries to compact an idle thread shortly before its
+- **Before the cache expires (beta)** tries to compact an idle chat shortly before its
   prompt cache expires, while the history is still cached.
-  The compaction appears in the thread as a `/compact` turn sent by Codenine.
+  The compaction appears in the chat as a `/compact` turn sent by Codenine.
   If the window is missed, such as when you enable this mode after the cache has
   expired or the server restarts before compaction runs, it falls back to
   **When you return**. Switch the chip to **Keep** to keep the full history for that message.
@@ -77,7 +77,7 @@ over 200,000 tokens. Each Claude provider's settings can override it:
 
 ## Usage limits
 
-If your Claude subscription runs out of usage mid-turn, the thread shows which
+If your Claude subscription runs out of usage mid-turn, the chat shows which
 limit was reached and the remaining wait when Claude provides a reset time.
 Claude Code holds the turn until that window reopens, so it can keep showing as
 working. Wait for the reset, or stop the turn and continue later. The warning's
@@ -98,9 +98,9 @@ tool, which refuses skills reserved for manual invocation.
 ## Task lists
 
 To show Claude task lists, add
-`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` under **Variables** in the Claude instance's
+`CLAUDE_CODE_ENABLE_TODO_TOOLS=1` under **Variables** in the Claude account's
 **Environment** section in **Settings > Accounts**. Each update shows as a Tasks
-row in the thread; open it to see every step.
+row in the chat; open it to see every step.
 
 ## Use OpenRouter
 
@@ -115,24 +115,24 @@ do not sign in to it.
 3. Paste the key, keep the starter models you want, and select **Add OpenRouter**.
 
 Codenine stores the key as a secret and checks it with OpenRouter. If OpenRouter rejects it, open
-the OpenRouter instance in **Settings > Accounts** and replace **OpenRouter API key**. When the key
-has a spending limit, the instance's status shows how much is left.
+the OpenRouter account in **Settings > Accounts** and replace **OpenRouter API key**. When the key
+has a spending limit, the account's status shows how much is left.
 
-The instance lists only the models you add. To add one, copy its ID, such as
+The account lists only the models you add. To add one, copy its ID, such as
 `anthropic/claude-sonnet-5.5`, from [openrouter.ai/models](https://openrouter.ai/models) and use
-**Add custom model** in the instance's **Models** section. These models have fewer effort,
+**Add custom model** in the account's **Models** section. These models have fewer effort,
 thinking, and context controls than Claude's own.
 
 OpenRouter has no subscription limits; **Usage > Limits** links to OpenRouter's activity page
-instead. While an OpenRouter instance is enabled, **Usage** prices OpenRouter models at
+instead. While an OpenRouter account is enabled, **Usage** prices OpenRouter models at
 OpenRouter's published prices. That cost is an estimate from token counts; the activity page shows
 what OpenRouter billed. To use your own price for a model, set it under
 [Model prices](./usage.md#set-custom-model-prices).
 
 ## Other routers
 
-A local router uses an ordinary Claude provider instance. Give it a separate
+A local router uses an ordinary Claude account. Give it a separate
 config directory and put the router's endpoint and credential variables in that
-instance's **Environment variables**. The router must run where the environment
+account's **Environment variables**. The router must run where the environment
 can reach it. Follow the [Claude Code Router instructions](https://github.com/musistudio/claude-code-router)
 for its installation and routing configuration.

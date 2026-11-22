@@ -95,9 +95,10 @@ export function isWslSettingsRowVisible(input: {
 /**
  * Once client/server versions match, this passive Version label follows the sidebar update action,
  * including retryable failures. Rechecks retain downloaded-update labels; `state` is null outside desktop.
+ * Claims "Up to date" only after a check said so.
  */
-export function resolveLocalVersionStatusLabel(state: DesktopUpdateState | null): string {
-  if (!state) return "Up to date";
+export function resolveLocalVersionStatusLabel(state: DesktopUpdateState | null): string | null {
+  if (!state) return null;
   if (state.status === "downloading") {
     return state.availableVersion
       ? `Downloading update ${state.availableVersion}`
@@ -117,7 +118,9 @@ export function resolveLocalVersionStatusLabel(state: DesktopUpdateState | null)
       ? `Update ${state.availableVersion} available`
       : "Update available";
   }
-  return "Up to date";
+  if (state.status === "up-to-date") return "Up to date";
+  if (state.status === "disabled") return "Update checks are off";
+  return null;
 }
 
 export type QrEndpointOption = {
@@ -274,7 +277,7 @@ export function parseRemotePairingFields(input: {
   const host = input.host.trim();
   const pairingCode = input.pairingCode.trim();
   if (!host) {
-    throw new Error("Enter a backend host.");
+    throw new Error("Enter an environment host.");
   }
   if (!pairingCode) {
     throw new Error("Enter a pairing code.");

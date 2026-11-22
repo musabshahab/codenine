@@ -86,12 +86,15 @@ export function SourceControlAppSignInSettings({
   environmentId,
   definition,
   appSignIn,
+  installUrl,
   account,
   onChanged,
 }: {
   readonly environmentId: EnvironmentId;
   readonly definition: SourceControlDefinition;
   readonly appSignIn: SourceControlAppSignIn;
+  /** Reported by the server only when its deployer named the app. */
+  readonly installUrl: string | null;
   /** The login discovery reports, which is the signed-in account when no token overrides it. */
   readonly account: string | null;
   readonly onChanged: () => void;
@@ -111,7 +114,7 @@ export function SourceControlAppSignInSettings({
   const wait = useAtomCommand(sourceControlEnvironment.waitForSignIn, { reportFailure: false });
   const cancel = useAtomCommand(sourceControlEnvironment.cancelSignIn, { reportFailure: false });
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
-    label: `sign out of ${appSignIn.appName}`,
+    label: `sign out of the ${appSignIn.appName}`,
   });
   const { copyToClipboard, isCopied } = useCopyToClipboard({
     timeout: 1500,
@@ -261,7 +264,9 @@ export function SourceControlAppSignInSettings({
           <span className="min-w-0 flex-1">
             Reaches repositories in accounts and organizations that installed the app.
           </span>
-          <ExternalLink href={appSignIn.installUrl}>Install on an organization</ExternalLink>
+          {installUrl ? (
+            <ExternalLink href={installUrl}>Install on an organization</ExternalLink>
+          ) : null}
           <ExternalLink href={appSignIn.revokeUrl}>Manage on GitHub</ExternalLink>
         </div>
       ) : null}

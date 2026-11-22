@@ -33,8 +33,7 @@ export type SettingsPath =
   | "/settings/backup"
   | "/settings/maintenance"
   | "/settings/labs"
-  | "/settings/about"
-  | "/settings/archived";
+  | "/settings/about";
 
 export type SettingsSearchScope =
   | "environment"
@@ -67,6 +66,8 @@ export interface SettingsSearchItem {
   readonly managedTunnelOnly?: boolean;
   readonly fastWorktreeCheckoutOnly?: boolean;
   readonly textGeneratorsOnly?: boolean;
+  /** Only builds with a stage of their own, such as Dev or Nightly, can mark it. */
+  readonly appStageOnly?: boolean;
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
 }
@@ -84,6 +85,7 @@ export interface SettingsSearchAvailability {
   /** An environment without a provider allow-list, which hides text generators. */
   readonly hasTextGeneratorsEnvironment?: boolean;
   readonly hasPrimaryEnvironment?: boolean;
+  readonly hasAppStage?: boolean;
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
@@ -92,10 +94,10 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
-  "/settings/diffs": "Diffs & pull requests",
+  "/settings/diffs": "Diffs",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Accounts",
-  "/settings/threads": "Threads",
+  "/settings/threads": "Chats",
   "/settings/source-control": "Source control",
   "/settings/worktrees": "Worktrees",
   "/settings/connections": "Environments",
@@ -104,7 +106,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/maintenance": "Maintenance",
   "/settings/labs": "Labs",
   "/settings/about": "About",
-  "/settings/archived": "Archive",
 };
 
 /** Sidebar order. A group without a heading is set apart by space alone. */
@@ -123,7 +124,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     ],
   },
   {
-    heading: "Agents",
+    heading: null,
     paths: ["/settings/providers", "/settings/threads"],
   },
   {
@@ -136,13 +137,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   },
   {
     heading: null,
-    paths: [
-      "/settings/backup",
-      "/settings/maintenance",
-      "/settings/labs",
-      "/settings/about",
-      "/settings/archived",
-    ],
+    paths: ["/settings/backup", "/settings/maintenance", "/settings/labs", "/settings/about"],
   },
 ];
 
@@ -217,10 +212,12 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "storage-delete-now",
-    title: "Delete now",
-    to: "/settings/maintenance",
+    title: "Run cleanup now",
+    to: "/settings/worktrees",
     scope: "environment-defaults",
-    searchTerms: ["storage cleanup run now results report removed kept failed"],
+    searchTerms: [
+      "storage cleanup delete now run now last run results report removed kept failed rotated logs",
+    ],
   },
   {
     id: "storage-worktrees",
@@ -228,7 +225,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/worktrees",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage automatic delete deleted archived threads old inactive merged done settled unchanged worktrees retention days workspace inherit off custom",
+      "disk storage automatic delete deleted archived chats threads old inactive merged done settled unchanged worktrees retention days workspace inherit off custom",
     ],
   },
   {
@@ -263,14 +260,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Default account and model",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["new thread project workspace provider account reasoning effort"],
+    searchTerms: ["new chat thread project workspace provider account reasoning effort"],
   },
   {
     id: "fallback-model",
     title: "Fallback model",
     to: "/settings/threads",
     scope: "environment-defaults",
-    searchTerms: ["fallback agent account provider out of usage new threads"],
+    searchTerms: ["fallback agent account provider out of usage new chats threads"],
     environmentOnly: true,
   },
   {
@@ -279,7 +276,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: [
-      "new thread default runtime mode supervised approvals auto accept edits full access",
+      "new chat thread default runtime mode supervised approvals auto accept edits full access",
     ],
   },
   {
@@ -324,10 +321,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "thread-details-items",
-    title: "Thread details",
+    title: "Chat details",
     to: "/settings/appearance",
     searchTerms: [
-      "customize show hide panel card environment editor scripts branch pull request git changes servers lineage usage limits 5 hour weekly quota tokens context window",
+      "thread customize show hide panel card environment editor scripts branch pull request git changes servers lineage usage limits 5 hour weekly quota tokens context window",
     ],
   },
   {
@@ -351,8 +348,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "environment-identification",
     title: "Environment identification",
     to: "/settings/appearance",
-    searchTerms: ["dev nightly latest channel artwork pill label hide none"],
+    searchTerms: ["dev nightly channel artwork badge pill label hide none"],
     targetId: "appearance-interface",
+    appStageOnly: true,
   },
   {
     id: "interface-font",
@@ -444,13 +442,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "working-shelf",
     title: "Working section",
     to: "/settings/general",
-    searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
+    searchTerms: ["hide fold running monitoring chats threads inbox sidebar shelf"],
   },
   {
     id: "sidebar-two-line-rows",
     title: "Two-line chat rows",
-    to: "/settings/labs",
-    searchTerms: ["beta sidebar project folder rows multiline branch pull request details"],
+    to: "/settings/general",
+    searchTerms: ["sidebar project folder rows multiline branch pull request details"],
   },
   {
     id: "tool-call-visibility",
@@ -464,46 +462,50 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "prompt-suggestions-beta",
     title: "Suggest next prompt",
     to: "/settings/labs",
-    scope: "environment",
+    scope: "environment-defaults",
     searchTerms: ["beta tab autocomplete predict next message claude codex ghost text"],
   },
   {
     id: "worktree-fast-checkout",
     title: "Fast worktree checkout",
     to: "/settings/labs",
-    scope: "environment",
+    scope: "environment-defaults",
     fastWorktreeCheckoutOnly: true,
     searchTerms: ["beta fast worktree checkout clone apfs copy-on-write cache macos speed"],
   },
   {
     id: "auto-settle-inactive-threads",
-    title: "Mark inactive threads done",
+    title: "Mark inactive chats done",
     to: "/settings/threads",
-    searchTerms: ["sidebar inactivity days no activity automatically auto-settle settle settled"],
+    searchTerms: [
+      "threads sidebar inactivity days no activity automatically auto-settle settle settled",
+    ],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
   {
     id: "compact-idle-threads",
-    title: "Compact idle threads",
+    title: "Compact idle chats",
     to: "/settings/providers",
     scope: "environment-defaults",
-    searchTerms: ["claude context compaction idle cache tokens usage summary resume"],
+    searchTerms: ["threads claude context compaction idle cache tokens usage summary resume"],
   },
   {
     id: "auto-settle-merged-threads",
-    title: "Mark merged threads done",
+    title: "Mark merged chats done",
     to: "/settings/threads",
-    searchTerms: ["pull request merge closed automatically sidebar auto-settle settle settled"],
+    searchTerms: [
+      "threads pull request merge closed automatically sidebar auto-settle settle settled",
+    ],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
   {
     id: "keep-threads-with-pull-requests",
-    title: "Keep threads with a PR",
+    title: "Keep chats with a PR",
     to: "/settings/threads",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["pull request inactivity done auto-settle merge close sidebar"],
+    searchTerms: ["threads pull request inactivity done auto-settle merge close sidebar"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
@@ -512,15 +514,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Days of inactivity before marking done",
     to: "/settings/threads",
     targetId: "auto-settle-inactive-threads",
-    searchTerms: ["thread timeout activity sidebar auto-settle settle settled"],
+    searchTerms: ["chat thread timeout activity sidebar auto-settle settle settled"],
     requiresThreadAutoSettlement: true,
     scope: "project-defaults",
   },
   {
     id: "thread-notifications",
-    title: "Thread notifications",
+    title: "System notifications",
     to: "/settings/general",
-    searchTerms: ["notification sound alert completion input approval desktop"],
+    searchTerms: ["chat notification alert background completion input approval desktop"],
+  },
+  {
+    id: "notification-sound",
+    title: "Sound",
+    to: "/settings/general",
+    searchTerms: ["notification sound audio chime alert chat completion input approval"],
   },
   {
     id: "codenine-folder",
@@ -532,9 +540,9 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "in-app-notifications",
-    title: "In-app notifications",
+    title: "In-app toasts",
     to: "/settings/general",
-    searchTerms: ["notification toast popup completion input approval failure"],
+    searchTerms: ["notification toast popup chat completion input approval failure"],
   },
   {
     id: "time-format",
@@ -545,7 +553,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "response-streaming",
     title: "Response streaming",
-    to: "/settings/threads",
+    to: "/settings/chat",
     scope: "project-defaults",
     searchTerms: ["output token paragraph buffered wait turn legacy"],
   },
@@ -572,12 +580,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Open the changes panel proactively",
     to: "/settings/diffs",
     searchTerms: ["proactive automatically open diff right panel agent completion"],
-  },
-  {
-    id: "skills-in-slash-menu",
-    title: "Show skills in slash menu",
-    to: "/settings/chat",
-    searchTerms: ["command menu dollar $ slash /"],
   },
   {
     id: "composer-rich-text",
@@ -651,11 +653,11 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "continue-threads-after-server-update",
-    title: "Continue threads after restarts",
-    to: "/settings/maintenance",
+    title: "Continue chats after restarts",
+    to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: [
-      "resume running active interrupted work restart reboot machine crash desktop update automatically",
+      "resume running active interrupted chats threads work restart reboot machine crash desktop update automatically",
     ],
   },
   {
@@ -669,7 +671,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "new-threads",
-    title: "New threads",
+    title: "New chats",
     to: "/settings/threads",
     scope: "project-defaults",
     searchTerms: ["default workspace mode draft local worktree"],
@@ -690,15 +692,15 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "add-project-starts-in",
-    title: "Add workspace starts in",
-    to: "/settings/threads",
+    title: "Start folder",
+    to: "/settings/projects",
     scope: "environment-defaults",
-    searchTerms: ["base directory folder browser path home"],
+    searchTerms: ["add workspace starts in base directory folder browse path home clone"],
   },
   {
     id: "ghq-clone-layout",
     title: "Clone into host folders",
-    to: "/settings/threads",
+    to: "/settings/projects",
     scope: "environment-defaults",
     searchTerms: ["ghq clone destination host owner repository root layout"],
   },
@@ -732,14 +734,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Text generation model",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles source control content default provider"],
+    searchTerms: ["generated chat thread titles source control content default provider"],
   },
   {
     id: "thread-title-instructions",
-    title: "Thread title instructions",
+    title: "Chat title instructions",
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: ["generated thread titles prompt custom style naming rename regenerate"],
+    searchTerms: ["generated chat thread titles prompt custom style naming rename regenerate"],
   },
   {
     id: "app-version",
@@ -804,10 +806,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "usage-providers",
-    title: "Usage providers",
+    title: "Usage sources",
     to: "/settings/providers",
     searchTerms: [
-      "usage sources CLIProxyAPI CLI proxy hub quota subscription limits management key add remove",
+      "usage providers sources CLIProxyAPI CLI proxy hub quota subscription limits management key add remove",
     ],
     providerSettingsOnly: true,
   },
@@ -816,7 +818,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Text generators",
     to: "/settings/providers",
     searchTerms: [
-      "model api api key openai openrouter anthropic ollama lm studio custom endpoint base url thread titles commit messages",
+      "model api api key openai openrouter anthropic ollama lm studio custom endpoint base url chat thread titles commit messages",
     ],
     providerSettingsOnly: true,
     textGeneratorsOnly: true,
@@ -869,16 +871,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Source control writing style",
     to: "/settings/source-control",
     searchTerms: [
-      "repository conventions conventional commits custom instructions change descriptions request titles",
+      "repository conventions conventional commits custom instructions commit messages change descriptions pull request titles",
     ],
     environmentOnly: true,
+    scope: "project-defaults",
   },
   {
     id: "follow-change-request-templates",
-    title: "Follow change request templates",
+    title: "Follow pull request templates",
     to: "/settings/source-control",
-    searchTerms: ["repository pr pull request description structure"],
+    searchTerms: ["repository pr pull request change request description structure"],
     environmentOnly: true,
+    scope: "project-defaults",
   },
   {
     id: "source-control-writer-model",
@@ -970,17 +974,19 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "connections-environment",
-    title: "This machine",
+    title: "Environment access",
     to: "/settings/access",
     searchTerms: [
-      "connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint mcp another app",
+      "this machine connections server backend local remote access administrative permissions scope pairing links qr code authorized clients sessions revoke endpoint mcp another app",
     ],
   },
   {
     id: "remote-environments",
     title: "Environments",
     to: "/settings/connections",
-    searchTerms: ["add pair backend host code ssh config agent tunnel saved codenine connect"],
+    searchTerms: [
+      "add pair backend host code ssh config agent tunnel saved codenine connect tailscale magicdns",
+    ],
   },
   {
     id: "load-balancing",
@@ -997,12 +1003,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [
       `pull request routing trusted environments shared credentials permissions read actions source control ${SOURCE_CONTROL_HOST_LABELS}`,
     ],
-  },
-  {
-    id: "archive",
-    title: "Archived threads",
-    to: "/settings/archived",
-    searchTerms: ["restore reopen deleted history projects"],
   },
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
 
@@ -1029,24 +1029,43 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/maintenance": null,
   "/settings/labs": null,
   "/settings/about": null,
-  "/settings/archived": "project-defaults",
 };
+
+const WORKSPACE_OVERRIDE_SCOPES: ReadonlySet<SettingsSearchScope> = new Set([
+  "project",
+  "project-defaults",
+  "checkout",
+]);
+
+/** Pages with rows a workspace can override; Accounts' switches are per workspace too. */
+export const SETTINGS_WORKSPACE_SCOPE_PATHS: ReadonlySet<string> = new Set([
+  "/settings/providers",
+  ...(SETTINGS_SEARCH_ITEMS as readonly SettingsSearchItem[]).flatMap((item) => {
+    const scope = item.scope ?? SETTINGS_CATEGORY_SCOPES[item.to];
+    return scope !== null && WORKSPACE_OVERRIDE_SCOPES.has(scope) ? [item.to] : [];
+  }),
+]);
 
 const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
   "/settings/storage": "/settings/maintenance",
   "/settings/beta": "/settings/labs",
+  "/settings/integrations": "/settings/general",
 };
 const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
   "/settings/general",
   "/settings/appearance",
   "/settings/source-control",
   "/settings/connections",
+  "/settings/threads",
+  "/settings/maintenance",
+  "/settings/labs",
   ...Object.keys(RENAMED_SETTINGS_PATHS),
 ]);
 // Section anchors that moved but are not search results themselves.
 const MOVED_SECTION_ANCHORS: Readonly<Record<string, SettingsPath>> = {
   "authorized-clients": "/settings/access",
   "text-generation": "/settings/threads",
+  "new-projects": "/settings/projects",
   about: "/settings/about",
 };
 
@@ -1154,7 +1173,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.managedTunnelOnly || availability.managedTunnelActive === true) &&
       (!item.fastWorktreeCheckoutOnly ||
         availability.hasFastWorktreeCheckoutEnvironment === true) &&
-      (!item.textGeneratorsOnly || availability.hasTextGeneratorsEnvironment === true),
+      (!item.textGeneratorsOnly || availability.hasTextGeneratorsEnvironment === true) &&
+      (!item.appStageOnly || availability.hasAppStage === true),
   );
 }
 
@@ -1184,11 +1204,8 @@ export function searchSettings(
   return settingsForThisPlatform(items)
     .flatMap((item, index) => {
       const title = normalizeSearchText(item.title);
-      const fields = [
-        title,
-        normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]),
-        ...(item.searchTerms ?? []).map(normalizeSearchText),
-      ];
+      const pageLabel = normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]);
+      const fields = [title, pageLabel, ...(item.searchTerms ?? []).map(normalizeSearchText)];
       const matchesShortcut =
         item.shortcuts?.some((shortcut) => shortcut.includes(shortcutQuery)) === true;
       if (
@@ -1200,17 +1217,19 @@ export function searchSettings(
 
       const exactPhraseField = fields.findIndex((field) => field.includes(normalizedQuery));
       const rank =
-        title === normalizedQuery
-          ? 5
-          : title.startsWith(normalizedQuery)
-            ? 4
-            : title.includes(normalizedQuery)
-              ? 3
-              : queryTokens.every((token) => title.includes(token))
-                ? 2
-                : matchesShortcut || exactPhraseField >= 0
-                  ? 1
-                  : 0;
+        pageLabel === normalizedQuery || pageLabel === `${normalizedQuery}s`
+          ? 6
+          : title === normalizedQuery
+            ? 5
+            : title.startsWith(normalizedQuery)
+              ? 4
+              : title.includes(normalizedQuery)
+                ? 3
+                : queryTokens.every((token) => title.includes(token))
+                  ? 2
+                  : matchesShortcut || exactPhraseField >= 0
+                    ? 1
+                    : 0;
       return [{ item, index, rank }];
     })
     .toSorted(

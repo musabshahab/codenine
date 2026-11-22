@@ -9,6 +9,7 @@ import { useEnvironmentScope, readEnvironmentScope } from "../../state/session";
 import { useAtomValue } from "@effect/atom-react";
 import { connectionStatusTitle } from "@codenine/client-runtime/connection";
 import { safeErrorLogAttributes } from "@codenine/client-runtime/errors";
+import { resolveProviderInstanceDisplayName } from "@codenine/client-runtime/state/provider-instance-display";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -134,14 +135,6 @@ import {
   resolveSelectedProviderEnvironmentId,
 } from "./ProviderSettingsPanel.logic";
 
-function providerInstanceName(instance: ProviderInstanceConfig): string {
-  return (
-    instance.displayName?.trim() ||
-    providerClients.get(instance.driver)?.label ||
-    String(instance.driver)
-  );
-}
-
 async function confirmProviderInstanceRemoval(
   question: string,
   consequence = "",
@@ -202,11 +195,11 @@ function ProviderLastChecked({ environmentId }: { environmentId: EnvironmentId }
 }
 
 function providerEnvironmentDetail(environment: EnvironmentPresentation): string {
-  if (environment.entry.target._tag === "PrimaryConnectionTarget") return "Primary device";
+  if (environment.entry.target._tag === "PrimaryConnectionTarget") return "Primary environment";
   if (environment.relayManaged) return "Codenine Connect";
   if (environment.entry.target._tag === "SshConnectionTarget") return "SSH";
-  if (isDesktopLocalConnectionTarget(environment.entry.target)) return "Local device";
-  return environment.displayUrl ?? "Remote device";
+  if (isDesktopLocalConnectionTarget(environment.entry.target)) return "Local environment";
+  return environment.displayUrl ?? "Remote environment";
 }
 
 const providerCardHeightClassName =
@@ -261,10 +254,10 @@ function EnvironmentUnavailablePlaceholder({
 }) {
   const isLoading = access.kind === "loading";
   const title = isLoading
-    ? "Loading provider settings"
+    ? "Loading account settings"
     : access.kind === "error"
-      ? "Could not connect to this device"
-      : "Provider settings are unavailable";
+      ? "Could not connect to this environment"
+      : "Account settings are unavailable";
   const description = isLoading
     ? access.reason === "permissions"
       ? "Checking what this session is allowed to change."
@@ -401,7 +394,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
     !target.scoped && !onlyPrimaryDevice && options.length > 0 ? (
       <ScrollArea radius="none" hideScrollbars scrollFade className="h-11 min-w-0 flex-1">
         <ToggleGroup
-          aria-label="Devices"
+          aria-label="Environments"
           variant="segmented"
           className="my-2"
           value={effectiveEnvironmentId ? [effectiveEnvironmentId] : []}
@@ -453,17 +446,17 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
         <ProviderSettingsPlaceholder
           deviceTabs={deviceTabs}
           icon={<EnvironmentMachineIcon kind={resolveEnvironmentMachineKind(null)} />}
-          title="Device unavailable"
-          description="Reconnect this device to set up its provider, or select another device."
+          title="Environment unavailable"
+          description="Reconnect this environment to set up its accounts, or select another environment."
         />
       ) : null}
       {options.length === 0 && !targetEnvironmentMissing ? (
         <ProviderSettingsPlaceholder
           icon={<EnvironmentMachineIcon kind={resolveEnvironmentMachineKind(null)} />}
-          title={isReady ? "No connected devices" : "Loading devices"}
+          title={isReady ? "No connected environments" : "Loading environments"}
           description={
             isReady
-              ? "Connect an execution environment before configuring providers."
+              ? "Connect an execution environment before configuring accounts."
               : "Reading connected execution environments."
           }
         />
@@ -788,7 +781,7 @@ export function EnvironmentProviderSettings({
       const error = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: "Could not update provider instance",
+        title: "Could not update account",
         description: error instanceof Error ? error.message : "The settings update failed.",
       });
     }
@@ -821,8 +814,8 @@ export function EnvironmentProviderSettings({
   const deleteInstance = useStableCallback(
     async (instanceId: ProviderInstanceId, instance: ProviderInstanceConfig) => {
       const confirmed = await confirmProviderInstanceRemoval(
-        `Remove the ${providerInstanceName(instance)} account?`,
-        " Its login and chat history stay on this machine, so adding it again picks them up. To end the login, sign out first.",
+        `Remove the ${resolveProviderInstanceDisplayName({ instanceId, ...instance })} account?`,
+        " Its login and chat history stay on this environment, so adding it again picks them up. To end the login, sign out first.",
       );
       if (!confirmed) return;
       const updateResult = await persistProviderInstance({
@@ -844,12 +837,9 @@ export function EnvironmentProviderSettings({
   const resetDefaultInstance = useStableCallback(async (driverKind: ProviderDriverKind) => {
     const instanceId = defaultInstanceIdForDriver(driverKind);
     const instance = settings.providerInstances?.[instanceId] ?? { driver: driverKind };
-    const turnsOff =
-      resolveProviderInstanceEnabled(instance) &&
-      !resolveProviderInstanceEnabled({ driver: driverKind });
     const confirmed = await confirmProviderInstanceRemoval(
-      `Reset the ${providerInstanceName(instance)} account to its defaults?`,
-      turnsOff ? " It will also be turned off." : "",
+      `Reset the ${resolveProviderInstanceDisplayName({ instanceId, ...instance })} account to its defaults?`,
+      resolveProviderInstanceEnabled(instance) ? "" : " It will also be turned back on.",
     );
     if (!confirmed) return;
     const result = await persistProviderInstance({ operation: "remove", instanceId });
@@ -973,10 +963,10 @@ export function EnvironmentProviderSettings({
                     onClick={() => void refreshProviders()}
                   >
                     <RefreshIcon refreshing={isRefreshingProviders} />
-                    <span className="sr-only">Refresh provider status</span>
+                    <span className="sr-only">Refresh account status</span>
                     <span className="hidden min-w-0 truncate sm:inline">
                       {isRefreshingProviders ? (
-                        "Refreshing providers"
+                        "Refreshing accounts"
                       ) : (
                         <ProviderLastChecked environmentId={environmentId} />
                       )}
@@ -984,7 +974,7 @@ export function EnvironmentProviderSettings({
                   </Button>
                 }
               />
-              <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+              <TooltipPopup side="top">Refresh account status</TooltipPopup>
             </Tooltip>
           </div>
         }
@@ -1047,8 +1037,8 @@ export function EnvironmentProviderSettings({
             ) : (
               <div className="p-6 text-sm text-muted-foreground">
                 {targetInstanceMissing
-                  ? "This provider instance is no longer available on this device."
-                  : "No providers configured."}
+                  ? "This account is no longer available on this environment."
+                  : "No accounts configured."}
               </div>
             )}
           </div>
@@ -1368,7 +1358,7 @@ function ProviderInstanceRow({
         headerAction={
           mode === "editor" && isDefault && isDirty ? (
             <SettingResetButton
-              label={`${resetLabel} provider settings`}
+              label={`${resetLabel} account settings`}
               onClick={() => actions.resetDefaultInstance(driver)}
             />
           ) : null

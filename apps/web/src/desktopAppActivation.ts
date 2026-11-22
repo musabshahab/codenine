@@ -99,7 +99,7 @@ export async function handleDesktopAppActivationRequest(
       return failure(
         request.requestId,
         "thread-open-failed",
-        "Codenine could not open a new thread for the workspace.",
+        "Codenine could not open a new chat for the workspace.",
       );
     }
     return {
@@ -113,7 +113,7 @@ export async function handleDesktopAppActivationRequest(
     return failure(
       request.requestId,
       "thread-open-failed",
-      errorMessage(error, "Codenine could not open a new thread for the workspace."),
+      errorMessage(error, "Codenine could not open a new chat for the workspace."),
     );
   }
 }

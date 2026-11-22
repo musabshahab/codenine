@@ -9,7 +9,7 @@ export function freshSessionBannerItem(onUndo: () => void): ComposerBannerStackI
     variant: "info",
     icon: <EraserIcon />,
     title: "Your next message starts a fresh session",
-    description: "The agent won't see earlier messages in this thread.",
+    description: "The agent won't see earlier messages in this chat.",
     dismissLabel: "Keep the current session",
     onDismiss: onUndo,
   };

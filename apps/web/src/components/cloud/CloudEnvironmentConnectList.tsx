@@ -74,6 +74,7 @@ export function CloudEnvironmentConnectRows({
   showSavedEnvironments = false,
   refreshWhileEmpty = false,
   empty = null,
+  listedEnvironmentCount,
   selection,
   onDiscoveryReady,
 }: {
@@ -82,6 +83,8 @@ export function CloudEnvironmentConnectRows({
   readonly showSavedEnvironments?: boolean;
   readonly refreshWhileEmpty?: boolean;
   readonly empty?: ReactNode;
+  /** Saved environments the page lists itself; defaults to all saved ones. */
+  readonly listedEnvironmentCount?: number;
   readonly onDiscoveryReady?: () => void;
   readonly selection?: {
     readonly autoSelectedComputers?: Set<EnvironmentId>;
@@ -271,7 +274,8 @@ export function CloudEnvironmentConnectRows({
     };
   }, [shouldRefreshWhileEmpty]);
 
-  const standalone = showSavedEnvironments || savedEnvironments.length === 0;
+  const standalone =
+    showSavedEnvironments || (listedEnvironmentCount ?? savedEnvironments.length) === 0;
 
   if (
     !refreshWhileEmpty &&

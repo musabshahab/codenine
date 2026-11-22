@@ -123,12 +123,12 @@ export function V2LifecycleRow(props: {
             <MessageSquareIcon className="size-4 text-secondary-label" aria-hidden />
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {item.title ?? "Created thread"}
+            {item.title ?? "Created chat"}
           </span>
           <Button
             size="xs"
             variant="outline"
-            aria-label={`Open ${item.title ?? "created thread"}`}
+            aria-label={`Open ${item.title ?? "created chat"}`}
             onClick={() => props.onOpenThread(item.targetThreadId)}
           >
             Open chat
@@ -140,10 +140,10 @@ export function V2LifecycleRow(props: {
       <WorkLogRow
         data-v2-item-type={item.type}
         icon={<CodenineMark className="size-4 text-icon-muted" aria-hidden />}
-        label={<>Created thread{item.title ? ` · ${item.title}` : ""}</>}
+        label={<>Created chat{item.title ? ` · ${item.title}` : ""}</>}
         trailing={
           <InlineButton
-            aria-label={`Open ${item.title ?? "created thread"}`}
+            aria-label={`Open ${item.title ?? "created chat"}`}
             onClick={() => props.onOpenThread(item.targetThreadId)}
           >
             Open chat

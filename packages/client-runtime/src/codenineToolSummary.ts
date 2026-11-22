@@ -135,8 +135,8 @@ export function summarizeCodenineToolCalls(
       const threads = new Set(threadIds).size;
       const object = targetsKnown
         ? messages === threads && messages > 1
-          ? `messages to ${quantity(threads, "thread")}`
-          : `${quantity(messages, "message")} to ${quantity(threads, "thread")}`
+          ? `messages to ${quantity(threads, "chat")}`
+          : `${quantity(messages, "message")} to ${quantity(threads, "chat")}`
         : quantity(messages, "message");
       label = phrase("Sent", "send", object);
       break;
@@ -157,8 +157,8 @@ export function summarizeCodenineToolCalls(
           });
         });
       label = resultsKnown
-        ? `Created ${quantity(new Set(createdIds).size, "thread")}`
-        : `Requested thread creation ${times}`;
+        ? `Created ${quantity(new Set(createdIds).size, "chat")}`
+        : `Requested chat creation ${times}`;
       break;
     }
     case "delegate":
@@ -167,8 +167,8 @@ export function summarizeCodenineToolCalls(
     case "thread-read":
     case "thread-wait": {
       const targets = threadIds.every((value) => value !== undefined)
-        ? quantity(new Set(threadIds).size, "thread")
-        : `threads ${times}`;
+        ? quantity(new Set(threadIds).size, "chat")
+        : `chats ${times}`;
       label =
         action === "thread-read"
           ? phrase("Read", "read", targets)
@@ -176,13 +176,13 @@ export function summarizeCodenineToolCalls(
       break;
     }
     case "thread-list":
-      label = phrase("Listed", "list", `threads ${times}`);
+      label = phrase("Listed", "list", `chats ${times}`);
       break;
     case "thread-interrupt":
       label = phrase(
         "Requested interrupts for",
         "interrupt",
-        quantity(countEntities(threadIds), "thread"),
+        quantity(countEntities(threadIds), "chat"),
       );
       break;
     case "workflow-stop":
@@ -206,28 +206,28 @@ export function summarizeCodenineToolCalls(
       );
       break;
     case "thread-configuration":
-      label = phrase("Checked", "check", `thread configuration ${times}`);
+      label = phrase("Checked", "check", `chat configuration ${times}`);
       break;
     case "thread-configure":
-      label = phrase("Set", "set", `thread model ${times}`);
+      label = phrase("Set", "set", `chat model ${times}`);
       break;
     case "thread-fork":
-      label = phrase("Requested", "request", quantity(selected.length, "thread fork"));
+      label = phrase("Requested", "request", quantity(selected.length, "chat fork"));
       break;
     case "thread-merge":
       label = phrase("Requested", "request", quantity(selected.length, "context merge"));
       break;
     case "thread-search":
-      label = phrase("Searched", "search", `threads ${times}`);
+      label = phrase("Searched", "search", `chats ${times}`);
       break;
     case "thread-transfers":
-      label = phrase("Checked", "check", `thread transfers ${times}`);
+      label = phrase("Checked", "check", `chat transfers ${times}`);
       break;
     case "thread-organize":
-      label = phrase("Organized", "organize", `threads ${times}`);
+      label = phrase("Organized", "organize", `chats ${times}`);
       break;
     case "thread-update":
-      label = phrase("Updated", "update", quantity(countEntities(threadIds), "thread"));
+      label = phrase("Updated", "update", quantity(countEntities(threadIds), "chat"));
       break;
     case "queue-list":
       label = phrase("Listed", "list", `queued messages ${times}`);
@@ -301,19 +301,19 @@ export function summarizeCodenineToolCalls(
       label = phrase("Checked", "check", `worktree status ${times}`);
       break;
     case "project-list":
-      label = phrase("Listed", "list", `projects ${times}`);
+      label = phrase("Listed", "list", `workspaces ${times}`);
       break;
     case "project-read":
-      label = phrase("Read", "read", quantity(countEntities(projectIds), "project"));
+      label = phrase("Read", "read", quantity(countEntities(projectIds), "workspace"));
       break;
     case "project-create":
-      label = phrase("Registered", "register", quantity(countEntities(projectIds), "project"));
+      label = phrase("Registered", "register", quantity(countEntities(projectIds), "workspace"));
       break;
     case "project-update":
-      label = phrase("Updated", "update", quantity(countEntities(projectIds), "project"));
+      label = phrase("Updated", "update", quantity(countEntities(projectIds), "workspace"));
       break;
     case "project-delete":
-      label = phrase("Deleted", "delete", quantity(countEntities(projectIds), "project"));
+      label = phrase("Deleted", "delete", quantity(countEntities(projectIds), "workspace"));
       break;
     case "project-clone":
       label = phrase(
@@ -356,7 +356,7 @@ export function summarizeCodenineToolCalls(
         (call) => Array.isArray(call.input?.attachments) && call.input.attachments.length > 0,
       );
       const targets = threadIds.every((value) => value !== undefined)
-        ? ` to ${quantity(new Set(threadIds).size, "thread")}`
+        ? ` to ${quantity(new Set(threadIds).size, "chat")}`
         : "";
       label = phrase(
         "Sent",

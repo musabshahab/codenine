@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import type { ResolvedKeybindingsConfig } from "@codenine/contracts";
 import { useLocation, useRouter, type AnyRouter } from "@tanstack/react-router";
 
 import { moveWorkspaceFocus, workspaceAreaProps } from "../lib/workspaceFocus";
@@ -60,7 +61,7 @@ import {
 } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
+import { readFocusContext, registerCommands, registerMenuAction } from "../shortcuts/dispatcher";
 import { resolveThreadRouteRef } from "../threadRoutes";
 
 const MACOS_TRAFFIC_LIGHTS_LEFT_INSET = "var(--desktop-window-controls-inset, 90px)";
@@ -283,6 +284,18 @@ function registerAppShellCommands(router: AnyRouter, shellElement: Element): () 
   };
 }
 
+export function isSidebarToggleShortcut(
+  event: KeyboardEvent,
+  keybindings: ResolvedKeybindingsConfig,
+  usagePageOpen: boolean,
+): boolean {
+  return (
+    resolveShortcutCommand(event, keybindings, {
+      context: { ...readFocusContext(event), usagePageOpen },
+    }) === "sidebar.toggle"
+  );
+}
+
 function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
   const router = useRouter();
   const usagePageOpen = useLocation({ select: (location) => location.pathname === "/usage" });
@@ -316,11 +329,7 @@ function SidebarControl({ showSidebar }: { readonly showSidebar: boolean }) {
         // the toggle stays available everywhere else.
         return;
       }
-      if (
-        resolveShortcutCommand(event, keybindings, { context: { usagePageOpen } }) !==
-        "sidebar.toggle"
-      )
-        return;
+      if (!isSidebarToggleShortcut(event, keybindings, usagePageOpen)) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -383,7 +392,7 @@ export function AppSidebarLayout({
   children: ReactNode;
   showSidebar?: boolean;
 }) {
-  const sidebarArea = workspaceAreaProps("sidebar", 0, "Threads");
+  const sidebarArea = workspaceAreaProps("sidebar", 0, "Chats");
   const [sidebarRouteReveal] = useState<SidebarRouteReveal>(() => ({
     observedKey: null,
     pendingKey: null,
@@ -440,7 +449,7 @@ export function AppSidebarLayout({
               data-app-sidebar=""
               {...sidebarArea}
               role="navigation"
-              aria-label="Threads"
+              aria-label="Chats"
               resizable={{
                 maxWidth: sidebarMaximumWidth,
                 minWidth: sidebarMinimumWidth,

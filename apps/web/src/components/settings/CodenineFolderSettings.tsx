@@ -4,14 +4,14 @@ import { Link } from "@tanstack/react-router";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { codenineFolderPath } from "../../lib/codenineFolder";
-import { usePrimaryEnvironmentId } from "../../state/environments";
+import { useEnvironment, usePrimaryEnvironmentId } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
 import { OpenFolderButton } from "../OpenFolderButton";
 import { Button, InlineButton } from "../ui/button";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-/** Where Codenine keeps everything on this computer, with a way to open it. */
+/** Where the primary environment keeps everything, with a way to open it. */
 export function CodenineFolderSettings() {
   const environmentId = usePrimaryEnvironmentId();
   return environmentId === null ? null : <CodenineFolderSection environmentId={environmentId} />;
@@ -19,6 +19,7 @@ export function CodenineFolderSettings() {
 
 function CodenineFolderSection({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const environment = useEnvironment(environmentId);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
   const folder = config?.codenineHome;
   if (config === null || folder === undefined) return null;
@@ -29,7 +30,8 @@ function CodenineFolderSection({ environmentId }: { readonly environmentId: Envi
         {...searchableSetting("codenine-folder")}
         description={
           <>
-            Your workspaces, accounts, skills, settings and logs, all in one folder.{" "}
+            Your workspaces, accounts, skills, settings and logs, all in one folder
+            {environment ? ` on ${environment.label}` : ""}.{" "}
             <InlineButton render={<Link to="/settings/backup" />}>Backup settings</InlineButton>
             <span className="mt-1 block font-mono break-all text-foreground">
               {codenineFolderPath(config)}

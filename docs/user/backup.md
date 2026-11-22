@@ -15,8 +15,8 @@ Open **Settings → Backup** and select **Turn on backups**. Setup asks three th
 
 **Turn on and back up now** saves your choices and makes the first backup.
 
-When the server runs on another machine, choose that machine at the top of **Settings → Backup**.
-Each machine keeps its own backups.
+When the server runs on another machine, choose that environment at the top of **Settings → Backup**.
+Each environment keeps its own backups.
 
 ## Your backup password
 

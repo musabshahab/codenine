@@ -49,7 +49,9 @@ export function WorkflowsPage(props: { readonly machine: EnvironmentId | null })
           </div>
         ) : null}
         {environment === null ? (
-          <p className="text-muted-foreground text-sm">Connect a computer to see its workflows.</p>
+          <p className="text-muted-foreground text-sm">
+            Connect an environment to see its workflows.
+          </p>
         ) : !connected ? (
           <p className="text-muted-foreground text-sm">
             Reconnect {label ?? environment.label} to see its workflows.

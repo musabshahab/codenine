@@ -12,8 +12,6 @@ import type { EnvironmentProject } from "./models.ts";
 import { normalizeProjectPathForComparison, PERSONAL_WORKSPACE_NAME } from "./projects.ts";
 
 const SCRATCH_PROJECT_SCOPE_KEY = "\0no-project";
-// The title servers gave the Personal workspace's project before it had that name.
-const LEGACY_SCRATCH_PROJECT_TITLE = "No project";
 
 export interface ProjectGroupingSettings {
   readonly sidebarProjectGroupingMode: SidebarProjectGroupingMode;
@@ -364,16 +362,14 @@ export function buildProjectGroups<TProject extends EnvironmentProject>(input: {
         : null) ?? members[0]!.project;
     return {
       key,
-      label:
-        representative.isScratch &&
-        (input.groupScratchProjects || representative.title === LEGACY_SCRATCH_PROJECT_TITLE)
-          ? PERSONAL_WORKSPACE_NAME
-          : members.length > 1
-            ? deriveProjectGroupLabel({
-                representative,
-                members: members.map((member) => member.project),
-              })
-            : representative.title,
+      label: members.every((member) => member.project.isScratch)
+        ? PERSONAL_WORKSPACE_NAME
+        : members.length > 1
+          ? deriveProjectGroupLabel({
+              representative,
+              members: members.map((member) => member.project),
+            })
+          : representative.title,
       representative,
       members,
       memberProjectRefs: projectRefsByLogicalKey.get(key) ?? [],

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   createProviderWorkspaceSnapshotRefreshAtomFamily,
   getProviderSkillsForSlashMenu,
+  getProviderSlashCommandsForSlashMenu,
   hasCompleteProviderWorkspaceSnapshot,
   isProviderWorkspaceSnapshotScanning,
   resolveProviderSkillsForCwd,
@@ -39,6 +40,21 @@ const provider = {
   ],
 } satisfies ServerProvider;
 
+describe("getProviderSlashCommandsForSlashMenu", () => {
+  it("drops commands a visible skill already offers under its name or alias", () => {
+    const skills = [
+      { name: "review", path: "/skills/review/SKILL.md", enabled: true },
+      { name: "probe", alias: "probe-frontmatter", path: "/skills/probe/SKILL.md", enabled: true },
+    ];
+    expect(
+      getProviderSlashCommandsForSlashMenu(
+        [{ name: "Review" }, { name: "probe-frontmatter" }, { name: "compact" }],
+        skills,
+      ).map((command) => command.name),
+    ).toEqual(["compact"]);
+  });
+});
+
 describe("getProviderSkillsForSlashMenu", () => {
   it("keeps the skill alias when the provider also exposes it as a slash command", () => {
     const askMatt = {
@@ -46,7 +62,7 @@ describe("getProviderSkillsForSlashMenu", () => {
       path: "/Users/matt/.agents/skills/ask-matt/SKILL.md",
       enabled: true,
     };
-    expect(getProviderSkillsForSlashMenu([askMatt], true).map((skill) => skill.name)).toEqual([
+    expect(getProviderSkillsForSlashMenu([askMatt]).map((skill) => skill.name)).toEqual([
       "ask-matt",
     ]);
   });
@@ -70,7 +86,7 @@ describe("getProviderSkillsForSlashMenu", () => {
       },
     ];
 
-    expect(getProviderSkillsForSlashMenu(skills, true).map((skill) => skill.name)).toEqual([
+    expect(getProviderSkillsForSlashMenu(skills).map((skill) => skill.name)).toEqual([
       "babysit-pr",
       "browser",
     ]);
@@ -91,7 +107,7 @@ describe("getProviderSkillsForSlashMenu", () => {
       enabledSkill,
     ];
 
-    expect(getProviderSkillsForSlashMenu(skills, true)).toEqual([enabledSkill]);
+    expect(getProviderSkillsForSlashMenu(skills)).toEqual([enabledSkill]);
   });
 });
 

@@ -27,7 +27,7 @@ const makeDiscovery = (credential: GitHubRest.GitHubRest["Service"]["credential"
     Effect.provide(
       Layer.mergeAll(
         Layer.mock(GitHubRest.GitHubRest)({ credential }),
-        Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false }),
+        Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false, installUrl: null }),
         TestSourceControlHost.layer(),
       ),
     ),
@@ -102,7 +102,7 @@ it.effect.each([
     name: "no",
     token: "",
     status: "authenticated",
-    detail: "GH_TOKEN from the server environment",
+    detail: "Using the GH_TOKEN environment variable.",
   },
   // getWithSecrets leaves a reference its secret provider could not read in place.
   {
@@ -110,6 +110,13 @@ it.effect.each([
     token: { provider: "vault", reference: "op://v/gh" },
     status: "unauthenticated",
     detail: 'secret provider "vault"',
+  },
+  {
+    name: "an ignored",
+    token: "resolved-token",
+    hosts: { "github.com": { enabled: false } },
+    status: "unauthenticated",
+    detail: "github.com is turned off",
   },
 ])("reports $name saved GitHub token instead of another credential", (scenario) =>
   Effect.gen(function* () {
@@ -129,7 +136,7 @@ it.effect.each([
               });
             },
           }),
-          Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false }),
+          Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({ enabled: false, installUrl: null }),
           Layer.effect(
             SourceControlHost.SourceControlHost,
             Effect.gen(function* () {
@@ -142,7 +149,10 @@ it.effect.each([
                     Effect.succeed(
                       decodeSettings({
                         sourceControlHosts: {
-                          github: { tokens: { "github.com": scenario.token } },
+                          github: {
+                            tokens: { "github.com": scenario.token },
+                            hosts: scenario.hosts ?? {},
+                          },
                         },
                       }),
                     ),

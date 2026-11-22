@@ -74,6 +74,12 @@ far in the future for the environment server's allowed window. It can point to
 a date or time problem on either device, but it can also result from a delayed
 request.
 
+Subscription RPC spans and the `/ws` connection span carry `codenine.span.long_lived: true`. They
+last as long as a client watches, so Settings > Maintenance > Diagnostics leaves them out of slow
+spans. A probe whose miss is expected, such as a CLI that is not installed or a repository without a
+remote, ends successfully with `probe.miss` set to `not-installed` or `no-remote`. Diagnostics counts
+a failure that parent spans repeat with the same cause once, at the innermost span.
+
 #### Summarize the trace file
 
 `codenine trace summary` reads the trace file and its rotated backups directly, so it works while the
@@ -300,7 +306,7 @@ jq -c 'select(.type == "effect-span" and .exit._tag != "Success") | {
 Show slow spans:
 
 ```bash
-jq -c 'select(.durationMs > 1000) | {
+jq -c 'select(.durationMs > 1000 and .attributes["codenine.span.long_lived"] != true) | {
   name,
   durationMs,
   traceId,

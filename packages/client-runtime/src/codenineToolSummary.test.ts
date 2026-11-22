@@ -26,15 +26,13 @@ describe("summarizeCodenineToolCalls", () => {
         output,
       ),
     );
-    expect(summarizeCodenineToolCalls("thread-send", calls).label).toBe(
-      "Sent 1 message to 1 thread",
-    );
+    expect(summarizeCodenineToolCalls("thread-send", calls).label).toBe("Sent 1 message to 1 chat");
     expect(
       summarizeCodenineToolCalls("thread-send", [
         completed({ toolName: "codenine_thread_send", args: { threadId: "input-thread" } }),
         completed({ threadId: "input-thread" }),
       ]).label,
-    ).toBe("Sent 2 messages to 1 thread");
+    ).toBe("Sent 2 messages to 1 chat");
   });
 
   it("counts the pull requests batch link and unlink calls changed", () => {
@@ -69,11 +67,11 @@ describe("summarizeCodenineToolCalls", () => {
       { input: { threadId: "cancelled" }, output: undefined, outcome: "unfinished" },
     ];
     expect(summarizeCodenineToolCalls("thread-send", calls)).toEqual({
-      label: "Sent 1 message to 1 thread",
+      label: "Sent 1 message to 1 chat",
       failedCount: 2,
     });
     expect(summarizeCodenineToolCalls("thread-send", [calls[1]!])).toEqual({
-      label: "Tried to send 1 message to 1 thread",
+      label: "Tried to send 1 message to 1 chat",
       failedCount: 1,
     });
   });
@@ -100,7 +98,7 @@ describe("summarizeCodenineToolCalls", () => {
         completed({ threadId: "thread-1" }, { threadId: "thread-1", timedOut: true }),
       ]),
     ).toEqual({
-      label: "Waited on 1 thread",
+      label: "Waited on 1 chat",
       failedCount: 0,
     });
   });
