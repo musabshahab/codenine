@@ -247,6 +247,7 @@ it("passes a good run and names every rule a bad run breaks", () => {
     textMustNot: ["Paste .*token"],
     linked: ["~/pull/124"],
     linkedNumbers: [124],
+    team: { tasks: [{ title: "~user", model: "claude-haiku-5-5" }] },
   };
   const good: SampleRun = {
     calls: [
@@ -260,6 +261,7 @@ it("passes a good run and names every rule a bad run breaks", () => {
     text: "Started <codenine-thread://v2/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee/11111111-1111-4111-8111-111111111111>. Do not paste a token.",
     stopReason: "end_turn",
     linked: ["https://github.com/acme/app/pull/124"],
+    team: { tasks: [{ title: "Validate createUser", model: "claude-haiku-5-5" }] },
   };
   assert.deepEqual(failed(expect, good), []);
 
@@ -290,6 +292,7 @@ it("passes a good run and names every rule a bad run breaks", () => {
     "textMustNot /Paste .*token/",
     "linked ~/pull/124",
     "linkedNumbers",
+    'team {"tasks":[{"title":"~user","model":"claude-haiku-5-5"}]}',
   ]);
 });
 
@@ -603,6 +606,27 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents and
       code: "invalid_request",
       message: 'Member "builder": Provider instance codex uses driver codex, not claudeAgent.',
     },
+  );
+  // Codenine holds the last accepted team, each task on its member's resolved model.
+  const held = makeSample(withAgents, base);
+  codenineDefault(held, "propose_team", {
+    goal: "Ship the rate limiter",
+    agents: [
+      { id: "impl", role: "implement" },
+      { id: "rev", role: "review", agent: "builder" },
+    ],
+    tasks: [
+      { id: "build", title: "Build", brief: "Write the token bucket.", agent: "impl" },
+      { id: "check", title: "Review", brief: "Review it.", agent: "rev", dependsOn: ["build"] },
+    ],
+  });
+  const tasks = [
+    { id: "build", model: "claude-sonnet-5-5" },
+    { id: "check", model: "gpt-6.1-sol" },
+  ];
+  assert.deepEqual(
+    failed({ team: { tasks } }, { calls: [], text: "", stopReason: "end_turn", team: held.team }),
+    [],
   );
 });
 

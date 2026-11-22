@@ -143,6 +143,8 @@ export type SampleRun = {
   readonly finalText?: string;
   /** PRs linked to the thread when the sample ends, by the agent or by Codenine. */
   readonly linked?: ReadonlyArray<string>;
+  /** The team Codenine holds when the sample ends; see `Sample.team`. */
+  readonly team?: unknown;
 };
 
 const Rest = [Schema.Record(Schema.String, Schema.Unknown)] as const;
@@ -201,6 +203,11 @@ const McpToolUseExpect = Schema.Struct({
   linked: Schema.optional(Schema.Array(Schema.String)),
   /** The PR numbers linked at the end, exactly. */
   linkedNumbers: Schema.optional(Schema.Array(Schema.Number)),
+  /**
+   * Matches the team Codenine holds at the end, as `args` values match. Each task carries its
+   * member's resolved `model`, so a member that inherits the lead's model is graded on it.
+   */
+  team: Schema.optional(Schema.Unknown),
   /**
    * Secret checks: chat asks in text and question tools, where fixture values went, and how the
    * files request_secret returned were read. See `SecretExpect` in secret-grading.ts.
@@ -801,6 +808,8 @@ type Sample = {
   /** Files Codenine's request_secret saved in this sample, in call order. */
   readonly secretFiles: Array<string>;
   secretRequests: number;
+  /** The last team propose_team accepted, each task with its member's resolved `model`. */
+  team?: unknown;
 };
 
 const SHELL_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "WebFetch"]);
@@ -1253,14 +1262,18 @@ export const codenineDefault = (
         }),
       };
       const issue = validateTeamDraft(draft);
-      return issue === null
-        ? {
-            planId: "team-plan-1",
-            revision: 1,
-            status: "proposed",
-            next: ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
-          }
-        : { code: "invalid_request", message: issue.message };
+      if (issue !== null) return { code: "invalid_request", message: issue.message };
+      const models = new Map(members.map((member) => [member.id, member.modelSelection.model]));
+      sample.team = {
+        ...draft,
+        tasks: draft.tasks.map((task) => ({ ...task, model: models.get(task.agentId) })),
+      };
+      return {
+        planId: "team-plan-1",
+        revision: 1,
+        status: "proposed",
+        next: ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
+      };
     }
     case "propose_workflow":
       return { status: "drafted", next: ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT };
@@ -1892,6 +1905,8 @@ export const gradeSample = (expect: McpToolUseCase["expect"], run: SampleRun, pa
     const exact = valueText(numbers.toSorted((a, b) => a - b));
     add("linkedNumbers", exact === valueText(expect.linkedNumbers.toSorted((a, b) => a - b)));
   }
+  if (expect.team !== undefined)
+    add(`team ${valueText(expect.team)}`, matches(expect.team, run.team));
   checks.push(...gradeSecret(expect.secret, run, pasted));
   return checks;
 };
@@ -2258,6 +2273,7 @@ const runSample = Effect.fn("evaluateMcpToolUse.runSample")(function* (
     stopReason,
     finalText,
     linked: [...sample.linked],
+    team: sample.team,
     usage,
     shellUsage: sample.shellUsage,
     transcript: input ? transcript : messages.slice(start),
