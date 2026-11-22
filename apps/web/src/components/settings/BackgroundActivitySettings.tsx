@@ -84,17 +84,15 @@ function backgroundActivityProfileSettings(profile: BackgroundActivityProfile) {
 function BackgroundActivityAdvancedDialog({
   open,
   onOpenChange,
+  reportsHostPower,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  readonly reportsHostPower: boolean;
 }) {
   const canWriteSettings = useScopedSettingsWriteAllowed();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
-  const { environment } = useSettingsScope();
-  // Host lock, battery and power polling come only from the desktop app that runs the server.
-  const desktopHosted =
-    environment?.serverConfig?.environment.capabilities.serverSelfUpdate === "desktop-managed";
   const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
   const activeProfile = resolvedBackgroundActivity.profile;
   const automaticGitFetchIntervalSeconds = durationToSeconds(
@@ -225,7 +223,7 @@ function BackgroundActivityAdvancedDialog({
               </div>
             </div>
 
-            {desktopHosted ? (
+            {reportsHostPower ? (
               <>
                 <div className="flex flex-col gap-3 border-t px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 space-y-1">
@@ -333,6 +331,8 @@ export function BackgroundActivitySettingsRow() {
   const { scope, environment } = useSettingsScope();
   const environmentId = environment?.environmentId ?? null;
   const isEnvironmentScope = scope.environmentIds.length === 1 && environmentId !== null;
+  const reportsHostPower =
+    environment?.serverConfig?.environment.capabilities.hostPowerTelemetry === true;
   const [backgroundActivityDialogOpen, setBackgroundActivityDialogOpen] = useState(false);
   const mixedBackgroundActivity = useScopedSettingsMixed(["backgroundActivity"]);
   const resolvedBackgroundActivity = resolveServerBackgroundActivitySettings(settings);
@@ -434,6 +434,7 @@ export function BackgroundActivitySettingsRow() {
           <BackgroundActivityAdvancedDialog
             open={backgroundActivityDialogOpen && isEnvironmentScope}
             onOpenChange={setBackgroundActivityDialogOpen}
+            reportsHostPower={reportsHostPower}
           />
         </>
       }
