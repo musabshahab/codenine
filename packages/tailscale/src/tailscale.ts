@@ -3,6 +3,8 @@ import { normalizeHostname } from "@codenine/shared/hostClassification";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest } from "effect/http";
@@ -229,7 +231,13 @@ export const parseTailscaleStatus = (
     }),
   );
 
-const readTailscaleOutput = Effect.fn("tailscale.readTailscaleOutput")(function* (
+const isTailscaleNotInstalled = (error: TailscaleCommandError) =>
+  error._tag === "TailscaleCommandSpawnError" &&
+  PlatformError.isPlatformError(error.cause) &&
+  error.cause.reason._tag === "NotFound";
+
+// Most machines have no Tailscale, so a missing CLI ends the span as a success, not a failure.
+const readTailscaleOutputOrMissing = Effect.fn("tailscale.readTailscaleOutput")(function* (
   subcommand: "status" | "serve" | "debug",
   args: readonly string[],
 ) {
@@ -244,7 +252,7 @@ const readTailscaleOutput = Effect.fn("tailscale.readTailscaleOutput")(function*
   const command = ChildProcess.make(executable, [...args], {
     forceKillAfter: TAILSCALE_KILL_GRACE,
   });
-  return yield* Effect.gen(function* () {
+  const outcome = yield* Effect.gen(function* () {
     const child = yield* spawner.spawn(command).pipe(
       Effect.mapError((cause) => new TailscaleCommandSpawnError({ ...commandContext, cause })),
       // Spawning can also fail as a defect rather than a typed error - a
@@ -289,8 +297,17 @@ const readTailscaleOutput = Effect.fn("tailscale.readTailscaleOutput")(function*
           }),
         ),
     }),
+    Effect.result,
   );
+  if (Result.isFailure(outcome)) {
+    if (!isTailscaleNotInstalled(outcome.failure)) return yield* outcome.failure;
+    yield* Effect.annotateCurrentSpan("probe.miss", "not-installed");
+  }
+  return outcome;
 });
+
+const readTailscaleOutput = (subcommand: "status" | "serve" | "debug", args: readonly string[]) =>
+  readTailscaleOutputOrMissing(subcommand, args).pipe(Effect.flatMap(Effect.fromResult));
 
 export const readTailscaleStatus = readTailscaleOutput("status", ["status", "--json"]).pipe(
   Effect.flatMap(parseTailscaleStatus),
