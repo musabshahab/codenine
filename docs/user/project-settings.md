@@ -17,7 +17,7 @@ Offline environments keep their current values; this is a bulk edit, not a synce
 Choose a workspace to override settings for it on the selected environments. A layers icon beside
 each server row's title shows where the value comes from: the built-in default, the environment,
 or a workspace override. Click it to see that chain on every selected environment. An override can
-be reset to inherit again. Settings that cannot be overridden by a workspace are shown read-only
+be reset to inherit again. Settings that cannot be overridden by a workspace are read-only or hidden
 while a workspace is selected.
 
 When the selected environments disagree, the control shows **Mixed** in place of a value and the
@@ -80,8 +80,8 @@ branch name remains.
 
 ## Defaults and inheritance
 
-Chats contains the model and workspace for new chats. Source control contains automatic pull
-and text generation. The same rows edit environment defaults or workspace overrides depending on
+Chats contains the model and workspace for new chats, and text generation. Source control contains
+automatic pull and writing. The same rows edit environment defaults or workspace overrides depending on
 the selected workspace.
 
 The Workspaces category, under Code, holds the workspace's name, icon, actions,
