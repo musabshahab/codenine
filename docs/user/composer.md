@@ -212,8 +212,7 @@ The **+** menu next to the message box keeps a skill on for the whole chat (**Ad
 turns the chat's [connectors](./connectors.md) on or off. What the chat uses shows above the message
 box, where you can remove it. In a chat with an [agent](./agents.md), the agent decides both.
 
-The slash menu also includes skills unless you turn off **Settings → Chat →
-Show skills in slash menu**, under Advanced. Only skills enabled for the provider are listed.
+The slash menu also lists skills. Only skills enabled for the provider are listed.
 
 After you add or change skills, plugins, or MCP servers, use **Restart agent
 session** in the command palette. The conversation continues,

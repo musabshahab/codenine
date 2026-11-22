@@ -75,7 +75,6 @@ import {
   copyPromptLink,
   promptLinkRepositoryOf,
 } from "./promptLinks/copyPromptLink";
-import { useClientSettings } from "../hooks/useSettings";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
@@ -160,7 +159,6 @@ import {
 import { isSidebarHiddenThread } from "./Sidebar.logic";
 import { CommandPaletteContent, type PendingInputSelection } from "./CommandPaletteContent";
 import {
-  selectCommandPaletteClientSettings,
   useEnvironmentLookups,
   useProjectLookups,
   useSortedProjectGroups,
@@ -362,7 +360,6 @@ function OpenCommandPaletteDialog(props: {
     highlightClearedRef.current = true;
     setHighlightedItemValue(null);
   }
-  const clientSettings = useClientSettings(selectCommandPaletteClientSettings);
   const createProject = useNewProject();
   const folderPicker = useProjectFolderPicker();
   const { scratchEnvironmentId, scratchWorkspaceRootFor, startScratchThread } = useScratchProject();
@@ -570,12 +567,12 @@ function OpenCommandPaletteDialog(props: {
               thread.archivedAt === null &&
               groupedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`),
           ),
-          clientSettings.sidebarThreadSortOrder,
+          "updated_at",
         )[0] ?? null)
       : getLatestThreadForProject(
           threads.filter((thread) => thread.environmentId === project.environmentId),
           project.id,
-          clientSettings.sidebarThreadSortOrder,
+          "updated_at",
         );
     if (latestThread) {
       await navigate({
@@ -874,7 +871,7 @@ function OpenCommandPaletteDialog(props: {
       kind: "action",
       value: "action:link-pull-request",
       searchTerms: ["link", "pull request", "pr", "attach", "stack"],
-      title: "Link pull request to thread",
+      title: "Link pull request to chat",
       icon: <PullRequestGlyph.link className={ITEM_ICON_CLASS} />,
       run: async () => {
         openLinkPullRequestDialog(threadRef);
@@ -1562,7 +1559,7 @@ function OpenCommandPaletteDialog(props: {
       else
         toastManager.add({
           id: "thread-find-unavailable",
-          title: "Thread search is unavailable on this server.",
+          title: "Chat search is unavailable on this environment.",
           description: "Update the server to enable it.",
         });
       return;

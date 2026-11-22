@@ -69,7 +69,7 @@ export class ThreadArchiveBlockedError extends Schema.TaggedError<ThreadArchiveB
   },
 ) {
   override get message(): string {
-    return "Cannot archive while the provider is active.";
+    return "Cannot archive while the agent is running.";
   }
 }
 
@@ -331,7 +331,6 @@ export function useThreadActions() {
   const refreshVcsStatus = useAtomCommand(vcsEnvironment.refreshStatus, {
     reportFailure: false,
   });
-  const sidebarThreadSortOrder = useClientSettings((settings) => settings.sidebarThreadSortOrder);
   const confirmThreadDelete = useClientSettings((settings) => settings.confirmThreadDelete);
   const confirmThreadUnpin = useClientSettings((settings) => settings.confirmThreadUnpin);
   const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
@@ -603,7 +602,7 @@ export function useThreadActions() {
       threads,
       deletedThreadId: threadRef.threadId,
       deletedThreadIds,
-      sortOrder: sidebarThreadSortOrder,
+      sortOrder: "updated_at",
       now: new Date().toISOString(),
     });
     const deleteResult = await deleteThreadMutation({

@@ -217,7 +217,6 @@ vi.mock("./useHandleNewThread", () => ({ useNewThreadHandler: () => async () => 
 vi.mock("./useSettings", () => ({
   useClientSettings: (select: (settings: unknown) => unknown) =>
     select({
-      sidebarThreadSortOrder: "createdAt",
       confirmThreadDelete: true,
       confirmThreadUnpin: true,
     }),

@@ -15,8 +15,6 @@ export function resolveSidebarStageBackdropVariant(
   stageLabel: string,
   mode: EnvironmentIdentificationMode = "artwork",
 ): SidebarStageBackdropVariant | null {
-  if (mode === "nightly-artwork") return "nightly";
-  if (mode === "dev-artwork") return "dev";
   if (mode !== "artwork") return null;
   const normalized = stageLabel.trim().toLowerCase();
   if (normalized === "nightly") return "nightly";

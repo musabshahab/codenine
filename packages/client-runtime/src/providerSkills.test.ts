@@ -46,7 +46,7 @@ describe("getProviderSkillsForSlashMenu", () => {
       path: "/Users/matt/.agents/skills/ask-matt/SKILL.md",
       enabled: true,
     };
-    expect(getProviderSkillsForSlashMenu([askMatt], true).map((skill) => skill.name)).toEqual([
+    expect(getProviderSkillsForSlashMenu([askMatt]).map((skill) => skill.name)).toEqual([
       "ask-matt",
     ]);
   });
@@ -70,7 +70,7 @@ describe("getProviderSkillsForSlashMenu", () => {
       },
     ];
 
-    expect(getProviderSkillsForSlashMenu(skills, true).map((skill) => skill.name)).toEqual([
+    expect(getProviderSkillsForSlashMenu(skills).map((skill) => skill.name)).toEqual([
       "babysit-pr",
       "browser",
     ]);
@@ -91,7 +91,7 @@ describe("getProviderSkillsForSlashMenu", () => {
       enabledSkill,
     ];
 
-    expect(getProviderSkillsForSlashMenu(skills, true)).toEqual([enabledSkill]);
+    expect(getProviderSkillsForSlashMenu(skills)).toEqual([enabledSkill]);
   });
 });
 

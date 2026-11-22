@@ -100,7 +100,6 @@ const DEVICE_RESTORE_ROWS: ReadonlyArray<{
   { id: "hide-whitespace-changes", keys: ["diffHideWhitespace"] },
   { id: "diff-layout", keys: ["diffLayout"] },
   { id: "proactive-panels", keys: ["proactivePanelsEnabled"] },
-  { id: "skills-in-slash-menu", keys: ["showSkillsInSlashMenu"] },
   { id: "composer-rich-text", keys: ["composerRichTextEnabled"] },
   { id: "send-shortcut", keys: ["sendShortcut"] },
   { id: "follow-up-behavior", keys: ["followUpBehavior"] },

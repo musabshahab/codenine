@@ -29,7 +29,6 @@ import {
   backgroundActivityOverrideSettings,
   backgroundActivitySharedPolicySettings,
   durationToSeconds,
-  PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
   resolveBackgroundActivityProfileOption,
 } from "./SettingsPanels.logic";
 import { IntervalSecondsField } from "./IntervalSecondsField";
@@ -62,8 +61,8 @@ function describeBackgroundActivityProfile(
       return "Allows scoped background probes while any subscribed client remains connected.";
     case "battery-saver":
       return reportsHostPower
-        ? "Like Balanced, but turns off git fetch, checks provider health every 15 minutes, and pauses probes on battery."
-        : "Like Balanced, but turns off git fetch and checks provider health every 15 minutes.";
+        ? "Like Balanced, but turns off git fetch, checks accounts every 15 minutes, and pauses probes on battery."
+        : "Like Balanced, but turns off git fetch and checks accounts every 15 minutes.";
   }
 }
 
@@ -109,9 +108,6 @@ function BackgroundActivityAdvancedDialog({
   const activeProfile = resolvedBackgroundActivity.profile;
   const automaticGitFetchIntervalSeconds = durationToSeconds(
     resolvedBackgroundActivity.automaticGitFetchInterval,
-  );
-  const providerHealthRefreshIntervalSeconds = durationToSeconds(
-    resolvedBackgroundActivity.providerHealthRefreshInterval,
   );
   const hostPowerMonitorActiveIntervalSeconds = durationToSeconds(
     resolvedBackgroundActivity.hostPowerMonitorActiveInterval,
@@ -176,7 +172,7 @@ function BackgroundActivityAdvancedDialog({
               </Select>
             </div>
 
-            <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 space-y-1">
                 <div className="text-sm font-medium">
                   {searchableSetting("git-fetch-interval").title}
@@ -197,35 +193,6 @@ function BackgroundActivityAdvancedDialog({
                         settings.backgroundActivity,
                         resolvedBackgroundActivity,
                         { automaticGitFetchInterval: Duration.seconds(seconds) },
-                      ),
-                      options,
-                    )
-                  }
-                />
-                <span className="text-xs text-muted-foreground">seconds</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 space-y-1">
-                <div className="text-sm font-medium">Provider health interval</div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  Refresh provider availability, versions, and auth state. Model catalog updates
-                  follow Provider update checks.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <IntervalSecondsField
-                  label="provider health interval"
-                  value={providerHealthRefreshIntervalSeconds}
-                  min={0}
-                  step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
-                  onCommit={(seconds, options) =>
-                    updateSettings(
-                      backgroundActivityOverrideSettings(
-                        settings.backgroundActivity,
-                        resolvedBackgroundActivity,
-                        { providerHealthRefreshInterval: Duration.seconds(seconds) },
                       ),
                       options,
                     )

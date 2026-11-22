@@ -41,7 +41,6 @@ import { buildThreadRouteParams } from "~/threadRoutes";
 import { suggestAppAccessForRemote } from "../components/sourceControlAppAccessToast";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { reportProjectFailure } from "./useProjectGroupUpdate";
-import { getClientSettings } from "./useSettings";
 
 /** A failure's `message` is null when the request was interrupted and there is nothing to show. */
 export type NewProjectResult =
@@ -209,11 +208,7 @@ export function useNewProject() {
         (thread) =>
           thread.environmentId === existing.environmentId && !isSidebarHiddenThread(thread),
       );
-    const latestThread = getLatestThreadForProject(
-      threads,
-      existing.id,
-      getClientSettings().sidebarThreadSortOrder,
-    );
+    const latestThread = getLatestThreadForProject(threads, existing.id, "updated_at");
     if (latestThread && latestThread.settledOverride !== "settled") {
       onOpen?.();
       await navigate({

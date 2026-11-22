@@ -1072,7 +1072,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProvider,
     selectedProviderSkills,
     selectedProviderSlashCommands,
-    showSkillsInSlashMenu: settings.showSkillsInSlashMenu,
     workspaceSkillsScanning,
     modelMentions: { instanceEntries: providerInstanceEntries, modelOptionsByInstance },
     agents: composerAgents,

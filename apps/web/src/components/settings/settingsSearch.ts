@@ -66,6 +66,8 @@ export interface SettingsSearchItem {
   readonly managedTunnelOnly?: boolean;
   readonly fastWorktreeCheckoutOnly?: boolean;
   readonly textGeneratorsOnly?: boolean;
+  /** Only builds with a stage of their own, such as Dev or Nightly, can mark it. */
+  readonly appStageOnly?: boolean;
   readonly secondary?: boolean;
   readonly requiresThreadAutoSettlement?: boolean;
 }
@@ -83,6 +85,7 @@ export interface SettingsSearchAvailability {
   /** An environment without a provider allow-list, which hides text generators. */
   readonly hasTextGeneratorsEnvironment?: boolean;
   readonly hasPrimaryEnvironment?: boolean;
+  readonly hasAppStage?: boolean;
 }
 
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
@@ -343,8 +346,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "environment-identification",
     title: "Environment identification",
     to: "/settings/appearance",
-    searchTerms: ["dev nightly latest channel artwork pill label hide none"],
+    searchTerms: ["dev nightly channel artwork badge pill label hide none"],
     targetId: "appearance-interface",
+    appStageOnly: true,
   },
   {
     id: "interface-font",
@@ -570,12 +574,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Open the changes panel proactively",
     to: "/settings/diffs",
     searchTerms: ["proactive automatically open diff right panel agent completion"],
-  },
-  {
-    id: "skills-in-slash-menu",
-    title: "Show skills in slash menu",
-    to: "/settings/chat",
-    searchTerms: ["command menu dollar $ slash /"],
   },
   {
     id: "composer-rich-text",
@@ -1163,7 +1161,8 @@ export function filterAvailableSettingsSearchItems(
       (!item.managedTunnelOnly || availability.managedTunnelActive === true) &&
       (!item.fastWorktreeCheckoutOnly ||
         availability.hasFastWorktreeCheckoutEnvironment === true) &&
-      (!item.textGeneratorsOnly || availability.hasTextGeneratorsEnvironment === true),
+      (!item.textGeneratorsOnly || availability.hasTextGeneratorsEnvironment === true) &&
+      (!item.appStageOnly || availability.hasAppStage === true),
   );
 }
 

@@ -51,11 +51,8 @@ export function isProviderSkillUserInvocable(
 
 export function getProviderSkillsForSlashMenu(
   skills: ReadonlyArray<ServerProviderSkill>,
-  showSkillsInSlashMenu: boolean,
 ): ServerProviderSkill[] {
-  return showSkillsInSlashMenu
-    ? dedupeProviderSkillsByName(skills.filter(isProviderSkillUserInvocable))
-    : [];
+  return dedupeProviderSkillsByName(skills.filter(isProviderSkillUserInvocable));
 }
 
 export function getProviderSlashCommandsForSlashMenu(

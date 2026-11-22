@@ -147,7 +147,6 @@ describe("device settings restore", () => {
       "loadBalancingEnabled",
       "loadBalancingWeights",
       "sidebarProjectGroupingOverrides",
-      "sidebarThreadSortOrder",
     ]);
     const deviceKeys = Object.keys(ClientSettingsSchema.fields).filter(
       (key) => !Object.hasOwn(ServerSettings.fields, key) && !leftAlone.has(key),

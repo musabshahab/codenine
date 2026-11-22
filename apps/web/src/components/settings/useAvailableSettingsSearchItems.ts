@@ -8,6 +8,10 @@ import { desktopWslStateAtom } from "~/state/desktopWslState";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironmentScope } from "~/state/session";
+import {
+  resolveSidebarStageBackdropVariant,
+  useEnvironmentStageLabel,
+} from "../SidebarStageBackdrop";
 import { isWslSettingsRowVisible } from "./ConnectionsSettings.logic";
 import { isProviderSettingsEnvironmentAvailable } from "./ProviderSettingsPanel.logic";
 import {
@@ -51,6 +55,7 @@ export function useAvailableSettingsSearchItems() {
     isElectron && canManageLocalBackend ? desktopWslStateAtom : null,
   );
   const cloudPublicConfig = hasCloudPublicConfig() === true;
+  const hasAppStage = resolveSidebarStageBackdropVariant(useEnvironmentStageLabel()) !== null;
   const wslSettingsRowVisible =
     isWslSettingsRowVisible({ state: desktopWsl.data, error: desktopWsl.error }) === true;
 
@@ -66,5 +71,6 @@ export function useAvailableSettingsSearchItems() {
     hasFastWorktreeCheckoutEnvironment,
     hasTextGeneratorsEnvironment,
     hasPrimaryEnvironment: primaryEnvironmentId !== null,
+    hasAppStage,
   });
 }
