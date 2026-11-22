@@ -113,7 +113,7 @@ const NEW_RULE_DAYS = 30;
 
 /**
  * Every rule change starts a cleanup sweep, so switching a rule on opens a draft. Enter, a stepper
- * press, or leaving the field after typing saves it; leaving it untouched turns the rule back off.
+ * press, or leaving the control saves the days it shows; switching it off again saves nothing.
  */
 function RetentionControl({
   label,
@@ -136,10 +136,6 @@ function RetentionControl({
     setField({ saved: value, draft: value, committed: value, opening: false });
   }
   const drafting = field.opening && field.committed === null;
-  const leaveDraft = () =>
-    setField((current) =>
-      current.opening && current.committed === null ? { ...current, opening: false } : current,
-    );
   const commit = (next: number | null) => {
     if (next === null) {
       setField((current) => ({
@@ -166,7 +162,7 @@ function RetentionControl({
     <div
       className="flex items-center gap-3"
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) leaveDraft();
+        if (!event.currentTarget.contains(event.relatedTarget)) commit(field.draft);
       }}
     >
       {value !== null || field.opening ? (
@@ -178,7 +174,10 @@ function RetentionControl({
           size="sm"
           className="w-auto"
           onValueChange={(draft) => setField((current) => ({ ...current, draft }))}
-          onValueCommitted={commit}
+          // Leaving the control commits through onBlur above; committing here too would save twice.
+          onValueCommitted={(next, { reason }) => {
+            if (reason !== "input-blur") commit(next);
+          }}
         >
           <NumberFieldGroup>
             <NumberFieldDecrement aria-label={`Decrease ${label}`} />
@@ -210,8 +209,8 @@ function RetentionControl({
           if (!enabled && !drafting) onChange(null);
           setField((current) =>
             enabled
-              ? { ...current, draft: NEW_RULE_DAYS, opening: true }
-              : { ...current, opening: false },
+              ? { ...current, draft: NEW_RULE_DAYS, committed: null, opening: true }
+              : { ...current, draft: current.committed, opening: false },
           );
         }}
       />
