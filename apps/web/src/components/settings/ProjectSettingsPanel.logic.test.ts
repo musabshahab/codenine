@@ -2,6 +2,18 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ThreadId } from "@codenine/contracts";
 import { planProjectRemoval } from "@codenine/client-runtime/state/projects";
 
+import { isPersonalWorkspace } from "./ProjectSettingsPanel.logic";
+
+it.each([
+  [[], false],
+  [[{ isScratch: true as const }], true],
+  [[{ isScratch: true as const }, { isScratch: true as const }], true],
+  [[{ isScratch: true as const }, {}], false],
+  [[{}], false],
+])("treats %j as the Personal workspace: %s", (members, expected) => {
+  expect(isPersonalWorkspace(members)).toBe(expected);
+});
+
 describe("project removal confirmation", () => {
   const local = {
     id: ProjectId.make("shared-id"),

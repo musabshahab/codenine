@@ -61,6 +61,9 @@ Removing it deletes its threads from Codenine and leaves its folder on disk; **D
 folder** also permanently deletes the folder, including uncommitted work, and the workspace's
 Codenine worktrees on the machine that holds it.
 
+[Personal](./thread-sidebar.md#start-in-personal) can be pinned, but not renamed, archived, or
+removed, since it always holds the chats you start without a workspace.
+
 ## Worktree branch names
 
 In **Settings → Worktrees → Worktree branch naming**, choose a static prefix,

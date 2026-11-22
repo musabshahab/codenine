@@ -243,16 +243,22 @@ describe("buildProjectGroups", () => {
         derivePhysicalProjectKey(projects[3]!),
       );
       expect(groups.filter((group) => !group.representative.isScratch)).toHaveLength(2);
-      // Apart, a scratch home keeps a name the user gave it; the old default reads as Personal.
       const apart = buildProjectGroups({ projects, settings: settings(mode) });
+      const allScratch = apart.filter((group) =>
+        group.members.every((member) => member.project.isScratch),
+      );
+      expect(allScratch.map((group) => group.label)).toEqual(allScratch.map(() => "Personal"));
+      expect(allScratch.length).toBeGreaterThan(0);
       expect(
-        apart.filter((group) => group.representative.isScratch).map((group) => group.label),
-      ).toEqual(["Personal", "Personal"]);
+        apart
+          .filter((group) => group.members.some((member) => !member.project.isScratch))
+          .map((group) => group.label),
+      ).not.toContain("Personal");
       const renamed = buildProjectGroups({
         projects: [{ ...projects[0]!, title: "Ideas" }],
         settings: settings(mode),
       });
-      expect(renamed[0]?.label).toBe("Ideas");
+      expect(renamed[0]?.label).toBe("Personal");
     },
   );
 

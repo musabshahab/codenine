@@ -264,7 +264,9 @@ async function mountPanel(search: Omit<SettingsScopeSearch, "project"> = {}) {
       { router: false },
     ),
   );
-  await vi.waitFor(() => expect(nameInput(screen)).not.toBeNull());
+  await vi.waitFor(() =>
+    expect(screen.container.querySelector('[aria-label="Choose a workspace icon"]')).not.toBeNull(),
+  );
   stack.move();
   return { ...screen, router };
 }
@@ -491,18 +493,25 @@ describe("project identity reset", () => {
     projectIcon: { kind: "emoji", emoji: "📝" },
   });
 
-  it("restores a renamed scratch project's built-in name and icon", async () => {
+  it("shows Personal by its fixed name with only the controls that apply to it", async () => {
     setup();
     state.projects = [{ ...asScratch(state.projects[0]!), faviconPath: null, projectIcon: null }];
     await using screen = await mountPanel();
 
-    await userEvent.click(resetButton(screen, "workspace name")!);
-    await vi.waitFor(() =>
-      expect(state.update).toHaveBeenCalledWith({
-        environmentId: primaryId,
-        input: { projectId: state.projects[0]!.id, title: "Personal" },
-      }),
+    expect(screen.container.querySelector('[aria-label="Workspace name"]')).toBeNull();
+    expect(resetButton(screen, "workspace name")).toBeNull();
+    const text = screen.container.textContent ?? "";
+    expect(text).toContain("Personal");
+    expect(text).not.toContain("Notes");
+    expect(text).toContain("/codenine/scratch");
+    expect(screen.container.querySelector('[aria-label="Pin workspace"]')).not.toBeNull();
+    expect(screen.container.querySelector('[aria-label^="Grouping rule for"]')).toBeNull();
+    const buttons = [...screen.container.querySelectorAll("button")].map(
+      (button) => button.textContent,
     );
+    expect(buttons).not.toContain("Archive");
+    expect(buttons.some((label) => label?.includes("Remove"))).toBe(false);
+
     await userEvent.click(resetButton(screen, "workspace icon")!);
     await vi.waitFor(() =>
       expect(state.update).toHaveBeenLastCalledWith({
@@ -673,6 +682,20 @@ it("returns to the project overview after removal, clearing the selection but ke
 });
 
 describe("project name composition", () => {
+  it("restores the saved name when an empty name is rejected", async () => {
+    setup();
+    await using screen = await mountPanel();
+    await userEvent.fill(nameInput(screen), "   ");
+    await userEvent.keyboard("{Tab}");
+    await vi.waitFor(() =>
+      expect(state.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Workspace name cannot be empty" }),
+      ),
+    );
+    expect(nameInput(screen).value).toBe("Shared repo");
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
   it.each([
     { isComposing: true, keyCode: 13 },
     { isComposing: false, keyCode: 229 },
