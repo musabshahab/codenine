@@ -68,7 +68,10 @@ describe("KeybindingsSettings.logic", () => {
 
   it("lists commands without a binding as empty rows the conflict scan skips", () => {
     const rows = buildKeybindingRows(
-      compileResolvedKeybindingsConfig([{ command: "chat.new", key: "mod+k" }]),
+      compileResolvedKeybindingsConfig([
+        { command: "chat.new", key: "mod+k" },
+        { command: "chat.find", key: "mod+f", when: "!terminalFocus" },
+      ]),
     );
     const stop = rows.find((row) => row.command === "thread.stop");
 
@@ -80,6 +83,9 @@ describe("KeybindingsSettings.logic", () => {
     expect(
       keybindingConflictLabels(rows, { rowId: stop?.id ?? "", key: "mod+k", when: "" }),
     ).toEqual(["Chat: New"]);
+    expect(filterKeybindingRows(rows, "default").map((row) => String(row.command))).toEqual([
+      "chat.find",
+    ]);
   });
 
   it("finds a shortcut by its stored, displayed, and typed spellings", () => {

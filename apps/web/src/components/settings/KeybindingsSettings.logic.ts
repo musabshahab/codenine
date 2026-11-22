@@ -375,9 +375,9 @@ export function filterKeybindingRows(
       row.command.toLowerCase().includes(normalizedQuery) ||
       commandLabel(row.command).toLowerCase().includes(normalizedQuery) ||
       row.when.toLowerCase().includes(normalizedQuery) ||
-      row.source.toLowerCase().includes(normalizedQuery) ||
       (row.binding !== null &&
-        shortcutSearchForms(row.binding.shortcut).some((form) => form.includes(shortcutQuery)))
+        (row.source.toLowerCase().includes(normalizedQuery) ||
+          shortcutSearchForms(row.binding.shortcut).some((form) => form.includes(shortcutQuery))))
     );
   });
 }
