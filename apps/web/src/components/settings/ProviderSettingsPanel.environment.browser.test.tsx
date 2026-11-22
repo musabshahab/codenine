@@ -30,6 +30,7 @@ const state = vi.hoisted(() => ({
   mutationEnvironmentIds: [] as string[],
   refresh: vi.fn(),
   updateProvider: vi.fn(),
+  logout: vi.fn(),
   updateSettings: vi.fn(),
   updateModelPreferences: vi.fn(),
   toggleFavorite: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock(import("../../state/server"), async (original) => {
   const commandLabels = {
     refreshProviders: "refresh",
     updateProvider: "update",
+    logoutProviderAuth: "logout",
   } as const;
   const labelled = Object.fromEntries(
     Object.entries(commandLabels).map(([key, label]) => [
@@ -73,6 +75,7 @@ vi.mock(import("../../state/use-atom-command"), async (original) => ({
     ({
       refresh: state.refresh,
       update: state.updateProvider,
+      logout: state.logout,
     })[command.label ?? ""] ?? vi.fn()) as never,
 }));
 vi.mock(import("~/localApi"), async (original) => {
@@ -237,6 +240,7 @@ async function setup() {
   state.confirm.mockReset().mockResolvedValue(false);
   state.refresh.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   state.updateProvider.mockReset().mockResolvedValue(AsyncResult.success(undefined));
+  state.logout.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   await setProviders([]);
 }
 
@@ -325,6 +329,36 @@ describe("EnvironmentProviderSettings routing", () => {
 });
 
 describe("EnvironmentProviderSettings instance removal", () => {
+  it("disconnects a ChatGPT account only once the user confirms", async () => {
+    await setup();
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [codexId]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+          config: { enabled: true, setupMode: "managed" },
+        },
+      },
+    };
+    await setProviders([{ ...provider(), setup: { canAuthenticate: true, canInstall: true } }]);
+    await using _screen = await render(panel({ targetInstanceId: codexId }));
+    const disconnect = page.getByRole("button", { name: "Disconnect" });
+    await userEvent.click(disconnect);
+
+    expect(state.confirm).toHaveBeenCalledWith(
+      expect.stringMatching(/^Sign out of Codex on Remote device\?/),
+      { variant: "destructive" },
+    );
+    expect(state.logout).not.toHaveBeenCalled();
+
+    state.confirm.mockResolvedValue(true);
+    await userEvent.click(disconnect);
+    await vi.waitFor(() =>
+      expect(state.logout).toHaveBeenCalledWith({ environmentId, input: { instanceId: codexId } }),
+    );
+  });
+
   it("resets a configured default instance only once the user confirms", async () => {
     await setup();
     state.settings = {

@@ -1276,6 +1276,7 @@ function ProviderInstanceRow({
           mode === "editor" && codexSetupMode === "managed" ? (
             <CodexSetupSection
               environmentId={environmentId}
+              environmentLabel={environmentLabel}
               instanceId={instanceId}
               provider={liveProvider}
               mode={codexSetupMode}

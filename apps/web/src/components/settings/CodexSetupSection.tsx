@@ -95,6 +95,7 @@ interface CodexSetupSectionProps {
   readonly onModeChange: (mode: "managed" | "existing") => void;
   readonly autoStart?: boolean;
   readonly displayName?: string | undefined;
+  readonly environmentLabel?: string | undefined;
   readonly onAutoStartConsumed?: () => void;
   readonly onSignInCancelled?: (() => void) | undefined;
 }
@@ -133,10 +134,12 @@ export function CodexSetupSection(props: CodexSetupSectionProps) {
 
 export function AddManagedCodexAccountDialog({
   environmentId,
+  environmentLabel,
   onClose,
   onAccountCreated,
 }: {
   readonly environmentId: EnvironmentId;
+  readonly environmentLabel: string;
   readonly onClose: () => void;
   readonly onAccountCreated?:
     | ((instanceId: ProviderInstanceId, displayName: string) => void)
@@ -152,6 +155,7 @@ export function AddManagedCodexAccountDialog({
         <ManagedCodexSetup
           key={instanceId}
           environmentId={environmentId}
+          environmentLabel={environmentLabel}
           instanceId={instanceId}
           provider={provider}
           mode="managed"
@@ -180,6 +184,7 @@ function ManagedCodexSetup({
   allowExistingCli = true,
   presentation,
   displayName,
+  environmentLabel,
   onSignInCancelled,
 }: CodexSetupSectionProps & {
   readonly autoStart: boolean;
@@ -898,7 +903,18 @@ function ManagedCodexSetup({
                   size="sm"
                   variant="ghost"
                   disabled={unavailable || busy}
-                  onClick={() => void run(() => logoutAuth(target))}
+                  onClick={() => {
+                    const name = displayName || provider?.displayName || "Codex";
+                    const where = environmentLabel ? ` on ${environmentLabel}` : "";
+                    void ensureLocalApi()
+                      .dialogs.confirm(
+                        `Sign out of ${name}${where}? Running chats on this account, and on accounts that share its ChatGPT sign-in, stop. Their history is kept.`,
+                        { variant: "destructive" },
+                      )
+                      .then((confirmed) => {
+                        if (confirmed) void run(() => logoutAuth(target));
+                      });
+                  }}
                 >
                   Disconnect
                 </Button>
