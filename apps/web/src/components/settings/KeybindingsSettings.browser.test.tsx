@@ -43,6 +43,20 @@ vi.mock(import("../../state/session"), async (original) => ({
   useEnvironmentScope: ((environmentId: string | null) =>
     environmentId !== null && mocks.writableIds.has(environmentId)) as never,
   readEnvironmentScope: ((environmentId: string) => mocks.writableIds.has(environmentId)) as never,
+  useEnvironmentsWithScope: ((environments: ReadonlyArray<{ environmentId: string }>) =>
+    new Set(
+      environments
+        .map(({ environmentId }) => environmentId)
+        .filter((environmentId) => mocks.writableIds.has(environmentId)),
+    )) as never,
+}));
+// Settings scope lists every connected environment; the page must not edit through it.
+vi.mock(import("./SettingsScopeContext"), async (original) => ({
+  ...(await original()),
+  useSettingsScope: (() => ({
+    environment: mocks.environments[0] ?? null,
+    connectedEnvironments: mocks.environments,
+  })) as never,
 }));
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
