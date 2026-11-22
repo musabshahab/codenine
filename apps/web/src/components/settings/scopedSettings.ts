@@ -156,6 +156,45 @@ export function scopedIdleCompaction(targets: readonly Pick<ScopedSettingsTarget
   };
 }
 
+/**
+ * A setting's value as rows compare it: idle compaction by the mode either server form
+ * resolves to, and an object setting by only the `fields` a row edits.
+ */
+export function settingValue(
+  settings: ServerSettings,
+  key: keyof ServerSettings,
+  fields?: readonly string[],
+): unknown {
+  const value: unknown =
+    key === "idleCompaction" || key === "compactIdleThreads"
+      ? globalIdleCompaction(settings)
+      : settings[key];
+  if (fields === undefined || !isPlainObject(value)) return value;
+  const [only] = fields;
+  return fields.length === 1 && only !== undefined
+    ? value[only]
+    : Object.fromEntries(fields.map((field) => [field, value[field]]));
+}
+
+/** A workspace override counts for `fields` only where it changes them from the environment's value. */
+export function settingSource(
+  target: Pick<ScopedSettingsTarget, "settings" | "sources">,
+  environmentSettings: ServerSettings,
+  key: keyof ServerSettings,
+  fields?: readonly string[],
+): ProjectSettingSource {
+  if (!isProjectScopedSettingKey(key)) return "environment";
+  const source = target.sources[key];
+  return source === "project" &&
+    fields !== undefined &&
+    Equal.equals(
+      settingValue(target.settings, key, fields),
+      settingValue(environmentSettings, key, fields),
+    )
+    ? "environment"
+    : source;
+}
+
 export type ScopedSettingSource = ProjectSettingSource | "mixed";
 
 export function scopedSettingsSource(
@@ -338,15 +377,42 @@ export function planScopedSettingsPatch(
   return { clientPatch, hasClientWrite, serverWrites, unavailableReason };
 }
 
+/** With `fields`, resets only those fields of each key's object override to the environment's values. */
+function clearOverrides(
+  settings: ServerSettings,
+  projectId: ProjectId,
+  keys: readonly ProjectScopedServerSettingKey[],
+  fields: readonly string[] | undefined,
+): ProjectSettingsOverrides | null {
+  const current = settings.projectSettingsOverrides[projectId];
+  if (fields === undefined || current === undefined) {
+    return clearProjectSettingsOverrides(settings, projectId, keys);
+  }
+  const next: Record<string, unknown> = { ...current };
+  for (const key of keys) {
+    const override: unknown = current[key];
+    const environmentValue: unknown = settings[key];
+    if (!isPlainObject(override) || !isPlainObject(environmentValue)) continue;
+    const reset = {
+      ...override,
+      ...Object.fromEntries(fields.map((field) => [field, environmentValue[field]])),
+    };
+    if (Equal.equals(reset, environmentValue)) delete next[key];
+    else next[key] = reset;
+  }
+  return Object.keys(next).length === 0 ? null : (next as ProjectSettingsOverrides);
+}
+
 export function planScopedSettingsClear(
   scope: ResolvedSettingsScope,
   environments: readonly ScopedSettingsEnvironment[],
   keys: readonly ProjectScopedServerSettingKey[],
+  fields?: readonly string[],
 ) {
   const serverWrites =
     scope.kind === "project" || scope.kind === "checkout"
       ? projectOverrideWrites(scope, environments, (_current, settings, projectId) =>
-          clearProjectSettingsOverrides(settings, projectId, keys),
+          clearOverrides(settings, projectId, keys, fields),
         )
       : [];
   return {
@@ -368,17 +434,29 @@ export interface ProjectOverrideEntry {
 export function listProjectOverrides(
   environments: readonly ScopedSettingsEnvironment[],
   keys: readonly (keyof ServerSettings)[],
+  fields?: readonly string[],
 ): readonly ProjectOverrideEntry[] {
   const scoped = keys.filter(isProjectScopedSettingKey);
   if (scoped.length === 0) return [];
   return environments.flatMap((environment) => {
-    const overrides = environment.serverConfig?.settings.projectSettingsOverrides;
-    if (!overrides) return [];
-    return Object.entries(overrides).flatMap(([projectId, entry]) =>
-      scoped.some((key) => Object.hasOwn(entry, key))
-        ? [{ environmentId: environment.environmentId, projectId: projectId as ProjectId }]
-        : [],
-    );
+    const settings = environment.serverConfig?.settings;
+    if (!settings) return [];
+    return Object.entries(settings.projectSettingsOverrides).flatMap(([id, entry]) => {
+      const projectId = id as ProjectId;
+      const overridden =
+        fields === undefined
+          ? scoped.some((key) => Object.hasOwn(entry, key))
+          : scoped.some(
+              (key) =>
+                settingSource(
+                  resolveProjectSettings(settings, projectId),
+                  settings,
+                  key,
+                  fields,
+                ) === "project",
+            );
+      return overridden ? [{ environmentId: environment.environmentId, projectId }] : [];
+    });
   });
 }
 
@@ -386,6 +464,7 @@ export function planProjectOverridesClear(
   environments: readonly ScopedSettingsEnvironment[],
   entries: readonly ProjectOverrideEntry[],
   keys: readonly ProjectScopedServerSettingKey[],
+  fields?: readonly string[],
 ) {
   const byId = new Map(environments.map((environment) => [environment.environmentId, environment]));
   const writes = new Map<EnvironmentId, ScopedServerWrite>();
@@ -401,7 +480,7 @@ export function planProjectOverridesClear(
       patch: {
         projectSettingsOverrides: {
           ...existing?.patch.projectSettingsOverrides,
-          [projectId]: clearProjectSettingsOverrides(settings, projectId, keys),
+          [projectId]: clearOverrides(settings, projectId, keys, fields),
         },
       },
     });

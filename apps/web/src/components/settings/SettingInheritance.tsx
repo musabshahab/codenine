@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  IDLE_COMPACTION_MODES,
   PROJECT_FILE_BACKED_SETTINGS,
   type ProjectFileBackedSettingKey,
   resolveEnvironmentMachineKind,
@@ -19,7 +20,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import type { ProjectOverrideEntry, ScopedSettingsTarget } from "./scopedSettings";
-import { isProjectScopedSettingKey } from "./scopedSettings";
+import { isProjectScopedSettingKey, settingSource, settingValue } from "./scopedSettings";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 
 interface InheritanceLayer {
@@ -68,6 +69,9 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
     if (key === "worktreeSubmodules" && value in WORKTREE_SUBMODULES_LABELS) {
       return WORKTREE_SUBMODULES_LABELS[value as WorktreeSubmodules];
     }
+    if (key === "idleCompaction") {
+      return IDLE_COMPACTION_MODES.find((mode) => mode.value === value)?.label ?? value;
+    }
     return value === "" ? "Empty" : value;
   }
   if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? "item" : "items"}`;
@@ -86,22 +90,35 @@ function formatValue(key: keyof ServerSettings, value: unknown): string {
   return "Custom";
 }
 
-/** Matches resolveProjectSettings order. */
+export function environmentSettingIsSet(
+  environmentSettings: ServerSettings,
+  key: keyof ServerSettings,
+  fields?: readonly string[],
+): boolean {
+  return !Equal.equals(
+    settingValue(environmentSettings, key, fields),
+    settingValue(DEFAULT_SERVER_SETTINGS, key, fields),
+  );
+}
+
+/** Matches resolveProjectSettings order. `fields` narrows an object setting to the ones a row edits. */
 export function settingInheritanceLayers(
   target: ScopedSettingsTarget,
   environmentSettings: ServerSettings,
   key: keyof ServerSettings,
+  fields?: readonly string[],
 ): readonly InheritanceLayer[] {
-  const environmentValue = environmentSettings[key];
-  const source = isProjectScopedSettingKey(key) ? target.sources[key] : "environment";
-  const environmentSet = !Equal.equals(environmentValue, DEFAULT_SERVER_SETTINGS[key]);
+  const environmentValue = settingValue(environmentSettings, key, fields);
+  const targetValue = settingValue(target.settings, key, fields);
+  const source = settingSource(target, environmentSettings, key, fields);
+  const environmentSet = environmentSettingIsSet(environmentSettings, key, fields);
   const fileBacked = isProjectFileBackedSettingKey(key);
   const layers: InheritanceLayer[] = [];
   if (target.projectId !== null && isProjectScopedSettingKey(key)) {
     layers.push({
       key: "project",
       label: "Workspace",
-      value: source === "project" ? formatValue(key, target.settings[key]) : "Inherits",
+      value: source === "project" ? formatValue(key, targetValue) : "Inherits",
       effective: source === "project",
       set: source === "project",
     });
@@ -117,7 +134,7 @@ export function settingInheritanceLayers(
     layers.push({
       key: "codenine.json",
       label: "codenine.json",
-      value: source === "codenine.json" ? formatValue(key, target.settings[key]) : "Inherits",
+      value: source === "codenine.json" ? formatValue(key, targetValue) : "Inherits",
       effective: source === "codenine.json",
       set: source === "codenine.json",
     });
@@ -125,7 +142,7 @@ export function settingInheritanceLayers(
   // File-backed defaults come from the resolver, not the schema's decoded null.
   const builtIn = fileBacked
     ? PROJECT_FILE_BACKED_SETTINGS[key].builtIn
-    : DEFAULT_SERVER_SETTINGS[key];
+    : settingValue(DEFAULT_SERVER_SETTINGS, key, fields);
   layers.push({
     key: "built-in",
     label: "Default",
@@ -160,6 +177,7 @@ export function SettingInheritance({
   targets,
   environments,
   keys,
+  fields,
   overridingProjects = [],
   onClearOverrides,
 }: {
@@ -171,6 +189,7 @@ export function SettingInheritance({
     "environmentId" | "label" | "displayUrl" | "serverConfig"
   >[];
   keys: readonly (keyof ServerSettings)[];
+  fields?: readonly string[];
   overridingProjects?: readonly SettingOverridingProject[];
   onClearOverrides?: (entries: readonly ProjectOverrideEntry[]) => void;
 }) {
@@ -194,7 +213,7 @@ export function SettingInheritance({
     const secondary = [labels.secondary, path?.split(/[\\/]/).filter(Boolean).slice(-2).join("/")]
       .filter(Boolean)
       .join(" · ");
-    const layers = settingInheritanceLayers(target, environment.serverConfig.settings, key);
+    const layers = settingInheritanceLayers(target, environment.serverConfig.settings, key, fields);
     const winningLayer = layers.find((layer) => layer.effective);
     return [
       {
@@ -202,14 +221,14 @@ export function SettingInheritance({
         target,
         label: [labels.primary, secondary].filter(Boolean).join(" · "),
         machineLabel: [labels.primary, labels.secondary].filter(Boolean).join(" · "),
-        overrides: environment.serverConfig.settings.projectSettingsOverrides,
+        environmentSettings: environment.serverConfig.settings,
         machine: resolveEnvironmentMachineKind(environment.serverConfig),
         layers,
         winningLayer,
         resolution: {
           winner: winningLayer?.key,
           layers: layers.map(({ key, value }) => [key, value]),
-          settings: keys.map((settingKey) => target.settings[settingKey]),
+          settings: keys.map((settingKey) => settingValue(target.settings, settingKey, fields)),
         },
       },
     ];
@@ -422,15 +441,26 @@ export function SettingInheritance({
                             ) : null}
                           </span>
                           <span className="max-w-32 truncate text-muted-foreground tabular-nums">
-                            {isProjectScopedSettingKey(key)
-                              ? formatValue(
+                            {(() => {
+                              const environmentSettings = members.find(
+                                (member) => member.target.environmentId === project.environmentId,
+                              )?.environmentSettings;
+                              if (!environmentSettings || !isProjectScopedSettingKey(key)) {
+                                return null;
+                              }
+                              const stored =
+                                environmentSettings.projectSettingsOverrides[project.projectId]?.[
+                                  key
+                                ];
+                              return formatValue(
+                                key,
+                                settingValue(
+                                  { ...environmentSettings, [key]: stored },
                                   key,
-                                  members.find(
-                                    (member) =>
-                                      member.target.environmentId === project.environmentId,
-                                  )?.overrides[project.projectId]?.[key],
-                                )
-                              : null}
+                                  fields,
+                                ),
+                              );
+                            })()}
                           </span>
                         </li>
                       ))}

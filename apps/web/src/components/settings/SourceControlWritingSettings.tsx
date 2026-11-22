@@ -147,6 +147,7 @@ export function SourceControlWritingSettingsSection() {
       <SettingsRow
         serverScoped
         settingKeys={["sourceControlWritingStyle"]}
+        settingFields={["mode", "customInstructions"]}
         mixed={writingStyleMixed}
         {...searchableSetting("source-control-writing-style")}
         description={MODE_OPTIONS[style.mode].description}
@@ -270,6 +271,7 @@ export function SourceControlWritingSettingsSection() {
         <SettingsRow
           serverScoped
           settingKeys={["sourceControlWritingStyle"]}
+          settingFields={["followChangeRequestTemplates"]}
           mixed={templatesMixed}
           {...searchableSetting("follow-change-request-templates")}
           description="Use the repository's template for pull request descriptions when available."

@@ -108,9 +108,9 @@ export function useUpdateScopedSettings() {
 export function useClearScopedSettings() {
   const context = useOptionalSettingsScope();
   const run = useRunScopedPlan();
-  return (keys: readonly ProjectScopedServerSettingKey[]) => {
+  return (keys: readonly ProjectScopedServerSettingKey[], fields?: readonly string[]) => {
     if (context === null) return;
-    run(planScopedSettingsClear(context.scope, context.environments, keys));
+    run(planScopedSettingsClear(context.scope, context.environments, keys, fields));
   };
 }
 
@@ -120,9 +120,10 @@ export function useClearProjectOverrides() {
   return (
     entries: readonly ProjectOverrideEntry[],
     keys: readonly ProjectScopedServerSettingKey[],
+    fields?: readonly string[],
   ) => {
     if (context === null) return;
-    run(planProjectOverridesClear(context.environments, entries, keys));
+    run(planProjectOverridesClear(context.environments, entries, keys, fields));
   };
 }
 
