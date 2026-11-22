@@ -3,9 +3,11 @@ import {
   type ModelSelection,
   type WorktreeSubmodules,
 } from "@codenine/contracts";
+import { resolveServerBackgroundActivitySettings } from "@codenine/shared/backgroundActivitySettings";
 import { createModelSelection } from "@codenine/shared/model";
 import { resolveProjectSettings } from "@codenine/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
+import * as Duration from "effect/Duration";
 
 import { useClientSettings } from "../../hooks/useSettings";
 import {
@@ -410,6 +412,16 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               isProjectScope
                 ? "Keeps this workspace's default branch current when the checkout has no local changes or commits."
                 : "Keeps the default branch current when the checkout has no local changes or commits. Workspaces can override it."
+            }
+            status={
+              targets.some((candidate) =>
+                Duration.isZero(
+                  resolveServerBackgroundActivitySettings(candidate.settings)
+                    .automaticGitFetchInterval,
+                ),
+              )
+                ? "Paused while Git fetch is off (Maintenance › Background activity)."
+                : null
             }
             resetAction={
               settings.defaultAutoPull ? (

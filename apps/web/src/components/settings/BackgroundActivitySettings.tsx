@@ -61,8 +61,8 @@ function describeBackgroundActivityProfile(
       return "Allows scoped background probes while any subscribed client remains connected.";
     case "battery-saver":
       return reportsHostPower
-        ? "Like Balanced, but turns off git fetch, checks accounts every 15 minutes, and pauses probes on battery."
-        : "Like Balanced, but turns off git fetch and checks accounts every 15 minutes.";
+        ? "Like Balanced, but turns off git fetch and automatic pull, checks accounts every 15 minutes, and pauses probes on battery."
+        : "Like Balanced, but turns off git fetch and automatic pull, and checks accounts every 15 minutes.";
   }
 }
 
