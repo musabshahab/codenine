@@ -52,6 +52,7 @@ import {
 } from "./useScopedSettings";
 import { useScopedModelDisabledReason } from "./useScopedModelAvailability";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
+import { settingsScopeSavedTarget } from "./settingsScope";
 import { scopedIdleCompaction } from "./scopedSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ThreadTitleInstructionsSettings } from "./ThreadTitleInstructionsSettings";
@@ -985,10 +986,13 @@ const TOOL_CALL_VISIBILITY_LABELS: Record<ToolCallVisibility, string> = {
 
 const isToolCallVisibility = Schema.is(ToolCallVisibility);
 
+// The Chat page shows no scope sentence, so this server row names where it saves.
 function ResponseStreamingRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const mixedResponseStreamingMode = useScopedSettingsMixed(["responseStreamingMode"]);
+  const { scope } = useSettingsScope();
+  const { environments } = useEnvironments();
   return (
     <SettingsRow
       serverScoped
@@ -999,6 +1003,7 @@ function ResponseStreamingRow() {
           ? "Your environments use different streaming modes."
           : RESPONSE_STREAMING_MODE_DESCRIPTIONS[settings.responseStreamingMode]
       }
+      status={settingsScopeSavedTarget(scope, environments)}
       resetAction={
         settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode ? (
           <SettingResetButton
