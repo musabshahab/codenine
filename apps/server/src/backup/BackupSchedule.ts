@@ -67,17 +67,25 @@ export const writeBackupState = Effect.fn("BackupSchedule.writeState")(function*
 export const scheduleKey = (schedule: BackupSchedule) =>
   schedule.frequency === "off"
     ? "off"
-    : `${schedule.frequency} ${schedule.time}${schedule.frequency === "weekly" ? ` ${schedule.weekday}` : ""}`;
+    : [
+        schedule.frequency,
+        schedule.time,
+        ...(schedule.frequency === "weekly" ? [schedule.weekday] : []),
+        ...(schedule.timeZone === null ? [] : [schedule.timeZone]),
+      ].join(" ");
 
-/** The first scheduled time strictly after `afterMs`, on the wall clock of `timeZone`. */
-export const nextScheduledAt = (
-  schedule: BackupSchedule,
-  afterMs: number,
-  timeZone: DateTime.TimeZone,
-): number | null => {
+// A zone this computer does not know falls back to its own clock, as a schedule without one does.
+const scheduleZone = (schedule: BackupSchedule): DateTime.TimeZone =>
+  Option.fromNullOr(schedule.timeZone).pipe(
+    Option.flatMap(DateTime.zoneMakeNamed),
+    Option.getOrElse(DateTime.zoneMakeLocal),
+  );
+
+/** The first scheduled time strictly after `afterMs`, on the wall clock of the schedule's zone. */
+export const nextScheduledAt = (schedule: BackupSchedule, afterMs: number): number | null => {
   if (schedule.frequency === "off") return null;
   const [hour = 0, minute = 0] = schedule.time.split(":").map(Number);
-  const start = DateTime.makeZonedUnsafe(afterMs, { timeZone });
+  const start = DateTime.makeZonedUnsafe(afterMs, { timeZone: scheduleZone(schedule) });
   for (let days = 0; days <= 7; days++) {
     // Set the time on each day: a daylight saving change shifts wall-clock times otherwise.
     const candidate = DateTime.setParts(DateTime.add(start, { days }), {
@@ -104,7 +112,6 @@ export const nextScheduledAt = (
  */
 export const nextAutomaticRunAt = (input: {
   readonly schedule: BackupSchedule;
-  readonly timeZone: DateTime.TimeZone;
   readonly scheduleSince: number;
   readonly lastAutomaticAt: number | null;
   readonly lastAutomaticFailed: boolean;
@@ -114,7 +121,6 @@ export const nextAutomaticRunAt = (input: {
   const next = nextScheduledAt(
     input.schedule,
     ranSinceSchedule ? input.lastAutomaticAt! : input.scheduleSince,
-    input.timeZone,
   );
   if (next === null || !ranSinceSchedule || !input.lastAutomaticFailed) return next;
   return Math.min(next, input.lastAutomaticAt! + RETRY_AFTER_FAILURE_MS);
@@ -124,7 +130,6 @@ export const nextAutomaticRunAt = (input: {
 export const needsAttention = (input: {
   readonly configured: boolean;
   readonly schedule: BackupSchedule;
-  readonly timeZone: DateTime.TimeZone;
   readonly scheduleSince: number;
   readonly lastError: string | null;
   readonly lastSuccessAt: number | null;
@@ -135,7 +140,6 @@ export const needsAttention = (input: {
   const owedSince = nextScheduledAt(
     input.schedule,
     Math.max(input.scheduleSince, input.lastSuccessAt ?? Number.NEGATIVE_INFINITY),
-    input.timeZone,
   );
   return owedSince !== null && input.nowMs - owedSince > ATTENTION_AFTER_MS;
 };

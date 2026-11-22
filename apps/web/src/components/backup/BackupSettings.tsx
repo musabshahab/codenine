@@ -41,6 +41,7 @@ import {
 import { searchableSetting } from "../settings/settingsSearch";
 import { useAccessEnvironment } from "../settings/useAccessEnvironment";
 import {
+  browserTimeZone,
   folderLabel,
   keepLabel,
   keepOptions,
@@ -285,6 +286,7 @@ function ScheduleSection({
   readonly onChange: (settings: BackupSettings) => void;
 }) {
   const format = useBackupDateFormat();
+  const browserZone = browserTimeZone();
   const { schedule } = settings;
   const setSchedule = (patch: Partial<BackupSettings["schedule"]>) =>
     onChange({ ...settings, schedule: { ...schedule, ...patch } });
@@ -344,7 +346,7 @@ function ScheduleSection({
               value={schedule.time}
               disabled={disabled}
               onValueChange={(time) => {
-                if (typeof time === "string") setSchedule({ time });
+                if (typeof time === "string") setSchedule({ time, timeZone: browserZone });
               }}
             >
               <SelectTrigger size="sm" className="w-auto" aria-label="Time">
@@ -358,6 +360,9 @@ function ScheduleSection({
                 ))}
               </SelectPopup>
             </Select>
+            {schedule.timeZone !== null && schedule.timeZone !== browserZone ? (
+              <span>in {schedule.timeZone}</span>
+            ) : null}
           </div>
         )}
       </SettingsRow>

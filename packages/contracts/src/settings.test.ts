@@ -509,7 +509,7 @@ describe("ServerSettings backup", () => {
     });
     expect(settings.backup).toEqual({
       folder: "~/Codenine Backups",
-      schedule: { frequency: "daily", time: "04:30", weekday: 0 },
+      schedule: { frequency: "daily", time: "04:30", weekday: 0, timeZone: null },
       keep: 7,
       includeWorktrees: false,
     });

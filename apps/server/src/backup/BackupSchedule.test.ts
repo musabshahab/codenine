@@ -7,48 +7,60 @@ import {
   needsAttention,
   nextAutomaticRunAt,
   nextScheduledAt,
+  scheduleKey,
 } from "./BackupSchedule.ts";
 
-const utc = DateTime.zoneMakeNamedUnsafe("UTC");
 const at = (iso: string) => Date.parse(iso);
 const iso = (ms: number | null) =>
   ms === null ? null : DateTime.formatIso(DateTime.makeUnsafe(ms));
 
-const daily: BackupSchedule = { frequency: "daily", time: "03:00", weekday: 0 };
+const daily: BackupSchedule = { frequency: "daily", time: "03:00", weekday: 0, timeZone: "UTC" };
 // 2026-11-18 is a Wednesday; weekday 0 is Sunday.
-const weekly: BackupSchedule = { frequency: "weekly", time: "03:00", weekday: 0 };
+const weekly: BackupSchedule = { ...daily, frequency: "weekly" };
 
 it("finds the next scheduled time strictly after the given one", () => {
+  assert.equal(iso(nextScheduledAt(daily, at("2026-11-18T02:00:00Z"))), "2026-11-18T03:00:00.000Z");
+  assert.equal(iso(nextScheduledAt(daily, at("2026-11-18T03:00:00Z"))), "2026-11-19T03:00:00.000Z");
   assert.equal(
-    iso(nextScheduledAt(daily, at("2026-11-18T02:00:00Z"), utc)),
-    "2026-11-18T03:00:00.000Z",
-  );
-  assert.equal(
-    iso(nextScheduledAt(daily, at("2026-11-18T03:00:00Z"), utc)),
-    "2026-11-19T03:00:00.000Z",
-  );
-  assert.equal(
-    iso(nextScheduledAt(weekly, at("2026-11-18T12:00:00Z"), utc)),
+    iso(nextScheduledAt(weekly, at("2026-11-18T12:00:00Z"))),
     "2026-11-22T03:00:00.000Z",
   );
   assert.equal(
-    iso(nextScheduledAt(weekly, at("2026-11-22T02:59:00Z"), utc)),
+    iso(nextScheduledAt(weekly, at("2026-11-22T02:59:00Z"))),
     "2026-11-22T03:00:00.000Z",
   );
-  assert.equal(
-    nextScheduledAt({ ...daily, frequency: "off" }, at("2026-11-18T02:00:00Z"), utc),
-    null,
-  );
+  assert.equal(nextScheduledAt({ ...daily, frequency: "off" }, at("2026-11-18T02:00:00Z")), null);
   // Wall-clock time: 03:00 in New York is 08:00 UTC in winter and 07:00 UTC in summer.
-  const newYork = DateTime.zoneMakeNamedUnsafe("America/New_York");
+  const newYork: BackupSchedule = { ...daily, timeZone: "America/New_York" };
   assert.equal(
-    iso(nextScheduledAt(daily, at("2026-03-07T12:00:00Z"), newYork)),
+    iso(nextScheduledAt(newYork, at("2026-03-07T12:00:00Z"))),
     "2026-03-08T07:00:00.000Z",
   );
   assert.equal(
-    iso(nextScheduledAt(daily, at("2026-03-06T12:00:00Z"), newYork)),
+    iso(nextScheduledAt(newYork, at("2026-03-06T12:00:00Z"))),
     "2026-03-07T08:00:00.000Z",
   );
+});
+
+it("reads the time in the schedule's zone, else on this computer's clock", () => {
+  const after = at("2026-11-18T02:00:00Z");
+  // 03:00 picked in a London browser is 03:00 in London, whatever the server's clock.
+  const london: BackupSchedule = { ...daily, timeZone: "Europe/London" };
+  assert.equal(iso(nextScheduledAt(london, after)), "2026-11-18T03:00:00.000Z");
+  assert.equal(
+    iso(nextScheduledAt({ ...daily, timeZone: "America/Los_Angeles" }, after)),
+    "2026-11-18T11:00:00.000Z",
+  );
+  const local = nextScheduledAt(
+    { ...daily, timeZone: DateTime.zoneToString(DateTime.zoneMakeLocal()) },
+    after,
+  );
+  assert.equal(nextScheduledAt({ ...daily, timeZone: null }, after), local);
+  assert.equal(nextScheduledAt({ ...daily, timeZone: "Nowhere/Else" }, after), local);
+  // A new zone is a new schedule, so it starts at its next time instead of owing a run.
+  assert.notEqual(scheduleKey(london), scheduleKey(daily));
+  // Schedules saved before zones existed keep their key.
+  assert.equal(scheduleKey({ ...daily, timeZone: null }), "daily 03:00");
 });
 
 it("owes one backup for times missed while the computer was off, then waits for the next", () => {
@@ -56,7 +68,6 @@ it("owes one backup for times missed while the computer was off, then waits for 
   // Last ran three days ago: the first time after that is long past, so one run is due now.
   const missed = nextAutomaticRunAt({
     schedule: daily,
-    timeZone: utc,
     scheduleSince,
     lastAutomaticAt: at("2026-11-15T03:00:00Z"),
     lastAutomaticFailed: false,
@@ -67,7 +78,6 @@ it("owes one backup for times missed while the computer was off, then waits for 
     iso(
       nextAutomaticRunAt({
         schedule: daily,
-        timeZone: utc,
         scheduleSince,
         lastAutomaticAt: at("2026-11-18T10:00:00Z"),
         lastAutomaticFailed: false,
@@ -80,7 +90,6 @@ it("owes one backup for times missed while the computer was off, then waits for 
     iso(
       nextAutomaticRunAt({
         schedule: weekly,
-        timeZone: utc,
         scheduleSince,
         lastAutomaticAt: at("2026-11-18T10:00:00Z"),
         lastAutomaticFailed: true,
@@ -93,7 +102,6 @@ it("owes one backup for times missed while the computer was off, then waits for 
     iso(
       nextAutomaticRunAt({
         schedule: daily,
-        timeZone: utc,
         scheduleSince: at("2026-11-18T10:00:00Z"),
         lastAutomaticAt: at("2026-11-10T03:00:00Z"),
         lastAutomaticFailed: true,
@@ -107,7 +115,6 @@ it("needs attention after a failure, or when a scheduled backup has been owed fo
   const base = {
     configured: true,
     schedule: weekly,
-    timeZone: utc,
     scheduleSince: at("2026-11-01T00:00:00Z"),
     lastError: null,
     lastSuccessAt: at("2026-11-08T03:00:00Z"),

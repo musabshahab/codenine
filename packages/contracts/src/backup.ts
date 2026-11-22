@@ -1,23 +1,33 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  NonNegativeInt,
+  ProjectId,
+  TrimmedNonEmptyString,
+  TrimmedString,
+} from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
-/** How often automatic backups run, on the server machine's local clock. */
+/** How often automatic backups run. */
 export const BackupFrequency = Schema.Literals(["off", "daily", "weekly"]);
 export type BackupFrequency = typeof BackupFrequency.Type;
 
 // Saving settings drops values equal to their defaults, so every field needs its own default.
 export const BackupSchedule = Schema.Struct({
   frequency: BackupFrequency.pipe(Schema.withDecodingDefault(Effect.succeed("daily" as const))),
-  /** Local time of day, 24-hour "HH:MM". */
+  /** Time of day in `timeZone`, 24-hour "HH:MM". */
   time: Schema.String.check(Schema.isPattern(/^([01]\d|2[0-3]):[0-5]\d$/)).pipe(
     Schema.withDecodingDefault(Effect.succeed("03:00")),
   ),
   /** 0 is Sunday; read only when weekly. */
   weekday: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 6 })).pipe(
     Schema.withDecodingDefault(Effect.succeed(0)),
+  ),
+  /** An IANA time zone, set from the browser that picked the time; null is the server's own. */
+  timeZone: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
   ),
 });
 export type BackupSchedule = typeof BackupSchedule.Type;
@@ -26,6 +36,7 @@ const DEFAULT_BACKUP_SCHEDULE: BackupSchedule = {
   frequency: "daily",
   time: "03:00",
   weekday: 0,
+  timeZone: null,
 };
 const DEFAULT_BACKUP_KEEP = 7;
 

@@ -614,7 +614,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "backup-schedule",
     title: "Automatic backups",
     to: "/settings/backup",
-    searchTerms: ["backup schedule how often daily weekly off time day keep last older"],
+    searchTerms: ["backup schedule how often daily weekly off time zone day keep last older"],
   },
   {
     id: "backup-folder",

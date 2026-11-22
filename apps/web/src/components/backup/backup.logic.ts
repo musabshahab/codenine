@@ -217,18 +217,28 @@ export function cadenceLabel(cadence: BackupCadence, format: BackupDateFormat): 
   }
 }
 
+/** The zone a time the user picks is in; the server may run in another. */
+export function browserTimeZone(): string {
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 /** The whole `backup` setting the setup dialog saves. */
 export function settingsForSetup(
   current: BackupSettings,
-  choice: { readonly folder: string; readonly cadence: BackupCadence },
+  choice: {
+    readonly folder: string;
+    readonly cadence: BackupCadence;
+    readonly timeZone: string;
+  },
 ): BackupSettings {
+  const { timeZone } = choice;
   return {
     ...current,
     folder: choice.folder.trim(),
     schedule:
       choice.cadence === "manual"
-        ? { ...current.schedule, frequency: "off" }
-        : { frequency: choice.cadence, time: DEFAULT_TIME, weekday: 0 },
+        ? { ...current.schedule, frequency: "off", timeZone }
+        : { frequency: choice.cadence, time: DEFAULT_TIME, weekday: 0, timeZone },
   };
 }
 

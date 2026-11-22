@@ -167,7 +167,6 @@ const make = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     const folderPath = expandFolder(current.folder);
     const configured = folderPath !== null && hasPassword;
-    const timeZone = DateTime.zoneMakeLocal();
     const scheduleSince = state.scheduleSince ?? now;
     return {
       configured,
@@ -182,7 +181,6 @@ const make = Effect.gen(function* () {
         ? isoOrNull(
             nextAutomaticRunAt({
               schedule: current.schedule,
-              timeZone,
               scheduleSince,
               lastAutomaticAt: state.lastAutomaticAt,
               lastAutomaticFailed: state.lastAutomaticFailed,
@@ -193,7 +191,6 @@ const make = Effect.gen(function* () {
       needsAttention: needsAttention({
         configured,
         schedule: current.schedule,
-        timeZone,
         scheduleSince,
         lastError: state.lastError,
         lastSuccessAt: state.lastSuccessAt,
