@@ -203,7 +203,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       description={
         isProjectScope
           ? "Where new chats in this workspace start."
-          : "Where new chats start. Workspaces and their codenine.json can override it."
+          : "Where new chats start. A workspace can override this. Until you change it here, a repository's codenine.json decides."
       }
       resetAction={
         !isProjectScope && settings.defaultThreadEnvMode !== null ? (
@@ -455,7 +455,7 @@ export function WorktreeSubmodulesRow() {
       description={
         isProjectScope
           ? "How new worktrees in this workspace populate git submodules."
-          : "How new worktrees populate git submodules. Workspaces and their codenine.json can override it."
+          : "How new worktrees populate git submodules. A workspace can override this. Until you change it here, a repository's codenine.json decides."
       }
       resetAction={
         !isProjectScope && settings.worktreeSubmodules !== null ? (

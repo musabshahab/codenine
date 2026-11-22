@@ -91,14 +91,15 @@ on each selected environment, and reset returns to the environment's shared list
 
 Settings a repository can also declare in `codenine.json`, such as the workspace for new chats,
 resolve in one order: a workspace override, then the environment setting, then `codenine.json`, then the
-built-in default. Leave a setting on **Inherit** to let the next tier decide.
+built-in default. An environment setting you have not changed, or have reset, lets `codenine.json`
+decide; once you pick a value for the environment, the repository's file no longer applies there.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → Worktrees** under Advanced (with the workspace
 selected to override it there) to **Top level only** to stop at the ones the repository declares
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
 workspace default: a `"worktreeSubmodules"` value in the `codenine.json` of the branch being checked out
-applies when the workspace and environment are both on **Inherit**.
+applies while neither the workspace nor the environment has a value of its own.
 
 ## Worktree location
 
