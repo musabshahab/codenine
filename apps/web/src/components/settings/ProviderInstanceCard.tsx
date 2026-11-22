@@ -279,7 +279,6 @@ function ProviderEnvironmentFieldRow(props: {
     field: ProviderEnvironmentField,
     secret: SecretReference | undefined,
   ) => void;
-  readonly onRemove: (field: ProviderEnvironmentField) => void;
   readonly secretSources: ReadonlyArray<SecretSource>;
 }) {
   const inputId = `${props.idPrefix}-environment-${props.field.name}`;
@@ -317,17 +316,6 @@ function ProviderEnvironmentFieldRow(props: {
               onSecretChange={(secret) => props.onSecretChange(props.field, secret)}
             />
           )}
-          {props.variable ? (
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="ghost-destructive"
-              onClick={() => props.onRemove(props.field)}
-              aria-label={`Clear ${props.field.label}`}
-            >
-              <XIcon className="size-3.5" />
-            </Button>
-          ) : null}
         </div>
       }
     />
@@ -868,9 +856,6 @@ export function ProviderInstanceCard({
   ) => {
     updateEnvironment(nextProviderEnvironmentWithFieldSecret(instance.environment, field, secret));
   };
-  const removeEnvironmentField = (field: ProviderEnvironmentField) => {
-    updateEnvironment(providerEnvironmentWithoutNames(instance.environment, new Set([field.name])));
-  };
 
   const titleIconNode = (
     <ProviderInstanceIcon
@@ -1238,7 +1223,6 @@ export function ProviderInstanceCard({
                   idPrefix={`provider-instance-${instanceId}`}
                   onCommit={updateEnvironmentField}
                   onSecretChange={updateEnvironmentFieldSecret}
-                  onRemove={removeEnvironmentField}
                   secretSources={secretSources}
                 />
               ))}
