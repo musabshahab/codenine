@@ -402,6 +402,13 @@ describe("provider enabled defaults", () => {
       resolveProviderInstanceEnabled({ driver: codex, enabled: false, config: { enabled: true } }),
     ).toBe(false);
   });
+
+  it("keeps provider update checks off until turned on", () => {
+    expect(decodeServerSettings({}).enableProviderUpdateChecks).toBe(false);
+    expect(
+      decodeServerSettings({ enableProviderUpdateChecks: true }).enableProviderUpdateChecks,
+    ).toBe(true);
+  });
 });
 
 describe("ServerSettings worktree defaults", () => {

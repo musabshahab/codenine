@@ -58,6 +58,9 @@ directory and pair with the running server.
 
 ## Update providers
 
+Codenine does not look up newer provider versions until you turn on
+**Settings → Maintenance → Provider update checks** for that environment.
+
 **Settings → Accounts** shows provider updates for the selected environment.
 **Update all** updates every outdated provider on every connected environment
 at once. Hover it to see which providers it will update. A provider is left out
