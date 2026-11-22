@@ -59,7 +59,9 @@ export function ArchivePage(props: { readonly show: "completed" | "archived" }) 
       snapshot.threads.map((thread) => presentThreadShell(environmentId, thread)),
     )
     .toSorted(
-      (left, right) => Date.parse(right.archivedAt ?? "") - Date.parse(left.archivedAt ?? ""),
+      (left, right) =>
+        (right.archivedAt ?? right.createdAt).localeCompare(left.archivedAt ?? left.createdAt) ||
+        right.id.localeCompare(left.id),
     );
   const { unsettleThread, unarchiveThread, confirmAndDeleteThread } = useThreadActions();
   const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(() => new Set());

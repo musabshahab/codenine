@@ -110,3 +110,33 @@ it("names each chat's environment when several are connected", async () => {
   await expect.element(page.getByText("Repo · Laptop", { exact: true })).toBeInTheDocument();
   await expect.element(page.getByText("Repo · Build box", { exact: true })).toBeInTheDocument();
 });
+
+it("orders a chat without an archive time by its creation time, then by id", async () => {
+  state.environmentIds = [local];
+  state.snapshots = [
+    {
+      environmentId: local,
+      snapshot: {
+        threads: [
+          { id: "a", title: "January", archivedAt: "2026-01-01T00:00:00.000Z" },
+          { id: "b", title: "March", archivedAt: null, createdAt: "2026-03-01T00:00:00.000Z" },
+          { id: "c", title: "February c", archivedAt: "2026-02-01T00:00:00.000Z" },
+          { id: "d", title: "February d", archivedAt: "2026-02-01T00:00:00.000Z" },
+        ].map((thread) => ({
+          createdAt: "2025-12-01T00:00:00.000Z",
+          projectId: "project",
+          ...thread,
+        })),
+      },
+    },
+  ];
+  await using _screen = await render(<ArchivePage show="archived" />);
+  const unarchive = page.getByRole("button", { name: /^Unarchive: / });
+  await expect.element(unarchive.nth(3)).toBeInTheDocument();
+  expect(unarchive.elements().map((button) => button.getAttribute("aria-label"))).toEqual([
+    "Unarchive: March",
+    "Unarchive: February d",
+    "Unarchive: February c",
+    "Unarchive: January",
+  ]);
+});
