@@ -27,7 +27,7 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   confirmThreadUnpin: false,
   diffFilesCollapsed: true,
-  diffIgnoreWhitespace: true,
+  diffHideWhitespace: true,
   diffLayout: "stacked",
   environmentIdentificationMode: "artwork",
   favorites: [],

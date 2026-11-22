@@ -84,7 +84,7 @@ const DEVICE_RESTORE_ROWS: ReadonlyArray<{
   { id: "terminal-font", keys: ["fontFamilyTerminal", "fontSizeTerminal"] },
   { id: "font-smoothing", keys: ["fontSmoothing"] },
   { id: "default-diff-file-state", keys: ["diffFilesCollapsed"] },
-  { id: "hide-whitespace-changes", keys: ["diffIgnoreWhitespace"] },
+  { id: "hide-whitespace-changes", keys: ["diffHideWhitespace"] },
   { id: "diff-layout", keys: ["diffLayout"] },
   { id: "proactive-panels", keys: ["proactivePanelsEnabled"] },
   { id: "skills-in-slash-menu", keys: ["showSkillsInSlashMenu"] },

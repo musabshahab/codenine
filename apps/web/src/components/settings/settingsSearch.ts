@@ -553,7 +553,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "hide-whitespace-changes",
     title: "Hide whitespace changes",
     to: "/settings/diffs",
-    searchTerms: ["diff ignore spaces edits default"],
+    searchTerms: ["diff ignore spaces indentation edits default"],
   },
   {
     id: "default-diff-file-state",

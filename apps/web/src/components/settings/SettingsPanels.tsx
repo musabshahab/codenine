@@ -1122,12 +1122,12 @@ export function DiffsSettingsPanel() {
           {...searchableSetting("hide-whitespace-changes")}
           description="Hide lines whose only change is spacing or indentation. The ¶ button in the Changes panel overrides this until you switch away from it."
           resetAction={
-            settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace ? (
+            settings.diffHideWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffHideWhitespace ? (
               <SettingResetButton
                 label="diff whitespace changes"
                 onClick={() =>
                   updateSettings({
-                    diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
+                    diffHideWhitespace: DEFAULT_UNIFIED_SETTINGS.diffHideWhitespace,
                   })
                 }
               />
@@ -1136,9 +1136,9 @@ export function DiffsSettingsPanel() {
           controlPlacement="inline"
           control={
             <Switch
-              checked={settings.diffIgnoreWhitespace}
+              checked={settings.diffHideWhitespace}
               onCheckedChange={(checked) =>
-                updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
+                updateSettings({ diffHideWhitespace: Boolean(checked) })
               }
               aria-label="Hide whitespace changes by default"
             />

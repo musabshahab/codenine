@@ -223,7 +223,7 @@ export default function DiffPanel({
   const resolvedTheme = useRenderedAppearance();
   const settings = useClientSettings((settings) => ({
     diffFilesCollapsed: settings.diffFilesCollapsed,
-    diffIgnoreWhitespace: settings.diffIgnoreWhitespace,
+    diffHideWhitespace: settings.diffHideWhitespace,
     diffLayout: settings.diffLayout,
     timestampFormat: settings.timestampFormat,
     wordWrap: settings.wordWrap,
@@ -232,7 +232,7 @@ export default function DiffPanel({
   const [wordWrapOverride, setWordWrapOverride] = useState<boolean | null>(null);
   const wordWrap = wordWrapOverride ?? settings.wordWrap;
   const [whitespaceOverride, setWhitespaceOverride] = useState<boolean | null>(null);
-  const diffIgnoreWhitespace = whitespaceOverride ?? settings.diffIgnoreWhitespace;
+  const hideWhitespace = whitespaceOverride ?? settings.diffHideWhitespace;
   const [fileTreeOpen, setFileTreeOpen] = useLocalStorage(
     DIFF_FILE_TREE_STORAGE_KEY,
     false,
@@ -362,7 +362,7 @@ export default function DiffPanel({
       threadId: activeThreadId,
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
-      ignoreWhitespace: diffIgnoreWhitespace,
+      ignoreWhitespace: hideWhitespace,
       cacheScope: selectedTurn ? `turn:${selectedTurn.runId}` : null,
     },
     { enabled: isGitRepo && selectedTurn !== undefined },
@@ -373,7 +373,7 @@ export default function DiffPanel({
           cwd: activeCwd,
           ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
           ...(selectedCommitSha !== null ? { commitSha: selectedCommitSha } : {}),
-          ignoreWhitespace: diffIgnoreWhitespace,
+          ignoreWhitespace: hideWhitespace,
           metadataOnly: true,
           ...(selectedCommitSha === null
             ? {
@@ -511,7 +511,7 @@ export default function DiffPanel({
     `diff-panel:${resolvedTheme}`,
     {
       compactPartialHunkOffsets: isGitSelection,
-      ...(toolCallSelection ? { ignoreWhitespace: diffIgnoreWhitespace } : {}),
+      ...(toolCallSelection ? { ignoreWhitespace: hideWhitespace } : {}),
     },
   );
   const recordedToolCallFileCount =
@@ -608,7 +608,7 @@ export default function DiffPanel({
     source: lazySource,
     baseRef:
       selectedCommitSha !== null ? selectedBaseRef : (lazySource?.baseRef ?? selectedBaseRef),
-    ignoreWhitespace: diffIgnoreWhitespace,
+    ignoreWhitespace: hideWhitespace,
     theme: resolvedTheme,
     previewInput: branchDiffPreviewInput,
     preview: renderablePatch,
@@ -1213,12 +1213,10 @@ export default function DiffPanel({
           <TooltipTrigger
             render={
               <Toggle
-                aria-label={
-                  diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"
-                }
+                aria-label={hideWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
                 variant="ghost"
                 size="sm"
-                pressed={diffIgnoreWhitespace}
+                pressed={hideWhitespace}
                 onPressedChange={(pressed) => {
                   setWhitespaceOverride(Boolean(pressed));
                 }}
@@ -1228,7 +1226,7 @@ export default function DiffPanel({
             <PilcrowIcon className="size-3.5" />
           </TooltipTrigger>
           <TooltipPopup side="top">
-            {diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
+            {hideWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
           </TooltipPopup>
         </Tooltip>
         {testFileCount > 0 && (

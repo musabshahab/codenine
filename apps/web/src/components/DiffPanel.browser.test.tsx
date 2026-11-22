@@ -271,7 +271,7 @@ it.each([false, true])(
 
 it("follows whitespace and wrap settings changed while the panel is open", async () => {
   using context = setup("origin/orphan");
-  state.settings = { diffIgnoreWhitespace: false, wordWrap: false };
+  state.settings = { diffHideWhitespace: false, wordWrap: false };
   const panel = () => (
     <RegistryContext.Provider value={context.registry}>
       <DiffPanel composerDraftTarget={context.threadRef} workspaceMutationId={null} visible />
@@ -283,13 +283,13 @@ it("follows whitespace and wrap settings changed while the panel is open", async
   await expect.element(whitespace).toHaveAttribute("aria-pressed", "false");
   await expect.element(wrap).toHaveAttribute("aria-pressed", "false");
 
-  state.settings = { diffIgnoreWhitespace: true, wordWrap: true };
+  state.settings = { diffHideWhitespace: true, wordWrap: true };
   await screen.rerender(panel());
   await expect.element(whitespace).toHaveAttribute("aria-pressed", "true");
   await expect.element(wrap).toHaveAttribute("aria-pressed", "true");
 
   await userEvent.click(whitespace);
-  state.settings = { diffIgnoreWhitespace: true, wordWrap: false };
+  state.settings = { diffHideWhitespace: true, wordWrap: false };
   await screen.rerender(panel());
   await expect.element(whitespace).toHaveAttribute("aria-pressed", "false");
   await expect.element(wrap).toHaveAttribute("aria-pressed", "false");

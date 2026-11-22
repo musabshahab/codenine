@@ -329,6 +329,15 @@ describe("ClientSettings sidebar grouping", () => {
   });
 });
 
+describe("ClientSettings diff whitespace", () => {
+  it("shows whitespace changes on installs that stored the old hide-by-default value", () => {
+    const settings = decodeClientSettings({ diffIgnoreWhitespace: true });
+
+    expect(settings.diffHideWhitespace).toBe(false);
+    expect(encodeClientSettings(settings)).not.toHaveProperty("diffIgnoreWhitespace");
+  });
+});
+
 describe("ClientSettings quit confirmation", () => {
   it.each([
     [true, "hold"],
