@@ -25,6 +25,7 @@ import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   type KeybindingCommand,
+  type KeybindingShortcut,
   type KeybindingWhenNode,
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
@@ -37,7 +38,7 @@ import {
 
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
-import { formatShortcutLabel } from "../../keybindings";
+import { formatShortcutLabel, formatShortcutParts } from "../../keybindings";
 import { cn } from "../../lib/utils";
 import { useEnvironment } from "../../state/environments";
 import { serverEnvironment, shortcutEnvironmentIdAtom } from "../../state/server";
@@ -78,36 +79,11 @@ import { keybindingSearchAnchorId, searchableSetting } from "./settingsSearch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useAtomCommand } from "../../state/use-atom-command";
 
-function KeybindingPill({ value }: { value: string }) {
-  // Keys dedupe repeated parts; a literal "+" in a shortcut splits into empty strings.
-  const seenParts = new Map<string, number>();
-  const parts = value.split("+").map((part) => {
-    const seen = seenParts.get(part) ?? 0;
-    seenParts.set(part, seen + 1);
-    return { part, key: seen === 0 ? part : `${part}-${seen}` };
-  });
+function KeybindingPill({ shortcut }: { shortcut: KeybindingShortcut }) {
   return (
     <KbdGroup>
-      {parts.map(({ part, key }) => (
-        <Kbd key={key}>
-          {part === "mod"
-            ? navigator.platform.toLowerCase().includes("mac")
-              ? "⌘"
-              : "Ctrl"
-            : part === "shift"
-              ? "⇧"
-              : part === "alt"
-                ? navigator.platform.toLowerCase().includes("mac")
-                  ? "⌥"
-                  : "Alt"
-                : part === "ctrl"
-                  ? navigator.platform.toLowerCase().includes("mac")
-                    ? "⌃"
-                    : "Ctrl"
-                  : part.length === 1
-                    ? part.toUpperCase()
-                    : part}
-        </Kbd>
+      {formatShortcutParts(shortcut).map((part) => (
+        <Kbd key={part}>{part}</Kbd>
       ))}
     </KbdGroup>
   );
@@ -850,7 +826,7 @@ function KeybindingKeyControl({
             pillClassName,
           )}
         >
-          {row.binding ? <KeybindingPill value={row.key} /> : "Set shortcut"}
+          {row.binding ? <KeybindingPill shortcut={row.binding.shortcut} /> : "Set shortcut"}
         </button>
       ) : (
         <Input
