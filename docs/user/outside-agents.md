@@ -13,8 +13,10 @@ app (MCP)**, or use the button in **Settings → Sharing & access**. Pick the
 app, choose what it may do, and follow the step for that app. Assistants that
 run in the cloud need a public address to reach the environment, so the wizard first
 asks you to sign in to Codenine Connect and turn it on for the environment. That
-needs a [relay you deployed](../operations/connect-setup.md); without one, give the
-environment a public `https` address another way.
+needs a [relay you deployed](../operations/connect-setup.md). Without one, the dialog
+shows the environment's MCP URL and the [Claude Code](#claude-code) and
+[Codex](#codex) commands for agents on your own computers; for a hosted assistant,
+give the environment a public `https` address another way.
 
 When the app opens the sign-in page, choose **Get code** in the wizard and paste
 the code there. A code works once, for 5 minutes, and approves only the level

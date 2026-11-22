@@ -1,3 +1,5 @@
+import { isLocalLoopbackHost } from "@codenine/shared/hostClassification";
+
 import chatgptLogo from "./logos/chatgpt.png";
 import claudeLogo from "./logos/claude.png";
 import geminiLogo from "./logos/gemini.png";
@@ -170,6 +172,30 @@ export const MCP_APPS: readonly McpApp[] = [
     docs: "https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp",
   },
 ];
+
+/** Agents on the user's own computers, which reach the environment without Codenine Connect. */
+export const LOCAL_MCP_AGENTS = [
+  {
+    name: "Claude Code",
+    commands: (url: string) => [
+      `claude mcp add --transport http codenine ${url}`,
+      "claude mcp login codenine",
+    ],
+  },
+  {
+    name: "Codex",
+    commands: (url: string) => [`codex mcp add codenine --url ${url}`, "codex mcp login codenine"],
+  },
+] as const;
+
+/**
+ * Agents send sign-in credentials only over https or to loopback (Claude Code refuses a plain-http
+ * token endpoint), so a plain-http LAN or tailnet URL finds the environment but cannot sign in.
+ */
+export function agentsCanSignInAt(mcpUrl: string): boolean {
+  const url = URL.parse(mcpUrl);
+  return url !== null && (url.protocol === "https:" || isLocalLoopbackHost(url.hostname));
+}
 
 /** The "Something else…" choice: the URL and general steps only. */
 export const OTHER_MCP_APP_STEPS = ["Add a remote MCP server with OAuth."] as const;
