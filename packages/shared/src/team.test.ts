@@ -15,16 +15,18 @@ import {
   settledTeamPlanStatus,
   startableTeamTasks,
   teamPlanSummary,
+  teamResultCap,
   validateTeamDraft,
   workflowStepsIssue,
 } from "./team.ts";
 
-const agent = (id: string, instanceId = "codex"): TeamAgent => ({
+const agent = (id: string, instanceId = "codex", instructions?: string): TeamAgent => ({
   id: TeamAgentId.make(id),
   label: id,
   role: "implement",
   modelSelection: { instanceId: ProviderInstanceId.make(instanceId), model: "model" },
   workspace: "shared",
+  ...(instructions === undefined ? {} : { instructions }),
 });
 
 const task = (
@@ -34,6 +36,8 @@ const task = (
     readonly dependsOn?: ReadonlyArray<string>;
     readonly status?: TeamTaskStatus;
     readonly brief?: string;
+    readonly doneWhen?: string;
+    readonly instanceId?: string;
   } = {},
 ): TeamTask => ({
   id: TeamTaskId.make(id),
@@ -47,6 +51,15 @@ const task = (
   result: null,
   startedAt: null,
   completedAt: null,
+  ...(options.doneWhen === undefined ? {} : { doneWhen: options.doneWhen }),
+  ...(options.instanceId === undefined
+    ? {}
+    : {
+        modelSelection: {
+          instanceId: ProviderInstanceId.make(options.instanceId),
+          model: "other-model",
+        },
+      }),
 });
 
 const step = (id: string, dependsOn: ReadonlyArray<string> = []) => ({ id, dependsOn });
@@ -60,20 +73,25 @@ const plan = (
 const startable = (...args: Parameters<typeof plan>) =>
   startableTeamTasks(plan(...args)).map((candidate) => candidate.id);
 
+// Ten full briefs: 60,000 characters of the 64,000 a plan's text may have.
+const fullBriefs = Array.from({ length: 10 }, (_, index) =>
+  task(`t${index}`, { brief: "x".repeat(6_000) }),
+);
+
 describe("validateTeamDraft", () => {
   it.each([
     ["a valid chain", [agent("a")], [task("one"), task("two", { dependsOn: ["one"] })], null],
     ["no tasks", [agent("a")], [], "empty"],
     [
       "more agents than the limit",
-      Array.from({ length: 9 }, (_, index) => agent(`a${index}`)),
+      Array.from({ length: 13 }, (_, index) => agent(`a${index}`)),
       [task("one", { agent: "a0" })],
       "too_large",
     ],
     [
       "more tasks than the limit",
       [agent("a")],
-      Array.from({ length: 17 }, (_, index) => task(`t${index}`)),
+      Array.from({ length: 33 }, (_, index) => task(`t${index}`)),
       "too_large",
     ],
     ["a repeated agent id", [agent("a"), agent("a")], [task("one")], "duplicate_id"],
@@ -83,6 +101,36 @@ describe("validateTeamDraft", () => {
       [agent("a")],
       [task("one", { brief: "x".repeat(6_001) })],
       "text_too_long",
+    ],
+    [
+      "a done-when line over the limit",
+      [agent("a")],
+      [task("one", { doneWhen: "x".repeat(1_001) })],
+      "text_too_long",
+    ],
+    [
+      "member instructions over the limit",
+      [agent("a", "codex", "x".repeat(2_001))],
+      [task("one")],
+      "text_too_long",
+    ],
+    ["the plan's text at its limit", [agent("a")], fullBriefs, null, "x".repeat(4_000)],
+    [
+      "the plan's text over its limit by the goal",
+      [agent("a")],
+      fullBriefs,
+      "too_large",
+      "x".repeat(4_001),
+    ],
+    [
+      "the plan's text over its limit by instructions and done-when lines",
+      [agent("a", "codex", "x".repeat(2_000))],
+      [
+        ...fullBriefs.slice(0, 9),
+        task("t9", { brief: "x".repeat(3_000), doneWhen: "x".repeat(1_000) }),
+      ],
+      "too_large",
+      "x".repeat(4_001),
     ],
     [
       "a task for an agent not on the team",
@@ -112,8 +160,17 @@ describe("validateTeamDraft", () => {
       ],
       "dependency_cycle",
     ],
-  ] as const)("reports %s", (_name, agents, tasks, reason) => {
-    expect(validateTeamDraft({ agents, tasks })?.reason ?? null).toBe(reason);
+  ] as const)("reports %s", (_name, agents, tasks, reason, goal?: string) => {
+    expect(validateTeamDraft({ goal, agents, tasks })?.reason ?? null).toBe(reason);
+  });
+
+  it("says how long the plan's text is", () => {
+    expect(
+      validateTeamDraft({ goal: "x".repeat(4_001), agents: [agent("a")], tasks: fullBriefs })
+        ?.message,
+    ).toBe(
+      "The team's text is 64,001 characters; the most is 64,000. Shorten the briefs or combine tasks.",
+    );
   });
 
   it("names the tasks of a cycle in dependency order", () => {
@@ -147,6 +204,28 @@ describe("startableTeamTasks", () => {
     ];
     expect(startable(tasks, agents)).toEqual(["second", "other-provider"]);
     expect(startable(tasks, agents, 1)).toEqual(["other-provider"]);
+  });
+
+  it("counts a task a retry moved to another model on that model's provider instance", () => {
+    const agents = [agent("a")];
+    const tasks = [
+      task("running", { status: "running", instanceId: "claude" }),
+      task("moved", { instanceId: "claude" }),
+      task("own-model"),
+    ];
+    expect(startable(tasks, agents, 1)).toEqual(["own-model"]);
+  });
+});
+
+describe("teamResultCap", () => {
+  it.each([
+    [0, 4_000],
+    [1, 4_000],
+    [16, 4_000],
+    [20, 3_200],
+    [32, 2_000],
+  ])("gives each of %i tasks %i characters", (taskCount, cap) => {
+    expect(teamResultCap(taskCount)).toBe(cap);
   });
 });
 
