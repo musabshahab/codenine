@@ -1455,11 +1455,6 @@ export function ThreadsSettingsPanel() {
           serverScoped
           settingKeys={["continueThreadsAfterServerUpdate"]}
           description="Resume chats that were working when Codenine stopped for an update, crash, or restart. Codenine has to start again for them to resume."
-          status={
-            !hasServerTargets
-              ? "All selected connected environments must support restart continuation."
-              : undefined
-          }
           resetAction={
             hasServerTargets &&
             settings.continueThreadsAfterServerUpdate !==
