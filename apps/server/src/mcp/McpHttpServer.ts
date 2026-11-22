@@ -239,8 +239,8 @@ const AGENT_CHAT_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * An agent's limits hold only in its own chat, so in it the tools that start, read or steer other
- * chats, or change workspaces, refuse. The calling chat is read per call: its agent can change
+ * An agent's limits hold only in its own chat, so in it, and in every team task's chat, the tools
+ * that start, read or steer other chats, or change workspaces, refuse. The calling chat is read per call: its agent can change
  * while its provider keeps the same MCP session.
  */
 const withAgentChatLimit = Effect.fn("McpHttpServer.withAgentChatLimit")(function* <A, E, R>(
@@ -261,7 +261,8 @@ const withAgentChatLimit = Effect.fn("McpHttpServer.withAgentChatLimit")(functio
           if (threadId === undefined) return yield* options.handle(payload);
           // A chat that cannot be read is refused by the tool's own caller checks.
           const caller = yield* Effect.exit(threads.getThreadShell(threadId));
-          if (!Exit.isSuccess(caller) || caller.value?.agent === undefined) {
+          const shell = Exit.isSuccess(caller) ? caller.value : null;
+          if (shell == null || (shell.agent === undefined && shell.teamTask === undefined)) {
             return yield* options.handle(payload);
           }
           return new McpSchema.CallToolResult({
@@ -269,7 +270,10 @@ const withAgentChatLimit = Effect.fn("McpHttpServer.withAgentChatLimit")(functio
             content: [
               {
                 type: "text",
-                text: "This chat talks to an agent, which works within its own limits: it cannot start, read or steer other chats, or change workspaces. Do the task with your own tools, or tell the user it needs a chat without an agent.",
+                text:
+                  shell.agent === undefined
+                    ? "This chat runs one task of a team: it cannot start, read or steer other chats, or change workspaces. Do your task with your own tools."
+                    : "This chat talks to an agent, which works within its own limits: it cannot start, read or steer other chats, or change workspaces. Do the task with your own tools, or tell the user it needs a chat without an agent.",
               },
             ],
           });

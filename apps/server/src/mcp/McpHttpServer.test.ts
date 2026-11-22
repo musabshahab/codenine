@@ -8,10 +8,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AgentName,
   EnvironmentId,
+  type OrchestrationV2ThreadShell,
   OrchestratorMcpFailure,
   ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
+  TeamPlanId,
+  TeamTaskId,
   ThreadId,
 } from "@codenine/contracts";
 import * as Effect from "effect/Effect";
@@ -122,7 +125,7 @@ const RecordingToolkit = Toolkit.make(
 
 const layerRecordingTools = (
   calls: Array<unknown>,
-  caller: { readonly agent?: AgentName } = {},
+  caller: Partial<Pick<OrchestrationV2ThreadShell, "agent" | "teamTask">> = {},
 ) => {
   const record = McpToolAccess.reads((params: unknown) =>
     Effect.sync(() => calls.push(params)).pipe(
@@ -186,17 +189,42 @@ it.effect("decodes null optional arguments the way it decodes omitted ones", () 
   }).pipe(Effect.provide(layerRecordingTools(calls)));
 });
 
-it.effect("an agent's chat may use only the Codenine tools that act on that chat alone", () => {
-  const calls: Array<unknown> = [];
-  return Effect.gen(function* () {
-    // A chat it started would run without the agent's limits.
-    const refused = yield* callTool("delegate_task", { task: "Inspect", target: {} });
-    expect(refused.isError).toBe(true);
-    expect(calls).toEqual([]);
-    yield* callTool("codenine_background_wait", { taskIds: ["task-1"] });
-    expect(calls).toHaveLength(1);
-  }).pipe(Effect.provide(layerRecordingTools(calls, { agent: AgentName.make("page-reader") })));
-});
+const teamTask = {
+  rootThreadId: ThreadId.make("thread-lead"),
+  planId: TeamPlanId.make("plan-1"),
+  taskId: TeamTaskId.make("build"),
+  attempt: 1,
+};
+
+it.effect.each([
+  {
+    caller: { agent: AgentName.make("page-reader") },
+    refusal: "This chat talks to an agent, which works within its own limits",
+  },
+  {
+    caller: { teamTask, agent: AgentName.make("page-reader") },
+    refusal: "This chat talks to an agent, which works within its own limits",
+  },
+  {
+    caller: { teamTask },
+    refusal:
+      "This chat runs one task of a team: it cannot start, read or steer other chats, or change workspaces. Do your task with your own tools.",
+  },
+])(
+  "a chat of an agent or a team task may use only the Codenine tools that act on that chat alone",
+  ({ caller, refusal }) => {
+    const calls: Array<unknown> = [];
+    return Effect.gen(function* () {
+      // A chat it started would run without the agent's limits.
+      const refused = yield* callTool("delegate_task", { task: "Inspect", target: {} });
+      expect(refused.isError).toBe(true);
+      expect(JSON.stringify(refused.content)).toContain(refusal);
+      expect(calls).toEqual([]);
+      yield* callTool("codenine_background_wait", { taskIds: ["task-1"] });
+      expect(calls).toHaveLength(1);
+    }).pipe(Effect.provide(layerRecordingTools(calls, caller)));
+  },
+);
 
 it.effect(
   "clamps codenine_thread_read page sizes above their maximum instead of rejecting the call",
