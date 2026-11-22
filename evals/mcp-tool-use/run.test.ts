@@ -312,6 +312,41 @@ it("bounds numbers and reads target.options in either schema form", () => {
   assert.deepEqual(failed(expect, run(5, { effort: "max" }, 90_000)), []);
   assert.lengthOf(failed(expect, run(21, [{ id: "effort", value: "high" }], 59_999)), 2);
   assert.lengthOf(failed(expect, run("10", {}, 60_000)), 2);
+
+  const team = (args: Record<string, unknown>, input: Record<string, unknown>) =>
+    failed(
+      { calls: [{ tool: "propose_team", args }] },
+      { calls: [{ step: 0, tool: "propose_team", input }], text: "", stopReason: "end_turn" },
+    ).length === 0;
+  const task = (n: number, extra: Record<string, unknown> = { doneWhen: "npm test" }) => ({
+    id: `t${n}`,
+    brief: `Edit src/part${n}.ts.`,
+    ...extra,
+  });
+  const tasks = (n: number) => Array.from({ length: n }, (_, i) => task(i));
+  assert.isTrue(team({ "tasks.length": ">=5" }, { tasks: tasks(5) }));
+  assert.isFalse(team({ "tasks.length": ">=5" }, { tasks: tasks(4) }));
+  assert.isTrue(team({ "goal.length": "<=20" }, { goal: "Ship the CSV export" }));
+  assert.isFalse(team({ "goal.length": "<=10" }, { goal: "Ship the CSV export" }));
+  assert.isTrue(team({ "tasks.*.doneWhen.length": ">=1" }, { tasks: tasks(3) }));
+  assert.isFalse(team({ "tasks.*.doneWhen.length": ">=1" }, { tasks: [...tasks(2), task(2, {})] }));
+  assert.isFalse(team({ "tasks.*.doneWhen.length": ">=1" }, { tasks: [] }));
+  assert.isTrue(team({ "tasks.*.brief": "~src/" }, { tasks: tasks(3) }));
+  assert.isFalse(
+    team({ "tasks.*.brief": "~src/" }, { tasks: [...tasks(2), task(2, { brief: "Review." })] }),
+  );
+  assert.isTrue(team({ "agents.length": ">=3" }, { agents: [{}, {}, {}] }));
+  assert.isFalse(team({ "agents.length": ">=3" }, { agents: [{}, {}] }));
+  // Missing text is "", so a substring check cannot tell it from present text; a length can.
+  assert.isFalse(team({ agents: [{ "instructions.length": ">=40" }] }, { agents: [{}] }));
+  assert.isTrue(
+    team(
+      { agents: [{ agent: "implementer", "target.options.effort": "low" }] },
+      {
+        agents: [{ agent: "implementer", target: { options: [{ id: "effort", value: "low" }] } }],
+      },
+    ),
+  );
 });
 
 const template = {

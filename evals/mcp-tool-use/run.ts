@@ -1612,7 +1612,8 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
 const BOUND = /^([<>]=)(-?\d+(?:\.\d+)?)$/;
 /**
  * Partial match: `~text` is a case-insensitive substring, `<=N` / `>=N` bound a number, and `null`
- * matches a missing or null value.
+ * matches a missing or null value. In a dotted path, `length` reads an array's or string's length
+ * and `*` requires a non-empty array whose every item matches the rest of the path.
  */
 const matches = (expected: unknown, actual: unknown): boolean => {
   if (expected === null) return actual === undefined || actual === null;
@@ -1630,11 +1631,27 @@ const matches = (expected: unknown, actual: unknown): boolean => {
     );
   }
   if (!isRecord(expected)) return expected === actual;
-  const at = (path: string) =>
-    path
-      .split(".")
-      .reduce<unknown>((value, key) => (isRecord(value) ? value[key] : undefined), actual);
-  return Object.entries(expected).every(([path, value]) => matches(value, at(path)));
+  return Object.entries(expected).every(([path, value]) =>
+    matchesPath(path.split("."), value, actual),
+  );
+};
+
+const pathStep = (value: unknown, key: string): unknown =>
+  key === "length" && (Array.isArray(value) || typeof value === "string")
+    ? value.length
+    : isRecord(value)
+      ? value[key]
+      : undefined;
+
+const matchesPath = (keys: ReadonlyArray<string>, expected: unknown, actual: unknown): boolean => {
+  const star = keys.indexOf("*");
+  if (star === -1) return matches(expected, keys.reduce(pathStep, actual));
+  const items = keys.slice(0, star).reduce(pathStep, actual);
+  return (
+    Array.isArray(items) &&
+    items.length > 0 &&
+    items.every((item) => matchesPath(keys.slice(star + 1), expected, item))
+  );
 };
 
 /** Each new top-level thread request in a run; a failed call created nothing. */
@@ -1666,17 +1683,27 @@ const matchesDistinct = (
   );
 };
 
-/** delegate_task takes `target.options` as an object or `[{id, value}]`. Grade both as an object. */
-const withOptionsObject = (input: unknown) => {
-  if (!isRecord(input) || !isRecord(input.target) || !Array.isArray(input.target.options)) {
-    return input;
+const withTargetOptionsObject = (holder: unknown) => {
+  if (!isRecord(holder) || !isRecord(holder.target) || !Array.isArray(holder.target.options)) {
+    return holder;
   }
   const options = Object.fromEntries(
-    input.target.options.flatMap((option) =>
+    holder.target.options.flatMap((option) =>
       isRecord(option) ? [[valueText(option.id), option.value]] : [],
     ),
   );
-  return { ...input, target: { ...input.target, options } };
+  return { ...holder, target: { ...holder.target, options } };
+};
+
+/**
+ * A `target` (delegate_task's, or a propose_team member's) takes `options` as an object or
+ * `[{id, value}]`. Grade both as an object.
+ */
+const withOptionsObject = (input: unknown) => {
+  const withTarget = withTargetOptionsObject(input);
+  return isRecord(withTarget) && Array.isArray(withTarget.agents)
+    ? { ...withTarget, agents: withTarget.agents.map(withTargetOptionsObject) }
+    : withTarget;
 };
 
 /** What the user wrote in the case's thread: its context, prior user turns and the prompt. */
