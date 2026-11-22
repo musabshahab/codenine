@@ -6,8 +6,8 @@ command's output updates live, and long output shows only its most recent part. 
 a file change to review its contents.
 
 Codenine Orchestrator summaries describe the actions taken, such as **Ran 2 commands and sent messages
-to 3 threads**. Repeated messages to the same destinations show both counts: **Sent 5 messages to
-2 threads**. Chat creation counts the chats returned by the tool, including batches.
+to 3 chats**. Repeated messages to the same destinations show both counts: **Sent 5 messages to
+2 chats**. Chat creation counts the chats returned by the tool, including batches.
 
 Groups with many kinds of activity show up to two specific action categories and a count of the
 remaining actions. Commands, file changes, and orchestration changes take priority over reads and
