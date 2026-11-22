@@ -43,16 +43,16 @@ import {
   projectGroupTitleNeedsUpdate,
 } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
-import { SETTINGS_SECTION_LABELS, type SettingsPath } from "./settingsSearch";
+import {
+  SETTINGS_NAV_GROUPS,
+  SETTINGS_SECTION_LABELS,
+  SETTINGS_WORKSPACE_SCOPE_PATHS,
+} from "./settingsSearch";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 
-// Pages with rows a workspace can override; their links keep the workspace scope.
-const WORKSPACE_OVERRIDE_PAGES = [
-  "/settings/threads",
-  "/settings/source-control",
-  "/settings/worktrees",
-  "/settings/providers",
-] as const satisfies readonly SettingsPath[];
+const WORKSPACE_OVERRIDE_PAGES = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths).filter(
+  (path) => path !== "/settings/projects" && SETTINGS_WORKSPACE_SCOPE_PATHS.has(path),
+);
 
 const ProjectIconPickerDialog = lazy(() =>
   import("./ProjectIconPickerDialog").then((module) => ({
