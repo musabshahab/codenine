@@ -189,10 +189,10 @@ export function teamTaskModelSelection(
  * The member a proposed task names. Leads often name the saved agent a member runs as instead of
  * the member's id; that is unambiguous when no member has that id and one member runs that agent.
  */
-export function proposedTaskMemberId(
-  members: ReadonlyArray<{ readonly id: string; readonly agent?: string | undefined }>,
-  named: string,
-): string {
+export function proposedTaskMemberId<Id extends string>(
+  members: ReadonlyArray<{ readonly id: Id; readonly agent?: string | undefined }>,
+  named: Id,
+): Id {
   if (members.some((member) => member.id === named)) return named;
   const runningIt = members.filter((member) => member.agent === named);
   return runningIt.length === 1 ? runningIt[0]!.id : named;
