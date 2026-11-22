@@ -120,8 +120,7 @@ const RESPONSE_STREAMING_MODE_DESCRIPTIONS: Record<ResponseStreamingMode, string
 
 const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
-  created_at: "Created at",
-  manual: "Manual",
+  created_at: "Newest chat",
 };
 const isSidebarProjectSortOrder = Schema.is(SidebarProjectSortOrder);
 
@@ -573,7 +572,7 @@ export function GeneralSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("project-order")}
-          description="Order of workspaces in the sidebar workspace picker and command palette."
+          description="Order of workspace folders in the sidebar, the workspace picker and the command palette."
           resetAction={
             settings.sidebarProjectSortOrder !==
             DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder ? (

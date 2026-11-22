@@ -317,6 +317,16 @@ describe("ClientSettings sidebar grouping", () => {
     expect(settings.sidebarGroupByProject).toBe(true);
     expect(encodeClientSettings(settings)).not.toHaveProperty("boringSidebarEnabled");
   });
+
+  it("loads the retired manual workspace order as the default order", () => {
+    const settings = decodeClientSettings({ sidebarProjectSortOrder: "manual" });
+
+    expect(settings.sidebarProjectSortOrder).toBe("updated_at");
+    expect(encodeClientSettings(settings).sidebarProjectSortOrder).toBe("updated_at");
+    expect(decodeClientSettings({ sidebarProjectSortOrder: "created_at" })).toMatchObject({
+      sidebarProjectSortOrder: "created_at",
+    });
+  });
 });
 
 describe("ClientSettings quit confirmation", () => {

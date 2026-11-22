@@ -1240,7 +1240,7 @@ export function getFallbackThreadIdAfterDelete<
 function getProjectSortTimestamp(
   project: SidebarProject,
   projectThreads: readonly ThreadSortInput[],
-  sortOrder: Exclude<SidebarProjectSortOrder, "manual">,
+  sortOrder: SidebarProjectSortOrder,
 ): number {
   if (projectThreads.length > 0) {
     return projectThreads.reduce(
@@ -1261,10 +1261,6 @@ function sortProjectsByActivity<TProject extends SidebarProject>(
   getProjectThreads: (project: TProject) => readonly ThreadSortInput[],
   compareTies: (left: TProject, right: TProject) => number,
 ): TProject[] {
-  if (sortOrder === "manual") {
-    return [...projects];
-  }
-
   // Project timestamps scan all threads; compute once per project instead of per comparison.
   return projects
     .map((project) => ({
