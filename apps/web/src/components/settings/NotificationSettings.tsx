@@ -1,6 +1,7 @@
 import { settlePromise } from "@codenine/client-runtime/state/runtime";
 import { useState } from "react";
 
+import { getClientSettings } from "../../hooks/useSettings";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
@@ -41,6 +42,11 @@ export function NotificationSettings() {
   const [requestFailed, setRequestFailed] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const desktopStored = hasDesktopNotifications(mode);
+  // Read the latest mode: the other switch can change it while the permission prompt is open.
+  const switchChannel = (change: Parameters<typeof notificationModeWith>[1]) =>
+    updateSettings({
+      notificationMode: notificationModeWith(getClientSettings().notificationMode, change),
+    });
 
   const turnOnSystemNotifications = async () => {
     setRequestFailed(false);
@@ -56,9 +62,7 @@ export function NotificationSettings() {
       return;
     }
     setPermission(result.value);
-    if (result.value === "granted") {
-      updateSettings({ notificationMode: notificationModeWith(mode, { desktop: true }) });
-    }
+    if (result.value !== "default") switchChannel({ desktop: result.value === "granted" });
   };
 
   return (
@@ -77,11 +81,7 @@ export function NotificationSettings() {
             disabled={requesting || permission === "unsupported"}
             onCheckedChange={(checked) => {
               if (checked) void turnOnSystemNotifications();
-              else {
-                updateSettings({
-                  notificationMode: notificationModeWith(mode, { desktop: false }),
-                });
-              }
+              else switchChannel({ desktop: false });
             }}
             aria-label="System notifications"
           />
@@ -96,7 +96,7 @@ export function NotificationSettings() {
             checked={hasNotificationSound(mode)}
             onCheckedChange={(checked) => {
               if (checked) unlockNotificationAudio();
-              updateSettings({ notificationMode: notificationModeWith(mode, { sound: checked }) });
+              switchChannel({ sound: checked });
             }}
             aria-label="Sound"
           />
