@@ -303,8 +303,11 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
         },
       );
       assert.deepEqual(
-        skills.map((skill) => skill.name),
-        ["plugin:alias", "plugin:review"],
+        skills.map((skill) => [skill.name, skill.alias]),
+        [
+          ["plugin:alias", "plugin:dot.alias"],
+          ["plugin:review", "plugin:review-alias"],
+        ],
       );
     }),
   );
