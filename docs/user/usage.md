@@ -140,7 +140,7 @@ has none; Limits links to its activity page instead.
 
 ## Connect a CLIProxyAPI hub
 
-To see pooled accounts, open **Settings → Accounts → Usage providers → Add hub**. Choose the
+To see pooled accounts, open **Settings → Accounts → Usage sources → Add hub**. Choose the
 environment that will connect to the hub and enter its URL and management key.
 
 The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an
