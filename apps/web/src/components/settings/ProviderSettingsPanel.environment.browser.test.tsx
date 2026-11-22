@@ -379,7 +379,7 @@ describe("EnvironmentProviderSettings instance removal", () => {
       providerInstances: {
         [codexId]: {
           driver: ProviderDriverKind.make("codex"),
-          enabled: true,
+          enabled: false,
           config: { binaryPath: "/opt/codex/bin/codex" },
         },
       },
@@ -390,7 +390,10 @@ describe("EnvironmentProviderSettings instance removal", () => {
     await userEvent.click(reset);
 
     expect(state.mutateProviderInstance).not.toHaveBeenCalled();
-    expect(state.confirm).toHaveBeenCalledOnce();
+    expect(state.confirm).toHaveBeenCalledWith(
+      expect.stringMatching(/It will also be turned back on\.$/),
+      { variant: "destructive" },
+    );
 
     state.confirm.mockResolvedValue(true);
     await userEvent.click(reset);

@@ -844,12 +844,9 @@ export function EnvironmentProviderSettings({
   const resetDefaultInstance = useStableCallback(async (driverKind: ProviderDriverKind) => {
     const instanceId = defaultInstanceIdForDriver(driverKind);
     const instance = settings.providerInstances?.[instanceId] ?? { driver: driverKind };
-    const turnsOff =
-      resolveProviderInstanceEnabled(instance) &&
-      !resolveProviderInstanceEnabled({ driver: driverKind });
     const confirmed = await confirmProviderInstanceRemoval(
       `Reset the ${providerInstanceName(instance)} account to its defaults?`,
-      turnsOff ? " It will also be turned off." : "",
+      resolveProviderInstanceEnabled(instance) ? "" : " It will also be turned back on.",
     );
     if (!confirmed) return;
     const result = await persistProviderInstance({ operation: "remove", instanceId });
