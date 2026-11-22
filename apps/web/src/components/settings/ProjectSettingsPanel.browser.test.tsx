@@ -336,6 +336,38 @@ async function expectProjectAccessDeniedToast(title: string) {
 }
 
 describe("project organization", () => {
+  it.each([
+    ["renames", (screen: Screen) => rename(screen, "Renamed"), { title: "Renamed" }],
+    [
+      "resets the icon of",
+      (_screen: Screen) =>
+        userEvent.click(page.getByRole("button", { name: "Reset workspace icon to default" })),
+      { faviconPath: null, projectIcon: null },
+    ],
+  ] as const)(
+    "%s the checkout on every machine while one machine is picked",
+    async (_action, run, input) => {
+      setup();
+      state.projects = state.projects.map((project) => ({ ...project, faviconPath: "logo.png" }));
+      await using screen = await mountPanel({ machine: primaryId });
+      await run(screen);
+      await vi.waitFor(() => expect(state.update).toHaveBeenCalledTimes(2));
+      expect(
+        state.update.mock.calls.map(([request]) => [request.environmentId, request.input]),
+      ).toEqual([
+        [primaryId, { projectId: state.projects[0]!.id, ...input }],
+        [remoteId, { projectId: state.projects[1]!.id, ...input }],
+      ]);
+    },
+  );
+
+  it("disables the shared name while another machine's checkout is read-only", async () => {
+    setup();
+    await grant(remoteId, AsyncResult.success(session([AuthSettingsWriteScope])));
+    await using screen = await mountPanel({ machine: primaryId });
+    expect(nameInput(screen).disabled).toBe(true);
+  });
+
   it("archives the checkout on every machine while one machine is picked", async () => {
     setup();
     await using _screen = await mountPanel({ machine: primaryId });

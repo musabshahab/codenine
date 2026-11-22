@@ -251,7 +251,7 @@ function ProjectDetail({
   hasOtherMembers,
 }: {
   group: SidebarProjectSnapshot;
-  /** Pin and archive belong to the whole workspace, even when one environment is picked. */
+  /** Name, icon, pin and archive belong to the whole workspace, even when one environment is picked. */
   allMembers: ReadonlyArray<SidebarProjectGroupMember>;
   hasOtherMembers: boolean;
 }) {
@@ -265,6 +265,7 @@ function ProjectDetail({
   const canEditGroup = group.memberProjects.every((member) =>
     editableIds.has(member.environmentId),
   );
+  const canEditShared = allMembers.every((member) => editableIds.has(member.environmentId));
   const representative =
     group.memberProjects.find(
       (member) => environmentById.get(member.environmentId)?.serverConfig != null,
@@ -276,7 +277,7 @@ function ProjectDetail({
   const projectIcon = representative.projectIcon ?? null;
   const pickProjectFavicon =
     typeof window !== "undefined" &&
-    group.memberProjects.every(
+    allMembers.every(
       (member) =>
         member.environmentId === primaryEnvironmentId &&
         canPickExternalProjectFavicon(member.workspaceRoot, navigator.platform),
@@ -288,10 +289,8 @@ function ProjectDetail({
   const updateAllMembers = (
     input: ProjectGroupUpdate | ((member: SidebarProjectGroupMember) => ProjectGroupUpdate),
     failureTitle: string,
-  ) => updateProjectGroup(group.memberProjects, input, failureTitle);
-  const canOrganize =
-    allMembers.every((member) => editableIds.has(member.environmentId)) &&
-    canOrganizeProjectGroup(allMembers);
+  ) => updateProjectGroup(allMembers, input, failureTitle);
+  const canOrganize = canEditShared && canOrganizeProjectGroup(allMembers);
   const [isOrganizing, setIsOrganizing] = useState(false);
   const organize = async (input: ProjectGroupUpdate, failureTitle: string) => {
     setIsOrganizing(true);
@@ -308,7 +307,7 @@ function ProjectDetail({
     }
     if (
       !projectGroupTitleNeedsUpdate(
-        group.memberProjects.map((member) => member.title),
+        allMembers.map((member) => member.title),
         title,
         wasEdited,
       )
@@ -318,8 +317,8 @@ function ProjectDetail({
     await updateAllMembers({ title }, "Failed to rename workspace");
   };
 
-  const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditGroup);
-  const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditGroup);
+  const [faviconPickerOpen, setFaviconPickerOpen] = useComposerMenuState(!canEditShared);
+  const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditShared);
   const [isSavingFavicon, setIsSavingFavicon] = useState(false);
   const savingFaviconRef = useRef(false);
   const setProjectIcon = async (input: Parameters<typeof updateAllMembers>[0]) => {
@@ -332,7 +331,7 @@ function ProjectDetail({
   };
 
   const isPersonal = isPersonalWorkspace(group.memberProjects);
-  const hasDefaultIcon = group.memberProjects.every(hasDefaultProjectIcon);
+  const hasDefaultIcon = allMembers.every(hasDefaultProjectIcon);
   const hasMultipleCheckouts = group.memberProjects.length > 1;
   // Codenine owns the folder of chats without a project; the server refuses to delete it.
   const folderMembers = group.memberProjects.filter(
@@ -476,9 +475,9 @@ function ProjectDetail({
           ))}
         </p>
         <SettingsSection id="project-overview" title="Workspace" hideTitle>
-          {!canEditGroup ? (
+          {!canEditShared ? (
             <p className="px-3 py-2 text-sm text-muted-foreground sm:px-4">
-              {group.memberProjects.length > 1
+              {allMembers.length > 1
                 ? "Shared settings require permission to change every checkout in this group."
                 : "This connection cannot change this workspace."}
             </p>
@@ -499,7 +498,7 @@ function ProjectDetail({
                   size="sm"
                   className="w-full sm:w-64"
                   aria-label="Workspace name"
-                  disabled={!canEditGroup}
+                  disabled={!canEditShared}
                   defaultValue={group.displayName}
                   onChange={() => {
                     projectNameEditedRef.current = true;
@@ -534,7 +533,7 @@ function ProjectDetail({
               !hasDefaultIcon ? (
                 <SettingResetButton
                   label="workspace icon"
-                  disabled={isSavingFavicon || !canEditGroup}
+                  disabled={isSavingFavicon || !canEditShared}
                   onClick={() => void setProjectIcon(defaultProjectIcon)}
                 />
               ) : null
@@ -547,7 +546,7 @@ function ProjectDetail({
                   variant="outline"
                   type="button"
                   aria-label="Choose a workspace icon"
-                  disabled={isSavingFavicon || !canEditGroup}
+                  disabled={isSavingFavicon || !canEditShared}
                   onClick={() => setIconPickerOpen(true)}
                 >
                   Choose icon
@@ -557,7 +556,7 @@ function ProjectDetail({
                   variant="outline"
                   type="button"
                   aria-label="Choose a workspace icon file"
-                  disabled={isSavingFavicon || !canEditGroup}
+                  disabled={isSavingFavicon || !canEditShared}
                   onClick={() => setFaviconPickerOpen(true)}
                 >
                   Choose file
@@ -734,10 +733,10 @@ function ProjectDetail({
           ? { onPickExternal: () => pickProjectFavicon(representative.workspaceRoot) }
           : {})}
         onSelect={(path) => void setProjectIcon({ faviconPath: path, projectIcon: null })}
-        open={faviconPickerOpen && canEditGroup}
+        open={faviconPickerOpen && canEditShared}
         projectName={group.displayName}
       />
-      {iconPickerOpen && canEditGroup ? (
+      {iconPickerOpen && canEditShared ? (
         <Suspense fallback={null}>
           <ProjectIconPickerDialog
             current={projectIcon}
