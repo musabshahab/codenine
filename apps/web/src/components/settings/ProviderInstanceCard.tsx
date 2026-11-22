@@ -1127,7 +1127,7 @@ export function ProviderInstanceCard({
             variant="ghost-destructive"
             disabled={readOnly}
             onClick={onDelete}
-            aria-label={`Delete instance ${instanceId}`}
+            aria-label={`Delete account ${instanceId}`}
           >
             <Trash2Icon />
           </Button>

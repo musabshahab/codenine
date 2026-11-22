@@ -261,10 +261,10 @@ function EnvironmentUnavailablePlaceholder({
 }) {
   const isLoading = access.kind === "loading";
   const title = isLoading
-    ? "Loading provider settings"
+    ? "Loading account settings"
     : access.kind === "error"
       ? "Could not connect to this environment"
-      : "Provider settings are unavailable";
+      : "Account settings are unavailable";
   const description = isLoading
     ? access.reason === "permissions"
       ? "Checking what this session is allowed to change."
@@ -454,7 +454,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
           deviceTabs={deviceTabs}
           icon={<EnvironmentMachineIcon kind={resolveEnvironmentMachineKind(null)} />}
           title="Environment unavailable"
-          description="Reconnect this environment to set up its provider, or select another environment."
+          description="Reconnect this environment to set up its accounts, or select another environment."
         />
       ) : null}
       {options.length === 0 && !targetEnvironmentMissing ? (
@@ -973,10 +973,10 @@ export function EnvironmentProviderSettings({
                     onClick={() => void refreshProviders()}
                   >
                     <RefreshIcon refreshing={isRefreshingProviders} />
-                    <span className="sr-only">Refresh provider status</span>
+                    <span className="sr-only">Refresh account status</span>
                     <span className="hidden min-w-0 truncate sm:inline">
                       {isRefreshingProviders ? (
-                        "Refreshing providers"
+                        "Refreshing accounts"
                       ) : (
                         <ProviderLastChecked environmentId={environmentId} />
                       )}
@@ -984,7 +984,7 @@ export function EnvironmentProviderSettings({
                   </Button>
                 }
               />
-              <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+              <TooltipPopup side="top">Refresh account status</TooltipPopup>
             </Tooltip>
           </div>
         }

@@ -411,7 +411,7 @@ describe("EnvironmentProviderSettings instance removal", () => {
       },
     };
     await using _screen = await render(panel({ targetInstanceId: customId }));
-    const remove = page.getByRole("button", { name: `Delete instance ${customId}` });
+    const remove = page.getByRole("button", { name: `Delete account ${customId}` });
     await userEvent.click(remove);
 
     expect(state.mutateProviderInstance).not.toHaveBeenCalled();
