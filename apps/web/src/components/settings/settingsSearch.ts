@@ -9,9 +9,6 @@ import {
   type SourceControlDefinition,
 } from "@codenine/client-runtime/source-control-clients";
 import { DEFAULT_KEYBINDINGS } from "@codenine/shared/keybindings";
-import * as Schema from "effect/Schema";
-import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
-import { writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import { commandLabel } from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
@@ -1212,25 +1209,4 @@ export function searchSettings(
         left.index - right.index,
     )
     .map(({ item }) => item);
-}
-
-// These rows only exist with separate fonts on, so a search jump to one turns them on.
-const ADVANCED_TYPOGRAPHY_TARGET_IDS: ReadonlySet<string> = new Set([
-  "prompt-font",
-  "terminal-font",
-]);
-
-export function isAdvancedTypographyTarget(targetId: string): boolean {
-  return ADVANCED_TYPOGRAPHY_TARGET_IDS.has(targetId);
-}
-
-/**
- * Opens the persisted section a search result lives in before jumping to it, so
- * its row is mounted to scroll to. The terminal reads the same flag, so it must
- * stay on after the jump.
- */
-export function revealSettingsSearchTarget(targetId: string): void {
-  if (isAdvancedTypographyTarget(targetId)) {
-    writeLocalStorageValue(TYPOGRAPHY_ADVANCED_STORAGE_KEY, true, false, Schema.Boolean);
-  }
 }

@@ -5,10 +5,13 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import "~/index.css";
 import { render } from "../../../test/render";
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
-import { getLocalStorageItem, removeLocalStorageItem } from "../../hooks/useLocalStorage";
+import {
+  getLocalStorageItem,
+  removeLocalStorageItem,
+  setLocalStorageItem,
+} from "../../hooks/useLocalStorage";
+import { SettingsPageContainer } from "./settingsLayout";
 import { TypographySection } from "./TypographySettings";
-
-const state = vi.hoisted(() => ({ searchTargetId: null as string | null }));
 
 vi.mock(import("./useScopedSettings"), async (original) => ({
   ...(await original()),
@@ -21,23 +24,38 @@ vi.mock(import("./SettingsFontPreviews"), () => ({
   PromptFontPreview: () => <div />,
   TerminalFontPreview: () => <div />,
 }));
-vi.mock(import("./settingsLayout"), async (original) => ({
-  ...(await original()),
-  useSettingsSearchTargetId: () => state.searchTargetId,
+// The scope sentence reads environments, which this test does not exercise.
+vi.mock(import("./SettingsScopeSentence"), () => ({
+  SETTINGS_DEVICE_ONLY_PATHS: new Set<string>(),
+  SettingsScopeSentence: () => null,
 }));
 
-function setup(searchTargetId: string | null) {
-  state.searchTargetId = searchTargetId;
+function setup(advanced: boolean | null) {
   removeLocalStorageItem(TYPOGRAPHY_ADVANCED_STORAGE_KEY);
+  if (advanced !== null) {
+    setLocalStorageItem(TYPOGRAPHY_ADVANCED_STORAGE_KEY, advanced, Schema.Boolean);
+  }
   return { [Symbol.dispose]: () => removeLocalStorageItem(TYPOGRAPHY_ADVANCED_STORAGE_KEY) };
 }
 
 describe("TypographySection", () => {
-  it("persists the advanced flag the terminal reads when a deep link targets an advanced row", async () => {
-    using _storage = setup("terminal-font");
-    await using screen = await render(<TypographySection />);
+  it.each([
+    { advanced: null, target: "terminal-font", landsOn: "separate-fonts" },
+    { advanced: false, target: "prompt-font", landsOn: "separate-fonts" },
+    { advanced: true, target: "terminal-font", landsOn: "terminal-font" },
+  ])(
+    "lands a jump to $target on $landsOn with separate fonts $advanced, leaving the flag alone",
+    async ({ advanced, target, landsOn }) => {
+      using _storage = setup(advanced);
+      await using _screen = await render(
+        <SettingsPageContainer>
+          <TypographySection />
+        </SettingsPageContainer>,
+        { router: `/settings/appearance#${target}` },
+      );
 
-    await expect.element(screen.getByRole("heading", { name: "Terminal font" })).toBeVisible();
-    expect(getLocalStorageItem(TYPOGRAPHY_ADVANCED_STORAGE_KEY, Schema.Boolean)).toBe(true);
-  });
+      await vi.waitFor(() => expect(document.activeElement?.id).toBe(landsOn));
+      expect(getLocalStorageItem(TYPOGRAPHY_ADVANCED_STORAGE_KEY, Schema.Boolean)).toBe(advanced);
+    },
+  );
 });
