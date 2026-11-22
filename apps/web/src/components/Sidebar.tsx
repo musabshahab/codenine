@@ -1082,7 +1082,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     onCopy: ({ threadId }) => {
       toastManager.add({
         type: "success",
-        title: "Thread ID copied",
+        title: "Chat ID copied",
         description: threadId,
       });
     },
@@ -1090,7 +1090,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: "Failed to copy thread ID",
+          title: "Failed to copy chat ID",
           description: error instanceof Error ? error.message : "An error occurred.",
         }),
       );
@@ -1911,7 +1911,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     restoreDragScroll();
     const threads = contextDragThreads();
     const title =
-      threadByKeyRef.current.get(contextDragKeyRef.current ?? "")?.title.trim() || "Thread";
+      threadByKeyRef.current.get(contextDragKeyRef.current ?? "")?.title.trim() || "Chat";
     moveThreadContextDragGhost(point, { title, count: threads.length });
     return true;
   };
@@ -3193,8 +3193,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           <SidebarHeaderIconButton
             label={
               scopedProjectGroups.length > 0
-                ? `Filter threads by workspace: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
-                : "Filter threads by workspace"
+                ? `Filter chats by workspace: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
+                : "Filter chats by workspace"
             }
           />
         }
@@ -3419,7 +3419,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     ref={searchResultsListRef}
                     id="sidebar-thread-search-results"
                     role="listbox"
-                    aria-label="Thread search results"
+                    aria-label="Chat search results"
                     className="flex flex-col gap-px"
                   >
                     {threadSearchResults.map((thread, index) => {
@@ -3474,7 +3474,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 role="status"
                 className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
               >
-                {threadSearch.isPending ? "Searching thread messages…" : "No threads found"}
+                {threadSearch.isPending ? "Searching chat messages…" : "No chats found"}
               </p>
             )
           ) : null}
@@ -3872,7 +3872,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           {olderSettledShelf.loading
                             ? "Loading"
                             : olderSettledShelf.failed
-                              ? "Could not load older threads. Retry"
+                              ? "Could not load older chats. Retry"
                               : `Show ${Math.min(hiddenSettledCount, SETTLED_TAIL_PAGE_COUNT)} more`}
                         </button>
                       </li>

@@ -295,7 +295,7 @@ export function branchMismatchBannerItem(input: {
             }
           />
           <TooltipPopup side="top">
-            This thread last ran on {mismatch.threadBranch}. Sending will continue on{" "}
+            This chat last ran on {mismatch.threadBranch}. Sending will continue on{" "}
             {mismatch.currentBranch}.
           </TooltipPopup>
         </Tooltip>

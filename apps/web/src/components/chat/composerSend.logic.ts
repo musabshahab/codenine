@@ -20,7 +20,8 @@ export function loadBalancingSendWarning(input: {
   if (input.pending) {
     return {
       title: "Checking machine resources",
-      description: "Resource checks are still running. You can choose a machine in the composer.",
+      description:
+        "Resource checks are still running. You can choose an environment in the composer.",
     };
   }
   const noMachineReadsEveryThread =
@@ -29,10 +30,10 @@ export function loadBalancingSendWarning(input: {
       input.threadContexts.every((record) => record.environmentId === environmentId),
     );
   return {
-    title: "Choose a machine to continue",
+    title: "Choose an environment to continue",
     description: noMachineReadsEveryThread
-      ? "No machine can read every attached thread. Choose a machine in the composer or remove the threads."
-      : "No eligible machine has available resources. Choose a machine in the composer to override.",
+      ? "No environment can read every attached chat. Choose an environment in the composer or remove the chats."
+      : "No eligible environment has available resources. Choose an environment in the composer to override.",
   };
 }
 

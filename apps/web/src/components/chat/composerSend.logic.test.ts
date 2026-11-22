@@ -43,7 +43,7 @@ describe("loadBalancingSendWarning", () => {
         threadContexts: [localThread, remoteThread],
         candidateEnvironmentIds: [local, remote],
       }).description,
-    ).toMatch(/No machine can read every attached thread/);
+    ).toMatch(/No environment can read every attached chat/);
   });
 
   it("blames resources when one machine can read every attached thread", () => {
@@ -53,7 +53,7 @@ describe("loadBalancingSendWarning", () => {
         threadContexts: [localThread],
         candidateEnvironmentIds: [remote, local],
       }).description,
-    ).toMatch(/No eligible machine has available resources/);
+    ).toMatch(/No eligible environment has available resources/);
   });
 });
 

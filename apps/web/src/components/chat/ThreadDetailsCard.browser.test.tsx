@@ -169,7 +169,7 @@ it("reopens after a normal close", async () => {
 it("returns to full density when hidden items make the content fit", async () => {
   using fixture = setup(threadB);
   await using screen = await render(<Card threadRef={threadB} inline fixture={fixture} rows={6} />);
-  const card = page.getByRole("region", { name: "Thread details" });
+  const card = page.getByRole("region", { name: "Chat details" });
   await expect.element(card).toHaveAttribute("data-density", "compact");
 
   await screen.rerender(<Card threadRef={threadB} inline fixture={fixture} rows={2} />);
@@ -183,7 +183,7 @@ it("keeps full density when many automations make the content tall", async () =>
   );
   await expect.element(page.getByText("Details for thread-b")).toBeVisible();
   await expect
-    .element(page.getByRole("region", { name: "Thread details" }))
+    .element(page.getByRole("region", { name: "Chat details" }))
     .toHaveAttribute("data-density", "full");
 });
 
@@ -193,6 +193,6 @@ it("stays full while expanded server rows overflow", async () => {
     <Card threadRef={threadB} inline fixture={fixture} rows={2} serverOverflowRows={4} />,
   );
   await expect
-    .element(page.getByRole("region", { name: "Thread details" }))
+    .element(page.getByRole("region", { name: "Chat details" }))
     .toHaveAttribute("data-density", "full");
 });

@@ -32,7 +32,7 @@ export const accessConfig: Record<
 > = {
   "read-only": {
     label: "Read only",
-    description: "Read workspaces and threads. Cannot start, message or change anything.",
+    description: "Read workspaces and chats. Cannot start, message or change anything.",
     icon: EyeIcon,
   },
   ...runtimeModeConfig,
@@ -170,7 +170,7 @@ export function ConnectAgentSurface() {
         title={`Connect ${details.clientName}`}
         description={
           <>
-            This agent wants to use the threads in every project on{" "}
+            This agent wants to use the chats in every workspace on{" "}
             <span className="font-medium text-foreground">{details.environmentHost}</span>.
           </>
         }
@@ -247,8 +247,8 @@ export function ConnectAgentSurface() {
               ))}
             </RadioGroup>
             <p className="text-xs text-muted-foreground">
-              Beyond read only, it can start, message and stop threads, and none of them can run
-              with more than the mode you pick.
+              Beyond read only, it can start, message and stop chats, and none of them can run with
+              more than the mode you pick.
             </p>
           </div>
         )}

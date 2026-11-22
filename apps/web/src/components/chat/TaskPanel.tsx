@@ -132,7 +132,7 @@ function LeadTaskPanel(props: {
     return (
       <TaskPanelLayout footer={null}>
         <p className="text-muted-foreground">
-          {loading ? "Loading the team…" : "This thread has no team. Ask the agent to propose one."}
+          {loading ? "Loading the team…" : "This chat has no team. Ask the agent to propose one."}
         </p>
       </TaskPanelLayout>
     );
@@ -168,7 +168,7 @@ function AgentTaskPanel(props: {
     >
       <span className="text-muted-foreground text-xs">Part of the task</span>
       <span className="flex min-w-0 items-center gap-1.5 font-medium">
-        <span className="truncate">{lead?.title ?? "Lead thread"}</span>
+        <span className="truncate">{lead?.title ?? "Lead chat"}</span>
         <ArrowUpRightIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       </span>
     </Link>
@@ -646,7 +646,7 @@ function TeamRunStep(props: {
         {thisThread === null ? null : (
           <span className="flex h-5.5 shrink-0 items-center">
             <Badge variant="info" size="sm">
-              This thread
+              This chat
             </Badge>
           </span>
         )}
@@ -658,7 +658,7 @@ function TeamRunStep(props: {
             aria-label={
               thisThread !== null
                 ? "Open the latest attempt"
-                : `Open the thread for step ${props.number}`
+                : `Open the chat for step ${props.number}`
             }
             render={
               <Link
@@ -719,7 +719,7 @@ function TeamRunStep(props: {
       ) : null}
       {thisThread?.superseded ? (
         <p className="mt-2 text-muted-foreground text-xs">
-          This thread ran attempt {thisThread.attempt}. The step was retried in a new thread, which
+          This chat ran attempt {thisThread.attempt}. The step was retried in a new chat, which
           holds its latest result.
         </p>
       ) : null}

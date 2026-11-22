@@ -95,7 +95,7 @@ it("adds the backend from a pairing link after the user confirms its host", asyn
     expect(state.connectPairing).toHaveBeenCalledExactlyOnceWith({ pairingUrl }),
   );
   expect(state.confirm).toHaveBeenCalledExactlyOnceWith(
-    "Add the backend at https://vps.example.com?",
+    "Add the environment at https://vps.example.com?",
   );
   expect(state.navigate).not.toHaveBeenCalled();
 });

@@ -207,7 +207,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const compactsBeforeSend = compactTokens !== null && !keepFullHistory;
 
   const submitLabel = showResume
-    ? "Resume thread"
+    ? "Resume chat"
     : isEditingQueuedMessage
       ? "Update queued message"
       : compactsBeforeSend

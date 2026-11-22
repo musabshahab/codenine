@@ -762,7 +762,7 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "submenu",
       value: "action:new-thread-in",
-      searchTerms: ["new thread", "project", "pick", "choose", "select"],
+      searchTerms: ["new thread", "new chat", "project", "workspace", "pick", "choose", "select"],
       title: "New chat in...",
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
@@ -1809,7 +1809,7 @@ function OpenCommandPaletteDialog(props: {
           : willCreateProjectPath
             ? { emptyStateMessage: "Press Enter to create this folder and add it as a workspace." }
             : isThreadSearchPending
-              ? { emptyStateMessage: "Searching thread messages…" }
+              ? { emptyStateMessage: "Searching chat messages…" }
               : {})}
       />
     </CommandPaletteContent>

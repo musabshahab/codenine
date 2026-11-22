@@ -109,7 +109,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     if (!supportsConversationRollback) {
       setThreadError(
         activeThread.id,
-        "This provider does not support reverting conversation history. Start a new thread instead.",
+        "This provider does not support reverting conversation history. Start a new chat instead.",
       );
       return;
     }
@@ -201,7 +201,7 @@ export function useTimelineRewind(input: TimelineRewindInput) {
     if (!targetThreadReady) {
       setThreadError(
         activeThread.id,
-        "The fork was created, but its thread data did not reach this client. Reconnect and try opening it from the sidebar.",
+        "The fork was created, but its chat data did not reach this client. Reconnect and try opening it from the sidebar.",
       );
       return;
     }

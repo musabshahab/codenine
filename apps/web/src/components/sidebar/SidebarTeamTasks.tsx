@@ -55,7 +55,7 @@ function teamToggleLabel(count: number, runs: number, expanded: boolean): string
   const verb = expanded ? "Hide" : "Show";
   if (runs === count) return `${verb} ${count} ${count === 1 ? "run" : "runs"}`;
   if (runs > 0) return `${verb} ${count} chats`;
-  return `${verb} the team's ${count} ${count === 1 ? "thread" : "threads"}`;
+  return `${verb} the team's ${count} ${count === 1 ? "chat" : "chats"}`;
 }
 
 /** The lead row's quiet count, which shows or hides the team task and workflow run rows. */

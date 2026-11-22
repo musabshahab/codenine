@@ -51,7 +51,7 @@ export function useForceStopThread(environmentId: EnvironmentId) {
       toastManager.add({
         type: "info",
         title: "Turn stopped; the agent process kept running",
-        description: `It is shared with ${others === 0 ? "other" : others} working ${others === 1 ? "thread" : "threads"}. Stop those to free it.`,
+        description: `It is shared with ${others === 0 ? "other" : others} working ${others === 1 ? "chat" : "chats"}. Stop those to free it.`,
       });
     }
   };

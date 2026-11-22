@@ -375,7 +375,7 @@ export function getProviderUpdateSidebarPillView(
           : `${unchangedProviders.length} providers still need updates`,
       description: `${formatProviderList(unchangedProviders)} ${
         unchangedProviders.length === 1 ? "still appears" : "still appear"
-      } outdated. Review provider settings for details.`,
+      } outdated. Review account settings for details.`,
       dismissible: true,
     });
   }
@@ -433,5 +433,5 @@ function getFailedProviderUpdateDescription(providers: ReadonlyArray<ServerProvi
       return provider.updateState.message;
     }
   }
-  return `${formatProviderList(providers)} failed to update. Check provider settings for details.`;
+  return `${formatProviderList(providers)} failed to update. Check account settings for details.`;
 }

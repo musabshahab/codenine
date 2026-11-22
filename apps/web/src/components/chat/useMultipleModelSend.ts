@@ -220,7 +220,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
         toastManager.add(
           stackedThreadToast({
             type: "success",
-            title: `Started ${startedCount} ${startedCount === 1 ? "thread" : "threads"} in background`,
+            title: `Started ${startedCount} ${startedCount === 1 ? "chat" : "chats"} in background`,
           }),
         );
       }

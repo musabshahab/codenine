@@ -102,7 +102,7 @@ it.each([
   if (action === "merge") {
     await screen.getByRole("button", { name: "Merge back to source conversation" }).click();
   } else {
-    await screen.getByRole("button", { name: "More thread actions" }).click();
+    await screen.getByRole("button", { name: "More chat actions" }).click();
     await page.getByRole("menuitem", { name: "Disconnect agent session" }).click();
   }
 
@@ -110,7 +110,7 @@ it.each([
   await expect
     .element(
       screen.getByRole("button", {
-        name: action === "merge" ? "Merge back to source conversation" : "More thread actions",
+        name: action === "merge" ? "Merge back to source conversation" : "More chat actions",
       }),
     )
     .toBeEnabled();
@@ -137,7 +137,7 @@ it.each([
     if (action === "merge") {
       await screen.getByRole("button", { name: "Merge back to source conversation" }).click();
     } else {
-      await screen.getByRole("button", { name: "More thread actions" }).click();
+      await screen.getByRole("button", { name: "More chat actions" }).click();
       await page.getByRole("menuitem", { name: "Disconnect agent session" }).click();
     }
   };
@@ -156,7 +156,7 @@ it.each([
     );
   });
   if (action === "disconnect") {
-    await expect.element(screen.getByRole("button", { name: "More thread actions" })).toBeEnabled();
+    await expect.element(screen.getByRole("button", { name: "More chat actions" })).toBeEnabled();
   }
 });
 

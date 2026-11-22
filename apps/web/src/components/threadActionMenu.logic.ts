@@ -250,7 +250,7 @@ function copyItem(state: ThreadActionMenuState): ThreadActionMenuItem {
     icon: "copy",
     children: [
       { id: "copy-thread", label: "Chat link", icon: "message-square" },
-      { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
+      { id: "copy-thread-id", label: "Chat ID", icon: "hash" },
       ...(state.hasPath ? [{ id: "copy-path" as const, label: "Path", icon: "folder" }] : []),
       ...(state.branch
         ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]

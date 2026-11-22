@@ -55,7 +55,7 @@ export function SidebarThreadHeader({
           if (searchQuery.trim().length === 0) onCloseSearch();
         }}
         placeholder="Search"
-        aria-label="Search threads"
+        aria-label="Search chats"
         role="combobox"
         aria-autocomplete="list"
         aria-expanded={resultsVisible}
@@ -70,7 +70,7 @@ export function SidebarThreadHeader({
         size="icon-micro"
         variant="ghost-muted"
         className="shrink-0"
-        aria-label={isSearching ? "Clear thread search" : "Close search"}
+        aria-label={isSearching ? "Clear chat search" : "Close search"}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
           if (!isSearching) {

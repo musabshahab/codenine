@@ -774,7 +774,7 @@ export function getStartedThreadModelChangeBlockReason(input: {
   }
   return {
     title: "Start a new chat to switch providers",
-    description: "This thread does not support switching providers after it has started.",
+    description: "This chat does not support switching providers after it has started.",
   };
 }
 
@@ -806,7 +806,7 @@ export async function waitForRevertedMessage(
     return latest === undefined || run.ordinal > latest.ordinal ? run : latest;
   }, undefined);
   if (witness === undefined) {
-    throw new Error("The thread has changed. Select a message to rewind again.");
+    throw new Error("The chat has changed. Select a message to rewind again.");
   }
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -848,7 +848,7 @@ export async function waitForRevertedMessage(
     };
     unsubscribe = appAtomRegistry.subscribe(threadAtom, inspect);
     timeout = globalThis.setTimeout(() => {
-      finish(new Error("Timed out waiting for the thread to rewind."));
+      finish(new Error("Timed out waiting for the chat to rewind."));
     }, timeoutMs);
     Promise.resolve()
       .then(revert)
@@ -1091,7 +1091,7 @@ export function makeModelDisabledReason(
       ...context,
       nextModelSelection: { instanceId, model },
     });
-    return reason ? `${reason.description} Start a new thread to use this model.` : null;
+    return reason ? `${reason.description} Start a new chat to use this model.` : null;
   };
 }
 
