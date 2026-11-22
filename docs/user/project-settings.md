@@ -25,7 +25,8 @@ click a workspace to jump to it, or **Reset all** to make those workspaces follo
 again.
 
 Providers and diagnostics are per machine: they show one environment at a time, the primary
-one until you pick another. Every other setting fans out to the selection.
+one until you pick another. Keybindings ignore the selection and edit only the primary
+environment, whose shortcuts this app uses. Every other setting fans out to the selection.
 
 With a workspace selected, a provider's switch in **Settings → Accounts** turns it on or off for
 that workspace only, in either direction: a provider off on the machine can be used in one workspace,

@@ -1,5 +1,5 @@
-import { useEnvironmentScope } from "../../state/session";
-import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
+import { useAtomValue } from "@effect/atom-react";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import {
   ChevronDownIcon,
   CircleXIcon,
@@ -39,8 +39,9 @@ import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { formatShortcutLabel } from "../../keybindings";
 import { cn } from "../../lib/utils";
-import { serverEnvironment } from "../../state/server";
-import { useSettingsScope } from "./SettingsScopeContext";
+import { useEnvironment } from "../../state/environments";
+import { serverEnvironment, shortcutEnvironmentIdAtom } from "../../state/server";
+import { isConnectedWithConfig } from "./scopedSettings";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -1303,27 +1304,30 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 }
 
 // Cache rows in a separate hook so the compiler does not rebuild them per search keystroke.
+// Shortcuts come from one environment; others bind their workspace commands from Actions.
 function useKeybindingCatalog() {
-  const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
-  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
+  const environment = useEnvironment(useAtomValue(shortcutEnvironmentIdAtom));
+  const merged = mergeWithDefaultKeybindings(environment?.serverConfig?.keybindings ?? []);
   return {
+    environment,
     commandOptions: buildKeybindingCommandOptions(merged),
     allRows: buildKeybindingRows(merged),
   };
 }
 
 export function KeybindingsSettingsPanel() {
-  const { environment: primaryEnvironment, connectedEnvironments } = useSettingsScope();
+  const { environment, commandOptions, allRows } = useKeybindingCatalog();
+  const target = environment !== null && isConnectedWithConfig(environment) ? environment : null;
   const canOpenKeybindingsFile = useEnvironmentScope(
-    primaryEnvironment?.environmentId ?? null,
+    target?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
-  const writableIds = useEnvironmentsWithScope(connectedEnvironments, AuthSettingsWriteScope);
-  const canWriteSettings =
-    connectedEnvironments.length > 0 &&
-    connectedEnvironments.every((target) => writableIds.has(target.environmentId));
-  const keybindingsConfigPath = primaryEnvironment?.serverConfig?.keybindingsConfigPath ?? null;
-  const availableEditors = primaryEnvironment?.serverConfig?.availableEditors ?? [];
+  const canWriteSettings = useEnvironmentScope(
+    target?.environmentId ?? null,
+    AuthSettingsWriteScope,
+  );
+  const keybindingsConfigPath = target?.serverConfig?.keybindingsConfigPath ?? null;
+  const availableEditors = target?.serverConfig?.availableEditors ?? [];
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });
@@ -1331,7 +1335,7 @@ export function KeybindingsSettingsPanel() {
     reportFailure: false,
   });
   const openInPreferredEditor = useOpenInPreferredEditor(
-    primaryEnvironment?.environmentId ?? null,
+    target?.environmentId ?? null,
     availableEditors,
   );
   const [query, setQuery] = useState("");
@@ -1346,7 +1350,6 @@ export function KeybindingsSettingsPanel() {
     if (searchTargetId.startsWith("keybinding-")) setQuery("");
   }
   const whenVariables = buildWhenVariableOptions();
-  const { commandOptions, allRows } = useKeybindingCatalog();
   const rows = filterKeybindingRows(allRows, query);
   const groups = groupKeybindingRows(rows);
   const anchorIds = keybindingAnchorIds(rows);
@@ -1354,8 +1357,8 @@ export function KeybindingsSettingsPanel() {
   const openKeybindingsFile = () => {
     if (
       !keybindingsConfigPath ||
-      !primaryEnvironment ||
-      !readEnvironmentScope(primaryEnvironment.environmentId, AuthOrchestrationOperateScope)
+      !target ||
+      !readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
     )
       return;
     void (async () => {
@@ -1374,13 +1377,7 @@ export function KeybindingsSettingsPanel() {
   };
 
   const saveKeybinding = (input: ServerUpsertKeybindingInput) => {
-    if (
-      !primaryEnvironment ||
-      !connectedEnvironments.every((target) =>
-        readEnvironmentScope(target.environmentId, AuthSettingsWriteScope),
-      )
-    )
-      return;
+    if (!target || !readEnvironmentScope(target.environmentId, AuthSettingsWriteScope)) return;
     setSavingCommand(input.command);
     const payload: ServerUpsertKeybindingInput = {
       command: input.command,
@@ -1389,19 +1386,17 @@ export function KeybindingsSettingsPanel() {
       ...(input.replace ? { replace: input.replace } : {}),
     };
     void (async () => {
-      const results = await Promise.all(
-        connectedEnvironments.map((target) =>
-          upsertKeybinding({ environmentId: target.environmentId, input: payload }),
-        ),
-      );
+      const result = await upsertKeybinding({
+        environmentId: target.environmentId,
+        input: payload,
+      });
       setSavingCommand(null);
-      const failed = results.find((result) => result._tag === "Failure");
-      if (!failed) {
+      if (result._tag === "Success") {
         setIsAddingBinding(false);
         return;
       }
-      if (!isAtomCommandInterrupted(failed)) {
-        const error = squashAtomCommandFailure(failed);
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
         toastManager.add({
           title: "Unable to save keybinding",
           description: error instanceof Error ? error.message : "The keybinding was not saved.",
@@ -1412,26 +1407,15 @@ export function KeybindingsSettingsPanel() {
   };
 
   const removeKeybinding = (row: KeybindingRow) => {
-    if (
-      !primaryEnvironment ||
-      !connectedEnvironments.every((target) =>
-        readEnvironmentScope(target.environmentId, AuthSettingsWriteScope),
-      )
-    )
-      return;
+    if (!target || !readEnvironmentScope(target.environmentId, AuthSettingsWriteScope)) return;
     setSavingCommand(row.command);
     void (async () => {
-      const results = await Promise.all(
-        connectedEnvironments.map((target) =>
-          removeKeybindingMutation({
-            environmentId: target.environmentId,
-            input: rowKeybindingTarget(row),
-          }),
-        ),
-      );
+      const result = await removeKeybindingMutation({
+        environmentId: target.environmentId,
+        input: rowKeybindingTarget(row),
+      });
       setSavingCommand(null);
-      const result = results.find((entry) => entry._tag === "Failure") ?? results[0];
-      if (result?._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         toastManager.add({
           title: "Unable to remove keybinding",
@@ -1505,9 +1489,11 @@ export function KeybindingsSettingsPanel() {
 
       {!canWriteSettings ? (
         <p className="text-xs text-muted-foreground">
-          {connectedEnvironments.length === 0
+          {environment === null
             ? "Connect an environment to change keybindings."
-            : "This connection can view keybindings but cannot change them."}
+            : target === null
+              ? `Reconnect ${environment.label} to change keybindings.`
+              : "This connection can view keybindings but cannot change them."}
         </p>
       ) : null}
       <div inert={!canWriteSettings} className="flex flex-col gap-8">

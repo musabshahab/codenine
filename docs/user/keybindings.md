@@ -68,6 +68,9 @@ find only searches the files loaded so far.
 
 Keybindings live on the environment's machine, in
 `~/.codenine/userdata/keybindings.json` by default. You can edit this file directly.
+The app takes its shortcuts from the primary environment, so **Settings → Keybindings**
+changes only that environment's file. To give a workspace command on another environment a
+shortcut, edit its action in **Settings → Workspaces**.
 It is a JSON array of rules:
 
 ```json
