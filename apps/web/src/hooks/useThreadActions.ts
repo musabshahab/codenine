@@ -671,32 +671,31 @@ export function useThreadActions() {
             ),
           );
     let removeResult = await removeOrphanedWorktree(false);
-    // Git keeps worktrees with uncommitted files or submodules; forcing would discard those files.
+    // Git keeps worktrees with local changes or submodules. Forcing discards those changes and
+    // the submodule repositories, unpushed commits included, even when the status reads clean.
     if (removeResult._tag === "Failure" && canRemoveWorktree()) {
       const status = await refreshVcsStatus({
         environmentId: threadRef.environmentId,
         input: { cwd: orphanedWorktreePath, localOnly: true },
       });
-      const uncommittedFiles =
-        status._tag === "Success" && status.value.isRepo
-          ? status.value.workingTree.files.length
-          : null;
-      if (uncommittedFiles !== 0) {
-        const worktreeName = displayWorktreePath ?? orphanedWorktreePath;
-        const discard = await settlePromise(() =>
-          localApi.dialogs.confirm(
-            [
-              uncommittedFiles === null
-                ? `The worktree ${worktreeName} may have uncommitted files.`
-                : `The worktree ${worktreeName} has ${uncommittedFiles} uncommitted ${uncommittedFiles === 1 ? "file" : "files"}.`,
-              "",
-              "Delete it anyway and discard them?",
-            ].join("\n"),
-            { variant: "destructive" },
-          ),
-        );
-        if (discard._tag === "Failure" || !discard.value) return deleteResult;
-      }
+      const hasChanges =
+        status._tag === "Success" &&
+        status.value.isRepo &&
+        status.value.workingTree.files.length > 0;
+      const worktreeName = displayWorktreePath ?? orphanedWorktreePath;
+      const discard = await settlePromise(() =>
+        localApi.dialogs.confirm(
+          [
+            hasChanges
+              ? `The worktree ${worktreeName} has uncommitted changes.`
+              : `Git could not remove the worktree ${worktreeName} without force. It may contain submodules with unpushed commits or changes.`,
+            "",
+            "Delete it anyway and discard them?",
+          ].join("\n"),
+          { variant: "destructive" },
+        ),
+      );
+      if (discard._tag === "Failure" || !discard.value) return deleteResult;
       removeResult = await removeOrphanedWorktree(true);
     }
     const refreshResult =

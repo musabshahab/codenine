@@ -494,34 +494,37 @@ describe("thread action permissions", () => {
     },
   );
 
+  const forceRequired =
+    "Git could not remove the worktree thread without force. It may contain submodules with unpushed commits or changes.";
   it.each([
     {
       case: "keeps uncommitted files",
       files: ["a.ts", "b.ts", "c.ts"],
       discard: false,
-      asked: "The worktree thread has 3 uncommitted files.",
+      asked: "The worktree thread has uncommitted changes.",
       removals: [false],
     },
     {
       case: "discards them when confirmed",
       files: ["a.ts", "b.ts", "c.ts"],
       discard: true,
-      asked: "The worktree thread has 3 uncommitted files.",
+      asked: "The worktree thread has uncommitted changes.",
       removals: [false, true],
     },
     {
       case: "keeps one whose status cannot be read",
       files: null,
       discard: false,
-      asked: "The worktree thread may have uncommitted files.",
+      asked: forceRequired,
       removals: [false],
     },
     {
-      case: "forces a clean one without asking",
+      // Submodule repositories and their unpushed commits live in the worktree's admin directory.
+      case: "keeps a clean one unless confirmed",
       files: [],
       discard: false,
-      asked: null,
-      removals: [false, true],
+      asked: forceRequired,
+      removals: [false],
     },
   ])(
     "when Git keeps a deleted chat's worktree, $case",
@@ -543,7 +546,7 @@ describe("thread action permissions", () => {
       ).toEqual(removals);
       expect(state.confirm.mock.calls.map(([message]) => message.split("\n")[0])).toEqual([
         "This chat is the only one linked to this worktree:",
-        ...(asked === null ? [] : [asked]),
+        asked,
       ]);
       expect(state.toasts).toEqual([]);
     },
