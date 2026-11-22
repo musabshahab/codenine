@@ -162,7 +162,7 @@ To generate a fresh title from the conversation, open a thread's menu and choose
 **Regenerate title**. It is unavailable while a title is being generated, and does not appear
 until the environment is connected.
 
-To change how titles are written, add **Thread title instructions** in **Settings → Threads →
+To change how titles are written, add **Thread title instructions** in **Settings → Chats →
 Text generation**, under Advanced, such as a length limit or an identifier to put first. They apply to new and
 regenerated titles. Select a workspace to give it its own instructions.
 
@@ -222,18 +222,18 @@ thread done. An empty thread's inactivity counts from when it was created.
 Work in progress, pending questions or approvals, and background work the agent
 is waiting on keep a thread from being marked done automatically. An open pull request does not
 stop inactivity from marking it done unless you turn on **Keep threads with a PR** in
-**Settings → Threads**, but an old closed or merged pull request does not mark work done that you
+**Settings → Chats**, but an old closed or merged pull request does not mark work done that you
 resumed after it closed. Only your own messages count as resuming. A turn that
 finished background work or a pull request watch starts on its own does not.
 
 To keep one thread from being marked done automatically, open its menu, choose **Mark done
 automatically**, and pick **Never**. The current option is checked. Pick **As set in Settings** to
-return to the rules in **Settings → Threads**. While those rules are off, a thread on **As set in
+return to the rules in **Settings → Chats**. While those rules are off, a thread on **As set in
 Settings** is not marked done automatically either. **Mark done**, snooze, and archive still work
 while it is set to **Never**. On a team agent's thread the option reads **Never (until the team
 ends)**: when a team finishes or is cancelled, its agents' threads are marked done anyway.
 
-Change these rules in **Settings → Threads**.
+Change these rules in **Settings → Chats**.
 They continue to run when your apps are closed. Choose an environment at the
 top to change only its rules, or **All environments** to update connected environments together.
 Mixed values show where the selected environments disagree. Offline environments
@@ -283,7 +283,7 @@ the continuation finishes. If the queue was held by a restart, resume it then.
 
 When the provider reports a reset time, choose **Resume at reset** to schedule a
 continuation. You can cancel it from the thread. Enable **Resume after
-usage limits** in **Settings → Threads** to schedule limit stops by default.
+usage limits** in **Settings → Chats** to schedule limit stops by default.
 The environment must be running when the reset arrives; it resumes overdue
 continuations after a restart. Stopping the thread, sending a new message,
 archiving, or marking it done prevents a pending continuation from starting.
@@ -408,7 +408,7 @@ side chats.
 
 ## Snooze until later
 
-To change the choices in the snooze menu, open **Settings → Threads → Snooze options**.
+To change the choices in the snooze menu, open **Settings → Chats → Snooze options**.
 Each option is a duration, such as 3 hours, or a time on a day, such as 9:00 PM
 tomorrow. A weekday means the next one after today. Menus list the options soonest
 first and hide a today option after its time passes. Saved with **All environments**

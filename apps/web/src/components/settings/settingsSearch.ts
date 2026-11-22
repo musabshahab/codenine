@@ -92,10 +92,10 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/chat": "Chat",
-  "/settings/diffs": "Diffs & pull requests",
+  "/settings/diffs": "Diffs",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Accounts",
-  "/settings/threads": "Threads",
+  "/settings/threads": "Chats",
   "/settings/source-control": "Source control",
   "/settings/worktrees": "Worktrees",
   "/settings/connections": "Environments",
@@ -123,7 +123,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     ],
   },
   {
-    heading: "Agents",
+    heading: null,
     paths: ["/settings/providers", "/settings/threads"],
   },
   {
@@ -980,7 +980,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "remote-environments",
     title: "Environments",
     to: "/settings/connections",
-    searchTerms: ["add pair backend host code ssh config agent tunnel saved codenine connect"],
+    searchTerms: [
+      "add pair backend host code ssh config agent tunnel saved codenine connect tailscale magicdns",
+    ],
   },
   {
     id: "load-balancing",
@@ -1035,6 +1037,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
 const RENAMED_SETTINGS_PATHS: Readonly<Record<string, SettingsPath>> = {
   "/settings/storage": "/settings/maintenance",
   "/settings/beta": "/settings/labs",
+  "/settings/integrations": "/settings/general",
 };
 const SPLIT_SETTINGS_PATHS: ReadonlySet<string> = new Set([
   "/settings/general",
@@ -1184,11 +1187,8 @@ export function searchSettings(
   return settingsForThisPlatform(items)
     .flatMap((item, index) => {
       const title = normalizeSearchText(item.title);
-      const fields = [
-        title,
-        normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]),
-        ...(item.searchTerms ?? []).map(normalizeSearchText),
-      ];
+      const pageLabel = normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]);
+      const fields = [title, pageLabel, ...(item.searchTerms ?? []).map(normalizeSearchText)];
       const matchesShortcut =
         item.shortcuts?.some((shortcut) => shortcut.includes(shortcutQuery)) === true;
       if (
@@ -1200,17 +1200,19 @@ export function searchSettings(
 
       const exactPhraseField = fields.findIndex((field) => field.includes(normalizedQuery));
       const rank =
-        title === normalizedQuery
-          ? 5
-          : title.startsWith(normalizedQuery)
-            ? 4
-            : title.includes(normalizedQuery)
-              ? 3
-              : queryTokens.every((token) => title.includes(token))
-                ? 2
-                : matchesShortcut || exactPhraseField >= 0
-                  ? 1
-                  : 0;
+        pageLabel === normalizedQuery || pageLabel === `${normalizedQuery}s`
+          ? 6
+          : title === normalizedQuery
+            ? 5
+            : title.startsWith(normalizedQuery)
+              ? 4
+              : title.includes(normalizedQuery)
+                ? 3
+                : queryTokens.every((token) => title.includes(token))
+                  ? 2
+                  : matchesShortcut || exactPhraseField >= 0
+                    ? 1
+                    : 0;
       return [{ item, index, rank }];
     })
     .toSorted(

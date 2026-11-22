@@ -69,7 +69,7 @@ host refuses the machine's SSH key, Codenine clones over HTTPS with Git's creden
 instead, and the workspace's remote uses the HTTPS URL.
 
 To lay clones out like [ghq](https://github.com/x-motemen/ghq), turn on **Clone into host folders**
-under **Settings → Threads**. Clones then go to `<host>/<owner>/<repo>` under **Add workspace starts
+under **Settings → Chats**. Clones then go to `<host>/<owner>/<repo>` under **Add workspace starts
 in**, so set that to `~/ghq` to share ghq's folders.
 
 For a local Git repository without a remote, **Publish Repository** creates a GitHub repository,

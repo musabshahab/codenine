@@ -96,6 +96,12 @@ describe("searchSettings", () => {
         .slice(0, 2)
         .map((item) => item.id),
     ).toEqual(["network-access", "connections-environment"]);
+    expect(searchSettings("environment")[0]?.to).toBe("/settings/connections");
+    expect(searchSettings("chats")[0]?.to).toBe("/settings/threads");
+    expect(searchSettings("tailscale")[0]?.id).toBe("remote-environments");
+    expect(searchSettings("pull request").map((item) => item.id)).not.toContain(
+      "diff-color-scheme",
+    );
   });
 
   it("hides desktop-only settings from browser search", () => {
@@ -343,6 +349,7 @@ describe("movedSettingsPath", () => {
     expect(movedSettingsPath("/settings/storage", "storage-worktrees")).toBe("/settings/worktrees");
     expect(movedSettingsPath("/settings/storage", "")).toBe("/settings/maintenance");
     expect(movedSettingsPath("/settings/beta", "")).toBe("/settings/labs");
+    expect(movedSettingsPath("/settings/integrations", "")).toBe("/settings/general");
   });
 
   it("leaves current pages alone", () => {
