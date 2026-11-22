@@ -181,6 +181,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   }, [compactSearchOpen]);
 
   const handleSectionClick = (to: SettingsPath) => {
+    setCompactSearchOpen(false);
+    searchInputRef.current?.blur();
     void navigate({
       to,
       hash: "",
@@ -241,6 +243,15 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     <nav
       {...navArea}
       role="navigation"
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        // Only the search field and the pages keep it expanded; a tap on blank space focuses
+        // the nav's scroll viewport, and that closes it.
+        const staysOpen =
+          next === searchInputRef.current ||
+          (next instanceof Element && next.matches("[data-settings-section]"));
+        if (!isSearching && !staysOpen) setCompactSearchOpen(false);
+      }}
       className={cn(
         "flex w-60 shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground max-md:w-14",
         compactSearchOpen &&
@@ -269,9 +280,6 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 }}
                 onKeyDown={handleSearchKeyDown}
                 onFocus={() => setCompactSearchOpen(true)}
-                onBlur={() => {
-                  if (!isSearching) setCompactSearchOpen(false);
-                }}
                 placeholder="Search"
                 aria-label="Search settings"
                 role="combobox"
@@ -399,6 +407,11 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                                 aria-selected={isActive}
                                 aria-current={isActive ? "page" : undefined}
                                 isActive={isActive}
+                                // Keeps focus in the search field: Safari does not focus a tapped
+                                // button, so the field's blur would collapse the rail under the tap.
+                                onPointerDown={
+                                  compactSearchOpen ? (event) => event.preventDefault() : undefined
+                                }
                                 onClick={() => handleSectionClick(to)}
                               >
                                 <Icon />
