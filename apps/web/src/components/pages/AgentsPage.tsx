@@ -89,7 +89,7 @@ export function AgentsPage(props: {
           </div>
         ) : null}
         {environment === null ? (
-          <p className="text-sm text-muted-foreground">Connect a computer to see its agents.</p>
+          <p className="text-sm text-muted-foreground">Connect an environment to see its agents.</p>
         ) : !connected ? (
           <p className="text-sm text-muted-foreground">
             Reconnect {label ?? environment.label} to see its agents.

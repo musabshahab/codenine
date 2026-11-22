@@ -90,7 +90,7 @@ export function ConnectorsPage(props: {
           </div>
         ) : null}
         {environment === null ? (
-          <p className="text-sm text-muted-foreground">Connect a computer to add connectors.</p>
+          <p className="text-sm text-muted-foreground">Connect an environment to add connectors.</p>
         ) : (
           // Keyed so dialogs and filters never carry over to another machine.
           <ConnectorsOnMachine

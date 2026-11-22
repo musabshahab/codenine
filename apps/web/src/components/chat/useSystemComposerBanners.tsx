@@ -123,7 +123,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not disconnect server",
+            title: "Could not disconnect environment",
             description: error instanceof Error ? error.message : "Failed to disconnect.",
           }),
         );
@@ -168,14 +168,14 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
           size="xs"
           variant="ghost"
           disabled={disconnectingEnvironment}
-          title="Hide this server's threads. Switch it on again in Environments."
+          title="Hide this environment's chats. Switch it on again in Environments."
           onClick={() =>
             void handleDisconnectActiveEnvironmentStable(
               activeEnvironmentUnavailableState.environmentId,
             )
           }
         >
-          Disconnect server
+          Disconnect environment
         </Button>
       ) : undefined;
     const environmentReconnecting =

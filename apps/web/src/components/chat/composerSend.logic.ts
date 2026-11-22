@@ -19,7 +19,7 @@ export function loadBalancingSendWarning(input: {
 }) {
   if (input.pending) {
     return {
-      title: "Checking machine resources",
+      title: "Checking environment resources",
       description:
         "Resource checks are still running. You can choose an environment in the composer.",
     };

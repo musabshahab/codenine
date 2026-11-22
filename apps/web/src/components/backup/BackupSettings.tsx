@@ -88,8 +88,8 @@ export function BackupSettingsPanel() {
       {environment === null ? (
         <SettingsSection id="backup-status" title="Backups unavailable" hideTitle>
           <SettingsRow
-            title="No computer connected"
-            description="Connect a computer to back it up."
+            title="No environment connected"
+            description="Connect an environment to back it up."
             control={
               <Button size="sm" variant="outline" render={<Link to="/settings/connections" />}>
                 Open Environments

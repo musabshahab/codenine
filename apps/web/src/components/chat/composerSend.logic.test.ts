@@ -33,7 +33,7 @@ describe("loadBalancingSendWarning", () => {
         threadContexts: [localThread, remoteThread],
         candidateEnvironmentIds: [],
       }).title,
-    ).toBe("Checking machine resources");
+    ).toBe("Checking environment resources");
   });
 
   it("blames the attached threads when no machine can read all of them", () => {
