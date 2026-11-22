@@ -174,6 +174,42 @@ it("re-enables Save when a When editor closes on an expression it could not pars
   await expect.element(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 });
 
+it.each<{ name: string; discard: () => Promise<void> }>([
+  {
+    name: "Cancel",
+    discard: () => page.getByRole("button", { name: "Cancel" }).click(),
+  },
+  {
+    name: "Esc in the shortcut field",
+    discard: async () => {
+      await activate(
+        page.getByRole("textbox", { name: "Keybinding for Terminal: Toggle" }),
+        "focus",
+      );
+      await userEvent.keyboard("{Escape}");
+    },
+  },
+])("discards a changed condition with $name", async ({ discard }) => {
+  setup();
+  await using screen = await render(
+    <RegistryProvider>
+      <KeybindingsSettingsPanel />
+    </RegistryProvider>,
+  );
+  const whenTrigger = screen.getByRole("button", { name: "Edit when clause for Terminal: Toggle" });
+  const original = (whenTrigger.element() as HTMLElement).textContent;
+
+  await whenTrigger.click();
+  await userEvent.type(screen.getByRole("textbox", { name: "When expression" }), "x");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+
+  await discard();
+
+  await expect.element(screen.getByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  await expect.element(whenTrigger).toHaveTextContent(original ?? "");
+});
+
 it("edits only the keybindings of the environment this client takes its shortcuts from", async () => {
   setup({
     environments: [

@@ -740,6 +740,12 @@ function useKeybindingRowEditor({
     });
   };
 
+  const discard = () => {
+    flushSync(() => setDraft(createKeybindingRowDraft(row)));
+    // The edited controls unmount for the pill; focus would otherwise drop to the page.
+    pillRef.current?.focus();
+  };
+
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
     const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
       layoutCharacter: true,
@@ -749,11 +755,7 @@ function useKeybindingRowEditor({
     if (event.key === "Escape") {
       // An unhandled Escape closes the settings page.
       event.stopPropagation();
-      const field = event.currentTarget;
-      flushSync(() => setDraft({ keyDraft: row.key, isRecording: false }));
-      // The field may unmount for the pill; focus would otherwise drop to the page.
-      if (pillRef.current) pillRef.current.focus();
-      else field.blur();
+      discard();
       return;
     }
     if (!next) return;
@@ -770,6 +772,7 @@ function useKeybindingRowEditor({
     conflictLabels,
     setDraft,
     save,
+    discard,
     captureKeybinding,
     pillRef,
   };
@@ -809,6 +812,7 @@ function KeybindingKeyControl({
     isWhenDraftValid,
     setDraft,
     save,
+    discard,
     captureKeybinding,
     pillRef,
   } = editor;
@@ -817,13 +821,18 @@ function KeybindingKeyControl({
   return (
     <>
       {isDirty ? (
-        <Button
-          size="sm"
-          disabled={isSaving || keyDraft.trim().length === 0 || !isWhenDraftValid}
-          onClick={save}
-        >
-          {isSaving ? "Saving" : "Save"}
-        </Button>
+        <>
+          <Button size="sm" variant="ghost" disabled={isSaving} onClick={discard}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={isSaving || keyDraft.trim().length === 0 || !isWhenDraftValid}
+            onClick={save}
+          >
+            {isSaving ? "Saving" : "Save"}
+          </Button>
+        </>
       ) : null}
       {showPill ? (
         <button
