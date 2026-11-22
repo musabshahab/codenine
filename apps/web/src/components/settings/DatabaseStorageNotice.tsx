@@ -8,7 +8,6 @@ import {
   type DatabaseStorageStatus,
   type EnvironmentId,
 } from "@codenine/contracts";
-import * as Schema from "effect/Schema";
 import { type ReactNode, useState } from "react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -27,9 +26,12 @@ import {
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
+import {
+  DismissedReclaimableBytes,
+  isDatabaseNoticeDismissed,
+} from "./DatabaseStorageNotice.logic";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 
-const DismissedEnvironmentIds = Schema.Array(Schema.String);
 const reclaimPermissionsAtom = environmentAtomList(
   "web-database-reclaim-permissions",
   serverEnvironment.reclaimDatabaseSpace.permissionAtom,
@@ -37,7 +39,7 @@ const reclaimPermissionsAtom = environmentAtomList(
 
 const formatGiB = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 
-/** Offers to reclaim the space on every machine whose database still holds at least 1 GiB of freed pages. */
+/** Offers to reclaim the space on every environment whose database still holds at least 1 GiB of freed pages. */
 export function DatabaseStorageNotice({
   environments,
 }: {
@@ -49,13 +51,20 @@ export function DatabaseStorageNotice({
   );
   const permissions = useAtomValue(reclaimPermissionsAtom(environmentIdsKey(environmentIds)));
   const [dismissed, setDismissed] = useLocalStorage(
-    "database-storage-notice-dismissed",
-    [],
-    DismissedEnvironmentIds,
+    "database-storage-notice-dismissed-bytes",
+    {},
+    DismissedReclaimableBytes,
   );
   const { copyToClipboard } = useCopyToClipboard({ target: "command" });
   const visible = recommendations
-    .filter((recommendation) => !dismissed.includes(recommendation.environmentId))
+    .filter(
+      (recommendation) =>
+        !isDatabaseNoticeDismissed(
+          dismissed,
+          recommendation.environmentId,
+          recommendation.status.reclaimableBytes,
+        ),
+    )
     .map((recommendation) => ({
       ...recommendation,
       label:
@@ -82,7 +91,9 @@ export function DatabaseStorageNotice({
           <Button
             variant="ghost"
             size="xs"
-            onClick={() => setDismissed((current) => [...current, environmentId])}
+            onClick={() =>
+              setDismissed((current) => ({ ...current, [environmentId]: status.reclaimableBytes }))
+            }
           >
             Dismiss
           </Button>
