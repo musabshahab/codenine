@@ -33,18 +33,17 @@ export function AutoSettleDaysInput({
       className="w-full sm:w-32"
       min={MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
       max={MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS}
+      // A low number must not clamp up to 1 day, the harshest sweep; it is dropped below.
+      allowOutOfRange
       step={1}
       value={draft}
       onValueChange={setDraft}
       onValueCommitted={(next) => {
-        if (next === null) {
+        if (next === null || next < MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS) {
           setDraft(value);
           return;
         }
-        const days = Math.min(
-          MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
-          Math.max(MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS, Math.round(next)),
-        );
+        const days = Math.min(MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS, Math.round(next));
         setDraft(days);
         if (days !== value) onCommit(days);
       }}
