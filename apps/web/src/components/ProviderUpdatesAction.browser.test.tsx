@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
     environmentId: EnvironmentId;
     label: string;
     connection: { phase: "connected" | "disconnected" };
+    serverConfig?: { settings: { enableProviderUpdateChecks: boolean } };
   }[],
   providers: new Map<EnvironmentId, ReadonlyArray<ServerProvider>>(),
   requests: [] as EnvironmentId[],
@@ -175,6 +176,16 @@ it("provider updates and checks exclude connections without a confirmed manageme
   });
   expect(toast).toHaveBeenCalledWith(
     expect.objectContaining({ title: "Could not check provider updates" }),
+  );
+  // A check against an environment whose update checks are off must say so, not look up to date.
+  state.checkResult = null;
+  state.environments[1]!.serverConfig = { settings: { enableProviderUpdateChecks: false } };
+  toast.mockClear();
+  await act(async () => {
+    await check();
+  });
+  expect(toast).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "info", title: "Provider update checks are off" }),
   );
 
   await act(() => {
