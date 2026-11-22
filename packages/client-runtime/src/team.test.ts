@@ -225,12 +225,13 @@ describe("changeTeamDraft", () => {
     expect(assigned.agents[1]).toEqual({ ...inlineAgent("checker"), agent: "fact-checker" });
     const back = changeTeamDraft(assigned, { type: "agent.unassign", agentId: checker });
     expect(back.agents[1]).toEqual(inlineAgent("checker"));
-    // A saved agent's member has no definition of the lead's to go back to.
-    const saved = changeTeamDraft(back, {
+    // Any member can run without its saved agent, keeping its name and model.
+    const { agent: _agent, ...builderWithout } = back.agents[0]!;
+    const unassignedSaved = changeTeamDraft(back, {
       type: "agent.unassign",
       agentId: TeamAgentId.make("builder"),
     });
-    expect(saved).toBe(back);
+    expect(unassignedSaved.agents[0]).toEqual(builderWithout);
     // The lead gives most members no instructions; the edit's base still shows it defined them.
     const { instructions: _instructions, ...plain } = inlineAgent("checker");
     const plainBase = teamDraftOf(plan({ agents: [agent("builder"), plain] }));
@@ -255,6 +256,14 @@ describe("changeTeamDraft", () => {
       plainBase,
     );
     expect(plainBack.agents[1]).toEqual(plain);
+    // After a save the base shows the swap, and the member can still run without the agent.
+    const savedBase = teamDraftOf(plan({ agents: [agent("builder"), swapped] }));
+    const afterSave = changeTeamDraft(
+      savedBase,
+      { type: "agent.unassign", agentId: checker },
+      savedBase,
+    );
+    expect(afterSave.agents[1]).toEqual(plain);
   });
 
   it("edits a member's name, role, workspace and instructions, trimmed", () => {

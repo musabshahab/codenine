@@ -253,7 +253,8 @@ export function changeTeamDraft(
       });
     case "agent.unassign": {
       const member = draft.agents.find((candidate) => candidate.id === change.agentId);
-      if (member?.agent === undefined || !teamMemberLeadDefined(base, member)) return draft;
+      // Any member can drop its saved agent and run as one made for this team, on its own model.
+      if (member?.agent === undefined) return draft;
       return changeMember(draft, change.agentId, ({ agent: _agent, ...rest }) => rest);
     }
     case "member.edit":

@@ -340,8 +340,9 @@ member runs with the agent's instructions, skills and connectors. Otherwise the 
 just for this team, marked **Made for this team**, with its own instructions, which you can read
 and edit under **Edit team**. Such a member uses the connectors of the lead's chat and is not added
 to your agents; it is gone when the team is. Its menu offers **Use one of your agents, on this
-model**, **Save as agent…** to keep it as one of your agents, and, after either, **Back to the
-lead's definition**.
+model** and **Save as agent…** to keep it as one of your agents. A member that runs one of your
+agents can go back to being made for this team, on its current model: **Back to the lead's
+definition** before you save, **Run without the agent** after.
 
 Nothing runs until you approve, from the Task tab or with **Approve team** at the top of the
 lead's chat. The Task tab lists the team's steps in order, each with its brief, the agent that
@@ -350,8 +351,8 @@ another of your agents, and its model to change the model or effort for this tea
 keeps its model. **Use for all agents** puts the whole team on that model. **Edit team** adds a
 member, either one of your agents or a new member made for this team, with its role and where it
 works, or removes one that has no steps; choose a member's name there to run it as another of your
-agents. It also sets how many tasks run at a time on each account, from one to six. You can also edit a step's brief or remove the
-step. To add, reorder or split steps, ask the lead. Your edits apply once you choose **Save** or
+agents. Below the team, **Up to N tasks at a time per account** sets how many steps run at once,
+from one to six. You can also edit a step's brief or remove the step. To add, reorder or split steps, ask the lead. Your edits apply once you choose **Save** or
 **Approve and start**. If the team changes while you edit, for example because the lead proposed a
 new one, the tab shows the new team and tells you your changes were not applied. **Cancel team**
 drops the plan.

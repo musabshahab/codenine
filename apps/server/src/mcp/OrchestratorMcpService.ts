@@ -1451,7 +1451,7 @@ const make = Effect.gen(function* () {
       requestedModel ??
       (instanceId === inheritedSelection.instanceId
         ? inheritedSelection.model
-        : provider.models[0]?.slug);
+        : provider.models.find((candidate) => candidate.info?.usesTools !== false)?.slug);
     if (model === undefined) {
       return yield* failure(
         "model_unavailable",

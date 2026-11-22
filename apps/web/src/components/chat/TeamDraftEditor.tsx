@@ -418,9 +418,10 @@ function TeamRosterRow(props: {
           disabled={props.disabled}
           onChange={props.onChange}
         />
-        {leadDefined ? (
+        {leadDefined || member.agent !== undefined ? (
           <TeamMemberMenu
             member={member}
+            leadDefined={leadDefined}
             name={name}
             yours={props.yours}
             catalog={props.catalog}
@@ -595,10 +596,11 @@ function TeamChooseAgentMenu(props: {
 
 /**
  * A member the lead defined: run it as one of the user's agents and back, edit it, or save it as
- * an agent of the user's own.
+ * an agent of the user's own. A member on a saved agent can also run without it.
  */
 function TeamMemberMenu(props: {
   member: TeamAgent;
+  leadDefined: boolean;
   name: string;
   yours: YourAgents;
   catalog: TeamModelCatalog;
@@ -619,14 +621,18 @@ function TeamMemberMenu(props: {
         <EllipsisIcon aria-hidden />
       </MenuTrigger>
       <MenuPopup align="end" className="w-72">
-        <TeamAgentChoices
-          member={member}
-          label="Use one of your agents, on this model"
-          yours={props.yours}
-          catalog={props.catalog}
-          onChange={props.onChange}
-        />
-        <MenuSeparator />
+        {props.leadDefined ? (
+          <>
+            <TeamAgentChoices
+              member={member}
+              label="Use one of your agents, on this model"
+              yours={props.yours}
+              catalog={props.catalog}
+              onChange={props.onChange}
+            />
+            <MenuSeparator />
+          </>
+        ) : null}
         {member.agent === undefined ? (
           <>
             <MenuItem onClick={props.onEdit}>
@@ -641,7 +647,7 @@ function TeamMemberMenu(props: {
         ) : (
           <MenuItem onClick={() => props.onChange({ type: "agent.unassign", agentId: member.id })}>
             <Undo2Icon aria-hidden />
-            Back to the lead's definition
+            {props.leadDefined ? "Back to the lead's definition" : "Run without the agent"}
           </MenuItem>
         )}
       </MenuPopup>

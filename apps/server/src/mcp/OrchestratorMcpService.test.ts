@@ -1990,6 +1990,13 @@ describe("OrchestratorMcpService provider resolution", () => {
               }),
               models: [
                 {
+                  slug: "gpt-other-chat",
+                  name: "gpt-other-chat",
+                  isCustom: false,
+                  capabilities: null,
+                  info: { usesTools: false, readsImages: null, price: null },
+                },
+                {
                   slug: "gpt-other",
                   name: "gpt-other",
                   isCustom: false,
@@ -2092,6 +2099,8 @@ describe("OrchestratorMcpService provider resolution", () => {
               target: { options: [{ id: "fastMode", value: true }] },
             }),
             member("helper", { instructions: "  " }),
+            // Named by instance alone, a member starts on its first model that can call tools.
+            member("other", { target: { providerInstanceId: otherInstanceId } }),
             {
               ...member("copy", {
                 label: "Copywriter",
@@ -2171,6 +2180,13 @@ describe("OrchestratorMcpService provider resolution", () => {
               workspace: "shared",
               label: "helper",
               modelSelection: lead,
+            },
+            {
+              id: TeamAgentId.make("other"),
+              role: "implement",
+              workspace: "shared",
+              label: "other",
+              modelSelection: { instanceId: otherInstanceId, model: "gpt-other" },
             },
             {
               id: TeamAgentId.make("copy"),

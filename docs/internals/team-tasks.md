@@ -36,7 +36,9 @@ of a lead that turned connectors off would reach every default-on connector. A m
 names one of the user's agents, and its thread is created with that agent as `thread.agent`, so it
 runs with the agent's instructions, abilities, connectors and skills. A `target` on such a member is
 laid over the agent's own model, not the lead's. The user can swap either kind for the other in the
-Task tab; a swapped lead-defined member keeps its label and model so the swap can be undone.
+Task tab. A swapped lead-defined member keeps its label and model, and any member can drop its
+saved agent again; the plan records no "lead-defined" marker, so the client tells the two apart
+only from the draft the edit began with, and only for the wording and the label it keeps.
 
 Members with `suggestion` come from plans and workflows made before inline members. The decider
 still refuses `team.approve` while one has no agent (`teamMembersWithoutAgent`), and `team.start`
