@@ -89,7 +89,7 @@ export const make = Effect.gen(function* () {
   const getTurnDiff: CheckpointDiffQuery["Service"]["getTurnDiff"] = Effect.fn("getTurnDiff")(
     function* (input) {
       const operation = "CheckpointDiffQuery.getTurnDiff";
-      const ignoreWhitespace = input.ignoreWhitespace ?? true;
+      const ignoreWhitespace = input.ignoreWhitespace ?? false;
       yield* Effect.annotateCurrentSpan({
         "checkpoint.thread_id": input.threadId,
         "checkpoint.from_turn_count": input.fromTurnCount,
@@ -268,7 +268,7 @@ export const make = Effect.gen(function* () {
     "CheckpointDiffQuery.getFullThreadDiff",
   )(function* (input) {
     const operation = "CheckpointDiffQuery.getFullThreadDiff";
-    const ignoreWhitespace = input.ignoreWhitespace ?? true;
+    const ignoreWhitespace = input.ignoreWhitespace ?? false;
     yield* Effect.annotateCurrentSpan({
       "checkpoint.thread_id": input.threadId,
       "checkpoint.from_turn_count": 0,
