@@ -741,7 +741,10 @@ function useKeybindingRowEditor({
   };
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Tab" && !isRecording) return;
+    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
+      layoutCharacter: true,
+    });
+    if (event.key === "Tab" && (!isRecording || next === null)) return;
     event.preventDefault();
     if (event.key === "Escape") {
       // An unhandled Escape closes the settings page.
@@ -753,9 +756,6 @@ function useKeybindingRowEditor({
       else field.blur();
       return;
     }
-    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
-      layoutCharacter: true,
-    });
     if (!next) return;
     setDraft({ keyDraft: next, isRecording: false });
   };
@@ -1079,7 +1079,10 @@ function useNewKeybindingDraft({
   };
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Tab" && !isRecording) return;
+    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
+      layoutCharacter: true,
+    });
+    if (event.key === "Tab" && (!isRecording || next === null)) return;
     event.preventDefault();
     if (event.key === "Escape") {
       // An unhandled Escape closes the settings page.
@@ -1088,9 +1091,6 @@ function useNewKeybindingDraft({
       event.currentTarget.blur();
       return;
     }
-    const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
-      layoutCharacter: true,
-    });
     if (!next) return;
     setDraft({ keyDraft: next, isRecording: false });
   };

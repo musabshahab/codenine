@@ -144,20 +144,23 @@ describe("KeybindingsSettings.logic", () => {
     ).toBe("mod+shift+k");
   });
 
-  it("waits for a key when only a modifier is pressed", () => {
+  it.each([
+    ["only a modifier", { key: "Meta", code: "MetaLeft", metaKey: true, shiftKey: false }],
+    ["bare Tab", { key: "Tab", code: "Tab", metaKey: false, shiftKey: false }],
+    ["Shift+Tab", { key: "Tab", code: "Tab", metaKey: false, shiftKey: true }],
+  ])("records nothing for %s", (_name, pressed) => {
+    expect(
+      keybindingFromKeyboardEvent({ ...pressed, ctrlKey: false, altKey: false }, "MacIntel"),
+    ).toBeNull();
+  });
+
+  it("records Tab with a command modifier", () => {
     expect(
       keybindingFromKeyboardEvent(
-        {
-          key: "Meta",
-          code: "MetaLeft",
-          metaKey: true,
-          ctrlKey: false,
-          altKey: false,
-          shiftKey: false,
-        },
-        "MacIntel",
+        { key: "Tab", code: "Tab", metaKey: false, ctrlKey: true, altKey: false, shiftKey: false },
+        "Win32",
       ),
-    ).toBeNull();
+    ).toBe("mod+tab");
   });
 
   it.each([

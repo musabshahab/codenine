@@ -534,6 +534,8 @@ export function keybindingFromKeyboardEvent(
     options?.layoutCharacter ? recordedLayoutShortcutKey(event) : shortcutKeyFromEvent(event),
   );
   if (!keyToken) return null;
+  // Bare Tab and Shift+Tab move focus; binding them would break keyboard navigation.
+  if (keyToken === "tab" && !event.metaKey && !event.ctrlKey && !event.altKey) return null;
 
   const parts: string[] = [];
   if (isMacPlatform(platform)) {
