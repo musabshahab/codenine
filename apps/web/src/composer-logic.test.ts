@@ -102,25 +102,41 @@ describe("composerSubmissionIntentForKey", () => {
     isDraftThread: false,
   };
   const enter = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
+  const chords = {
+    Enter: enter,
+    "Ctrl+Enter": { ...enter, ctrlKey: true },
+    "Ctrl+Shift+Enter": { ...enter, ctrlKey: true, shiftKey: true },
+  };
 
   it.each([
-    ["enter", "one line", false, "foreground"],
-    ["enter", "two\nlines", false, "foreground"],
-    ["mod-enter-multiline", "one line", false, "foreground"],
-    ["mod-enter-multiline", "two\nlines", false, null],
-    ["mod-enter-multiline", "two\nlines", true, "foreground"],
-    ["mod-enter", "one line", false, null],
-    ["mod-enter", "one line", true, "foreground"],
-  ] as const)("honors %s for %j", (sendShortcut, prompt, ctrlKey, expected) => {
-    expect(
-      composerSubmissionIntentForKey({
-        ...input,
-        event: { ...enter, ctrlKey },
-        sendShortcut,
-        prompt,
-      }),
-    ).toBe(expected);
-  });
+    ["enter", "one line", "Enter", false, "foreground"],
+    ["enter", "two\nlines", "Enter", false, "foreground"],
+    ["mod-enter-multiline", "one line", "Enter", false, "foreground"],
+    ["mod-enter-multiline", "two\nlines", "Enter", false, null],
+    ["mod-enter-multiline", "two\nlines", "Ctrl+Enter", false, "foreground"],
+    ["mod-enter", "one line", "Enter", false, null],
+    ["mod-enter", "one line", "Ctrl+Enter", false, "foreground"],
+    ["enter", "one line", "Ctrl+Enter", true, "background"],
+    ["mod-enter-multiline", "one line", "Ctrl+Enter", true, "background"],
+    ["mod-enter-multiline", "two\nlines", "Enter", true, null],
+    ["mod-enter-multiline", "two\nlines", "Ctrl+Enter", true, "foreground"],
+    ["mod-enter-multiline", "two\nlines", "Ctrl+Shift+Enter", true, "background"],
+    ["mod-enter", "one line", "Ctrl+Enter", true, "foreground"],
+    ["mod-enter", "one line", "Ctrl+Shift+Enter", true, "background"],
+  ] as const)(
+    "honors %s for %j with %s (new chat: %s)",
+    (sendShortcut, prompt, chord, isDraftThread, expected) => {
+      expect(
+        composerSubmissionIntentForKey({
+          ...input,
+          isDraftThread,
+          event: chords[chord],
+          sendShortcut,
+          prompt,
+        }),
+      ).toBe(expected);
+    },
+  );
 
   it("honors the send preference with an existing install's saved alternate binding", () => {
     const keybindings = mergeWithDefaultKeybindings(

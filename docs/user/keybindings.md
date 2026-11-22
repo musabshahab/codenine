@@ -10,10 +10,11 @@ In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires
 inserts a new line.
 
 **Follow-up behavior** chooses Queue or Steer while the agent runs. Use
-`mod+Enter` to do the opposite for one message, even when the send shortcut
-requires a modifier. `mod+Alt+Enter` sends, keeps that thread running in the
-background, and opens a new chat. In a new chat, `mod+Enter` does the same. Change
-these shortcuts in **Settings → Keybindings** under
+`mod+Enter` to do the opposite for one message. `mod+Alt+Enter` sends, keeps that
+thread running in the background, and opens a new chat. In a new chat, `mod+Enter`
+does the same. When the send shortcut requires `mod+Enter` for the current prompt,
+both `mod+Enter` shortcuts move to `mod+Shift+Enter`, so `mod+Enter` sends
+normally. Change these shortcuts in **Settings → Keybindings** under
 **Composer: Opposite Queue or Steer Action**, **Composer: Start in Background**,
 or **Composer: Send and Start New Chat**. These bindings take priority over the
 send shortcut. Click the send button to use the configured follow-up behavior.

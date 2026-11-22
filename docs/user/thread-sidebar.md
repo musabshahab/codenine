@@ -43,7 +43,8 @@ get branch and diff controls.
 ### Start in the background
 
 Press `Cmd+Enter` on macOS or `Ctrl+Enter`
-on Windows and Linux to start a new thread and immediately open another draft. The
+on Windows and Linux to start a new thread and immediately open another draft. If
+**Settings → Chat → Send shortcut** makes that chord send the prompt, add **Shift**. The
 next draft keeps the checkout and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
