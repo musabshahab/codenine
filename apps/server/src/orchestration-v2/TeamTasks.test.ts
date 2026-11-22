@@ -32,6 +32,7 @@ import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
@@ -915,7 +916,7 @@ it.effect("a task that worked in its own worktree tells its dependents where", (
 );
 
 it.effect(
-  "neither a delegated child nor a fork takes over a thread's team, team task or workflow draft",
+  "neither a delegated child nor a fork takes over a thread's team, team task, workflow draft, saved workflow or workflow results",
   () =>
     withTeam((launched) =>
       Effect.gen(function* () {
@@ -952,6 +953,23 @@ it.effect(
           rejection(yield* Effect.exit(setDraft(buildThreadId!))),
           "workflow_task_thread",
         );
+        const markSaved = (threadId: ThreadId) =>
+          dispatch({
+            type: "workflow.draft.saved",
+            commandId: CommandId.make(`saved:${threadId}`),
+            threadId,
+            workflowId: WorkflowId.make("workflow-digest"),
+            proposedAt: "2026-11-18T10:00:00.000Z",
+          });
+        yield* markSaved(leadThreadId);
+        assert.deepEqual((yield* thread(leadThreadId)).thread.savedWorkflow, {
+          id: WorkflowId.make("workflow-digest"),
+          proposedAt: "2026-11-18T10:00:00.000Z",
+        });
+        assert.include(
+          rejection(yield* Effect.exit(markSaved(buildThreadId!))),
+          "workflow_task_thread",
+        );
         const fork = (sourceThreadId: ThreadId, targetThreadId: ThreadId) =>
           dispatch({
             type: "thread.fork",
@@ -963,9 +981,25 @@ it.effect(
             createdBy: "user",
             creationSource: "web",
           }).pipe(Effect.andThen(thread(targetThreadId)));
+        yield* dispatch({
+          type: "workflow.run.report",
+          commandId: CommandId.make("report-to-lead"),
+          threadId: leadThreadId,
+          workflowId: WorkflowId.make("workflow-digest"),
+          run: 1,
+          title: "Weekly digest",
+          leadThreadId: ThreadId.make("thread:workflow:workflow-digest:1"),
+          status: "completed",
+          headline: null,
+          result: "The digest.",
+        });
+        assert.lengthOf((yield* thread(leadThreadId)).thread.pendingWorkflowResults ?? [], 1);
         const leadFork = yield* fork(leadThreadId, ThreadId.make("thread:lead-fork"));
         assert.notExists(leadFork.thread.team);
         assert.notExists(leadFork.thread.workflowDraft);
+        assert.notExists(leadFork.thread.savedWorkflow);
+        assert.notExists(leadFork.thread.workflowResultAt);
+        assert.notExists(leadFork.thread.pendingWorkflowResults);
         const taskFork = yield* fork(buildThreadId!, ThreadId.make("thread:task-fork"));
         assert.notExists(taskFork.thread.teamTask);
 
@@ -999,6 +1033,121 @@ it.effect(
         assert.exists(lead.thread.team);
         const child = yield* thread(lead.subagents[0]!.childThreadId!);
         assert.notExists(child.thread.team);
+      }),
+    ),
+);
+
+it.effect(
+  "a workflow run's result is a card in its chat, and only a new ending is news to the chat",
+  () =>
+    withTeam(() =>
+      Effect.gen(function* () {
+        const workflowId = WorkflowId.make("workflow:digest");
+        const report = (
+          key: string,
+          run: number,
+          status: "completed" | "failed" | "cancelled",
+          headline: string | null = "Sent the digest",
+        ) =>
+          dispatch({
+            type: "workflow.run.report",
+            commandId: CommandId.make(`report:${key}`),
+            threadId: leadThreadId,
+            workflowId,
+            run,
+            title: "Weekly digest",
+            leadThreadId: ThreadId.make(`thread:workflow:${workflowId}:${run}`),
+            status,
+            headline,
+            result: `Digest ${run}`,
+          });
+        const cardOf = (run: number) =>
+          thread(leadThreadId).pipe(
+            Effect.map(({ turnItems }) =>
+              turnItems.find((item) => item.id === `workflow-run:${workflowId}:${run}`),
+            ),
+          );
+        yield* createLead;
+        yield* dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("settle-chat"),
+          threadId: leadThreadId,
+        });
+        assert.isNull((yield* thread(leadThreadId)).thread.lastVisitedAt);
+
+        yield* TestClock.adjust("1 minute");
+        const reportedAt = yield* DateTime.now;
+        yield* report("first", 1, "completed");
+        const first = (yield* thread(leadThreadId)).thread;
+        assert.deepInclude(yield* cardOf(1), {
+          type: "workflow_run",
+          runId: null,
+          status: "completed",
+          title: "Weekly digest",
+          run: 1,
+          headline: "Sent the digest",
+          result: "Digest 1",
+          startedAt: reportedAt,
+          completedAt: reportedAt,
+        });
+        assert.deepEqual(first.workflowResultAt, reportedAt);
+        assert.deepEqual(first.pendingWorkflowResults, [
+          TurnItemId.make(`workflow-run:${workflowId}:1`),
+        ]);
+        // Unread on every client, and back from Done.
+        assert.deepEqual(first.lastVisitedAt, DateTime.subtract(reportedAt, { milliseconds: 1 }));
+        assert.include(first, { settledOverride: null, settledAt: null });
+        assert.deepEqual(first.unsettledAt, reportedAt);
+
+        // The same report again changes nothing.
+        yield* TestClock.adjust("1 minute");
+        assert.lengthOf((yield* report("repeat", 1, "completed")).storedEvents, 0);
+
+        // A new headline updates the card but is not news.
+        yield* report("headline", 1, "completed", "Sent a shorter digest");
+        assert.include(yield* cardOf(1), { headline: "Sent a shorter digest" });
+        assert.deepEqual((yield* cardOf(1))?.startedAt, reportedAt);
+        assert.deepInclude((yield* thread(leadThreadId)).thread, {
+          workflowResultAt: reportedAt,
+          pendingWorkflowResults: first.pendingWorkflowResults,
+        });
+
+        // A new ending is.
+        const failedAt = yield* DateTime.now;
+        yield* report("failed", 1, "failed");
+        assert.include(yield* cardOf(1), { status: "failed" });
+        assert.deepEqual((yield* thread(leadThreadId)).thread.workflowResultAt, failedAt);
+
+        // The agent is given at most the five newest.
+        for (const run of [2, 3, 4, 5, 6]) yield* report(`run-${run}`, run, "completed");
+        assert.deepEqual(
+          (yield* thread(leadThreadId)).thread.pendingWorkflowResults,
+          [2, 3, 4, 5, 6].map((run) => TurnItemId.make(`workflow-run:${workflowId}:${run}`)),
+        );
+
+        // A chat with results and no run of its own can be marked unread.
+        yield* dispatch({
+          type: "thread.visit",
+          commandId: CommandId.make("visit-chat"),
+          threadId: leadThreadId,
+          visitedAt: DateTime.formatIso(yield* DateTime.now),
+        });
+        yield* dispatch({
+          type: "thread.mark-unread",
+          commandId: CommandId.make("mark-chat-unread"),
+          threadId: leadThreadId,
+        });
+        assert.deepEqual(
+          (yield* thread(leadThreadId)).thread.lastVisitedAt,
+          DateTime.subtract(failedAt, { milliseconds: 1 }),
+        );
+
+        yield* dispatch({
+          type: "thread.delete",
+          commandId: CommandId.make("delete-chat"),
+          threadId: leadThreadId,
+        });
+        assert.include(rejection(yield* Effect.exit(report("deleted", 7, "completed"))), "deleted");
       }),
     ),
 );

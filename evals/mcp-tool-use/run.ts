@@ -41,6 +41,7 @@ import {
   EnvironmentId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
+  ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT,
   OrchestratorMcpProposeTeamInput,
   PullRequestState,
   ThreadId,
@@ -1162,6 +1163,8 @@ export const codenineDefault = (
           }
         : { code: "invalid_request", message: issue.message };
     }
+    case "propose_workflow":
+      return { status: "drafted", next: ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT };
     case "link_pull_request": {
       const alreadyLinked = sample.linked.has(pr().url);
       sample.linked.add(pr().url);

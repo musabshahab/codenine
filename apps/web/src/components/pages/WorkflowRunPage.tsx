@@ -51,7 +51,6 @@ import {
 } from "../agents/useAgents";
 import { useAccessEnvironment } from "../settings/useAccessEnvironment";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -65,6 +64,7 @@ import {
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
+import { RunStatusBadge } from "../workflows/RunStatusBadge";
 import { type CanvasStep, type CanvasStepTone, WorkflowCanvas } from "../workflows/WorkflowCanvas";
 import { WorkflowBreadcrumb } from "../workflows/WorkflowHeader";
 import { useWorkflowClock, useWorkflowRuns } from "../workflows/workflowHooks";
@@ -78,23 +78,13 @@ import {
   leadActivity,
   raisedLimitLine,
   raisedLimits,
-  RUN_STATUS_LABELS,
   runStepPositions,
   type StepRunKind,
   stepRunState,
   threadWaitsForUser,
-  type WorkflowRunStatus,
   workflowRunStatus,
 } from "../workflows/workflows.logic";
 import { WorkspacePage } from "./WorkspacePage";
-
-const STATUS_BADGE = {
-  running: "info",
-  waiting: "warning",
-  done: "success",
-  failed: "error",
-  stopped: "outline",
-} as const satisfies Record<WorkflowRunStatus, string>;
 
 const STEP_TONE: Record<StepRunKind, CanvasStepTone> = {
   waiting: "muted",
@@ -222,6 +212,10 @@ function WorkflowRunView(props: {
   const plan = useAtomValue(environmentThreadDetails.teamAtom(leadRef));
   const status = useThreadStatus(leadRef);
   const leadShell = useQuietThreadShell(leadRef);
+  const chatThreadId = plan?.run?.chatThreadId;
+  const chat = useQuietThreadShell(
+    chatThreadId === undefined ? null : scopeThreadRef(environmentId, chatThreadId),
+  );
   const shells = useQuietThreadShells();
   const catalog = useAgentModelCatalog(environmentId);
   const openThread = (threadId: ThreadId) =>
@@ -314,11 +308,7 @@ function WorkflowRunView(props: {
     <WorkspacePage
       area="workflow"
       title={breadcrumb}
-      subtitle={
-        <Badge variant={STATUS_BADGE[runStatus]} size="lg">
-          {RUN_STATUS_LABELS[runStatus]}
-        </Badge>
-      }
+      subtitle={<RunStatusBadge status={runStatus} size="lg" />}
       actions={
         <>
           <span className="hidden text-muted-foreground text-xs md:inline">{header}</span>
@@ -355,7 +345,12 @@ function WorkflowRunView(props: {
               }}
             />
           </section>
-          <LeadNotes leadRef={leadRef} clock={clock} onOpen={() => openThread(leadRef.threadId)} />
+          <LeadNotes
+            leadRef={leadRef}
+            clock={clock}
+            onOpen={() => openThread(leadRef.threadId)}
+            onOpenChat={chat === null || chat.deletedAt !== null ? null : () => openThread(chat.id)}
+          />
         </div>
         <aside
           aria-label="Waiting for you"
@@ -683,6 +678,8 @@ function LeadNotes(props: {
   readonly leadRef: ScopedThreadRef;
   readonly clock: FormatOptions;
   readonly onOpen: () => void;
+  /** Opens the workflow's chat, which this run reports to. */
+  readonly onOpenChat: (() => void) | null;
 }) {
   const items = useQuietThreadVisibleTurnItems(props.leadRef);
   const notes = items.flatMap((row) => {
@@ -696,9 +693,16 @@ function LeadNotes(props: {
         <h2 id="lead-notes-title" className="font-semibold text-foreground text-sm">
           Lead's notes
         </h2>
-        <Button size="xs" variant="link" onClick={props.onOpen}>
-          Open the lead's chat
-        </Button>
+        <span className="flex gap-1">
+          <Button size="xs" variant="link" onClick={props.onOpen}>
+            Open the lead's chat
+          </Button>
+          {props.onOpenChat === null ? null : (
+            <Button size="xs" variant="link" onClick={props.onOpenChat}>
+              Open chat
+            </Button>
+          )}
+        </span>
       </div>
       {notes.length === 0 ? (
         <p className="text-muted-foreground text-sm">The lead hasn't written anything yet.</p>

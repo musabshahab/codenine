@@ -2,6 +2,7 @@ import {
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
+  ThreadId,
   WorkflowDefinition,
   WorkflowId,
   type WorkflowName,
@@ -56,6 +57,8 @@ const WorkflowStateFile = Schema.Struct({
   noted: Schema.Array(PositiveInt),
   /** Whose runs these are, kept here so they are still found when workflow.json cannot be read. */
   workflowId: Schema.optional(WorkflowId),
+  /** The chat this workflow's runs report to. */
+  chatThreadId: Schema.optional(ThreadId),
 });
 export type WorkflowState = typeof WorkflowStateFile.Type;
 const decodeState = Schema.decodeUnknownOption(Schema.fromJsonString(WorkflowStateFile));

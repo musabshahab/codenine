@@ -35,9 +35,12 @@ vi.mock("react", async (original) => ({
 }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => router }));
 vi.mock("./useSettings", () => ({ useClientSettings: () => false }));
+const drafts = vi.hoisted(() => ({ opened: [] as unknown[] }));
 vi.mock("./useHandleNewThread", () => ({
-  useNewThreadHandler: () => async () => {
+  useNewThreadHandler: () => async (projectRef: unknown) => {
+    drafts.opened.push(projectRef);
     router.state.location.href = "/draft/project";
+    return { draftId: "draft", threadId: "draft-thread" };
   },
 }));
 vi.mock("../composerDraftStore", () => ({ useComposerDraftStore: () => vi.fn() }));
@@ -106,6 +109,7 @@ beforeEach(() => {
   router.navigate.mockClear();
   router.state.location.href = "/";
   router.state.matches[0]!.params = {};
+  drafts.opened = [];
   threadShell.pinnedAt = null;
   threadShell.snoozedUntil = null;
   shellLoaded.current = true;
@@ -214,28 +218,53 @@ describe("archive Undo", () => {
 });
 
 describe("archive navigation", () => {
-  it.each([
-    { destination: "/undo-env/thread", expected: "/draft/project" },
-    { destination: "/undo-env/other-thread", expected: "/undo-env/other-thread" },
-    { destination: "/settings", expected: "/settings" },
-  ])("ends at $expected after opening $destination while archiving", async (route) => {
+  /** Opens the chat and records the route each archive request left from. */
+  function openTheChat() {
     router.state.location.href = "/undo-env/thread";
     router.state.matches[0]!.params = {
       environmentId: target.environmentId,
       threadId: target.threadId,
     };
-    let finishArchive!: () => void;
-    commands.archive.mockReturnValue(
-      new Promise((resolve) => {
-        finishArchive = () => resolve({ _tag: "Success", value: undefined });
-      }),
-    );
-    const archived = useThreadActions().archiveThread(target);
-    router.state.location.href = route.destination;
-    finishArchive();
-    expect((await archived)._tag).toBe("Success");
+    const archivedFrom: string[] = [];
+    commands.archive.mockImplementation(async () => {
+      archivedFrom.push(router.state.location.href);
+      return { _tag: "Success", value: undefined };
+    });
+    return archivedFrom;
+  }
+
+  // The route sends an archived open chat home, to whichever workspace changed last.
+  it("leaves the open chat for a draft in its workspace before archiving it", async () => {
+    const archivedFrom = openTheChat();
+    expect((await useThreadActions().archiveThread(target))._tag).toBe("Success");
+    expect(drafts.opened).toEqual([{ environmentId: "undo-env", projectId: "project" }]);
+    expect(archivedFrom).toEqual(["/draft/project"]);
     expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Archived" });
-    expect(router.state.location.href).toBe(route.expected);
+  });
+
+  const backToTheChat = expect.objectContaining({
+    to: "/$environmentId/$threadId",
+    params: { environmentId: target.environmentId, threadId: target.threadId },
+    replace: true,
+  });
+  it.each([
+    { from: "the draft it opened", movedTo: null, navigations: [[backToTheChat]] },
+    { from: "a chat opened meanwhile", movedTo: "/undo-env/other-thread", navigations: [] },
+  ])("returns to the chat after a failed archive only from $from", async (row) => {
+    openTheChat();
+    commands.archive.mockImplementation(async () => {
+      if (row.movedTo !== null) router.state.location.href = row.movedTo;
+      return { _tag: "Failure", cause: Cause.fail(new Error("Request failed")) };
+    });
+    expect((await useThreadActions().archiveThread(target))._tag).toBe("Failure");
+    expect(router.navigate.mock.calls).toEqual(row.navigations);
+  });
+
+  it("archives a chat the shell list leaves out, using the chat as shown", async () => {
+    const archivedFrom = openTheChat();
+    shellLoaded.current = false;
+    await useThreadActions().archiveThread(target, { thread: threadShell as never });
+    expect(archivedFrom).toEqual(["/draft/project"]);
   });
 });
 

@@ -45,6 +45,7 @@ import {
   type ThreadSortInput,
 } from "@codenine/client-runtime/state/thread-sort";
 import type { SidebarThreadSummary, Thread } from "../types";
+import { threadCanMarkUnread, threadCanSettleNow } from "./threadActionMenu.logic";
 import { normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
 import { observeIntersection } from "../lib/observeIntersection";
@@ -635,6 +636,50 @@ export function buildBulkUnpinContextMenuItem(input: {
   return { id: "unpin", label: `Unpin (${input.pinnedCount})` };
 }
 
+/** A bulk item that counts and acts on only the selected chats the single-chat menu allows. */
+function buildBulkAction<Id extends string, T>(
+  id: Id,
+  label: string,
+  targets: ReadonlyArray<T>,
+  canOperate: (threads: ReadonlyArray<T>) => boolean,
+): { readonly targets: ReadonlyArray<T>; readonly item: ContextMenuItem<Id> } {
+  return {
+    targets,
+    item: {
+      id,
+      label: `${label} (${targets.length})`,
+      disabled: targets.length === 0 || !canOperate(targets),
+    },
+  };
+}
+
+export function buildBulkMarkUnread<T extends Pick<Thread, "latestRun">>(
+  threads: ReadonlyArray<T>,
+  canOperate: (threads: ReadonlyArray<T>) => boolean,
+) {
+  return buildBulkAction(
+    "mark-unread",
+    "Mark unread",
+    threads.filter(threadCanMarkUnread),
+    canOperate,
+  );
+}
+
+export function buildBulkSettle<T extends Thread>(
+  threads: ReadonlyArray<T>,
+  now: string,
+  canOperate: (threads: ReadonlyArray<T>) => boolean,
+) {
+  return buildBulkAction(
+    "settle",
+    "Mark done",
+    threads.filter(
+      (thread) => thread.settledOverride !== "settled" && threadCanSettleNow(thread, now),
+    ),
+    canOperate,
+  );
+}
+
 export interface ThreadStatusPill {
   label:
     | "Working"
@@ -661,6 +706,7 @@ type ThreadStatusInput = Pick<
   | "runtime"
 > & {
   lastVisitedAt?: string | null | undefined;
+  workflowResultAt?: string | null | undefined;
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
   blockedOnThreadWait?: boolean | undefined;
 };
@@ -690,15 +736,24 @@ export function resolveThreadLastVisitedAt(
   return serverLastVisitedAt ?? undefined;
 }
 
+function parsedOrNever(timestamp: string | null | undefined): number {
+  const parsed = timestamp ? Date.parse(timestamp) : NaN;
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+/** A finished turn or a new workflow result the user has not seen yet. */
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestRun?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestRun.completedAt);
-  if (Number.isNaN(completedAt)) return false;
+  const newsAt = Math.max(
+    parsedOrNever(thread.latestRun?.completedAt),
+    parsedOrNever(thread.workflowResultAt),
+  );
+  if (newsAt === Number.NEGATIVE_INFINITY) return false;
+  // A thread never visited is not unread; the server seeds the watermark when news arrives.
   if (!thread.lastVisitedAt) return false;
 
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
   if (Number.isNaN(lastVisitedAt)) return true;
-  return completedAt > lastVisitedAt;
+  return newsAt > lastVisitedAt;
 }
 
 /** Unopened threads' failures still count as unseen, unlike completions. */
@@ -828,14 +883,38 @@ export function shouldRecedeSidebarThread(input: {
 }
 
 /**
+ * A workflow run's plan stays failed for good, so its failure flags only until the user has put
+ * the run away or opened it after its lead's last turn ended.
+ */
+function workflowRunFailureSeen(
+  thread: ThreadStatusInput &
+    NeedsYouInput & { readonly settledOverride?: SidebarThreadSummary["settledOverride"] },
+): boolean {
+  if (thread.source?.teamSummary?.run === undefined) return false;
+  if (thread.settledOverride === "settled") return true;
+  if (!thread.lastVisitedAt) return false;
+  if (thread.latestRun == null) return true;
+  const endedAt = parsedOrNever(thread.latestRun.completedAt);
+  return endedAt !== Number.NEGATIVE_INFINITY && Date.parse(thread.lastVisitedAt) >= endedAt;
+}
+
+/**
  * The dot on a closed project folder: the most urgent state among its hidden
  * threads, a lead's team included. Waiting threads stay quiet, like their rows.
  */
 export function resolveSidebarFolderDot(
-  threads: ReadonlyArray<ThreadStatusInput & NeedsYouInput>,
+  threads: ReadonlyArray<
+    ThreadStatusInput &
+      NeedsYouInput & { readonly settledOverride?: SidebarThreadSummary["settledOverride"] }
+  >,
 ): "attention" | "failed" | "unread" | "working" | null {
   const statuses = new Set(threads.map(resolveSidebarThreadStatus));
-  const reasons = new Set(threads.map(needsYouReason));
+  const reasons = new Set(
+    threads.map((thread) => {
+      const reason = needsYouReason(thread);
+      return reason === "failed" && workflowRunFailureSeen(thread) ? null : reason;
+    }),
+  );
   if (
     reasons.has("approval") ||
     reasons.has("question") ||

@@ -7,7 +7,15 @@ import type { FileRoutesByTo } from "./routeTree.gen";
 // Checked against the route tree and the routes' search, so renaming either fails the typecheck
 // instead of a link.
 const RUN_ROUTE = "/workflows/$name/runs/$run" satisfies keyof FileRoutesByTo;
+const RUNS_ROUTE = "/workflows/$name/runs" satisfies keyof FileRoutesByTo;
 const NEW_ROUTE = "/workflows/new" satisfies keyof FileRoutesByTo;
+const WORKFLOW_ROUTE = "/workflows/$name" satisfies keyof FileRoutesByTo;
+
+/** A saved workflow's editor, on the computer it is saved on. */
+export function workflowHref(environmentId: EnvironmentId, name: string): string {
+  const search: WorkflowsSearch = { machine: environmentId };
+  return `${WORKFLOW_ROUTE.replace("$name", encodeURIComponent(name))}${defaultStringifySearch(search)}`;
+}
 
 /** A workflow run's page, on the computer that ran it. */
 export function workflowRunHref(
@@ -20,6 +28,12 @@ export function workflowRunHref(
   );
   const search: WorkflowsSearch = { machine: environmentId };
   return `${path}${defaultStringifySearch(search)}`;
+}
+
+/** A workflow's runs page, on the computer that runs it. */
+export function workflowRunsHref(environmentId: EnvironmentId, workflowName: string): string {
+  const search: WorkflowsSearch = { machine: environmentId };
+  return `${RUNS_ROUTE.replace("$name", encodeURIComponent(workflowName))}${defaultStringifySearch(search)}`;
 }
 
 /**

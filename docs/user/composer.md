@@ -275,11 +275,16 @@ Turn on **Workflow**, next to **Team**, to have the agent draft a workflow from 
 instead of doing the work: say what should happen each time, and when. The draft opens in the
 right panel's **Workflow** tab, a step for each of your agents' parts; a step none of your agents
 fits shows the agent the lead suggests. Ask in the chat to change it. Nothing is saved until you
-choose **Review and save**, which opens the draft in the workflow editor. The sent message shows
-**Workflow requested**. Like Team, Workflow turns off once the message is sent, and it does not
-apply to a `/` command; turning one on turns the other off. It is offered in Personal chats too,
-since you pick the workspace when you save. **New workflow** in the sidebar's **New** menu starts a
-chat with Workflow on.
+open the draft in the workflow editor and save it there. A saved workflow starts off; turn it on
+from the chat's **Workflow** tab or in the editor to run it on its schedule. After you save, the
+**Workflow** tab shows the saved workflow, whether it is on, and anything that keeps it from
+running, and you can turn it on or off and run it from there. If you ask for changes later, they
+show as changes to that workflow: review and save them to update it instead of making a new one, or
+discard them to keep it as it is. You can still turn it on or off and run it while changes wait. The sent
+message shows **Workflow requested**. Like Team, Workflow turns off once the message is sent, and
+it does not apply to a `/` command; turning one on turns the other off. It is offered in Personal
+chats too: choose its workspace in the editor before you save. **New workflow** in the sidebar's
+**New** menu starts a chat with Workflow on.
 
 ## Context in your message
 
@@ -301,7 +306,7 @@ the repository by text. Choose a result to insert it as a chip.
 
 Another thread can be context too. Type `@` followed by part of its title to pick one from
 the same server. You can also drag a thread out of the sidebar and
-drop it on the composer; a multi-selection drops together. **Copy thread** copies a
+drop it on the composer; a multi-selection drops together. **Copy chat link** copies a
 link to the thread that pastes into a composer as its chip. The chip shows the thread's
 current title and opens it when selected. Your prompt only carries a reference: the agent reads the thread's
 history on demand, so attaching a long thread costs nothing until the agent looks. Attaching a

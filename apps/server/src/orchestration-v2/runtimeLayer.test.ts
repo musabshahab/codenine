@@ -4560,7 +4560,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         .pipe(Effect.flip);
 
       assert.equal(error._tag, "OrchestratorDispatchError");
-      assert.equal(error.cause, `Thread ${threadId} is still running. Stop it before settling.`);
+      assert.equal(error.cause, "This chat is still running. Stop it before marking it done.");
       const projection = yield* orchestrator.getThreadProjection(threadId);
       assert.equal(projection.runs[0]?.status, "starting");
       assert.isNull(projection.thread.settledOverride);
@@ -4777,7 +4777,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.equal(error._tag, "OrchestratorDispatchError");
       assert.equal(
         error.cause,
-        `Thread ${threadId} has a queued message. Send it or remove it from the queue before settling.`,
+        "This chat has a queued message. Send it or remove it from the queue before marking it done.",
       );
     }),
   );
@@ -7157,7 +7157,7 @@ it.layer(layerScratchPromotionTest)("turning a No project thread into a project"
 
       assert.equal(
         error.message,
-        "Only a No project thread with its own folder can become a project.",
+        "Only a Personal chat with its own folder can become a workspace.",
       );
     }),
   );

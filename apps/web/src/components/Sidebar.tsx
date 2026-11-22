@@ -37,7 +37,8 @@ import {
 import { sortSettledThreads } from "@codenine/client-runtime/state/thread-sort";
 import {
   groupTeamThreads,
-  withoutWorkflowRuns,
+  type TeamThreadRunState,
+  withoutUnlinkedWorkflowRuns,
   withTeamTaskRows,
 } from "@codenine/client-runtime/state/team-threads";
 import {
@@ -48,10 +49,7 @@ import {
 } from "@codenine/client-runtime/state/thread-search";
 import { foldSearchQuery, rankMessageMatches } from "@codenine/shared/paletteSearch";
 import { findForMessageMatch, openThreadFindOnQuery } from "./chat/threadFindStore";
-import {
-  threadRuntimeCanArchive,
-  type EnvironmentThreadShell,
-} from "@codenine/client-runtime/state/models";
+import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import {
   parseScopedThreadKey,
   scopeProjectRef,
@@ -114,6 +112,7 @@ import { isMacPlatform } from "~/lib/utils";
 import { readLocalApi } from "../localApi";
 import { configuredHostedAppUrl } from "../hostedPairing";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
+import { workflowRunsHref } from "../workflowLinks";
 import {
   pickableProjectGroups,
   selectProjectGroupingSettings,
@@ -183,6 +182,7 @@ import { ProjectRowActions } from "./ProjectComboboxRow";
 import {
   buildDraftActionMenuItems,
   buildThreadActionMenuItems,
+  threadActionMenuThreadState,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
 import {
@@ -190,6 +190,8 @@ import {
   filterSidebarV2VisibleThreads,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
+  buildBulkMarkUnread,
+  buildBulkSettle,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
@@ -272,7 +274,7 @@ import {
   type SidebarSweepAction,
 } from "./sidebar/SidebarThreadRow";
 import { SidebarDraftBlock } from "./sidebar/SidebarDraftBlock";
-import { SidebarTeamTasksContext } from "./sidebar/SidebarTeamTasks";
+import { SidebarAllRunsRow, SidebarTeamTasksContext } from "./sidebar/SidebarTeamTasks";
 import {
   SidebarBuildRows,
   SidebarNavRows,
@@ -395,14 +397,23 @@ function scrollSidebarToTop(content: HTMLElement | null) {
   content?.closest("[data-slot=scroll-area-viewport]")?.scrollTo({ top: 0 });
 }
 
-/** The lead's row key for a team task thread, which the sidebar draws under that lead. */
+/**
+ * The row key a thread nests under: a team task's lead, or the chat a workflow run reports to.
+ */
 function teamLeadKey(
   thread: Pick<SidebarThreadSummary, "environmentId" | "source">,
 ): string | null {
-  const teamTask = thread.source.teamTask;
-  return teamTask === undefined
+  const parentId =
+    thread.source.teamTask?.rootThreadId ?? thread.source.teamSummary?.run?.chatThreadId;
+  return parentId === undefined
     ? null
-    : scopedThreadKey(scopeThreadRef(thread.environmentId, teamTask.rootThreadId));
+    : scopedThreadKey(scopeThreadRef(thread.environmentId, parentId));
+}
+
+function workflowRunState(thread: Pick<SidebarThreadSummary, "source">): TeamThreadRunState | null {
+  const summary = thread.source.teamSummary;
+  if (summary?.run === undefined) return null;
+  return summary.status === "running" ? "running" : "ended";
 }
 
 function threadShellKey(thread: Pick<SidebarThreadSummary, "environmentId" | "id">): string {
@@ -547,6 +558,7 @@ function useSidebarThreads(input: {
     },
     keyOf: threadShellKey,
     leadKeyOf: teamLeadKey,
+    runOf: workflowRunState,
     openKey: routeRowThreadKey,
     expandedByLead: teamExpandedByLead,
     attentionOf: (thread) => resolveSidebarFolderDot([thread]),
@@ -559,10 +571,12 @@ function useSidebarThreads(input: {
     settled: listedSettledThreads,
   } = teams.sections;
   const settledThreads =
-    teams.leadKeyByTaskKey.size === 0
+    teams.leadKeyByTaskKey.size === 0 && teams.droppedRunKeys.size === 0
       ? partition.settledThreads
       : partition.settledThreads.filter(
-          (thread) => !teams.leadKeyByTaskKey.has(threadShellKey(thread)),
+          (thread) =>
+            !teams.leadKeyByTaskKey.has(threadShellKey(thread)) &&
+            !teams.droppedRunKeys.has(threadShellKey(thread)),
         );
   // The row that holds the open thread, which a closed shelf or folder still shows.
   const openRowKey = teams.openRowKey;
@@ -959,8 +973,11 @@ function checkThreadOperations(
   if (canOperateThreads(threads)) return true;
   toastManager.add({
     type: "error",
-    title: "Thread action unavailable",
-    description: "This connection cannot change one or more selected threads.",
+    title: "Chat action unavailable",
+    description:
+      threads.length === 1
+        ? "This connection cannot change this chat."
+        : "This connection cannot change one or more of these chats.",
   });
   return false;
 }
@@ -1019,6 +1036,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     markThreadUnread,
     archiveThread,
     deleteThread,
+    confirmAndDeleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -1453,8 +1471,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     serverConfigs,
     connectedEnvironmentIds,
     optimisticDrop,
-    // Workflow runs live on the Workflows pages.
-    threads: withoutWorkflowRuns(threads),
+    // Runs nest under their workflow's chat; their steps live on the run's page.
+    threads: withoutUnlinkedWorkflowRuns(threads),
     routeRowThreadKey,
     folders: groupByProject
       ? {
@@ -1661,7 +1679,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const trimmed = title.trim();
       setRenamingThreadRef(null);
       if (trimmed.length === 0) {
-        toastManager.add({ type: "warning", title: "Thread title cannot be empty" });
+        toastManager.add({ type: "warning", title: "Chat title cannot be empty" });
         return;
       }
       if (trimmed === originalTitle) return;
@@ -1674,7 +1692,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to rename thread",
+            title: "Failed to rename chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1745,7 +1763,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to mark thread done",
+              title: "Failed to mark chat done",
               description: error instanceof Error ? error.message : "An error occurred.",
             }),
           );
@@ -1783,7 +1801,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to mark thread not done",
+            title: "Failed to mark chat not done",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1798,7 +1816,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to wake thread",
+            title: "Failed to wake chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -1996,7 +2014,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to pin thread",
+            title: "Failed to pin chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2011,7 +2029,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to unpin thread",
+            title: "Failed to unpin chat",
             description: error instanceof Error ? error.message : "An error occurred.",
           }),
         );
@@ -2118,7 +2136,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const listMotionLayoutKey = [
     sidebarListItemsKey,
     sidebarFolders?.map((folder) => `${folder.key}:${folder.threads.length}`).join("\n") ?? "",
-    [...teamGroups].map(([leadKey, group]) => `${leadKey}:${group.shown.length}`).join("\n"),
+    [...teamGroups]
+      .map(([leadKey, group]) => `${leadKey}:${group.shown.length}:${group.moreRuns}`)
+      .join("\n"),
     visibleDraftSessionCount,
     routeDraftIdForRows ?? "",
   ].join("\0");
@@ -2290,7 +2310,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
           const navigateAfterSettle = planForwardNavigation(activeKey);
-          const settled = await run(settleThread(threadRef), "Failed to mark thread done").finally(
+          const settled = await run(settleThread(threadRef), "Failed to mark chat done").finally(
             () => settlingThreadKeysRef.current.delete(activeKey),
           );
           if (
@@ -2307,20 +2327,20 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           return;
         }
         case "move-active":
-          if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin thread"))) return;
+          if (plan.unpin && !(await run(unpinThread(threadRef), "Failed to unpin chat"))) return;
           if (
             plan.unsettle &&
-            !(await run(unsettleThread(threadRef), "Failed to mark thread not done"))
+            !(await run(unsettleThread(threadRef), "Failed to mark chat not done"))
           )
             return;
-          if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake thread")))
+          if (plan.unsnooze && !(await run(unsnoozeThread(threadRef), "Failed to wake chat")))
             return;
           break;
         case "pin":
           if (
             !(await run(
               pinThread(threadRef, plan.orderKey === undefined ? {} : { orderKey: plan.orderKey }),
-              "Failed to pin thread",
+              "Failed to pin chat",
             ))
           )
             return;
@@ -2339,8 +2359,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               assignment.orderKey,
             ),
             plan.kind === "move-active"
-              ? "Failed to reorder active threads"
-              : "Failed to reorder pinned threads",
+              ? "Failed to reorder chats"
+              : "Failed to reorder pinned chats",
           ))
         )
           return;
@@ -2390,7 +2410,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           toastManager.add(
             stackedThreadToast({
               type: "error",
-              title: "Failed to snooze thread",
+              title: "Failed to snooze chat",
               description:
                 outcome.error instanceof Error ? outcome.error.message : "An error occurred.",
             }),
@@ -2416,8 +2436,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
-      const settlingThreads = selectedThreads.filter(
-        (thread) => thread.settledOverride !== "settled",
+      const markDone = buildBulkSettle(
+        selectedThreads,
+        selectionNow.toISOString(),
+        canOperateThreads,
       );
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
@@ -2440,6 +2462,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const unpinMenuItem = buildBulkUnpinContextMenuItem({
         pinnedCount: pinnedSelectedThreads.length,
       });
+      const markUnread = buildBulkMarkUnread(selectedThreads, canOperateThreads);
       // Presets sync across environments, so the first selected thread's stand for all.
       const menuOpenedAt = new Date();
       const snoozePresets = resolveSnoozePresets(
@@ -2453,11 +2476,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             ...(unpinMenuItem
               ? [{ ...unpinMenuItem, disabled: !canOperateThreads(pinnedSelectedThreads) }]
               : []),
-            {
-              id: "settle",
-              label: `Mark done (${count})`,
-              disabled: settlingThreads.length === 0 || !canOperateThreads(settlingThreads),
-            },
+            markDone.item,
             ...(canSnoozeSelection
               ? [
                   {
@@ -2490,7 +2509,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   },
                 ]
               : []),
-            { id: "mark-unread", label: `Mark unread (${count})` },
+            markUnread.item,
             {
               id: "delete",
               label: `Delete (${count})`,
@@ -2507,20 +2526,22 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ? pinnedSelectedThreads
           : clicked.value === "regenerate-title"
             ? regeneratableTitleThreads
-            : clicked.value === "settle"
-              ? settlingThreads.flatMap((thread) => {
-                  const current = threadByKeyRef.current.get(
-                    scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-                  );
-                  return current && current.settledOverride !== "settled" ? [current] : [];
-                })
-              : selectedThreads;
+            : clicked.value === "mark-unread"
+              ? markUnread.targets
+              : clicked.value === "settle"
+                ? markDone.targets.flatMap((thread) => {
+                    const current = threadByKeyRef.current.get(
+                      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                    );
+                    return current && current.settledOverride !== "settled" ? [current] : [];
+                  })
+                : selectedThreads;
       if (clicked.value === "settle" && actionTargets.length === 0) return;
-      if (clicked.value !== "mark-unread" && !checkThreadOperations(actionTargets)) return;
+      if (!checkThreadOperations(actionTargets)) return;
       if (clicked.value?.startsWith("snooze:")) {
         const preset =
           clicked.value === "snooze:custom"
-            ? await requestCustomSnooze()
+            ? await requestCustomSnooze(selectedThreads.length)
             : pickSnoozePreset(
                 snoozePresets,
                 clicked.value.slice("snooze:".length),
@@ -2551,8 +2572,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 type: "error",
                 title:
                   snoozedThreadRefs.length > 0
-                    ? `Failed to snooze ${failures.length} thread${failures.length === 1 ? "" : "s"}`
-                    : "Failed to snooze threads",
+                    ? `Failed to snooze ${failures.length} chat${failures.length === 1 ? "" : "s"}`
+                    : "Failed to snooze chats",
                 description:
                   firstError instanceof Error ? firstError.message : "An error occurred.",
               }),
@@ -2580,7 +2601,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             toastManager.add(
               stackedThreadToast({
                 type: "error",
-                title: "Failed to regenerate thread titles",
+                title: "Failed to regenerate chat titles",
                 description: error instanceof Error ? error.message : "An error occurred.",
               }),
             );
@@ -2600,9 +2621,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         return;
       }
       if (clicked.value === "mark-unread") {
-        for (const threadKey of threadKeys) {
-          const thread = threadByKeyRef.current.get(threadKey);
-          if (thread) markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
+        for (const thread of markUnread.targets) {
+          markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
         }
         clearSelection();
         return;
@@ -2612,8 +2632,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const confirmed = await settlePromise(() =>
           api.dialogs.confirm(
             [
-              `Delete ${count} thread${count === 1 ? "" : "s"}?`,
-              "This permanently clears conversation history for these threads.",
+              `Delete ${count} chat${count === 1 ? "" : "s"}?`,
+              count === 1
+                ? "This permanently clears this chat's conversation history."
+                : "This permanently clears these chats' conversation history.",
             ].join("\n"),
             { variant: "destructive" },
           ),
@@ -2644,7 +2666,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Failed to delete threads",
+            title: "Failed to delete chats",
             description: firstError instanceof Error ? firstError.message : "An error occurred.",
           }),
         );
@@ -2730,15 +2752,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const supportsAutoSettleOptOut =
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadAutoSettleOptOut === true;
-        const isRegeneratingTitle = thread.titleRegeneration != null;
-        const isSettled = settledThreadKeysRef.current.has(threadKey);
-        const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
-        const isPinned = thread.pinnedAt != null;
-        const snoozePresets = resolveSnoozePresets(
-          new Date(),
-          timestampFormat,
-          thread.environmentId,
-        );
+        const now = new Date();
+        const threadState = threadActionMenuThreadState(thread, {
+          now: now.toISOString(),
+          configLoaded,
+        });
+        const snoozePresets = resolveSnoozePresets(now, timestampFormat, thread.environmentId);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -2750,11 +2769,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
+              ...threadState,
               canOperate: readEnvironmentScope(
                 threadRef.environmentId,
                 AuthOrchestrationOperateScope,
               ),
-              branch: thread.branch ?? null,
               // An archived workspace is not a filter choice.
               projectFilter:
                 threadProjectGroup && !threadProjectGroup.archived
@@ -2763,14 +2782,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       isActive: projectScopeKeys.includes(threadProjectGroup.projectKey),
                     }
                   : null,
-              isPinned,
-              isSettled,
-              autoSettleEnabled: thread.autoSettleDisabledAt == null,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning: !threadRuntimeCanArchive(thread.runtime),
-              canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              hasPath: threadWorkspacePath !== null,
+              hasProject: threadProjectGroup !== null,
+              canTurnIntoProject: canTurnThreadIntoProject(thread),
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -2829,7 +2843,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Could not create thread",
+                  title: "Could not create chat",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2864,7 +2878,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Could not turn thread into a workspace",
+                  title: "Could not turn chat into a workspace",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2882,7 +2896,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to update when this thread is marked done",
+                  title: "Could not change when this chat is marked done",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2893,7 +2907,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             startThreadRename(threadRef, thread.title);
             return;
           case "regenerate-title": {
-            if (isRegeneratingTitle) return;
+            if (threadState.isRegeneratingTitle) return;
             const result = await updateThreadMetadata({
               environmentId: threadRef.environmentId,
               input: { threadId: threadRef.threadId, regenerateTitle: true },
@@ -2903,7 +2917,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to regenerate thread title",
+                  title: "Failed to regenerate chat title",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2914,17 +2928,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             markThreadUnread(threadRef);
             return;
           case "copy-path":
-            if (!threadWorkspacePath) {
-              toastManager.add(
-                stackedThreadToast({
-                  type: "error",
-                  title: "Path unavailable",
-                  description: "This thread does not have a workspace path to copy.",
-                }),
-              );
-              return;
+            if (threadWorkspacePath !== null) {
+              copyPathToClipboard(threadWorkspacePath, { path: threadWorkspacePath });
             }
-            copyPathToClipboard(threadWorkspacePath, { path: threadWorkspacePath });
             return;
           case "copy-branch":
             if (thread.branch) {
@@ -2942,7 +2948,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "archive": {
             if (confirmThreadArchive) {
               const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(`Archive thread "${thread.title}"?`),
+                api.dialogs.confirm(`Archive chat "${thread.title}"?`),
               );
               if (confirmed._tag === "Failure" || !confirmed.value) return;
             }
@@ -2958,8 +2964,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 stackedThreadToast({
                   type: "error",
                   title: didArchive
-                    ? "Thread archived, but navigation failed"
-                    : "Failed to archive thread",
+                    ? "Chat archived, but navigation failed"
+                    : "Failed to archive chat",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -2968,25 +2974,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           }
           case "delete": {
-            if (confirmThreadDelete) {
-              const confirmed = await settlePromise(() =>
-                api.dialogs.confirm(
-                  [
-                    `Delete thread "${thread.title}"?`,
-                    "This permanently clears conversation history for this thread.",
-                  ].join("\n"),
-                  { variant: "destructive" },
-                ),
-              );
-              if (confirmed._tag === "Failure" || !confirmed.value) return;
-            }
-            const result = await deleteThread(threadRef);
+            const result = await confirmAndDeleteThread(threadRef, thread.title);
             if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
               const error = squashAtomCommandFailure(result);
               toastManager.add(
                 stackedThreadToast({
                   type: "error",
-                  title: "Failed to delete thread",
+                  title: "Failed to delete chat",
                   description: error instanceof Error ? error.message : "An error occurred.",
                 }),
               );
@@ -3551,6 +3545,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               ? `shelf:${section}`
                               : undefined),
                           teamTaskCount: team?.tasks.length ?? 0,
+                          teamRunCount: team?.runs ?? 0,
                           teamExpanded: team?.expanded ?? false,
                           teamAttention: team?.attention ?? null,
                           onToggleTeam: toggleTeamStable,
@@ -3821,14 +3816,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         }
                       }
                       // A thread's own section decides its actions, also under its lead.
-                      const renderTeamTasks = (leadKey: string) =>
-                        (teamGroups.get(leadKey)?.shown ?? []).map((task) =>
+                      const renderTeamTasks = (leadKey: string) => {
+                        const group = teamGroups.get(leadKey);
+                        if (group === undefined) return [];
+                        const rows = group.shown.map((task) =>
                           renderThreadRow(
                             task,
                             sectionByThreadKey.get(threadShellKey(task)) ?? "active",
                             { kind: "team", id: leadKey },
                           ),
                         );
+                        if (!group.expanded || !group.moreRuns) return rows;
+                        const newest = group.tasks.find(
+                          (task) => task.source.teamSummary?.run !== undefined,
+                        );
+                        const workflowName = newest?.source.teamSummary?.run?.workflowName;
+                        return [
+                          ...rows,
+                          <SidebarAllRunsRow
+                            key={`${leadKey}:all-runs`}
+                            leadKey={leadKey}
+                            count={group.runs}
+                            onOpen={() =>
+                              void router.navigate({
+                                href:
+                                  newest === undefined || workflowName === undefined
+                                    ? "/workflows"
+                                    : workflowRunsHref(newest.environmentId, workflowName),
+                              })
+                            }
+                          />,
+                        ];
+                      };
                       return (
                         <SidebarTeamTasksContext value={renderTeamTasks}>
                           {items}

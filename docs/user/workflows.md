@@ -42,9 +42,11 @@ while Codenine is running on that computer.
 
 ## Runs
 
-**Run now** starts a run at once and opens it; a workflow with inputs first asks for this run's
-values. A run's page shows each step as waiting, working, being checked by the lead, sent back,
-done or failed. Select a step to open its chat. The lead's notes say what it decided and when.
+**Run now** starts a run at once. On the Workflows pages it opens the run; in a chat's **Workflow**
+tab you stay in the chat, and **Open run** in the message that appears opens it. A workflow with
+inputs first asks for this run's values. A run's page shows each step as waiting, working, being
+checked by the lead, sent back, done or failed. Select a step to open its chat. The lead's notes say
+what it decided and when, and **Open chat** opens the workflow's chat.
 
 A run waits for you when:
 
@@ -63,3 +65,17 @@ again.
 
 **Runs**, beside **Canvas**, lists every run with how it started, its result, time and cost, and the
 scheduled runs that were skipped.
+
+## Results in the chat
+
+Each workflow has a chat its runs report to: the chat you drafted it in, or, for a workflow made in
+the editor, a chat named after it that its first run starts in the workflow's workspace. When a run
+finishes, fails or is stopped, its result appears at the bottom of that chat with **Open run**, and
+the chat is marked unread in the sidebar. A chat marked done comes back. The chat's agent reads
+the result with your next message, so you can ask about it or build on it. If you switch the chat
+to another provider, results it read before are not in the new agent's history; ask it to read the
+chat.
+
+The chat's **Workflow** tab lists its latest runs, and **All runs** opens the full list. Results keep
+going to an archived chat. If you delete the chat, the next run starts a new one; to stop scheduled
+runs, turn the workflow **Off**.

@@ -277,6 +277,7 @@ import {
   WorkflowError,
   WorkflowNameInput,
   WorkflowRunInput,
+  WorkflowSetEnabledInput,
   WorkflowRunStarted,
   WorkflowSaveInput,
   WorkflowsEmptyInput,
@@ -462,6 +463,7 @@ export const WS_METHODS = {
   workflowsSave: "workflows.save",
   workflowsDelete: "workflows.delete",
   workflowsRun: "workflows.run",
+  workflowsSetEnabled: "workflows.setEnabled",
 
   subscribeVcsStatus: "subscribeVcsStatus",
   subscribeVcsBranch: "subscribeVcsBranch",
@@ -1107,6 +1109,12 @@ const WsWorkflowsRunRpc = Rpc.make(WS_METHODS.workflowsRun, {
   error: WorkflowRpcError,
 });
 
+const WsWorkflowsSetEnabledRpc = Rpc.make(WS_METHODS.workflowsSetEnabled, {
+  payload: WorkflowSetEnabledInput,
+  success: WorkflowDetail,
+  error: WorkflowRpcError,
+});
+
 const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPublishRepository, {
   payload: SourceControlPublishRepositoryInput,
   success: SourceControlPublishRepositoryResult,
@@ -1691,6 +1699,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkflowsSaveRpc,
   WsWorkflowsDeleteRpc,
   WsWorkflowsRunRpc,
+  WsWorkflowsSetEnabledRpc,
   WsProjectsListEntriesRpc,
   WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,

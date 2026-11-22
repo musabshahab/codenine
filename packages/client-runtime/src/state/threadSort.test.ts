@@ -50,6 +50,15 @@ describe("resolveSettledThreadTimestamp", () => {
     expect(
       resolveSettledThreadTimestamp({
         settledAt: null,
+        latestUserMessageAt: "2026-03-09T11:00:00.000Z",
+        latestRun: null,
+        workflowResultAt: "2026-03-09T11:30:00.000Z",
+        updatedAt: "2026-03-09T12:00:00.000Z",
+      }),
+    ).toBe("2026-03-09T11:30:00.000Z");
+    expect(
+      resolveSettledThreadTimestamp({
+        settledAt: null,
         latestUserMessageAt: null,
         latestRun: null,
         updatedAt: "2026-03-09T12:00:00.000Z",

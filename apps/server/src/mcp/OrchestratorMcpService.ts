@@ -964,6 +964,8 @@ function turnItemText(item: OrchestrationV2TurnItem): string | null {
       return item.result ?? item.progress ?? item.prompt;
     case "dynamic_tool":
       return jsonText({ toolName: item.toolName, input: item.input, output: item.output });
+    case "workflow_run":
+      return `Workflow "${item.title}" run ${item.run} ${item.status === "cancelled" ? "stopped" : item.status}${item.headline ? `: ${item.headline}` : ""}.${item.result ? `\n${item.result}` : ""}`;
   }
 }
 

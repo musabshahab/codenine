@@ -7,6 +7,8 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   shouldCreateNewThreadInCurrentProject,
+  buildBulkMarkUnread,
+  buildBulkSettle,
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
@@ -139,6 +141,97 @@ describe("deleteSelectedThreadEntries", () => {
     expect(outcome).toEqual({
       deletedThreadKeys: testCase.deletedThreadKeys,
       firstFailure: testCase.firstFailure,
+    });
+  });
+});
+
+describe("buildBulkMarkUnread", () => {
+  const finished = (id: string) =>
+    makeThreadFixture({
+      id: ThreadId.make(id),
+      latestRun: {
+        runId: RunId.make(`${id}-run`),
+        status: "completed",
+        requestedAt: "2026-08-07T11:00:00.000Z",
+        startedAt: "2026-08-07T11:00:00.000Z",
+        completedAt: "2026-08-07T11:05:00.000Z",
+        assistantMessageId: null,
+      },
+    });
+  const neverRun = (id: string) => makeThreadFixture({ id: ThreadId.make(id) });
+
+  it.each([
+    {
+      selection: "a mixed selection",
+      threads: [finished("a"), neverRun("b"), finished("c")],
+      canOperate: true,
+      marked: ["a", "c"],
+      disabled: false,
+    },
+    {
+      selection: "chats without a finished run",
+      threads: [neverRun("b")],
+      canOperate: true,
+      marked: [],
+      disabled: true,
+    },
+    {
+      selection: "a read-only connection",
+      threads: [finished("a")],
+      canOperate: false,
+      marked: ["a"],
+      disabled: true,
+    },
+  ])("marks only chats with a finished run: $selection", (row) => {
+    const { targets, item } = buildBulkMarkUnread(row.threads, () => row.canOperate);
+    expect(targets.map((thread) => thread.id)).toEqual(row.marked);
+    expect(item).toEqual({
+      id: "mark-unread",
+      label: `Mark unread (${row.marked.length})`,
+      disabled: row.disabled,
+    });
+  });
+});
+
+describe("buildBulkSettle", () => {
+  const now = "2026-08-07T12:00:00.000Z";
+  const idle = (id: string) => makeThreadFixture({ id: ThreadId.make(id) });
+  const running = (id: string) => {
+    const thread = idle(id);
+    return { ...thread, source: { ...thread.source, activityRunStatus: "running" as const } };
+  };
+  const done = (id: string) =>
+    makeThreadFixture({ id: ThreadId.make(id), settledOverride: "settled" });
+
+  it.each([
+    {
+      selection: "a mixed selection",
+      threads: [idle("a"), running("b"), done("c"), idle("d")],
+      canOperate: true,
+      settled: ["a", "d"],
+      disabled: false,
+    },
+    {
+      selection: "chats that are working or done",
+      threads: [running("b"), done("c")],
+      canOperate: true,
+      settled: [],
+      disabled: true,
+    },
+    {
+      selection: "a read-only connection",
+      threads: [idle("a")],
+      canOperate: false,
+      settled: ["a"],
+      disabled: true,
+    },
+  ])("marks done only chats the server would accept: $selection", (row) => {
+    const { targets, item } = buildBulkSettle(row.threads, now, () => row.canOperate);
+    expect(targets.map((thread) => thread.id)).toEqual(row.settled);
+    expect(item).toEqual({
+      id: "settle",
+      label: `Mark done (${row.settled.length})`,
+      disabled: row.disabled,
     });
   });
 });
@@ -498,6 +591,29 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("counts a workflow result as unseen until the chat is visited after it", () => {
+    const chat = {
+      ...baseThread,
+      interactionMode: "default" as const,
+      runtime: null,
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+    };
+    expect(hasUnseenCompletion({ ...chat, workflowResultAt: "2026-03-09T10:05:00.000Z" })).toBe(
+      true,
+    );
+    expect(hasUnseenCompletion({ ...chat, workflowResultAt: "2026-03-09T10:03:00.000Z" })).toBe(
+      false,
+    );
+    expect(
+      hasUnseenCompletion({
+        ...chat,
+        latestRun: makeLatestRun(),
+        lastVisitedAt: "2026-03-09T10:06:00.000Z",
+        workflowResultAt: "2026-03-09T10:07:00.000Z",
+      }),
+    ).toBe(true);
   });
 
   it("shows failed, not completed, when the unseen run failed", () => {
@@ -1650,6 +1766,42 @@ describe("resolveSidebarFolderDot", () => {
     expect(resolveSidebarFolderDot([working, lead("proposed")])).toBe("attention");
     expect(resolveSidebarFolderDot([unread, lead("failed")])).toBe("failed");
     expect(resolveSidebarFolderDot([lead("running"), lead("completed")])).toBeNull();
+    // A failed workflow run stops flagging once seen after it ended, or once done; a held one flags.
+    const failedRun = (overrides: object) => {
+      const base = lead("failed");
+      return {
+        ...base,
+        source: {
+          teamSummary: {
+            ...base.source.teamSummary,
+            run: { chatThreadId: ThreadId.make("chat") } as never,
+          },
+        },
+        ...overrides,
+      };
+    };
+    expect(resolveSidebarFolderDot([failedRun({ lastVisitedAt: null })])).toBe("failed");
+    expect(
+      resolveSidebarFolderDot([failedRun({ lastVisitedAt: "2026-03-09T10:04:00.000Z" })]),
+    ).toBe("failed");
+    expect(resolveSidebarFolderDot([failedRun({})])).toBeNull();
+    expect(
+      resolveSidebarFolderDot([failedRun({ lastVisitedAt: null, settledOverride: "settled" })]),
+    ).toBeNull();
+    const held = failedRun({});
+    expect(
+      resolveSidebarFolderDot([
+        {
+          ...held,
+          source: {
+            teamSummary: {
+              ...held.source.teamSummary,
+              hold: { reason: "spend" as const, at: "2026-03-09T10:05:00.000Z" },
+            },
+          },
+        },
+      ]),
+    ).toBe("attention");
   });
 });
 

@@ -1,5 +1,5 @@
 import type { TeamThreadAttention } from "@codenine/client-runtime/state/team-threads";
-import { ChevronRightIcon, UsersIcon } from "lucide-react";
+import { ChevronRightIcon, UsersIcon, WorkflowIcon } from "lucide-react";
 import { createContext, type ReactNode, use } from "react";
 
 import { cn } from "~/lib/utils";
@@ -51,16 +51,26 @@ export function SidebarTeamTasks(props: { leadKey: string }) {
   );
 }
 
-/** The lead row's quiet team count, which shows or hides the team's task rows. */
+function teamToggleLabel(count: number, runs: number, expanded: boolean): string {
+  const verb = expanded ? "Hide" : "Show";
+  if (runs === count) return `${verb} ${count} ${count === 1 ? "run" : "runs"}`;
+  if (runs > 0) return `${verb} ${count} chats`;
+  return `${verb} the team's ${count} ${count === 1 ? "thread" : "threads"}`;
+}
+
+/** The lead row's quiet count, which shows or hides the team task and workflow run rows. */
 export function SidebarTeamToggle(props: {
   count: number;
+  /** How many of the rows are workflow runs. */
+  runs: number;
   expanded: boolean;
   attention: TeamThreadAttention | null;
   /** Off when the row already shows the team icon. */
   showIcon: boolean;
   onToggle: () => void;
 }) {
-  const label = `${props.expanded ? "Hide" : "Show"} the team's ${props.count} ${props.count === 1 ? "thread" : "threads"}`;
+  const label = teamToggleLabel(props.count, props.runs, props.expanded);
+  const Icon = props.runs === props.count ? WorkflowIcon : UsersIcon;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -79,12 +89,30 @@ export function SidebarTeamToggle(props: {
           />
         }
       >
-        {props.showIcon ? <UsersIcon aria-hidden className="size-3" /> : null}
+        {props.showIcon ? <Icon aria-hidden className="size-3" /> : null}
         {props.count}
         {props.attention !== null ? <SidebarAttentionDot attention={props.attention} /> : null}
         <ChevronRightIcon aria-hidden className={cn("size-3", props.expanded && "rotate-90")} />
       </TooltipTrigger>
       <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
+  );
+}
+
+/** The last row of a chat with more runs than it draws, for the workflow's runs page. */
+export function SidebarAllRunsRow(props: { leadKey: string; count: number; onOpen: () => void }) {
+  return (
+    <li className="list-none">
+      <button
+        type="button"
+        data-sidebar-row={`${props.leadKey}:all-runs`}
+        data-sidebar-parent={props.leadKey}
+        onClick={props.onOpen}
+        className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+      >
+        <WorkflowIcon aria-hidden className="size-3.5 shrink-0" />
+        All {props.count} runs
+      </button>
+    </li>
   );
 }

@@ -109,10 +109,13 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         // The source's title job completes only on the source thread.
         titleRegeneration: null,
         // A fork continues the conversation, not the team it ran, the task it ran for, or the
-        // workflow its lead drafted.
+        // workflow its lead drafted and the results that workflow reported.
         team: null,
         teamTask: undefined,
         workflowDraft: undefined,
+        savedWorkflow: undefined,
+        workflowResultAt: undefined,
+        pendingWorkflowResults: undefined,
         activeProviderThreadId: null,
         lineage: {
           parentThreadId: input.sourceProjection.thread.id,

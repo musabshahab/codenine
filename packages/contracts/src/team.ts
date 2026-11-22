@@ -172,6 +172,8 @@ export const TeamPlanRun = Schema.Struct({
   headline: Schema.NullOr(Schema.String.check(Schema.isMaxLength(TEAM_RUN_HEADLINE_MAX_CHARS))),
   /** What the next run should know; the server adds it to the workflow's notes once. */
   note: Schema.NullOr(Schema.String.check(Schema.isMaxLength(TEAM_RUN_NOTE_MAX_CHARS))),
+  /** The chat this run reports to; absent on runs started before runs had a chat. */
+  chatThreadId: Schema.optionalKey(ThreadId),
 });
 export type TeamPlanRun = typeof TeamPlanRun.Type;
 

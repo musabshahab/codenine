@@ -22,6 +22,7 @@ interface VisitedShell {
   readonly updatedAt: string;
   readonly lastVisitedAt?: string | null | undefined;
   readonly latestRun: { readonly completedAt: string | null } | null;
+  readonly workflowResultAt?: string | null | undefined;
   /**
    * When a scheduled wake the user is looking at took effect. A wake later
    * than `updatedAt` is an update the server never sent, so the watermark
@@ -123,12 +124,15 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
         if (lastDispatchedUpdatedAt !== null && Date.parse(lastDispatchedUpdatedAt) >= updatedAtMs)
           return;
 
-        const completedAtMs = shell.latestRun?.completedAt
-          ? Date.parse(shell.latestRun.completedAt)
-          : NaN;
+        // A workflow result is news like a finished turn, so an open chat marks it seen at once.
+        const newsAtMs = Math.max(
+          ...[shell.latestRun?.completedAt, shell.workflowResultAt].map((value) =>
+            value ? Date.parse(value) : Number.NEGATIVE_INFINITY,
+          ),
+        );
         const hasUnseenCompletion =
-          !Number.isNaN(completedAtMs) &&
-          (Number.isNaN(lastVisitedAtMs) || completedAtMs > lastVisitedAtMs);
+          Number.isFinite(newsAtMs) &&
+          (Number.isNaN(lastVisitedAtMs) || newsAtMs > lastVisitedAtMs);
         const elapsed = Date.now() - lastDispatchAt;
         if (hasUnseenCompletion || wakeIsLatest || elapsed >= VISIT_DISPATCH_THROTTLE_MS) {
           dispatch(shell, visitedAt, false);

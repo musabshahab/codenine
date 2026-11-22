@@ -16,6 +16,7 @@ import {
   RunId,
   skillTitle,
   ThreadId,
+  type TurnItemId,
 } from "@codenine/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -60,6 +61,8 @@ import {
 } from "@codenine/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import { workflowResultsContext } from "./WorkflowResultsContext.ts";
 import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
@@ -158,6 +161,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | ThreadCommandExecutor.ThreadCommandExecutor
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -174,6 +178,7 @@ export const layer: Layer.Layer<
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const agents = yield* Agents.Agents;
+    const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
     const messageSkills = yield* makeMessageSkills;
 
@@ -1577,6 +1582,48 @@ export const layer: Layer.Layer<
           ],
         });
       });
+      const pendingWorkflowIds = projection.thread.pendingWorkflowResults ?? [];
+      const readWorkflowResult = (itemId: TurnItemId) =>
+        projectionStore
+          .getTurnItem({ threadId: projection.thread.id, itemId })
+          .pipe(Effect.map((item) => (item?.type === "workflow_run" ? item : null)));
+      // A result reported again keeps its id, so what was delivered is told apart by its version.
+      const workflowResultVersion = (item: OrchestrationV2TurnItem | null) =>
+        item === null ? null : `${item.status}\0${DateTime.formatIso(item.updatedAt)}`;
+      const deliveredWorkflowResults = yield* Effect.forEach(pendingWorkflowIds, (itemId) =>
+        readWorkflowResult(itemId).pipe(Effect.map((item) => ({ itemId, item }))),
+      );
+      const pendingWorkflowItems = deliveredWorkflowResults.flatMap(({ item }) =>
+        item === null ? [] : [item],
+      );
+      // Clears only what this prompt carried; a result reported meanwhile waits for the next one.
+      const clearDeliveredWorkflowResults = threadCommands.withLock(
+        projection.thread.id,
+        Effect.gen(function* () {
+          const fresh = yield* projectionStore.getThread(projection.thread.id);
+          const pending = fresh.pendingWorkflowResults ?? [];
+          const cleared = new Set<TurnItemId>();
+          for (const { itemId, item } of deliveredWorkflowResults) {
+            if (!pending.includes(itemId)) continue;
+            const stored = yield* readWorkflowResult(itemId);
+            if (workflowResultVersion(stored) === workflowResultVersion(item)) cleared.add(itemId);
+          }
+          if (cleared.size === 0) return;
+          const remaining = pending.filter((itemId) => !cleared.has(itemId));
+          yield* eventSink.write({
+            events: [
+              {
+                id: yield* idAllocator.allocate.event({ threadId: fresh.id }),
+                type: "thread.metadata-updated",
+                threadId: fresh.id,
+                providerInstanceId: fresh.providerInstanceId,
+                occurredAt: yield* DateTime.now,
+                payload: { ...fresh, pendingWorkflowResults: remaining },
+              },
+            ],
+          });
+        }),
+      );
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
           const delivery = yield* deliverContextHandoffs({
@@ -1603,7 +1650,12 @@ export const layer: Layer.Layer<
             sideChatHandoff === undefined || compact || goalCommand
               ? ""
               : sideChatHandoff.summaryText;
-          const context = [delivery.context, sideChatContext, restartNote]
+          // A provider reads a slash command only at the start of the prompt.
+          const workflowContext =
+            compact || goalCommand || userText.trimStart().startsWith("/")
+              ? ""
+              : workflowResultsContext(pendingWorkflowItems);
+          const context = [delivery.context, sideChatContext, workflowContext, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
@@ -1641,6 +1693,7 @@ export const layer: Layer.Layer<
                       delivery: { nativeThreadId, status: "inline" as const, itemIds: [] },
                     }),
                   ]),
+              ...(workflowContext === "" ? [] : [clearDeliveredWorkflowResults]),
             ],
             (record) =>
               record.pipe(
@@ -1679,7 +1732,8 @@ export const layer: Layer.Layer<
         retryHandoff.length === 0 &&
         sideChatHandoff === undefined &&
         restartNote === "" &&
-        !noteContinuation
+        !noteContinuation &&
+        pendingWorkflowItems.length === 0
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       return runExecution.startRootRun({

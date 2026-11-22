@@ -123,7 +123,7 @@ const ProposeTeamTool = Tool.make("propose_team", {
 
 const ProposeWorkflowTool = Tool.make("propose_workflow", {
   description:
-    "Draft a workflow for the user to review and save: a team of the user's agents that runs on a schedule or when they start it, toward one goal. Use when the user asks for recurring or repeatable work. Each step names one of the user's agents in `agent`, from `orchestrator_capabilities` `agents`; never invent one. Where none fits, give a `suggestion` and say so. Give each step a `doneWhen` the result must meet. Order steps with `dependsOn`. Nothing runs and nothing is saved until the user saves it.",
+    "Draft a workflow for the user to review and save: a team of the user's agents that runs on a schedule or when they start it, toward one goal. Use when the user asks for recurring or repeatable work. Each step names one of the user's agents in `agent`, from `orchestrator_capabilities` `agents`; never invent one. Where none fits, give a `suggestion` and say so. Give each step a `doneWhen` the result must meet. Order steps with `dependsOn`. Calling it again replaces this chat's draft. Nothing runs now, and nothing is saved until the user saves it in the workflow editor; if they already saved a draft from this chat, saving updates that workflow. A workflow saved from a new draft stays off until the user turns it on from this chat's Workflow tab or the workflow editor; saving changes to a saved workflow keeps it on or off as it was. A step without an agent cannot run until they give it one. You are not told whether they saved it or turned it on; the chat's Workflow tab shows them.",
   parameters: OrchestratorMcpProposeWorkflowInput,
   success: OrchestratorMcpProposeWorkflowResult,
   failure: OrchestratorMcpFailure,

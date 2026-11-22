@@ -62,12 +62,13 @@ workspace.
 questions, teams waiting for your approval, and teams that failed. A workflow run that waits for
 you or failed is there too, and opens on the run's page. An entry leaves once you act on it, mark
 the thread done, or snooze it. **Tasks** lists every task a team works on, grouped by whether it
-needs you, is running, or is done. Workflow runs and their steps' chats are on the **Workflows**
-page, not in Tasks or the workspaces.
+needs you, is running, or is done. Workflow runs are not in Tasks: a workflow's runs are listed
+under its chat (**Show 3 runs**), open while one is running. The newest 10 show there, and
+**All 12 runs** opens the rest on the workflow's page. A run's step chats are on the run's page.
 
 Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
-sidebar, where **Restore** brings one back. An agent's thread is not listed there; open it from its
-task.
+sidebar, where **Mark not done** brings back a done thread and **Unarchive** an archived one. An
+agent's thread is not listed there; open it from its task.
 
 ## Build
 
@@ -81,6 +82,8 @@ schedule or when you start them; see [Workflows](./workflows.md).
 The sidebar groups chats by workspace by default: your unsent drafts and **Pinned**
 threads, then a folder for each workspace, pinned workspaces first, then **Snoozed**. Each row's icon
 shows where the thread stands: running, waiting for you, failed, done, or with an open pull request.
+Choose **Mark unread** from a thread's menu to show its latest result as new again until you open
+the thread.
 
 A workspace with no active threads keeps its folder unless it is archived. An archived workspace's
 folder comes last and shows only while it has active threads. The filter beside **Workspaces**
@@ -100,7 +103,7 @@ Each device keeps its own choice.
 
 ## Pin and reorder threads
 
-Pin a thread from its menu to keep it above your active work.
+Choose **Pin chat** from a thread's menu to keep it above your active work.
 
 Unpinning, marking done, snoozing, and archiving a thread each show
 a notification with **Undo** for five seconds. Undo restores the thread's previous
@@ -117,8 +120,8 @@ files directly; see [Attach files](./composer.md#attach-files).
 Pinning or unpinning a thread keeps the sidebar at your current
 scroll position instead of following the thread to its new place in the list.
 
-Pinning does not stop a thread from being marked done automatically. Marking a thread done
-removes its pin.
+A pinned thread is not marked done automatically, except a team agent's thread when its team
+finishes or is cancelled. Marking a thread done removes its pin.
 
 In the single list, drag a thread between sections to change its state. Drag a thread up into
 the pinned section to pin it at the spot you drop it; drag a pinned thread down into the active
@@ -155,8 +158,8 @@ environment. Pinned and active reordering require server support. Threads from o
 their default order until the server is updated.
 
 To generate a fresh title from the conversation, open a thread's menu and choose
-**Regenerate title**. The action is unavailable while title generation is in progress
-or when the connected environment needs a server update.
+**Regenerate title**. It is unavailable while a title is being generated, and does not appear
+until the environment is connected.
 
 To change how titles are written, add **Thread title instructions** in **Settings → Threads →
 Text generation**, under Advanced, such as a length limit or an identifier to put first. They apply to new and
@@ -187,7 +190,9 @@ cannot drag or move threads within it. Your saved order returns when you turn it
 ## Mark finished work done
 
 Choose **Mark done** from a thread's menu to move finished work out of the active list
-into the **Done** shelf without deleting the conversation. **Mark not done** restores it to
+without deleting the conversation. Grouped by workspace, it goes to **Completed & archived**; the
+single list keeps it on its **Done** shelf. **Mark done** is unavailable while the chat is
+working, waiting on an approval or an answer, or has a message queued. **Mark not done** restores it to
 active work and keeps it from being marked done automatically until new activity resumes the
 usual rules. Marking an idle thread done by hand dismisses unanswered async questions without
 sending an answer or restarting the agent. It also closes the thread's
@@ -207,7 +212,7 @@ closes when the command succeeds and stays open when it fails.
 
 Press a thread's **Done** button and drag up or down to
 mark every thread in that section done, between it and the one you release on.
-The **Mark not done** and **Wake** buttons work the same way in their sections.
+The **Mark not done** and **Wake now** buttons work the same way in their sections.
 Press `Escape` while dragging to cancel.
 
 By default, environments mark inactive threads done after seven days, and mark
@@ -220,11 +225,12 @@ stop inactivity from marking it done unless you turn on **Keep threads with a PR
 resumed after it closed. Only your own messages count as resuming. A turn that
 finished background work or a pull request watch starts on its own does not.
 
-To keep one thread out of the **Done** shelf no matter how long it sits idle, open its menu,
-choose **Mark done automatically**, and pick **Never**. The current option is checked. Pick
-**Follow settings** to return to the rules in **Settings → Threads**. While those rules are off,
-a thread on **Follow settings** is not marked done automatically either. **Mark done**, snooze,
-and archive still work while it is set to **Never**.
+To keep one thread from being marked done automatically, open its menu, choose **Mark done
+automatically**, and pick **Never**. The current option is checked. Pick **As set in Settings** to
+return to the rules in **Settings → Threads**. While those rules are off, a thread on **As set in
+Settings** is not marked done automatically either. **Mark done**, snooze, and archive still work
+while it is set to **Never**. On a team agent's thread the option reads **Never (until the team
+ends)**: when a team finishes or is cancelled, its agents' threads are marked done anyway.
 
 Change these rules in **Settings → Threads**.
 They continue to run when your apps are closed. Choose an environment at the
@@ -258,8 +264,8 @@ Use **Settings → Keybindings** to find or customize shortcuts for searching fi
 and copying a thread reference. A copied reference uses the thread's pull request
 link when available, otherwise a link to the thread, which opens it from anywhere
 you paste it and pastes into a composer as a thread chip (see
-[sharing a thread](./prompt-links.md#share-a-thread)). To copy the thread even
-when it has a PR, choose **Copy → Thread** from its context menu.
+[sharing a thread](./prompt-links.md#share-a-thread)). To copy the thread's link even
+when it has a PR, choose **Copy → Chat link** from its menu.
 **Thread ID** copies the bare ID for scripts and the `codenine` CLI. See
 [keybindings](./keybindings.md) for custom configuration.
 
@@ -301,11 +307,12 @@ finishes; the call's own result shows its status.
 
 The top of a workspace's thread holds its tools: the workspace's main command, such as **Dev**, with
 its other commands in the menu beside it; **Details**; **Terminal**; **Changes**, with the lines
-added and removed; **Files**; and **More**, the thread's menu. At its end, one button offers the
+added and removed; **Files**; and **More**, the thread's menu, which clicking the thread's title
+also opens. At its end, one button offers the
 next step: **Open run** in a workflow run's chats, **Approve team**, **Retry** an agent that
 failed, the team's progress while it runs, **View PR**, or **Create PR** once the work is ready. On your default branch, Create PR first offers
 to move the changes to a new branch. On a narrow window some tools step aside; they stay in the
-right panel and the thread's menu.
+right panel.
 
 The thread details card, with the machine, editor, workspace commands, branch, Git actions and
 changes, stays closed until you open it with **Details** or `mod+shift+b`. Each thread remembers
@@ -409,7 +416,7 @@ selected, the options apply to every connected environment.
 Choose **Snooze → Custom…** from a thread's menu to pick a date and time in your
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. You can also snooze
-several selected threads together. Choose **Wake thread** to bring a thread back early.
+several selected threads together. Choose **Wake now** to bring a thread back early.
 
 A snoozed thread keeps working and stays hidden until its wake time, even while
 its agent wakes itself for background work. It comes back early for an approval,

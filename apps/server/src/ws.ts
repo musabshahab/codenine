@@ -2291,6 +2291,7 @@ export const layerWsRpc = (
         [WS_METHODS.workflowsSave]: (input) => workflows.save(input),
         [WS_METHODS.workflowsDelete]: (input) => workflows.remove(input).pipe(Effect.as({})),
         [WS_METHODS.workflowsRun]: (input) => workflows.run(input),
+        [WS_METHODS.workflowsSetEnabled]: (input) => workflows.setEnabled(input),
         [WS_METHODS.sourceControlPublishRepository]: (input) =>
           sourceControlRepositories.publishRepository(input).pipe(
             // A failed push still leaves the new remote added.

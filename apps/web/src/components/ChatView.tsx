@@ -58,7 +58,11 @@ import {
 } from "./chat/TeamAgentThread";
 import { teamToggleAvailable, workflowToggleAvailable } from "./chat/composerTeam.logic";
 import { ComposerRequestNote, DraftHeroExamples } from "./chat/DraftHeroExamples";
-import { useWorkflowDraft, workflowDraftBannerItem } from "./chat/WorkflowDraftPanel";
+import {
+  useSavedWorkflowLink,
+  useWorkflowDraft,
+  workflowDraftBannerItem,
+} from "./chat/WorkflowDraftPanel";
 import * as Schema from "effect/Schema";
 import {
   AuthOrchestrationOperateScope,
@@ -1903,6 +1907,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   const threadTeamInfo = useThreadTeam(embedded ? null : serverThreadShell);
   const workflowDraft = useWorkflowDraft(isServerThread && !embedded ? activeThreadRef : null);
+  const savedWorkflow = useSavedWorkflowLink(isServerThread && !embedded ? activeThreadRef : null);
   useProactiveLeadPanels({
     threadRef: isServerThread && !embedded && !shouldUsePlanSidebarSheet ? activeThreadRef : null,
     planId: threadTeamInfo?.planId ?? null,
@@ -2443,7 +2448,7 @@ export default function ChatView(props: ChatViewProps) {
     ...(threadTeamInfo === null || tabInView("task")
       ? []
       : [taskStripBannerItem(threadTeamInfo, openTaskSurfaceStable)]),
-    ...(workflowDraft === null || tabInView("workflow")
+    ...(workflowDraft === null || savedWorkflow !== null || tabInView("workflow")
       ? []
       : [workflowDraftBannerItem(workflowDraft, openWorkflowSurfaceStable)]),
     ...(teamAgentThread === null
@@ -3256,6 +3261,7 @@ export default function ChatView(props: ChatViewProps) {
               activeThreadEnvironmentId={activeThread.environmentId}
               activeThreadId={activeThread.id}
               isServerThread={isServerThread}
+              threadShell={activeThreadShell}
               activeThreadTitle={
                 isServerThread
                   ? activeThread.title
@@ -3937,7 +3943,9 @@ export default function ChatView(props: ChatViewProps) {
           onAddFiles={addFilesSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           onAddTask={threadTeamInfo === null ? undefined : openTaskSurfaceStable}
-          onAddWorkflow={workflowDraft === null ? undefined : openWorkflowSurfaceStable}
+          onAddWorkflow={
+            workflowDraft === null && savedWorkflow === null ? undefined : openWorkflowSurfaceStable
+          }
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
           filesAvailable={activeProject !== null}

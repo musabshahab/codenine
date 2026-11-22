@@ -2,6 +2,7 @@ import {
   OrchestrationV2AppThread,
   OrchestrationV2TurnItem,
   type OrchestrationV2ThreadProjection,
+  type SavedWorkflowLink,
   type ScopedThreadRef,
   type TeamPlan,
   type WorkflowDraft,
@@ -572,6 +573,20 @@ export function createEnvironmentThreadDetailAtoms<E>(
     }).pipe(Atom.setIdleTTL(0), Atom.withLabel(`environment-thread-workflow-draft:${key}`));
   });
 
+  const savedWorkflowAtomFamily = Atom.family((key: string) => {
+    let source: SavedWorkflowLink | null = null;
+    let value: SavedWorkflowLink | null = null;
+    return Atom.make((get) => {
+      const link =
+        Option.getOrNull(get(threadStateValueAtomFamily(key)).data)?.thread.savedWorkflow ?? null;
+      if (link !== source) {
+        source = link;
+        if (link?.id !== value?.id || link?.proposedAt !== value?.proposedAt) value = link;
+      }
+      return value;
+    }).pipe(Atom.setIdleTTL(0), Atom.withLabel(`environment-thread-saved-workflow:${key}`));
+  });
+
   const statusAtomFamily = Atom.family((key: string) =>
     Atom.make((get) => get(threadStateValueAtomFamily(key)).status).pipe(
       Atom.setIdleTTL(0),
@@ -615,6 +630,7 @@ export function createEnvironmentThreadDetailAtoms<E>(
     pendingRequestsAtom: (ref: ScopedThreadRef) => pendingRequestsAtomFamily(threadKey(ref)),
     teamAtom: (ref: ScopedThreadRef) => teamAtomFamily(threadKey(ref)),
     workflowDraftAtom: (ref: ScopedThreadRef) => workflowDraftAtomFamily(threadKey(ref)),
+    savedWorkflowAtom: (ref: ScopedThreadRef) => savedWorkflowAtomFamily(threadKey(ref)),
     queueWorkflowAtom: (ref: ScopedThreadRef) => queueWorkflowAtomFamily(threadKey(ref)),
     queuedCountAtom: (ref: ScopedThreadRef) => queuedCountAtomFamily(threadKey(ref)),
     runStopAtom: (ref: ScopedThreadRef) => runStopAtomFamily(threadKey(ref)),

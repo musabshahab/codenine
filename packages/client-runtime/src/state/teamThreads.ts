@@ -40,13 +40,23 @@ const ATTENTION_ORDER: ReadonlyArray<TeamThreadAttention> = [
 ];
 
 export interface TeamThreadGroup<T> {
-  /** Every task thread nested under the lead, oldest first. */
+  /** Every thread nested under the lead: team tasks oldest first, then workflow runs newest first. */
   readonly tasks: ReadonlyArray<T>;
-  /** The task rows drawn under the lead: all of them when expanded, else only the open one. */
+  /**
+   * The rows drawn under the lead: when expanded, the team tasks, the newest runs and the open
+   * thread; else only the open one.
+   */
   readonly shown: ReadonlyArray<T>;
   readonly expanded: boolean;
-  /** The most urgent state among the tasks a collapsed group hides, for the lead row to show. */
+  /**
+   * The most urgent state among the rows expanding would draw that are not drawn yet, for the lead
+   * row to show.
+   */
   readonly attention: TeamThreadAttention | null;
+  /** How many of `tasks` are workflow runs. */
+  readonly runs: number;
+  /** Whether the chat has more runs than an expanded group draws; the rest are on the runs page. */
+  readonly moreRuns: boolean;
 }
 
 export interface TeamThreadGrouping<T> {
@@ -55,6 +65,8 @@ export interface TeamThreadGrouping<T> {
   /** Keyed by lead. */
   readonly groups: ReadonlyMap<string, TeamThreadGroup<T>>;
   readonly leadKeyByTaskKey: ReadonlyMap<string, string>;
+  /** Workflow runs left out of every section because their chat is not listed. */
+  readonly droppedRunKeys: ReadonlySet<string>;
   /** The top-level row holding the open thread: its lead's when the open thread is nested. */
   readonly openRowKey: string | null;
 }
@@ -69,11 +81,18 @@ function followsLead(task: TeamThreadSection, lead: TeamThreadSection): boolean 
   return (task === "active" || task === "working") && (lead === "pinned" || lead === "active");
 }
 
+/** How many runs an expanded chat draws; older ones are on the workflow's runs page. */
+const SHOWN_RUNS_MAX = 10;
+
+export type TeamThreadRunState = "running" | "ended";
+
 export function groupTeamThreads<T extends { readonly createdAt: string }>(input: {
   readonly sections: Readonly<Record<TeamThreadSection, ReadonlyArray<T>>>;
   readonly keyOf: (thread: T) => string;
-  /** The key of the lead a team task thread runs for; null on every other thread. */
+  /** The key of the lead a team task thread runs for, or of the chat a workflow run reports to. */
   readonly leadKeyOf: (thread: T) => string | null;
+  /** Whether the thread leads a workflow run; null on every other thread. */
+  readonly runOf?: (thread: T) => TeamThreadRunState | null;
   /** The thread on screen, which a collapsed group still shows under its lead. */
   readonly openKey: string | null;
   /** The user's own choice per lead, which wins over the default. */
@@ -81,6 +100,7 @@ export function groupTeamThreads<T extends { readonly createdAt: string }>(input
   readonly attentionOf: (thread: T) => TeamThreadAttention | null;
 }): TeamThreadGrouping<T> {
   const { keyOf, leadKeyOf } = input;
+  const runOf = input.runOf ?? (() => null);
   const sectionByKey = new Map<string, TeamThreadSection>();
   const threadByKey = new Map<string, T>();
   for (const section of SECTIONS) {
@@ -91,42 +111,66 @@ export function groupTeamThreads<T extends { readonly createdAt: string }>(input
   }
 
   const leadKeyByTaskKey = new Map<string, string>();
+  // A run whose chat is not drawn lives on the Workflows pages, never as a stray top-level row.
+  const droppedRuns = new Set<string>();
   const tasksByLead = new Map<string, T[]>();
   for (const [taskKey, task] of threadByKey) {
     const leadKey = leadKeyOf(task);
-    const lead = leadKey === null ? undefined : threadByKey.get(leadKey);
+    if (leadKey === null) continue;
+    const lead = threadByKey.get(leadKey);
+    const run = runOf(task);
+    if (lead === undefined && run !== null) droppedRuns.add(taskKey);
     // Teams do not nest, so a lead that is itself a team task holds no rows.
-    if (leadKey === null || lead === undefined || leadKeyOf(lead) !== null) continue;
-    if (!followsLead(sectionByKey.get(taskKey)!, sectionByKey.get(leadKey)!)) continue;
+    if (lead === undefined || leadKeyOf(lead) !== null) continue;
+    const section = sectionByKey.get(taskKey)!;
+    // An ended run follows its chat anywhere, unless the user pinned or snoozed it.
+    const nests =
+      run === "ended"
+        ? section !== "pinned" && section !== "snoozed"
+        : followsLead(section, sectionByKey.get(leadKey)!);
+    if (!nests) continue;
     leadKeyByTaskKey.set(taskKey, leadKey);
     const tasks = tasksByLead.get(leadKey);
     if (tasks === undefined) tasksByLead.set(leadKey, [task]);
     else tasks.push(task);
   }
 
+  const byCreatedAt = (left: T, right: T) =>
+    left.createdAt.localeCompare(right.createdAt) || keyOf(left).localeCompare(keyOf(right));
   const groups = new Map<string, TeamThreadGroup<T>>();
-  for (const [leadKey, unordered] of tasksByLead) {
-    const tasks = unordered.toSorted(
-      (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || keyOf(left).localeCompare(keyOf(right)),
-    );
+  for (const [leadKey, members] of tasksByLead) {
+    const teamTasks = members.filter((task) => runOf(task) === null).toSorted(byCreatedAt);
+    const runs = members
+      .filter((task) => runOf(task) !== null)
+      .toSorted((left, right) => byCreatedAt(right, left));
+    const tasks = runs.length === 0 ? teamTasks : [...teamTasks, ...runs];
     const expanded =
       input.expandedByLead.get(leadKey) ??
-      tasks.some((task) => sectionByKey.get(keyOf(task)) !== "settled");
-    const shown = expanded ? tasks : tasks.filter((task) => keyOf(task) === input.openKey);
-    const hidden = new Set(tasks.filter((task) => !shown.includes(task)).map(input.attentionOf));
+      tasks.some((task) => {
+        const run = runOf(task);
+        return run === null ? sectionByKey.get(keyOf(task)) !== "settled" : run === "running";
+      });
+    const drawable = tasks.filter(
+      (task, index) => index < teamTasks.length + SHOWN_RUNS_MAX || keyOf(task) === input.openKey,
+    );
+    const shown = expanded ? drawable : drawable.filter((task) => keyOf(task) === input.openKey);
+    const hidden = new Set(drawable.filter((task) => !shown.includes(task)).map(input.attentionOf));
     groups.set(leadKey, {
       tasks,
       shown,
       expanded,
       attention: ATTENTION_ORDER.find((attention) => hidden.has(attention)) ?? null,
+      runs: runs.length,
+      moreRuns: runs.length > SHOWN_RUNS_MAX,
     });
   }
 
   const topLevel = (threads: ReadonlyArray<T>) =>
-    leadKeyByTaskKey.size === 0
+    leadKeyByTaskKey.size === 0 && droppedRuns.size === 0
       ? threads
-      : threads.filter((thread) => !leadKeyByTaskKey.has(keyOf(thread)));
+      : threads.filter(
+          (thread) => !leadKeyByTaskKey.has(keyOf(thread)) && !droppedRuns.has(keyOf(thread)),
+        );
   return {
     sections: {
       pinned: topLevel(input.sections.pinned),
@@ -137,6 +181,7 @@ export function groupTeamThreads<T extends { readonly createdAt: string }>(input
     },
     groups,
     leadKeyByTaskKey,
+    droppedRunKeys: droppedRuns,
     openRowKey:
       input.openKey === null ? null : (leadKeyByTaskKey.get(input.openKey) ?? input.openKey),
   };
@@ -147,15 +192,18 @@ interface WorkflowRunMember {
   readonly id: string;
   readonly source: {
     readonly teamTask?: { readonly rootThreadId: string } | undefined;
-    readonly teamSummary?: { readonly run?: unknown } | undefined;
+    readonly teamSummary?:
+      | { readonly run?: { readonly chatThreadId?: string | undefined } | undefined }
+      | undefined;
   };
 }
 
 /**
- * The threads without workflow runs, which live on the Workflows pages: a run's lead, and every
- * task thread that works for one. Returns `threads` itself when it holds no run.
+ * The threads without the parts of workflow runs that live on the Workflows pages: every step
+ * thread of a run, and a run's lead when the run has no chat to nest under. Returns `threads`
+ * itself when it holds no run.
  */
-export function withoutWorkflowRuns<T extends WorkflowRunMember>(
+export function withoutUnlinkedWorkflowRuns<T extends WorkflowRunMember>(
   threads: ReadonlyArray<T>,
 ): ReadonlyArray<T> {
   const leads = new Set(
@@ -165,8 +213,10 @@ export function withoutWorkflowRuns<T extends WorkflowRunMember>(
   );
   if (leads.size === 0) return threads;
   return threads.filter((thread) => {
-    const lead = thread.source.teamTask?.rootThreadId ?? thread.id;
-    return !leads.has(`${thread.environmentId}:${lead}`);
+    const run = thread.source.teamSummary?.run;
+    if (run !== undefined) return run.chatThreadId !== undefined;
+    const lead = thread.source.teamTask?.rootThreadId;
+    return lead === undefined || !leads.has(`${thread.environmentId}:${lead}`);
   });
 }
 

@@ -21,6 +21,7 @@ import {
   type WorkflowInput,
   type WorkflowProblem,
   type WorkflowStep,
+  WORKFLOW_RUN_RESULT_MAX_CHARS,
 } from "@codenine/contracts";
 import { agentModelSelection } from "@codenine/shared/agentModel";
 import * as DateTime from "effect/DateTime";
@@ -281,4 +282,28 @@ export function noteLine(
     String(part).padStart(index === 0 ? 4 : 2, "0"),
   );
   return `- ${date.join("-")} run ${run.run}: ${note.replace(/\s+/gu, " ").trim()}`;
+}
+
+/** A run's result: what its last steps, those no other step waits on, completed with. */
+export function runResult(plan: Pick<TeamPlan, "tasks">): string | null {
+  const awaited = new Set(plan.tasks.flatMap((task) => task.dependsOn));
+  const results = plan.tasks.flatMap((task) =>
+    awaited.has(task.id) || task.status !== "completed" || task.result === null
+      ? []
+      : [{ title: task.title, result: task.result }],
+  );
+  if (results.length <= 1) return results[0]?.result ?? null;
+  return results.map(({ title, result }) => `## ${title}\n\n${result}`).join("\n\n");
+}
+
+const RESULT_CUT_MARKER = "\n\n[Result cut short. Open the run for the rest.]";
+
+/** `text` cut to the length a chat shows and its agent reads, saying where it was cut. */
+export function capRunResult(text: string): string {
+  if (text.length <= WORKFLOW_RUN_RESULT_MAX_CHARS) return text;
+  let end = WORKFLOW_RUN_RESULT_MAX_CHARS - RESULT_CUT_MARKER.length;
+  // A cut inside a surrogate pair would leave half a character.
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${text.slice(0, end)}${RESULT_CUT_MARKER}`;
 }

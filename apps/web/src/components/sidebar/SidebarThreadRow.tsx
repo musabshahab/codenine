@@ -382,7 +382,7 @@ function SnoozeMenuButton(props: {
               render={
                 <button
                   type="button"
-                  aria-label="Snooze thread"
+                  aria-label="Snooze"
                   onClick={(event) => event.stopPropagation()}
                   onDoubleClick={(event) => event.stopPropagation()}
                   className="inline-flex h-full cursor-pointer items-center gap-0.5 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
@@ -393,7 +393,7 @@ function SnoozeMenuButton(props: {
         >
           <ClockIcon className="size-3" />
         </TooltipTrigger>
-        <TooltipPopup>Snooze thread</TooltipPopup>
+        <TooltipPopup>Snooze</TooltipPopup>
       </Tooltip>
       <MenuPopup side="bottom" align="end">
         {presets.map((preset) => (
@@ -541,8 +541,10 @@ type SidebarThreadRowProps = {
   // "compact" is a one-line row outside any folder, such as a pinned chat.
   variant: "card" | "slim" | "folder" | "folder-multiline" | "team" | "compact";
   navigationParent?: string | undefined;
-  /** On a team lead: how many task rows it holds, which it draws below itself. */
+  /** On a team lead or a workflow's chat: how many rows it holds, which it draws below itself. */
   teamTaskCount: number;
+  /** How many of those rows are workflow runs. */
+  teamRunCount: number;
   teamExpanded: boolean;
   teamAttention: TeamThreadAttention | null;
   onToggleTeam: (threadKey: string) => void;
@@ -623,7 +625,7 @@ function ThreadRenameInput(props: {
       autoFocus
       value={props.title}
       dir="auto"
-      aria-label="Thread title"
+      aria-label="Chat title"
       onChange={(event) => props.onTitleChange(event.target.value)}
       onFocus={(event) => event.currentTarget.select()}
       onKeyDown={handleKeyDown}
@@ -1068,6 +1070,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     props.teamTaskCount > 0 ? (
       <SidebarTeamToggle
         count={props.teamTaskCount}
+        runs={props.teamRunCount}
         expanded={props.teamExpanded}
         attention={props.teamAttention}
         showIcon={teamSummary === null}
@@ -1124,7 +1127,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           render={
             <button
               type="button"
-              aria-label="Unpin thread"
+              aria-label="Unpin chat"
               onClick={handleUnpinClick}
               className="group/unpin inline-flex cursor-pointer items-center rounded-sm text-muted-foreground/65 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             />
@@ -1139,7 +1142,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             className="hidden size-3 shrink-0 group-hover/unpin:block group-focus-visible/unpin:block"
           />
         </TooltipTrigger>
-        <TooltipPopup>Unpin thread</TooltipPopup>
+        <TooltipPopup>Unpin chat</TooltipPopup>
       </Tooltip>
     ) : (
       <PinIcon
@@ -1403,7 +1406,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     !props.snoozeSupported ? null : (
                       <button
                         type="button"
-                        aria-label="Wake thread now"
+                        aria-label="Wake now"
                         onClick={handleUnsnoozeClick}
                         onPointerDown={handleActionPointerDown}
                         className={cn(

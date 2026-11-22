@@ -61,6 +61,7 @@ import { agentTitle, useAgents } from "../agents/useAgents";
 import { subagentResumedSince } from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { CodenineMark } from "../CodenineWordmark";
+import { WorkflowRunCard } from "./WorkflowRunCard";
 
 export type { HandoffTimelineRun } from "@codenine/client-runtime/handoff";
 
@@ -72,6 +73,15 @@ export function V2LifecycleRow(props: {
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
   const { item } = props;
+  if (item.type === "workflow_run") {
+    return (
+      <WorkflowRunCard
+        item={item}
+        threadRef={scopeThreadRef(props.environmentId, item.threadId)}
+        onOpenThread={props.onOpenThread}
+      />
+    );
+  }
   if (item.type === "run_interrupt_result") {
     return (
       <TimelineSystemDivider

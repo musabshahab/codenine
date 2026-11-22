@@ -3,6 +3,7 @@ import type {
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
   OrchestrationV2ThreadHistoryPage,
+  WorkflowId,
 } from "@codenine/contracts";
 import {
   latestExecutedRun,
@@ -573,6 +574,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "team.hold":
     case "team.run.update":
     case "workflow.draft.set":
+    case "workflow.draft.saved":
+    case "workflow.run.report":
       return command.threadId;
     case "delegated_task.request":
     case "delegated_task.wake-policy":
@@ -717,6 +720,12 @@ function legacyPullRequestLink(
 }
 
 const DELEGATED_RESULT_INLINE_BYTES = 16_000;
+
+/** The one card a workflow run keeps in its chat. */
+export const workflowRunItemId = (workflowId: WorkflowId, run: number) =>
+  TurnItemId.make(`workflow-run:${workflowId}:${run}`);
+// The chat's agent is given at most this many workflow results at once, the newest.
+const WORKFLOW_RESULTS_PENDING_MAX = 5;
 
 function delegatedCompletionWakeDetail(
   taskIds: ReadonlyArray<string>,
@@ -3175,41 +3184,155 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     ]);
   });
 
-  const dispatchWorkflowDraftSet = Effect.fn("orchestrationV2.dispatch.workflowDraftSet")(
+  const dispatchWorkflowDraft = Effect.fn("orchestrationV2.dispatch.workflowDraft")(function* (
+    command: Extract<
+      OrchestrationV2InternalCommand,
+      { readonly type: "workflow.draft.set" | "workflow.draft.saved" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const refusal =
+      thread.deletedAt !== null
+        ? `Thread ${command.threadId} is deleted.`
+        : thread.teamTask !== undefined
+          ? "workflow_task_thread: A team agent's thread cannot draft a workflow."
+          : undefined;
+    if (refusal !== undefined) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: refusal,
+      });
+    }
+    const now = yield* DateTime.now;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: now,
+      payload: {
+        ...thread,
+        ...(command.type === "workflow.draft.set"
+          ? { workflowDraft: command.draft }
+          : { savedWorkflow: { id: command.workflowId, proposedAt: command.proposedAt } }),
+        updatedAt: now,
+      },
+    });
+  });
+
+  const dispatchWorkflowRunReport = Effect.fn("orchestrationV2.dispatch.workflowRunReport")(
     function* (
-      command: Extract<OrchestrationV2InternalCommand, { readonly type: "workflow.draft.set" }>,
+      command: Extract<OrchestrationV2InternalCommand, { readonly type: "workflow.run.report" }>,
       events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     ) {
+      const { threadId, workflowId, run } = command;
+      const toProjectionError = (cause: unknown) =>
+        new OrchestratorProjectionError({ threadId, cause });
       const thread = yield* projectionStore
-        .getThread(command.threadId)
+        .getThread(threadId)
         .pipe(
-          Effect.mapError(
-            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
-          ),
+          Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+          Effect.mapError(toProjectionError),
         );
-      const refusal =
-        thread.deletedAt !== null
-          ? `Thread ${command.threadId} is deleted.`
-          : thread.teamTask !== undefined
-            ? "workflow_task_thread: A team agent's thread cannot draft a workflow."
-            : undefined;
-      if (refusal !== undefined) {
+      if (thread === null || thread.deletedAt !== null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: refusal,
+          cause: `Thread ${threadId} is deleted.`,
         });
       }
+      const itemId = workflowRunItemId(workflowId, run);
+      const stored = yield* projectionStore
+        .getTurnItem({ threadId, itemId })
+        .pipe(Effect.mapError(toProjectionError));
+      const existing = stored?.type === "workflow_run" ? stored : null;
+      if (
+        existing !== null &&
+        existing.status === command.status &&
+        existing.headline === command.headline &&
+        existing.result === command.result &&
+        existing.title === command.title
+      ) {
+        return;
+      }
       const now = yield* DateTime.now;
+      // Only a new terminal status is news; a changed headline or result updates the card quietly.
+      const isNews = existing === null || existing.status !== command.status;
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "turn-item.updated",
+        threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: {
+          id: itemId,
+          threadId,
+          runId: null,
+          nodeId: null,
+          providerThreadId: null,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          // The position store gives the card its place after the chat's newest run.
+          ordinal: existing?.ordinal ?? 0,
+          status: command.status,
+          title: command.title,
+          startedAt: isNews ? now : existing.startedAt,
+          completedAt: isNews ? now : existing.completedAt,
+          updatedAt: now,
+          type: "workflow_run",
+          workflowId,
+          run,
+          leadThreadId: command.leadThreadId,
+          headline: command.headline,
+          result: command.result,
+        },
+      });
+      if (!isNews) return;
+      const reported: OrchestrationV2AppThread = {
+        ...thread,
+        workflowResultAt: now,
+        pendingWorkflowResults: [
+          ...(thread.pendingWorkflowResults ?? []).filter((id) => id !== itemId),
+          itemId,
+        ].slice(-WORKFLOW_RESULTS_PENDING_MAX),
+        // Seeded like a first message, so this result reads as unread on every client.
+        lastVisitedAt: thread.lastVisitedAt ?? DateTime.subtract(now, { milliseconds: 1 }),
+        updatedAt: now,
+      };
       yield* emit(
         events,
         command,
       )({
         type: "thread.metadata-updated",
-        threadId: command.threadId,
+        threadId,
         providerInstanceId: thread.providerInstanceId,
         occurredAt: now,
-        payload: { ...thread, workflowDraft: command.draft, updatedAt: now },
+        payload: reported,
+      });
+      // Brought back from Done like a message would; a snooze stays, as for other automatic wakes.
+      if (thread.settledOverride !== "settled") return;
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.unsettled",
+        threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: now,
+        payload: { ...reported, settledOverride: null, settledAt: null, unsettledAt: now },
       });
     },
   );
@@ -3598,17 +3721,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (request) => request.kind !== "user_input" || request.responseCapability.type !== "message",
       );
       const blocker = blockingRequestExists
-        ? "is waiting on an approval or question. Answer it before settling."
+        ? "This chat is waiting on an approval or an answer. Answer it before marking it done."
         : runningRunExists
-          ? "is still running. Stop it before settling."
+          ? "This chat is still running. Stop it before marking it done."
           : queuedMessageExists
-            ? "has a queued message. Send it or remove it from the queue before settling."
+            ? "This chat has a queued message. Send it or remove it from the queue before marking it done."
             : null;
       if (blocker !== null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} ${blocker}`,
+          cause: blocker,
         });
       }
 
@@ -3774,14 +3897,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ),
         );
       const latestRunCompletedAt = shell?.latestRunCompletedAt ?? null;
-      if (latestRunCompletedAt === null) {
+      const workflowResultAt = shell?.workflowResultAt ?? null;
+      const latestNewsAt =
+        latestRunCompletedAt === null
+          ? workflowResultAt
+          : workflowResultAt === null
+            ? latestRunCompletedAt
+            : DateTime.max(latestRunCompletedAt, workflowResultAt);
+      if (latestNewsAt === null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Thread ${command.threadId} has no completed run to mark unread.`,
+          cause: `Thread ${command.threadId} has no completed run or workflow result to mark unread.`,
         });
       }
-      markUnreadVisitedAt = DateTime.subtract(latestRunCompletedAt, { milliseconds: 1 });
+      markUnreadVisitedAt = DateTime.subtract(latestNewsAt, { milliseconds: 1 });
     }
     const updatedThread: OrchestrationV2AppThread = (() => {
       switch (command.type) {
@@ -13352,7 +13482,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* dispatchTeamCommand(command, events, effects);
         break;
       case "workflow.draft.set":
-        yield* dispatchWorkflowDraftSet(command, events);
+      case "workflow.draft.saved":
+        yield* dispatchWorkflowDraft(command, events);
+        break;
+      case "workflow.run.report":
+        yield* dispatchWorkflowRunReport(command, events);
         break;
       default:
         return yield* dispatchUnsupported(command);
@@ -13464,6 +13598,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           command.type === "team.task.settle" ||
           command.type === "team.hold" ||
           command.type === "team.run.update" ||
+          command.type === "workflow.run.report" ||
           (command.type === "thread.delete" && command.onlyIfUnused === true),
         (_planned) =>
           new OrchestratorDispatchError({

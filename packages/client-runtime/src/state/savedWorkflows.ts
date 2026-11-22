@@ -45,5 +45,10 @@ export function createSavedWorkflowsEnvironmentAtoms<R, E>(
       tag: WS_METHODS.workflowsRun,
       onSettled: changed,
     }),
+    setEnabled: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:workflows:set-enabled",
+      tag: WS_METHODS.workflowsSetEnabled,
+      onSettled: changed,
+    }),
   };
 }

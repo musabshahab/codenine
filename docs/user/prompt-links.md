@@ -53,7 +53,7 @@ malicious.
 
 ## Share a thread
 
-**Copy thread** copies a `codenine-thread://` link. Paste it anywhere, such as Slack, a GitHub
+**Copy chat link** copies a `codenine-thread://` link. Paste it anywhere, such as Slack, a GitHub
 comment, or your notes. Only someone connected to the machine that runs the thread can see it. In
 Codenine, a thread link in a message opens the thread in the app.
 

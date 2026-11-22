@@ -70,6 +70,7 @@ export function WorkflowEditorPage(props: {
           editKey={editKey}
           saved={null}
           start={BLANK}
+          fromDraft={null}
           notice={null}
         />
       );
@@ -147,6 +148,7 @@ function SavedWorkflowEditor(props: {
       editKey={workflowEditKey({ kind: "saved", name: detail.data.name })}
       saved={detail.data}
       start={BLANK}
+      fromDraft={null}
       notice={null}
     />
   );
@@ -190,6 +192,7 @@ function DraftWorkflowEditor(props: {
       editKey={editKey}
       saved={null}
       start={start}
+      fromDraft={draft === null ? null : { threadId: props.threadId, proposedAt: draft.proposedAt }}
       notice={
         draft === null && edit === null
           ? "The chat has no workflow draft any more, so this one starts blank."
@@ -254,6 +257,7 @@ function TeamWorkflowEditor(props: {
       editKey={editKey}
       saved={null}
       start={start}
+      fromDraft={null}
       notice={
         plan === null && edit === null
           ? "That chat has no team any more, so this workflow starts blank."
