@@ -283,7 +283,9 @@ export const OrchestratorMcpProposeTeamInput = Schema.Struct({
         description:
           "All the member gets besides the goal and the results of `dependsOn`; it has not seen this chat. Write for a capable junior: Context (decisions made; names and interfaces to match), Read first (paths), You own (files it may edit), Steps. Put the check in `doneWhen`. No secrets.",
       }),
-      agent: TeamAgentId,
+      agent: TeamAgentId.annotate({
+        description: "The `id` of the member in `agents` that does it, not a saved agent's name.",
+      }),
       dependsOn: Schema.optional(
         Schema.Array(TeamTaskId).annotate({ description: "Task ids that must complete first." }),
       ),
