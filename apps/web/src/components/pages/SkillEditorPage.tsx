@@ -3,7 +3,6 @@ import { scopeProjectRef } from "@codenine/client-runtime/environment";
 import type { EnvironmentProject } from "@codenine/client-runtime/state/models";
 import { isAtomCommandInterrupted, settlePromise } from "@codenine/client-runtime/state/runtime";
 import {
-  AuthOrchestrationOperateScope,
   type EnvironmentId,
   type ProjectId,
   type SkillDetail,
@@ -21,13 +20,11 @@ import { commandErrorMessage } from "../../lib/commandError";
 import { ensureLocalApi } from "../../localApi";
 import { useEditorDraft, useReadSinceOpened } from "../../hooks/useEditorDraft";
 import { useEnvironmentQuery } from "../../state/query";
-import { serverEnvironment } from "../../state/server";
-import { readEnvironmentScope } from "../../state/session";
-import { shellEnvironment } from "../../state/shell";
 import { skillsEnvironment } from "../../state/skills";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useAccessEnvironment, useOpenedEnvironment } from "../settings/useAccessEnvironment";
 import { checkSkillDraft, skillNameFromTitle, type SkillDraftErrors } from "../skills/skills.logic";
+import { OpenFolderButton } from "../OpenFolderButton";
 import { TextField } from "../TextField";
 import { Button, InlineButton } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
@@ -416,25 +413,6 @@ function SkillFiles({
   readonly environmentId: EnvironmentId;
   readonly skill: SkillDetail | null;
 }) {
-  const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
-  const openInEditor = useAtomCommand(shellEnvironment.openInEditor, { reportFailure: false });
-  const canOpen = config?.availableEditors.includes("file-manager") === true;
-  const openFolder = async () => {
-    if (skill === null || !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
-      return;
-    }
-    const result = await openInEditor({
-      environmentId,
-      input: { cwd: skill.path, editor: "file-manager" },
-    });
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      toastManager.add({
-        type: "error",
-        title: "Could not open the skill's folder",
-        description: commandErrorMessage(result, "Try again."),
-      });
-    }
-  };
   const heading = (
     <h3 className="text-base font-semibold text-foreground">
       Files <span className="font-normal text-muted-foreground">optional</span>
@@ -470,11 +448,13 @@ function SkillFiles({
             Examples, templates or scripts the skill can use. Agents open them only when they need
             them.
           </span>
-          {canOpen ? (
-            <Button variant="outline" size="sm" onClick={() => void openFolder()}>
-              Open folder
-            </Button>
-          ) : null}
+          <OpenFolderButton
+            environmentId={environmentId}
+            path={skill.path}
+            failureTitle="Could not open the skill's folder"
+          >
+            Open folder
+          </OpenFolderButton>
         </div>
       </div>
     </section>

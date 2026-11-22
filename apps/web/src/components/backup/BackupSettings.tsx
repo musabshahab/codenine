@@ -1,7 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { isAtomCommandInterrupted } from "@codenine/client-runtime/state/runtime";
 import {
-  AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   type BackupFrequency,
   type BackupSettings,
@@ -23,14 +21,12 @@ import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
 import { backupEnvironment } from "../../state/backup";
 import type { EnvironmentPresentation } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
-import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
-import { shellEnvironment } from "../../state/shell";
-import { useAtomCommand } from "../../state/use-atom-command";
+import { useEnvironmentScope } from "../../state/session";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { toastManager } from "../ui/toast";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { OpenFolderButton } from "../OpenFolderButton";
 import { EnvironmentPagePicker } from "../settings/EnvironmentPagePicker";
 import {
   SettingsPageContainer,
@@ -54,7 +50,6 @@ import { BackupPasswordDialog } from "./BackupPasswordFields";
 import { BackupRecentList } from "./BackupRecentList";
 import { BackupSetupDialog } from "./BackupSetupDialog";
 import { BackupCard, BackupStatusCard } from "./BackupStatusCard";
-import { commandErrorMessage } from "../../lib/commandError";
 import { useBackupDateFormat } from "./useBackupDateFormat";
 
 const FREQUENCIES = [
@@ -412,32 +407,8 @@ function FolderSection({
     useAtomValue(backupEnvironment.suggestedFolders(environmentId)),
     () => [],
   );
-  const openInEditor = useAtomCommand(shellEnvironment.openInEditor, { reportFailure: false });
   const folderPath = status.folderPath;
   const title = folderLabel(settings.folder, suggestions);
-  const canOpen =
-    folderPath !== null &&
-    environment.serverConfig?.availableEditors.includes("file-manager") === true;
-
-  const openFolder = async () => {
-    if (
-      folderPath === null ||
-      !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
-    ) {
-      return;
-    }
-    const result = await openInEditor({
-      environmentId,
-      input: { cwd: folderPath, editor: "file-manager" },
-    });
-    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-      toastManager.add({
-        type: "error",
-        title: "Could not open the backup folder",
-        description: commandErrorMessage(result, "Try again."),
-      });
-    }
-  };
 
   return (
     <SettingsSection {...searchableSetting("backup-folder")}>
@@ -459,11 +430,15 @@ function FolderSection({
             <Button size="sm" variant="outline" disabled={!canChange} onClick={onChange}>
               Change folder
             </Button>
-            {canOpen ? (
-              <Button size="sm" variant="outline" onClick={() => void openFolder()}>
+            {folderPath === null ? null : (
+              <OpenFolderButton
+                environmentId={environmentId}
+                path={folderPath}
+                failureTitle="Could not open the backup folder"
+              >
                 Open
-              </Button>
-            ) : null}
+              </OpenFolderButton>
+            )}
           </div>
         }
       />

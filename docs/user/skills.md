@@ -19,7 +19,7 @@ skills of the workspace chosen at the top of the page.
   who share the workspace get it too. A workspace skill wins over a Codenine skill of the same name.
 
 A skill's folder can also hold examples, templates or scripts; agents open them only when they need
-them. **Open folder** on the skill's page opens it.
+them. On the computer Codenine runs on, **Open folder** on the skill's page opens it.
 
 ## Skills from Claude Code and Codex
 
