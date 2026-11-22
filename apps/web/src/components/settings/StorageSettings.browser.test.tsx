@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   run: vi.fn(),
   update: vi.fn(),
   report: null as StorageCleanupReport | null,
+  scopeKind: "all" as "all" | "project",
 }));
 
 vi.mock(import("../../state/server"), async (original) => {
@@ -47,12 +48,13 @@ vi.mock(import("./SettingsScopeContext"), async (original) => ({
             storageCleanup: true,
             storageCleanupRun: true,
             settledWorktreeCleanup: true,
+            projectWorktreeCleanup: true,
           },
         },
       },
     }));
     return {
-      scope: { kind: "all" },
+      scope: { kind: state.scopeKind },
       environments,
       connectedEnvironments: environments,
       targets: state.targets.map((target) => ({ ...target, sources: {} })),
@@ -107,7 +109,9 @@ function setup() {
     settings: state.settings,
   }));
   state.report = null;
+  state.scopeKind = "all";
   state.run.mockReset();
+  state.run.mockResolvedValue({ _tag: "Success", value: { entries: [] } });
   state.update.mockReset();
 }
 
@@ -133,22 +137,60 @@ const panel = () => (
     <StorageCleanupSections />
   </RegistryProvider>
 );
-const deleteButton = (container: HTMLElement) =>
-  Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent === "Delete now",
-  )!;
+const emptyReport: StorageCleanupReport = {
+  trigger: "automatic",
+  startedAt: "2026-01-01T00:00:00.000Z",
+  finishedAt: "2026-01-01T00:00:00.000Z",
+  entries: [],
+  counts: { removed: 0, kept: 0, failed: 0 },
+  omittedCount: 0,
+  bytesFreed: 0,
+};
+// The real scope comes from context; this mock does not, so a scope change remounts the section.
+const worktreesPanel = (key = "") => (
+  <RegistryProvider>
+    <WorktreeCleanupSection key={key} />
+  </RegistryProvider>
+);
 
-it("keeps cleanup disabled when settled retention and all other rules are off", async () => {
+it("runs cleanup from the worktree rules only for whole environments", async () => {
   setup();
-  await using screen = await render(panel());
-  const button = deleteButton(screen.container);
+  state.report = emptyReport;
+  await using screen = await render(worktreesPanel());
+  const button = screen.getByRole("button", { name: "Run now" });
 
-  expect(button.disabled).toBe(true);
-  await act(async () => button.click());
-  expect(state.run).not.toHaveBeenCalled();
+  await expect.element(button).toBeDisabled();
+  await expect.element(screen.getByText("Last run")).not.toBeInTheDocument();
+
+  // The same run deletes rotated logs, so the log rule alone enables it.
+  setRetentionValues([8, null]);
+  await screen.rerender(worktreesPanel("log rule"));
+  await expect.element(button).toBeEnabled();
+  await expect.element(screen.getByText("Last run")).toBeInTheDocument();
+  await userEvent.click(button);
+  expect(state.run.mock.calls.map(([call]) => call.environmentId)).toEqual(["env-a", "env-b"]);
+
+  state.scopeKind = "project";
+  await screen.rerender(worktreesPanel("workspace"));
+  await expect.element(button).toBeDisabled();
+  await expect.element(screen.getByText("Last run")).not.toBeInTheDocument();
 });
 
-it("settles the mixed log retention status across selected machines", async () => {
+it("labels last-run results with their environment only when several run", async () => {
+  setup();
+  setRetentionValues([8], ["env-a"]);
+  state.report = emptyReport;
+  await using screen = await render(worktreesPanel());
+  await userEvent.click(screen.getByText("Last run"));
+  await expect.element(screen.getByText("Nothing needed cleanup.", { exact: true })).toBeVisible();
+
+  setRetentionValues([8, 8]);
+  await screen.rerender(worktreesPanel("two environments"));
+  await userEvent.click(screen.getByText("Last run"));
+  await expect.element(screen.getByText("env-a: Nothing needed cleanup.")).toBeVisible();
+});
+
+it("settles the mixed log retention status across selected environments", async () => {
   setup();
   using _timers = fakeTimers();
   await using screen = await render(panel());
@@ -162,7 +204,7 @@ it("settles the mixed log retention status across selected machines", async () =
   await advance(175);
   await expect
     .element(screen.getByTestId("logs-retention-status"))
-    .toHaveTextContent("Mixed across selected machines");
+    .toHaveTextContent("Mixed across selected environments");
 
   setRetentionValues([null, null]);
   await screen.rerender(panel());

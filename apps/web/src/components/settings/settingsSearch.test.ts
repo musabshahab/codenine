@@ -188,7 +188,7 @@ describe("searchSettings", () => {
   it("finds rows by the titles shown on their pages", () => {
     for (const [title, id] of [
       ["Automatic worktree cleanup", "storage-worktrees"],
-      ["Delete worktrees of done threads", "storage-worktrees"],
+      ["Delete worktrees of done chats", "storage-worktrees"],
       ["Delete old rotated logs", "storage-artifacts"],
       ["Native sessions", "providers"],
       ["CODEX_HOME path", "providers"],

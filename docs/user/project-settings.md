@@ -119,39 +119,41 @@ repositories whose checkout settings changed.
 
 ## Storage cleanup
 
-Open **Settings → Worktrees → Cleanup** to enable automatic cleanup on one machine or all connected
+Open **Settings → Worktrees → Cleanup** to enable automatic cleanup on one environment or all connected
 environments. Policies are off by default and run on the server at startup, when changed, and
-hourly. Offline machines keep their existing policies.
+hourly. Offline environments keep their existing policies.
 
 Select a workspace to set **Automatic worktree cleanup** to **Inherit**, **Off**, or **Custom**.
-Inherit follows each machine's rules; Off keeps that workspace's worktrees until you remove them
+Inherit follows each environment's rules; Off keeps that workspace's worktrees until you remove them
 manually. Custom applies separate worktree rules to the selected workspace or checkout. Log retention
-remains machine-wide.
+remains environment-wide.
 
-Worktrees can be removed after a chosen number of inactive days, after a thread is marked done,
+Worktrees can be removed after a chosen number of inactive days, after a chat is marked done,
 after merging, or when they have no commits beyond the default branch. Set **Delete worktrees of
-done threads** to 0 days to remove a worktree at the next cleanup after its thread is marked done. In repositories without remotes,
-unchanged-worktree cleanup compares against the branch checked out in the workspace workspace;
+done chats** to 0 days to remove a worktree at the next cleanup after its chat is marked done. In repositories without remotes,
+unchanged-worktree cleanup compares against the branch checked out in the workspace;
 if that checkout has a detached HEAD, the worktree is kept. Only Codenine-managed worktrees are eligible.
 Active sessions and shared worktrees prevent removal. **Keep worktrees with local changes** defaults
 to **Uncommitted changes**, which protects tracked edits and untracked files but deletes ignored
 files such as `.env` and build output. **Any local files** also protects ignored files other than
 `node_modules`. **Edited tracked files** protects only tracked edits and allows untracked and
-ignored files to be deleted. Branches and thread history stay; starting another turn recreates the checkout.
+ignored files to be deleted. Branches and chat history stay; starting another turn recreates the checkout.
 Merge cleanup requires a merged pull request whose commits are included in the remote default
 branch. A squash or rebase merge on GitHub also counts when the pull request targeted the default
 branch and the worktree is still at the pull request's last commit.
 
-Enable **Delete worktrees with deleted threads** to remove safe worktrees after their last
-thread is deleted, including archived threads and worktrees left by earlier deletions. The
+Enable **Delete worktrees with deleted chats** to remove safe worktrees after their last
+chat is deleted, including archived chats and worktrees left by earlier deletions. The
 server waits for sessions and terminals to stop and retries skipped worktrees after restart.
 Existing prompts for deleting a worktree manually remain available when this policy is off.
 
-Choose **Delete now** to run the enabled rules immediately. The latest results show which
+Choose **Run now** at the end of the section to run the enabled rules immediately, for the whole
+environment. The same run deletes rotated logs past their retention. **Last run** shows which
 worktrees were removed or kept and why, plus any failures.
-Results also list folders in the worktree folder that no thread uses, with their sizes; cleanup never removes them, so remove them manually if you want.
+Results also list folders in the worktree folder that no chat uses, with their sizes; cleanup never removes them, so remove them manually if you want.
 
-Rotated logs have their own retention period. Current logs and message attachments are kept.
+Rotated logs have their own retention period, under **Settings → Maintenance → Logs**. Current logs
+and message attachments are kept.
 
 ## Workspace icons
 

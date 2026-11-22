@@ -212,10 +212,12 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "storage-delete-now",
-    title: "Delete now",
-    to: "/settings/maintenance",
+    title: "Run cleanup now",
+    to: "/settings/worktrees",
     scope: "environment-defaults",
-    searchTerms: ["storage cleanup run now results report removed kept failed"],
+    searchTerms: [
+      "storage cleanup delete now run now last run results report removed kept failed rotated logs",
+    ],
   },
   {
     id: "storage-worktrees",
@@ -223,7 +225,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/worktrees",
     scope: "project-defaults",
     searchTerms: [
-      "disk storage automatic delete deleted archived threads old inactive merged done settled unchanged worktrees retention days workspace inherit off custom",
+      "disk storage automatic delete deleted archived chats threads old inactive merged done settled unchanged worktrees retention days workspace inherit off custom",
     ],
   },
   {
