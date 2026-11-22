@@ -13,6 +13,12 @@ pnpm mcp-tool-use --model claude-opus-5-5 --out runs/opus
 ```
 
 - `ANTHROPIC_API_KEY` in the repo root `.env` pays for Claude models and the Haiku shell simulator.
+- `EVAL_ANTHROPIC_BASE_URL` sends Claude agent and shell models to another Anthropic Messages endpoint instead, such as OpenRouter's, with no `ANTHROPIC_API_KEY` needed when a network proxy adds the key. The secrets grader needs Node 24 or later, and Node's `fetch` uses a proxy only with `NODE_USE_ENV_PROXY=1`:
+
+  ```sh
+  NODE_USE_ENV_PROXY=1 EVAL_ANTHROPIC_BASE_URL=https://openrouter.ai/api/v1 /opt/node24/bin/node --env-file-if-exists=../.env mcp-tool-use/run.ts --case team-request-proposes-team --samples 1 --out runs/check
+  ```
+
 - Codex models (`gpt-*` in `MODELS` in `run.ts`) go through a CLIProxyAPI server, set up as the `vibeproxy` model provider in `~/.codex/config.toml`. Keep the proxy under about 12 samples in flight across all runs.
 - `--shell-model` picks the model that plays the shell: `claude-haiku-5-5` by default, or `gpt-6.1-terra` / `gpt-6-luna` through the same proxy, so Codex runs need no Anthropic key. Prefer Terra: Luna often contradicts the case's world (it calls named checkouts missing or files empty). Compare runs only when they used the same shell model.
 - Flags: `--case <ids>`, `--cases <file.ndjson>`, `--samples <n>` (default 2, and a 3rd when the first 2 disagree), `--concurrency <n>` (samples in flight, default 8), `--max-steps <n>`, `--effort <level>`, `--dry-run` (prints request bodies, no model calls), and `--context` (prints the size of Codenine's text and schemas, no key needed).
@@ -29,7 +35,7 @@ Cases are JSON lines in `cases/`, one file per area. The case schema in `run.ts`
 - `setup`: the fake thread, its `world` (repo, branch, files, PRs, pages), `priorTurns`, and `mocks` for tool results.
 - `setup.priorTurns[].toolCalls[].resultFile`: load a repository-relative file as the tool result instead of copying its contents into the case. An empty `prompt` resumes a top-level thread after its last prior tool result without adding a user message. Side-chat and subagent setups require a nonempty prompt.
 - `setup.skills`: the user's skills. Codenine's instructions list them as a session with them gets them, and `codenine_skill_read` and `codenine_skill_list` answer from them unless mocked. Write the user's own skills; Codenine's library skills are its text, so a case never copies them.
-- `expect`: the checks, such as `calls`, `callsMustNot`, `maxCalls`, `order`, `shellMust`, `textMust`, `finalTextMust` (the last text, once the turn ended), and `linked`. A call's `args` match partially: `~text` is a case-insensitive substring, `"<=N"` / `">=N"` bound a number, `null` matches a missing key, and keys may be dotted paths. Secrets cases use `secret` (see [Secrets cases](#secrets-cases)).
+- `expect`: the checks, such as `calls`, `callsMustNot`, `maxCalls`, `order`, `shellMust`, `textMust`, `finalTextMust` (the last text, once the turn ended), and `linked`. A call's `args` match partially: `~text` is a case-insensitive substring, `"<=N"` / `">=N"` bound a number, `null` matches a missing key, and keys may be dotted paths. In a path, `length` reads an array's or string's length (`"tasks.length": ">=5"`), and `*` requires a non-empty array whose every item matches the rest (`"tasks.*.brief": "~src/"`). A missing value reads as empty text, so `~` alone cannot require one; bound its `length` instead. Secrets cases use `secret` (see [Secrets cases](#secrets-cases)).
 
 Check that the case builds with `--dry-run --case <id>`. Then run it on the text before your fix, where it must fail, and on the text after, where it must pass.
 

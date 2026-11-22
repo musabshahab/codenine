@@ -1,7 +1,7 @@
 import {
   TEAM_BRIEF_MAX_CHARS,
   TEAM_DEFAULT_MAX_PARALLEL_PER_PROVIDER,
-  TEAM_RESULT_MAX_CHARS,
+  TEAM_MAX_PARALLEL_PER_PROVIDER,
   type OrchestrationV2AppThread,
   type OrchestrationV2ServerCommand,
   type TeamAgent,
@@ -18,6 +18,7 @@ import {
   settledTeamPlanStatus,
   startableTeamTasks,
   teamMembersWithoutAgent,
+  teamResultCap,
   validateTeamDraft,
 } from "@codenine/shared/team";
 
@@ -54,13 +55,13 @@ export const teamTaskThreadId = (planId: TeamPlanId, taskId: TeamTaskId, attempt
       .join(":"),
   );
 
-const RESULT_TRUNCATED = "\n\n[Result cut short. Read the task's thread for the rest.]";
+export const TEAM_RESULT_CUT_NOTE = "\n\n[Result cut short. Read the task's thread for the rest.]";
 
-function truncatedResult(result: string): string {
+function truncatedResult(result: string, cap: number): string {
   const characters = Array.from(result);
-  return characters.length <= TEAM_RESULT_MAX_CHARS
+  return characters.length <= cap
     ? result
-    : `${characters.slice(0, TEAM_RESULT_MAX_CHARS).join("")}${RESULT_TRUNCATED}`;
+    : `${characters.slice(0, cap).join("")}${TEAM_RESULT_CUT_NOTE}`;
 }
 
 const rejected = (code: string, message: string): TeamDecision => ({
@@ -109,6 +110,22 @@ const revisionConflict = (plan: TeamPlan, expectedRevision: number) =>
     "team_revision_conflict",
     `The team is at revision ${plan.revision}, not ${expectedRevision}. Read it again before changing it.`,
   );
+
+/** Why a draft, or how many of its tasks may run at once, cannot become a plan; null when it can. */
+function draftIssue(
+  draft: TeamDraft & { readonly goal: string },
+  maxParallelPerProvider: number | undefined,
+): string | null {
+  if (
+    maxParallelPerProvider !== undefined &&
+    (!Number.isInteger(maxParallelPerProvider) ||
+      maxParallelPerProvider < 1 ||
+      maxParallelPerProvider > TEAM_MAX_PARALLEL_PER_PROVIDER)
+  ) {
+    return `A team runs 1 to ${TEAM_MAX_PARALLEL_PER_PROVIDER} tasks at a time per account, not ${maxParallelPerProvider}.`;
+  }
+  return validateTeamDraft(draft)?.message ?? null;
+}
 
 const agentNeeded = (members: ReadonlyArray<TeamAgent>) =>
   rejected(
@@ -207,8 +224,11 @@ export function decideTeamCommand(input: {
           `The goal is longer than ${TEAM_BRIEF_MAX_CHARS} characters.`,
         );
       }
-      const issue = validateTeamDraft(command);
-      if (issue !== null) return rejected("team_invalid", issue.message);
+      const issue = draftIssue(
+        command,
+        command.type === "team.start" ? command.maxParallelPerProvider : undefined,
+      );
+      if (issue !== null) return rejected("team_invalid", issue);
       const plan: TeamPlan = {
         id: input.newPlanId,
         revision: 1,
@@ -241,8 +261,11 @@ export function decideTeamCommand(input: {
       if (current.revision !== command.expectedRevision) {
         return revisionConflict(current, command.expectedRevision);
       }
-      const issue = validateTeamDraft(command);
-      if (issue !== null) return rejected("team_invalid", issue.message);
+      const issue = draftIssue(
+        { goal: current.goal, agents: command.agents, tasks: command.tasks },
+        command.maxParallelPerProvider,
+      );
+      if (issue !== null) return rejected("team_invalid", issue);
       return updated({
         ...current,
         revision: current.revision + 1,
@@ -306,10 +329,19 @@ export function decideTeamCommand(input: {
       if (!current.agents.some((agent) => agent.id === agentId)) {
         return rejected("team_agent_unknown", `The team has no agent "${agentId}".`);
       }
-      const { usage: _usage, resultRunId: _resultRunId, ...settled } = task;
+      const {
+        usage: _usage,
+        resultRunId: _resultRunId,
+        modelSelection: earlierModel,
+        ...settled
+      } = task;
+      // A task moved to another member runs on that member's model unless the retry names one.
+      const modelSelection =
+        command.modelSelection ?? (agentId === task.agentId ? earlierModel : undefined);
       return advance(
         withTask(current, {
           ...settled,
+          ...(modelSelection === undefined ? {} : { modelSelection }),
           agentId,
           status: "pending",
           attempt: task.attempt + 1,
@@ -339,7 +371,7 @@ export function decideTeamCommand(input: {
       }
       const reported: TeamTask = {
         ...task,
-        result: truncatedResult(command.result),
+        result: truncatedResult(command.result, teamResultCap(current.tasks.length)),
         ...(command.usage === undefined ? {} : { usage: command.usage }),
         ...(command.runId === undefined ? {} : { resultRunId: command.runId }),
       };

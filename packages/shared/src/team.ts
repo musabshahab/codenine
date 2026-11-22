@@ -1,8 +1,14 @@
 import {
   TEAM_BRIEF_MAX_CHARS,
+  TEAM_DONE_WHEN_MAX_CHARS,
   TEAM_LABEL_MAX_CHARS,
   TEAM_MAX_AGENTS,
   TEAM_MAX_TASKS,
+  TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS,
+  TEAM_PLAN_TEXT_MAX_CHARS,
+  TEAM_RESULT_MAX_CHARS,
+  TEAM_RESULTS_TOTAL_MAX_CHARS,
+  type ModelSelection,
   type TeamAgent,
   type TeamDraft,
   type TeamPlan,
@@ -62,8 +68,12 @@ function dependencyCycle<Id extends string>(
   return undefined;
 }
 
+const formatCount = (count: number) => count.toLocaleString("en-US");
+
 /** The first problem that keeps a draft from becoming a plan, or null when it can. */
-export function validateTeamDraft(draft: TeamDraft): TeamDraftIssue | null {
+export function validateTeamDraft(
+  draft: TeamDraft & { readonly goal?: string | undefined },
+): TeamDraftIssue | null {
   const { agents, tasks } = draft;
   if (agents.length === 0 || tasks.length === 0) {
     return { reason: "empty", message: "A team needs at least one agent and one task." };
@@ -95,6 +105,12 @@ export function validateTeamDraft(draft: TeamDraft): TeamDraftIssue | null {
         message: `The label of agent "${agent.id}" is longer than ${TEAM_LABEL_MAX_CHARS} characters.`,
       };
     }
+    if ((agent.instructions?.length ?? 0) > TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS) {
+      return {
+        reason: "text_too_long",
+        message: `The instructions of member "${agent.id}" are ${agent.instructions?.length} characters; the limit is ${TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS}.`,
+      };
+    }
   }
   const agentIds = new Set<string>(agents.map((agent) => agent.id));
   const taskIds = new Set<string>(tasks.map((task) => task.id));
@@ -109,6 +125,12 @@ export function validateTeamDraft(draft: TeamDraft): TeamDraftIssue | null {
       return {
         reason: "text_too_long",
         message: `The brief of task "${task.id}" is ${task.brief.length} characters; the limit is ${TEAM_BRIEF_MAX_CHARS}.`,
+      };
+    }
+    if ((task.doneWhen?.length ?? 0) > TEAM_DONE_WHEN_MAX_CHARS) {
+      return {
+        reason: "text_too_long",
+        message: `The done-when line of task "${task.id}" is longer than ${TEAM_DONE_WHEN_MAX_CHARS} characters.`,
       };
     }
     if (!agentIds.has(task.agentId)) {
@@ -132,7 +154,48 @@ export function validateTeamDraft(draft: TeamDraft): TeamDraftIssue | null {
       message: `Tasks depend on each other in a cycle: ${cycle.join(" -> ")}.`,
     };
   }
+  const textLength =
+    (draft.goal?.length ?? 0) +
+    tasks.reduce((sum, task) => sum + task.brief.length + (task.doneWhen?.length ?? 0), 0) +
+    agents.reduce((sum, agent) => sum + (agent.instructions?.length ?? 0), 0);
+  if (textLength > TEAM_PLAN_TEXT_MAX_CHARS) {
+    return {
+      reason: "too_large",
+      message: `The team's text is ${formatCount(textLength)} characters; the most is ${formatCount(TEAM_PLAN_TEXT_MAX_CHARS)}. Shorten the briefs or combine tasks.`,
+    };
+  }
   return null;
+}
+
+/** How much of each task's result a plan of `taskCount` tasks keeps. */
+export function teamResultCap(taskCount: number): number {
+  return Math.min(
+    TEAM_RESULT_MAX_CHARS,
+    Math.floor(TEAM_RESULTS_TOTAL_MAX_CHARS / Math.max(1, taskCount)),
+  );
+}
+
+/** The model a task runs on: the one a retry moved it to, else its member's. */
+export function teamTaskModelSelection(
+  plan: Pick<TeamPlan, "agents">,
+  task: Pick<TeamTask, "agentId" | "modelSelection">,
+): ModelSelection | undefined {
+  return (
+    task.modelSelection ?? plan.agents.find((agent) => agent.id === task.agentId)?.modelSelection
+  );
+}
+
+/**
+ * The member a proposed task names. Leads often name the saved agent a member runs as instead of
+ * the member's id; that is unambiguous when no member has that id and one member runs that agent.
+ */
+export function proposedTaskMemberId<Id extends string>(
+  members: ReadonlyArray<{ readonly id: Id; readonly agent?: string | undefined }>,
+  named: Id,
+): Id {
+  if (members.some((member) => member.id === named)) return named;
+  const runningIt = members.filter((member) => member.agent === named);
+  return runningIt.length === 1 ? runningIt[0]!.id : named;
 }
 
 /** The first duplicate id, unknown dependency or cycle among a workflow's steps, or null. */
@@ -168,7 +231,10 @@ export function unknownTeamAgentMessage(
   name: string,
   part: ProposedPart = "member",
 ): string {
-  return `The user has no agent named "${name}". Use a \`name\` from \`orchestrator_capabilities\` \`agents\`, or give ${part} "${id}" a \`suggestion\` for the user to create.`;
+  const unknown = `The user has no agent named "${name}". Use a \`name\` from \`orchestrator_capabilities\` \`agents\`, or `;
+  return part === "step"
+    ? `${unknown}give step "${id}" a \`suggestion\` for the user to create.`
+    : `${unknown}leave out \`agent\` and define member "${id}" here with \`role\`, \`target\` and \`instructions\`.`;
 }
 
 /** Members the lead suggested whose agent the user has not created or chosen; the team waits for them. */
@@ -187,21 +253,19 @@ type SchedulablePlan = Pick<TeamPlan, "agents" | "tasks" | "maxParallelPerProvid
  * `maxParallelPerProvider` running tasks per provider instance.
  */
 export function startableTeamTasks(plan: SchedulablePlan): ReadonlyArray<TeamTask> {
-  const instanceByAgent = new Map(
-    plan.agents.map((agent) => [agent.id, agent.modelSelection.instanceId]),
-  );
+  const instanceOf = (task: TeamTask) => teamTaskModelSelection(plan, task)?.instanceId;
   const completed = new Set(
     plan.tasks.filter((task) => task.status === "completed").map((task) => task.id),
   );
   const running = new Map<string, number>();
   for (const task of plan.tasks) {
-    const instanceId = instanceByAgent.get(task.agentId);
+    const instanceId = instanceOf(task);
     if (task.status !== "running" || instanceId === undefined) continue;
     running.set(instanceId, (running.get(instanceId) ?? 0) + 1);
   }
   const startable: Array<TeamTask> = [];
   for (const task of plan.tasks) {
-    const instanceId = instanceByAgent.get(task.agentId);
+    const instanceId = instanceOf(task);
     if (
       task.status !== "pending" ||
       instanceId === undefined ||

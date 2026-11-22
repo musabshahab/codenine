@@ -1,33 +1,36 @@
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
-import type {
-  AgentModel,
-  AgentSummary,
-  EnvironmentId,
-  OrchestrationV2ThreadShell,
-  ProjectId,
-  TeamAgent,
-  TeamPlan,
-  TeamPlanHold,
-  TeamPlanStatus,
-  TeamTask,
-  ThreadId,
-  WorkflowDefinition,
-  WorkflowDetail,
-  WorkflowDraft,
-  WorkflowDraftRef,
-  WorkflowId,
-  WorkflowInput,
-  WorkflowLimits,
-  WorkflowPosition,
-  WorkflowProblem,
-  WorkflowRunTrigger,
-  WorkflowSchedule,
-  WorkflowStep,
-  WorkflowStepId,
-  WorkflowSummary,
-  WorkflowWeekday,
+import {
+  AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS,
+  type AgentModel,
+  type AgentSuggestion,
+  type AgentSummary,
+  type EnvironmentId,
+  type OrchestrationV2ThreadShell,
+  type ProjectId,
+  type TeamAgent,
+  type TeamPlan,
+  type TeamPlanHold,
+  type TeamPlanStatus,
+  type TeamTask,
+  type ThreadId,
+  type WorkflowDefinition,
+  type WorkflowDetail,
+  type WorkflowDraft,
+  type WorkflowDraftRef,
+  type WorkflowId,
+  type WorkflowInput,
+  type WorkflowLimits,
+  type WorkflowPosition,
+  type WorkflowProblem,
+  type WorkflowRunTrigger,
+  type WorkflowSchedule,
+  type WorkflowStep,
+  type WorkflowStepId,
+  type WorkflowSummary,
+  type WorkflowWeekday,
 } from "@codenine/contracts";
 
+import { teamRoleDescription } from "../agents/agents.logic";
 import { draftStepsOver } from "../chat/workflowDraft.logic";
 import { skillNameFromTitle } from "../skills/skills.logic";
 
@@ -361,6 +364,16 @@ export function workflowWithDraft(
   );
 }
 
+/** A member the lead defined for one team, as an agent a workflow step asks the user to create. */
+function suggestionOfMember(member: TeamAgent): AgentSuggestion {
+  return {
+    title: clip(member.label.trim(), TITLE_MAX),
+    description: teamRoleDescription(member.role),
+    instructions: clip(member.instructions ?? "", AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS),
+    connectors: [],
+  };
+}
+
 /**
  * A workflow made from a team that did the job: a step per task for the same agents, and the
  * team's goal as the outcome the lead checks against.
@@ -387,9 +400,9 @@ export function workflowFromTeamPlan(
       id,
       title: clip(task.title.trim(), TITLE_MAX),
       agent: member?.agent ?? null,
-      ...(member?.agent === undefined && member?.suggestion !== undefined
-        ? { suggestion: member.suggestion }
-        : {}),
+      ...(member === undefined || member.agent !== undefined
+        ? {}
+        : { suggestion: member.suggestion ?? suggestionOfMember(member) }),
       model: member === undefined ? null : options.stepModel(member),
       instructions: clip(task.brief, INSTRUCTIONS_MAX),
       doneWhen: clip(task.doneWhen ?? "", DONE_WHEN_MAX),

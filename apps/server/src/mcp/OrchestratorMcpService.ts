@@ -73,6 +73,7 @@ import { agentModelSelection } from "@codenine/shared/agentModel";
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@codenine/shared/model";
 import { runRanAfter } from "@codenine/shared/orchestrationV2ThreadError";
 import {
+  proposedTaskMemberId,
   teamMemberChoiceMessage,
   unknownTeamAgentMessage,
   validateTeamDraft,
@@ -279,7 +280,7 @@ const FULL_CATALOG_DRIVERS: ReadonlySet<string> = new Set(["codex", "claudeAgent
 const LISTED_MODEL_LIMIT = 8;
 
 /**
- * Lists visible models, keeping pinned models and limiting large catalogs by default.
+ * Lists visible models that can call tools, keeping pinned models and limiting large catalogs by default.
  * Whole provider words select the provider; partial words filter models when any match.
  */
 function listCapabilityModels(input: {
@@ -292,7 +293,11 @@ function listCapabilityModels(input: {
 }) {
   const rank = new Map(input.preferences?.modelOrder.map((slug, index) => [slug, index]));
   const visible = input.provider.models
-    .filter((model) => model.isCustom || !input.preferences?.hiddenModels.includes(model.slug))
+    .filter(
+      (model) =>
+        model.info?.usesTools !== false &&
+        (model.isCustom || !input.preferences?.hiddenModels.includes(model.slug)),
+    )
     .toSorted((a, b) => (rank.get(a.slug) ?? rank.size) - (rank.get(b.slug) ?? rank.size));
   const { instanceId, driver, displayName } = input.provider;
   const providerText = `${instanceId} ${driver} ${displayName ?? ""}`.toLowerCase();
@@ -1446,7 +1451,7 @@ const make = Effect.gen(function* () {
       requestedModel ??
       (instanceId === inheritedSelection.instanceId
         ? inheritedSelection.model
-        : provider.models[0]?.slug);
+        : provider.models.find((candidate) => candidate.info?.usesTools !== false)?.slug);
     if (model === undefined) {
       return yield* failure(
         "model_unavailable",
@@ -1463,9 +1468,15 @@ const make = Effect.gen(function* () {
         `Model ${requestedModel} is not advertised by provider ${instanceId}.`,
       );
     }
+    const modelEntry = provider.models.find((candidate) => candidate.slug === model);
+    if (requestedModel !== undefined && modelEntry?.info?.usesTools === false) {
+      return yield* failure(
+        "model_unavailable",
+        `Model ${requestedModel} on provider ${instanceId} cannot call tools.`,
+      );
+    }
 
-    const descriptors = provider.models.find((candidate) => candidate.slug === model)?.capabilities
-      ?.optionDescriptors;
+    const descriptors = modelEntry?.capabilities?.optionDescriptors;
     const requestedOptions = withLegacyUltracodeEffort(descriptors, input.target?.options);
     if (requestedOptions !== undefined) {
       const invalid = invalidOptionSelections(requestedOptions, descriptors);
@@ -1606,41 +1617,49 @@ const make = Effect.gen(function* () {
     readonly skipProjectEnablementFilter: boolean;
   }): Effect.fn.Return<TeamAgent, OrchestratorMcpFailure> {
     const { parent, providers, skipProjectEnablementFilter } = input;
-    const { agent: name, suggestion, ...member } = input.member;
-    const base = { id: member.id, role: member.role, workspace: member.workspace ?? "shared" };
-    if (name !== undefined && suggestion === undefined) {
+    const { id, label, role, workspace, agent: name, instructions, target } = input.member;
+    const base = { id, role, workspace: workspace ?? "shared" };
+    // A target is laid over the member's own model, as delegate_task's is over the lead's.
+    const resolveMemberTarget = (over: Pick<OrchestrationV2ThreadProjection, "thread">) =>
+      resolveTargetRechecking({
+        parent: over,
+        target,
+        providers,
+        skipProjectEnablementFilter,
+      }).pipe(
+        Effect.map(({ modelSelection }) => modelSelection),
+        Effect.mapError((error) => failure(error.code, `Member "${id}": ${error.message}`)),
+      );
+    if (name !== undefined) {
       const agent = yield* agents.find(name);
       if (Option.isNone(agent)) {
-        return yield* failure("invalid_request", unknownTeamAgentMessage(member.id, name));
+        return yield* failure("invalid_request", unknownTeamAgentMessage(id, name));
       }
-      return {
-        ...base,
-        label: member.label ?? agent.value.title,
-        modelSelection: yield* teamAgentModel({
-          parent,
-          agent: agent.value,
-          providers,
-          skipProjectEnablementFilter,
-        }),
-        agent: name,
-      };
-    }
-    if (suggestion !== undefined && name === undefined) {
-      const { target, connectors, ...suggested } = suggestion;
-      const { modelSelection } = yield* resolveTargetRechecking({
+      const agentSelection = yield* teamAgentModel({
         parent,
-        target,
+        agent: agent.value,
         providers,
         skipProjectEnablementFilter,
       });
       return {
         ...base,
-        label: member.label ?? suggested.title,
-        modelSelection,
-        suggestion: { ...suggested, connectors: connectors ?? [] },
+        label: label ?? agent.value.title,
+        modelSelection:
+          target === undefined
+            ? agentSelection
+            : yield* resolveMemberTarget({
+                thread: { ...parent.thread, modelSelection: agentSelection },
+              }),
+        agent: name,
       };
     }
-    return yield* failure("invalid_request", teamMemberChoiceMessage(member.id));
+    const standing = instructions?.trim() ?? "";
+    return {
+      ...base,
+      label: label ?? id,
+      modelSelection: yield* resolveMemberTarget(parent),
+      ...(standing === "" ? {} : { instructions: standing }),
+    };
   });
 
   /** A drafted step runs as one of the user's agents, or carries a suggestion for one to create. */
@@ -2143,12 +2162,14 @@ const make = Effect.gen(function* () {
             displayName: provider.displayName ?? null,
             models: listed.map((model) => {
               const options = model.capabilities?.optionDescriptors ?? [];
+              const price = model.info?.price;
               return {
                 id: model.slug,
                 ...(model.name.toLowerCase() === model.slug.toLowerCase()
                   ? {}
                   : { label: model.name }),
                 ...(options.length === 0 ? {} : { options: options.map(capabilityModelOption) }),
+                ...(price == null ? {} : { price }),
               };
             }),
             ...(omitted === 0 ? {} : { omittedModels: omitted }),
@@ -2582,11 +2603,12 @@ const make = Effect.gen(function* () {
           id: task.id,
           title: task.title,
           brief: task.brief,
-          agentId: task.agent,
+          agentId: proposedTaskMemberId(input.agents, task.agent),
           dependsOn: task.dependsOn ?? [],
+          ...(task.doneWhen?.trim() ? { doneWhen: task.doneWhen.trim() } : {}),
         })),
       };
-      const issue = validateTeamDraft(draft);
+      const issue = validateTeamDraft({ ...draft, goal: input.goal });
       if (issue !== null) return yield* failure("invalid_request", issue.message);
       // ThreadManagementService.dispatch checks every agent's provider is enabled for the project.
       const result = yield* threadManagement

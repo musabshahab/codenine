@@ -14,9 +14,9 @@ import {
   teamTaskWaitsFor,
 } from "@codenine/client-runtime/team";
 import type {
+  ModelSelection,
   ScopedThreadRef,
   TeamAgent,
-  TeamAgentId,
   TeamDraft,
   TeamPlan,
   TeamPlanStatus,
@@ -24,7 +24,7 @@ import type {
   TeamTaskRef,
 } from "@codenine/contracts";
 import { formatDuration } from "@codenine/shared/orchestrationTiming";
-import { teamPlanSummary } from "@codenine/shared/team";
+import { teamPlanSummary, teamTaskModelSelection } from "@codenine/shared/team";
 import { formatTokens } from "@codenine/shared/usageFormat";
 import { Link, useRouter } from "@tanstack/react-router";
 import {
@@ -35,13 +35,14 @@ import {
   CircleSlashIcon,
   CircleXIcon,
   ClockIcon,
+  CpuIcon,
   HandIcon,
   InfoIcon,
   type LucideIcon,
   RotateCcwIcon,
   WorkflowIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { ComposerHandleContext } from "../../composerHandleContext";
 import { tickTextContent } from "../../lib/tickTextContent";
@@ -53,11 +54,27 @@ import { RelativeTime } from "../RelativeTime";
 import { Badge } from "../ui/badge";
 import { Button, InlineButton } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
-import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
-import { TeamModelLabel, useTeamModelCatalog, type TeamModelCatalog } from "./TeamAgentModel";
+import { WORKFLOW_STEP_LIMIT } from "../workflows/workflows.logic";
+import {
+  TeamModelLabel,
+  TeamModelPicker,
+  teamModelLine,
+  useTeamModelCatalog,
+  type TeamModelCatalog,
+} from "./TeamAgentModel";
 import { TeamDraftEditor } from "./TeamDraftEditor";
 import {
+  TeamDoneWhen,
   TeamMemberMark,
   TeamSectionHeading,
   TeamStepFlow,
@@ -65,7 +82,11 @@ import {
   type TeamStepState,
 } from "./TeamParts";
 import { TeamResultText } from "./TeamResultText";
-import { useTeamPlanActions, type TeamPlanPendingAction } from "./useTeamPlanActions";
+import {
+  useTeamPlanActions,
+  type TeamPlanPendingAction,
+  type TeamRetryChoice,
+} from "./useTeamPlanActions";
 
 const TEAM_PILL: Record<TeamPlanStatus, { Icon: LucideIcon; label: string; tone: string }> = {
   proposed: {
@@ -264,7 +285,7 @@ function TeamPlanView(props: {
     dismissNotice,
     ...actions
   } = useTeamPlanActions(leadRef, plan);
-  const retry = (task: TeamTask, agentId?: TeamAgentId) => void actions.retry(task, agentId);
+  const retry = (task: TeamTask, on?: TeamRetryChoice) => void actions.retry(task, on);
   const router = useRouter();
   const saveAsWorkflow =
     plan.status === "completed" && plan.run === undefined ? (
@@ -383,6 +404,7 @@ function TeamPlanView(props: {
         <TeamDraftEditor
           leadRef={leadRef}
           draft={resolved.draft}
+          base={resolved.base}
           catalog={catalog}
           defaultModelSelection={lead?.modelSelection ?? null}
           disabled={busy}
@@ -434,6 +456,10 @@ function footerNote(input: {
     }
     case "cancelled":
       return "The team was cancelled. Ask the lead for a new one.";
+    case "completed":
+      return plan.run === undefined && plan.tasks.length > WORKFLOW_STEP_LIMIT
+        ? `A workflow holds at most ${WORKFLOW_STEP_LIMIT} steps and this team ran ${plan.tasks.length}, so remove ${plan.tasks.length - WORKFLOW_STEP_LIMIT} before you save it as one.`
+        : null;
     default:
       return null;
   }
@@ -568,7 +594,7 @@ function TeamRunSteps(props: {
   environmentId: ScopedThreadRef["environmentId"];
   pendingAction: TeamPlanPendingAction | null;
   disabled: boolean;
-  onRetry: (task: TeamTask, agentId?: TeamAgentId) => void;
+  onRetry: (task: TeamTask, on?: TeamRetryChoice) => void;
 }) {
   const { plan, agentTask } = props;
   const flows = teamStepFlows(plan.tasks);
@@ -617,9 +643,10 @@ function TeamRunStep(props: {
   environmentId: ScopedThreadRef["environmentId"];
   retrying: boolean;
   disabled: boolean;
-  onRetry: (task: TeamTask, agentId?: TeamAgentId) => void;
+  onRetry: (task: TeamTask, on?: TeamRetryChoice) => void;
 }) {
   const { task, plan, agent, thisThread, compact } = props;
+  const modelSelection = teamTaskModelSelection(plan, task) ?? null;
   const waitsFor = teamTaskWaitsFor(plan, task);
   const state = teamStepState(plan, task, waitsFor);
   const openThreadId =
@@ -672,6 +699,7 @@ function TeamRunStep(props: {
         )}
       </div>
       {props.flow === null || compact ? null : <TeamStepFlow text={props.flow} />}
+      {compact ? null : <TeamDoneWhen text={task.doneWhen} />}
       {thisThread === null ? null : (
         <div className="mt-2 flex flex-col gap-1">
           <span className="font-medium text-muted-foreground text-xs">Assignment</span>
@@ -685,7 +713,9 @@ function TeamRunStep(props: {
               <TeamMemberMark member={agent} size="xs" />
               <span className="truncate">{agent.label}</span>
             </span>
-            <TeamModelLabel catalog={props.catalog} selection={agent.modelSelection} />
+            {modelSelection === null ? null : (
+              <TeamModelLabel catalog={props.catalog} selection={modelSelection} />
+            )}
           </>
         )}
         {tokens === null ? null : (
@@ -709,6 +739,7 @@ function TeamRunStep(props: {
             task={task}
             agent={agent}
             agents={plan.agents}
+            modelSelection={modelSelection}
             catalog={props.catalog}
             retrying={props.retrying}
             disabled={props.disabled}
@@ -782,53 +813,108 @@ function TeamStepStatus(props: {
   );
 }
 
-/** Retry on the task's agent, or pick another agent from the plan, such as a stronger model. */
+/**
+ * Retry on the task's agent, or pick another agent from the plan or another model for this task
+ * alone, such as a stronger one.
+ */
 function TeamTaskRetry(props: {
   task: TeamTask;
   agent: TeamAgent | null;
   agents: ReadonlyArray<TeamAgent>;
+  /** The model the task ran on last. */
+  modelSelection: ModelSelection | null;
   catalog: TeamModelCatalog;
   retrying: boolean;
   disabled: boolean;
-  onRetry: (task: TeamTask, agentId?: TeamAgentId) => void;
+  onRetry: (task: TeamTask, on?: TeamRetryChoice) => void;
 }) {
-  const { task } = props;
+  const { task, catalog } = props;
   const others = props.agents.filter((agent) => agent.id !== task.agentId);
+  // The model the user is choosing for the retry; null while the picker is closed.
+  const [choosing, setChoosing] = useState<ModelSelection | null>(null);
+  const label = props.agent?.label ?? "step";
   return (
-    <Group aria-label={`Retry ${task.title}`}>
-      <Button size="xs" disabled={props.disabled} onClick={() => props.onRetry(task)}>
-        <RotateCcwIcon aria-hidden />
-        {props.retrying ? "Retrying…" : `Retry ${props.agent?.label ?? "step"}`}
-      </Button>
-      {others.length > 0 ? (
-        <>
-          <GroupSeparator />
-          <Menu>
-            <MenuTrigger
-              disabled={props.disabled}
-              render={<Button size="icon-xs" aria-label="Retry on another agent" />}
-            >
-              <ChevronDownIcon aria-hidden="true" />
-            </MenuTrigger>
-            <MenuPopup align="end">
-              <MenuGroup>
-                <MenuGroupLabel>Retry on</MenuGroupLabel>
-                {others.map((agent) => (
-                  <MenuItem key={agent.id} onClick={() => props.onRetry(task, agent.id)}>
-                    <TeamMemberMark member={agent} size="md" />
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{agent.label}</span>
-                      <span className="text-muted-foreground text-xs">
-                        <TeamModelLabel catalog={props.catalog} selection={agent.modelSelection} />
+    <>
+      <Group aria-label={`Retry ${task.title}`}>
+        <Button size="xs" disabled={props.disabled} onClick={() => props.onRetry(task)}>
+          <RotateCcwIcon aria-hidden />
+          {props.retrying ? "Retrying…" : `Retry ${label}`}
+        </Button>
+        <GroupSeparator />
+        <Menu>
+          <MenuTrigger
+            disabled={props.disabled}
+            render={<Button size="icon-xs" aria-label="More ways to retry" />}
+          >
+            <ChevronDownIcon aria-hidden="true" />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            {others.length > 0 ? (
+              <>
+                <MenuGroup>
+                  <MenuGroupLabel>Retry on another agent</MenuGroupLabel>
+                  {others.map((agent) => (
+                    <MenuItem
+                      key={agent.id}
+                      onClick={() => props.onRetry(task, { agentId: agent.id })}
+                    >
+                      <TeamMemberMark member={agent} size="md" />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{agent.label}</span>
+                        <span className="text-muted-foreground text-xs">
+                          <TeamModelLabel catalog={catalog} selection={agent.modelSelection} />
+                        </span>
                       </span>
-                    </span>
-                  </MenuItem>
-                ))}
-              </MenuGroup>
-            </MenuPopup>
-          </Menu>
-        </>
-      ) : null}
-    </Group>
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+                <MenuSeparator />
+              </>
+            ) : null}
+            <MenuItem
+              disabled={props.modelSelection === null}
+              onClick={() => setChoosing(props.modelSelection)}
+            >
+              <CpuIcon aria-hidden />
+              Retry on another model…
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      </Group>
+      {choosing === null ? null : (
+        <TeamModelPicker
+          catalog={catalog}
+          selection={choosing}
+          label={`Model for the retry of ${task.title}`}
+          disabled={props.disabled}
+          open
+          onOpenChange={(open) => {
+            if (!open) setChoosing(null);
+          }}
+          onChange={setChoosing}
+          footer={
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-border/70 border-t bg-muted/40 px-3 py-2 text-xs">
+              <p className="min-w-0 flex-1 text-muted-foreground">
+                Only this step's retry runs on it; {label} keeps its model.
+              </p>
+              <Button
+                size="xs"
+                disabled={
+                  props.disabled ||
+                  (props.modelSelection !== null &&
+                    JSON.stringify(choosing) === JSON.stringify(props.modelSelection))
+                }
+                onClick={() => {
+                  props.onRetry(task, { modelSelection: choosing });
+                  setChoosing(null);
+                }}
+              >
+                Retry on {teamModelLine(catalog, choosing)}
+              </Button>
+            </div>
+          }
+        />
+      )}
+    </>
   );
 }

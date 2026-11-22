@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  AgentName,
   type OrchestrationV2AppThread,
   type OrchestrationV2ConversationMessage,
   ProjectId,
@@ -44,6 +45,7 @@ const plan = (overrides: Partial<TeamPlan> = {}) =>
   ({
     id: planId,
     goal: "Publish the release notes",
+    agents: [],
     tasks: [
       {
         id: TeamTaskId.make("draft"),
@@ -103,6 +105,21 @@ describe("reviewContext", () => {
     });
     // The task's first message also carries earlier tasks' results; the plan's brief does not.
     assert.notInclude(JSON.stringify(context), "email every customer");
+
+    // A member the lead defined has its instructions in the plan; a saved agent's come from its file.
+    const memberPlan = plan({
+      agents: [{ id: "sender", instructions: "Email only the team list." }],
+      tasks: plan().tasks.map((task) => ({ ...task, agentId: "sender" })),
+    } as unknown as Partial<TeamPlan>);
+    const instructionsFor = (thread: OrchestrationV2AppThread) =>
+      ActionReviewer.reviewContext({
+        thread,
+        messages: [],
+        agentInstructions: undefined,
+        leadPlan: memberPlan,
+      }).agentInstructions;
+    assert.equal(instructionsFor(taskThread("send")), "Email only the team list.");
+    assert.isUndefined(instructionsFor({ ...taskThread("send"), agent: AgentName.make("mailer") }));
   });
 
   it("gives a workflow run's lead its goal, and a plain team's lead nothing it wrote itself", () => {

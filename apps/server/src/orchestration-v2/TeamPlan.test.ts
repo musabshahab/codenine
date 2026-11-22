@@ -71,6 +71,7 @@ const rejection = (decision: TeamDecision) =>
 const start = (
   tasks: ReadonlyArray<TeamTaskDraft>,
   agents: ReadonlyArray<TeamAgent> = [writer],
+  maxParallelPerProvider?: number,
 ): TeamCommand => ({
   type: "team.start",
   ...target,
@@ -78,6 +79,7 @@ const start = (
   agents,
   tasks,
   run,
+  ...(maxParallelPerProvider === undefined ? {} : { maxParallelPerProvider }),
 });
 
 const startRun = (...tasks: ReadonlyArray<TeamTaskDraft>) =>
@@ -311,5 +313,112 @@ describe("decideTeamCommand for workflow runs", () => {
     ).plan;
     expect(rejection(decide(team, review("draft", 1, "accept")))).toBe("team_not_workflow_run");
     expect(decide(team, hold("spend")).type).toBe("unchanged");
+  });
+});
+
+describe("decideTeamCommand for teams", () => {
+  const sol = { instanceId: ProviderInstanceId.make("claude"), model: "sol" };
+  const propose = (
+    tasks: ReadonlyArray<TeamTaskDraft>,
+    goal = "Ship it",
+    agents: ReadonlyArray<TeamAgent> = [writer],
+  ): TeamCommand => ({ type: "team.propose", ...target, goal, agents, tasks });
+  const approve: TeamCommand = { type: "team.approve", ...target, expectedRevision: 1 };
+  const approved = (tasks: ReadonlyArray<TeamTaskDraft>, agents?: ReadonlyArray<TeamAgent>) =>
+    applied(decide(applied(decide(null, propose(tasks, "Ship it", agents))).plan, approve)).plan;
+  const settleTask = (
+    taskId: string,
+    attempt: number,
+    status: "completed" | "failed",
+    result = "Done.",
+  ): TeamCommand => ({
+    type: "team.task.settle",
+    ...target,
+    planId,
+    taskId: TeamTaskId.make(taskId),
+    attempt,
+    status,
+    result,
+  });
+  const retry = (
+    taskId: string,
+    fields: { agentId?: TeamAgent["id"]; modelSelection?: typeof sol } = {},
+  ): TeamCommand => ({
+    type: "team.task.retry",
+    ...target,
+    taskId: TeamTaskId.make(taskId),
+    ...fields,
+  });
+  const edit = (
+    tasks: ReadonlyArray<TeamTaskDraft>,
+    maxParallelPerProvider?: number,
+  ): TeamCommand => ({
+    type: "team.edit",
+    ...target,
+    expectedRevision: 1,
+    agents: [writer],
+    tasks,
+    ...(maxParallelPerProvider === undefined ? {} : { maxParallelPerProvider }),
+  });
+  // Ten full briefs: 60,000 characters of the 64,000 a plan's text may have.
+  const fullBriefs = Array.from({ length: 10 }, (_, index): TeamTaskDraft => ({
+    id: TeamTaskId.make(`t${index}`),
+    title: `Step ${index}`,
+    brief: "x".repeat(6_000),
+    agentId: writer.id,
+    dependsOn: [],
+  }));
+
+  it("cuts each result to its share of the plan's result budget", () => {
+    const tasks = Array.from({ length: 20 }, (_, index) => step(`t${index}`));
+    const settled = applied(
+      decide(approved(tasks), settleTask("t0", 1, "completed", "x".repeat(5_000))),
+    );
+    expect(settled.plan.tasks[0]?.result?.indexOf("\n\n[")).toBe(3_200);
+  });
+
+  it("counts the goal against the plan's text budget, also the proposed goal on an edit", () => {
+    expect(decide(null, propose(fullBriefs, "x".repeat(4_000))).type).toBe("updated");
+    expect(rejection(decide(null, propose(fullBriefs, "x".repeat(4_001))))).toBe("team_invalid");
+    const longGoal = applied(decide(null, propose([step("one")], "x".repeat(4_001)))).plan;
+    expect(rejection(decide(longGoal, edit(fullBriefs)))).toBe("team_invalid");
+  });
+
+  it.each([0, 7])("refuses %i tasks at a time per provider", (maxParallelPerProvider) => {
+    const proposed = applied(decide(null, propose([step("one")]))).plan;
+    expect(rejection(decide(proposed, edit([step("one")], maxParallelPerProvider)))).toBe(
+      "team_invalid",
+    );
+    expect(rejection(decide(null, start([step("one")], [writer], maxParallelPerProvider)))).toBe(
+      "team_invalid",
+    );
+  });
+
+  it("moves a retried task to the model it names and keeps it there, never changing the member", () => {
+    const failed = applied(decide(approved([step("one")]), settleTask("one", 1, "failed"))).plan;
+    const moved = applied(decide(failed, retry("one", { modelSelection: sol })));
+    expect(moved.plan.tasks[0]).toMatchObject({
+      attempt: 2,
+      status: "running",
+      modelSelection: sol,
+    });
+    expect(moved.launch[0]?.modelSelection).toEqual(sol);
+    expect(moved.plan.agents).toEqual([writer]);
+
+    const failedAgain = applied(decide(moved.plan, settleTask("one", 2, "failed"))).plan;
+    const again = applied(decide(failedAgain, retry("one")));
+    expect(again.plan.tasks[0]).toMatchObject({ attempt: 3, modelSelection: sol });
+  });
+
+  it("runs a task retried on another member on that member's model", () => {
+    const reviewer = member("reviewer");
+    const failed = applied(
+      decide(approved([step("one")], [writer, reviewer]), settleTask("one", 1, "failed")),
+    ).plan;
+    const moved = applied(decide(failed, retry("one", { modelSelection: sol }))).plan;
+    const failedAgain = applied(decide(moved, settleTask("one", 2, "failed"))).plan;
+    const onReviewer = applied(decide(failedAgain, retry("one", { agentId: reviewer.id }))).plan;
+    expect(onReviewer.tasks[0]).toMatchObject({ agentId: "reviewer", attempt: 3 });
+    expect(onReviewer.tasks[0]).not.toHaveProperty("modelSelection");
   });
 });

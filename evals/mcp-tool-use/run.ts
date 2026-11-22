@@ -48,7 +48,7 @@ import {
 } from "@codenine/contracts";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
 import {
-  teamMemberChoiceMessage,
+  proposedTaskMemberId,
   unknownTeamAgentMessage,
   validateTeamDraft,
 } from "@codenine/shared/team";
@@ -84,6 +84,7 @@ import {
 const MODELS = {
   "claude-sonnet-5-5": "Sonnet 5.5",
   "claude-opus-5-5": "Opus 5.5",
+  "claude-haiku-5-5": "Haiku 5.5",
   "gpt-6.1-sol": "GPT-6.1 Sol",
   "gpt-6-astra": "GPT-6 Astra",
 } as const;
@@ -146,6 +147,8 @@ export type SampleRun = {
   readonly finalText?: string;
   /** PRs linked to the thread when the sample ends, by the agent or by Codenine. */
   readonly linked?: ReadonlyArray<string>;
+  /** The team Codenine holds when the sample ends; see `Sample.team`. */
+  readonly team?: unknown;
 };
 
 const Rest = [Schema.Record(Schema.String, Schema.Unknown)] as const;
@@ -204,6 +207,11 @@ const McpToolUseExpect = Schema.Struct({
   linked: Schema.optional(Schema.Array(Schema.String)),
   /** The PR numbers linked at the end, exactly. */
   linkedNumbers: Schema.optional(Schema.Array(Schema.Number)),
+  /**
+   * Matches the team Codenine holds at the end, as `args` values match. Each task carries its
+   * member's resolved `model`, so a member that inherits the lead's model is graded on it.
+   */
+  team: Schema.optional(Schema.Unknown),
   /**
    * Secret checks: chat asks in text and question tools, where fixture values went, and how the
    * files request_secret returned were read. See `SecretExpect` in secret-grading.ts.
@@ -804,6 +812,8 @@ type Sample = {
   /** Files Codenine's request_secret saved in this sample, in call order. */
   readonly secretFiles: Array<string>;
   secretRequests: number;
+  /** The last team propose_team accepted, each task with its member's resolved `model`. */
+  team?: unknown;
 };
 
 const SHELL_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "WebFetch"]);
@@ -1042,11 +1052,89 @@ const linkedEntry = (sample: Sample, url: string) => {
   return { ...pr, state: seeded?.state ?? "open", title: seeded?.title ?? null };
 };
 
-/** The user's agents, as the case's `orchestrator_capabilities` mock lists them. */
-const listedAgentNames = ({ testCase }: Sample): ReadonlySet<string> => {
+/** The user's agents by name, with their `instance/model`, as the case's capabilities mock lists them. */
+const listedAgents = ({ testCase }: Sample): ReadonlyMap<string, string> => {
   const mock = testCase.setup.mocks?.orchestrator_capabilities;
   const agents = isRecord(mock) && Array.isArray(mock.agents) ? mock.agents : [];
-  return new Set(agents.filter(isRecord).map((agent) => valueText(agent.name)));
+  return new Map(
+    agents.filter(isRecord).map((agent) => [valueText(agent.name), valueText(agent.model)]),
+  );
+};
+
+/**
+ * A proposed member's model, refused as Codenine refuses a target the case's
+ * `orchestrator_capabilities` providers (else `PROVIDERS`) do not list. A target starts from the
+ * saved agent's model (`agentModel`, as `instance/model`), else the lead's; a bare `driverKind`
+ * picks that driver's inherited instance, else its first listed one.
+ */
+const proposedModel = (
+  sample: Sample,
+  target: Readonly<Record<string, unknown>>,
+  agentModel = "",
+) => {
+  const mock = sample.testCase.setup.mocks?.orchestrator_capabilities;
+  const listed = (
+    isRecord(mock) && Array.isArray(mock.providers) ? mock.providers : PROVIDERS
+  ).filter(isRecord);
+  const view = capabilities(sample, isRecord(mock) ? mock : {});
+  const slash = agentModel.indexOf("/");
+  const [inherited, inheritedModel] =
+    slash > 0
+      ? [agentModel.slice(0, slash), agentModel.slice(slash + 1)]
+      : [
+          isRecord(view) && typeof view.inheritedProviderInstanceId === "string"
+            ? view.inheritedProviderInstanceId
+            : sample.base.codex
+              ? "codex"
+              : "claudeAgent",
+          sample.base.model,
+        ];
+  const driverOf = (provider: Readonly<Record<string, unknown>>) =>
+    valueText(provider.driverKind ?? provider.providerInstanceId);
+  const driverKind = typeof target.driverKind === "string" ? target.driverKind : undefined;
+  let instanceId =
+    typeof target.providerInstanceId === "string" ? target.providerInstanceId : undefined;
+  if (instanceId === undefined && driverKind !== undefined) {
+    const candidates = listed.filter((p) => driverOf(p) === driverKind);
+    const chosen = candidates.find((p) => p.providerInstanceId === inherited) ?? candidates[0];
+    if (chosen === undefined) {
+      return {
+        code: "provider_unavailable",
+        message: `No V2 provider adapter is registered for driver ${driverKind}.`,
+      };
+    }
+    instanceId = valueText(chosen.providerInstanceId);
+  }
+  instanceId ??= inherited;
+  const provider = listed.find((p) => p.providerInstanceId === instanceId);
+  if (provider === undefined) {
+    return {
+      code: "provider_unavailable",
+      message: `Provider instance ${instanceId} is not registered.`,
+    };
+  }
+  if (driverKind !== undefined && driverOf(provider) !== driverKind) {
+    return {
+      code: "invalid_request",
+      message: `Provider instance ${instanceId} uses driver ${driverOf(provider)}, not ${driverKind}.`,
+    };
+  }
+  const models = (Array.isArray(provider.models) ? provider.models : [])
+    .filter(isRecord)
+    .map((model) => valueText(model.id));
+  const model =
+    typeof target.model === "string"
+      ? target.model
+      : instanceId === inherited
+        ? inheritedModel
+        : (models[0] ?? inheritedModel);
+  if (!models.includes(model) && typeof target.model === "string") {
+    return {
+      code: "model_unavailable",
+      message: `Model ${model} is not advertised by provider ${instanceId}.`,
+    };
+  }
+  return { instanceId: ProviderInstanceId.make(instanceId), model };
 };
 
 /** A believable Codenine result for a tool the case does not mock. */
@@ -1120,48 +1208,76 @@ export const codenineDefault = (
     case "task_cancel":
       return { taskId: input.taskId, status: "cancel_requested" };
     case "propose_team": {
-      // Codenine refuses a member that is not exactly one of the user's agents or a suggestion,
-      // and a team whose tasks name unknown members or depend on each other in a cycle.
       const proposal = Option.getOrUndefined(decodeProposeTeam(input));
-      const agents = listedAgentNames(sample);
-      const memberIssue = proposal?.agents.flatMap(({ id, agent, suggestion }) =>
-        (agent === undefined) === (suggestion === undefined)
-          ? [{ message: teamMemberChoiceMessage(id) }]
-          : agent !== undefined && !agents.has(agent)
-            ? [{ message: unknownTeamAgentMessage(id, agent) }]
-            : [],
-      )[0];
-      const issue =
-        proposal === undefined
-          ? { message: "Invalid propose_team input." }
-          : (memberIssue ??
-            validateTeamDraft({
-              agents: proposal.agents.map((member) => ({
-                id: member.id,
-                label: member.label ?? member.id,
-                role: member.role,
-                modelSelection: {
-                  instanceId: ProviderInstanceId.make("claudeAgent"),
-                  model: sample.base.model,
-                },
-                workspace: member.workspace ?? "shared",
-              })),
-              tasks: proposal.tasks.map((task) => ({
-                id: task.id,
-                title: task.title,
-                brief: task.brief,
-                agentId: task.agent,
-                dependsOn: task.dependsOn ?? [],
-              })),
-            }));
-      return issue === null
-        ? {
-            planId: "team-plan-1",
-            revision: 1,
-            status: "proposed",
-            next: ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
-          }
-        : { code: "invalid_request", message: issue.message };
+      if (proposal === undefined) {
+        return { code: "invalid_request", message: "Invalid propose_team input." };
+      }
+      // Read from the raw input too, so the mock works whichever propose_team schema it decodes.
+      const raw = (list: unknown, index: number) =>
+        Array.isArray(list) && isRecord(list[index]) ? list[index] : {};
+      const text = (value: unknown) =>
+        typeof value === "string" && value.trim() !== "" ? value : undefined;
+      const agents = listedAgents(sample);
+      const members = [];
+      for (const [index, member] of proposal.agents.entries()) {
+        if (member.agent !== undefined && !agents.has(member.agent)) {
+          return {
+            code: "invalid_request",
+            message: unknownTeamAgentMessage(member.id, member.agent),
+          };
+        }
+        const { target, suggestion, instructions } = raw(input.agents, index);
+        const selection = proposedModel(
+          sample,
+          isRecord(target)
+            ? target
+            : isRecord(suggestion) && isRecord(suggestion.target)
+              ? suggestion.target
+              : {},
+          member.agent === undefined ? undefined : agents.get(member.agent),
+        );
+        if ("message" in selection) {
+          return { ...selection, message: `Member "${member.id}": ${selection.message}` };
+        }
+        const memberInstructions = text(instructions);
+        members.push({
+          id: member.id,
+          label: member.label ?? member.id,
+          role: member.role,
+          modelSelection: selection,
+          workspace: member.workspace ?? "shared",
+          ...(member.agent === undefined ? {} : { agent: member.agent }),
+          ...(memberInstructions === undefined ? {} : { instructions: memberInstructions }),
+        });
+      }
+      const draft = {
+        goal: proposal.goal,
+        agents: members,
+        tasks: proposal.tasks.map((task, index) => {
+          const doneWhen = text(raw(input.tasks, index).doneWhen);
+          return {
+            id: task.id,
+            title: task.title,
+            brief: task.brief,
+            agentId: proposedTaskMemberId(proposal.agents, task.agent),
+            dependsOn: task.dependsOn ?? [],
+            ...(doneWhen === undefined ? {} : { doneWhen }),
+          };
+        }),
+      };
+      const issue = validateTeamDraft(draft);
+      if (issue !== null) return { code: "invalid_request", message: issue.message };
+      const models = new Map(members.map((member) => [member.id, member.modelSelection.model]));
+      sample.team = {
+        ...draft,
+        tasks: draft.tasks.map((task) => ({ ...task, model: models.get(task.agentId) })),
+      };
+      return {
+        planId: "team-plan-1",
+        revision: 1,
+        status: "proposed",
+        next: ORCHESTRATOR_MCP_TEAM_PROPOSED_NEXT,
+      };
     }
     case "propose_workflow":
       return { status: "drafted", next: ORCHESTRATOR_MCP_WORKFLOW_DRAFTED_NEXT };
@@ -1496,10 +1612,14 @@ export const mockOutput = (sample: Sample, command: string) =>
     : sample.testCase.setup.shellMocks?.find((mock) => new RegExp(mock.match).test(command))
         ?.output;
 
+type Endpoint = { readonly url: string; readonly headers: Readonly<Record<string, string>> };
+
 type Config = {
   readonly apiKey: string;
   readonly model: Model;
-  readonly proxy?: { readonly url: string; readonly headers: Readonly<Record<string, string>> };
+  readonly proxy?: Endpoint;
+  /** `EVAL_ANTHROPIC_BASE_URL`: where Claude agent and shell models go instead of Anthropic. */
+  readonly anthropic?: Endpoint;
   readonly effort: string;
   readonly maxSteps: number;
   readonly shellModel: ShellModel;
@@ -1519,7 +1639,11 @@ const simulate = Effect.fn("evaluateMcpToolUse.simulate")(function* (
   if (output === undefined) {
     const body = shellRequest(sample, call, config.shellModel);
     const response = isPricedModel(config.shellModel)
-      ? yield* callModel(config.apiKey, body, config.apiKey ? undefined : config.proxy)
+      ? yield* callModel(
+          config.apiKey,
+          body,
+          config.anthropic ?? (config.apiKey ? undefined : config.proxy),
+        )
       : yield* callCodex(config, shellResponsesRequest(body));
     addUsage(sample.shellUsage, response.usage);
     output = shellOutput(response.content);
@@ -1606,7 +1730,8 @@ export const answerToolCall = Effect.fn("evaluateMcpToolUse.answerToolCall")(fun
 const BOUND = /^([<>]=)(-?\d+(?:\.\d+)?)$/;
 /**
  * Partial match: `~text` is a case-insensitive substring, `<=N` / `>=N` bound a number, and `null`
- * matches a missing or null value.
+ * matches a missing or null value. In a dotted path, `length` reads an array's or string's length
+ * and `*` requires a non-empty array whose every item matches the rest of the path.
  */
 const matches = (expected: unknown, actual: unknown): boolean => {
   if (expected === null) return actual === undefined || actual === null;
@@ -1624,11 +1749,27 @@ const matches = (expected: unknown, actual: unknown): boolean => {
     );
   }
   if (!isRecord(expected)) return expected === actual;
-  const at = (path: string) =>
-    path
-      .split(".")
-      .reduce<unknown>((value, key) => (isRecord(value) ? value[key] : undefined), actual);
-  return Object.entries(expected).every(([path, value]) => matches(value, at(path)));
+  return Object.entries(expected).every(([path, value]) =>
+    matchesPath(path.split("."), value, actual),
+  );
+};
+
+const pathStep = (value: unknown, key: string): unknown =>
+  key === "length" && (Array.isArray(value) || typeof value === "string")
+    ? value.length
+    : isRecord(value)
+      ? value[key]
+      : undefined;
+
+const matchesPath = (keys: ReadonlyArray<string>, expected: unknown, actual: unknown): boolean => {
+  const star = keys.indexOf("*");
+  if (star === -1) return matches(expected, keys.reduce(pathStep, actual));
+  const items = keys.slice(0, star).reduce(pathStep, actual);
+  return (
+    Array.isArray(items) &&
+    items.length > 0 &&
+    items.every((item) => matchesPath(keys.slice(star + 1), expected, item))
+  );
 };
 
 /** Each new top-level thread request in a run; a failed call created nothing. */
@@ -1660,17 +1801,27 @@ const matchesDistinct = (
   );
 };
 
-/** delegate_task takes `target.options` as an object or `[{id, value}]`. Grade both as an object. */
-const withOptionsObject = (input: unknown) => {
-  if (!isRecord(input) || !isRecord(input.target) || !Array.isArray(input.target.options)) {
-    return input;
+const withTargetOptionsObject = (holder: unknown) => {
+  if (!isRecord(holder) || !isRecord(holder.target) || !Array.isArray(holder.target.options)) {
+    return holder;
   }
   const options = Object.fromEntries(
-    input.target.options.flatMap((option) =>
+    holder.target.options.flatMap((option) =>
       isRecord(option) ? [[valueText(option.id), option.value]] : [],
     ),
   );
-  return { ...input, target: { ...input.target, options } };
+  return { ...holder, target: { ...holder.target, options } };
+};
+
+/**
+ * A `target` (delegate_task's, or a propose_team member's) takes `options` as an object or
+ * `[{id, value}]`. Grade both as an object.
+ */
+const withOptionsObject = (input: unknown) => {
+  const withTarget = withTargetOptionsObject(input);
+  return isRecord(withTarget) && Array.isArray(withTarget.agents)
+    ? { ...withTarget, agents: withTarget.agents.map(withTargetOptionsObject) }
+    : withTarget;
 };
 
 /** What the user wrote in the case's thread: its context, prior user turns and the prompt. */
@@ -1758,6 +1909,8 @@ export const gradeSample = (expect: McpToolUseCase["expect"], run: SampleRun, pa
     const exact = valueText(numbers.toSorted((a, b) => a - b));
     add("linkedNumbers", exact === valueText(expect.linkedNumbers.toSorted((a, b) => a - b)));
   }
+  if (expect.team !== undefined)
+    add(`team ${valueText(expect.team)}`, matches(expect.team, run.team));
   checks.push(...gradeSecret(expect.secret, run, pasted));
   return checks;
 };
@@ -1914,7 +2067,7 @@ const RETRY = Schedule.min([Schedule.exponential("2 seconds"), Schedule.spaced("
 const postModel = Effect.fn("evaluateMcpToolUse.postModel")(function* (
   apiKey: string,
   body: unknown,
-  proxy?: Config["proxy"],
+  proxy?: Endpoint,
   responses = false,
 ) {
   const client = (yield* HttpClient.HttpClient).pipe(
@@ -1947,7 +2100,7 @@ const postModel = Effect.fn("evaluateMcpToolUse.postModel")(function* (
   }
   return yield* response.text;
 });
-const callModel = (apiKey: string, body: unknown, proxy?: Config["proxy"]) =>
+const callModel = (apiKey: string, body: unknown, proxy?: Endpoint) =>
   postModel(apiKey, body, proxy).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(ApiResponse))),
   );
@@ -2011,7 +2164,11 @@ const runSample = Effect.fn("evaluateMcpToolUse.runSample")(function* (
   for (let step = 0; step < maxSteps; step++) {
     const response = input
       ? yield* callCodex(config, codexRequest(sample.base, input))
-      : yield* callModel(config.apiKey, requestBody(sample, config.effort, messages));
+      : yield* callModel(
+          config.apiKey,
+          requestBody(sample, config.effort, messages),
+          config.anthropic,
+        );
     addUsage(usage, response.usage);
     if ("raw" in response) {
       input?.push(...response.raw);
@@ -2120,6 +2277,7 @@ const runSample = Effect.fn("evaluateMcpToolUse.runSample")(function* (
     stopReason,
     finalText,
     linked: [...sample.linked],
+    team: sample.team,
     usage,
     shellUsage: sample.shellUsage,
     transcript: input ? transcript : messages.slice(start),
@@ -2407,16 +2565,18 @@ const main = Effect.gen(function* () {
     return;
   }
   const apiKey = yield* Config.String("ANTHROPIC_API_KEY").pipe(Config.withDefault(""));
+  const anthropicUrl = yield* Config.String("EVAL_ANTHROPIC_BASE_URL").pipe(Config.withDefault(""));
   const out = flags.out;
-  if ((!apiKey && !codex) || out === undefined) {
+  if ((!apiKey && !anthropicUrl && !codex) || out === undefined) {
     const message =
-      "Set ANTHROPIC_API_KEY and pass --out <directory>. ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL are never used.";
+      "Set ANTHROPIC_API_KEY or EVAL_ANTHROPIC_BASE_URL, and pass --out <directory>. ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL are never used.";
     return yield* Effect.die(new Error(message));
   }
   const config: Config = {
     apiKey,
     model: flags.model,
     ...(codex || !isPricedModel(flags["shell-model"]) ? { proxy: proxyConfig() } : {}),
+    ...(anthropicUrl ? { anthropic: { url: anthropicUrl.replace(/\/$/, ""), headers: {} } } : {}),
     effort,
     maxSteps: flags["max-steps"] ?? (codex ? 10 : 6),
     shellModel: flags["shell-model"],

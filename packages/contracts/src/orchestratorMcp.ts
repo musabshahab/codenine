@@ -45,9 +45,11 @@ import {
 import { ConnectionId } from "./connectors.ts";
 import {
   TEAM_BRIEF_MAX_CHARS,
+  TEAM_DONE_WHEN_MAX_CHARS,
   TEAM_LABEL_MAX_CHARS,
   TEAM_MAX_AGENTS,
   TEAM_MAX_TASKS,
+  TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS,
   TEAM_REVIEW_NOTES_MAX_CHARS,
   TEAM_RUN_HEADLINE_MAX_CHARS,
   TEAM_RUN_NOTE_MAX_CHARS,
@@ -238,40 +240,37 @@ const OrchestratorMcpTeamText = TrimmedNonEmptyString.check(
 );
 
 export const OrchestratorMcpProposeTeamInput = Schema.Struct({
-  goal: OrchestratorMcpTeamText,
+  goal: OrchestratorMcpTeamText.annotate({
+    description:
+      "What the user wants, plus rules every member follows (commands to use or avoid, what not to touch). Every member sees it.",
+  }),
   agents: Schema.Array(
     Schema.Struct({
       id: TeamAgentId.annotate({ description: "Short slug. Tasks name it in `agent`." }),
-      agent: Schema.optional(
-        AgentName.annotate({
-          description:
-            "One of the user's agents, from `orchestrator_capabilities` `agents`. It brings its own model, instructions, skills and connectors.",
-        }),
-      ),
-      suggestion: Schema.optional(
-        Schema.Struct({
-          title: AgentTitle,
-          description: AgentDescription.annotate({ description: "What to use it for." }),
-          instructions: TrimmedNonEmptyString.check(
-            Schema.isMaxLength(AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS),
-          ),
-          target: Schema.optional(OrchestratorMcpTarget),
-          connectors: Schema.optional(
-            Schema.Array(ConnectionId).annotate({
-              description: "Ids from `orchestrator_capabilities` `connections`.",
-            }),
-          ),
-        }).annotate({
-          description:
-            "Only when none of the user's agents fits: the agent to create. The user creates it, or picks one of theirs, before the team starts.",
-        }),
-      ),
       label: Schema.optional(OrchestratorMcpTeamLabel),
       role: TeamAgentRole,
       workspace: Schema.optional(
         TeamWorkspace.annotate({
           description:
             "'shared' (default): your checkout. 'worktree': its own, from your HEAD, for agents that edit in parallel.",
+        }),
+      ),
+      agent: Schema.optional(
+        AgentName.annotate({
+          description:
+            "One of the user's agents, from `orchestrator_capabilities` `agents`, when it fits this part, even when the user named another model for it (set `target`). It brings its own instructions, skills, connectors and model. Leave it out to define the member here.",
+        }),
+      ),
+      instructions: Schema.optional(
+        Schema.String.check(Schema.isMaxLength(TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS)).annotate({
+          description:
+            "Only without `agent`: this member's standing role and rules, shared by its tasks.",
+        }),
+      ),
+      target: Schema.optional(
+        OrchestratorMcpTarget.annotate({
+          description:
+            "Provider instance, model and options such as effort, from `orchestrator_capabilities`. Left out: the saved agent's model, else yours. On a saved agent, set it only when the user asked for another model or effort.",
         }),
       ),
     }),
@@ -281,11 +280,19 @@ export const OrchestratorMcpProposeTeamInput = Schema.Struct({
       id: TeamTaskId,
       title: OrchestratorMcpTeamLabel,
       brief: OrchestratorMcpTeamText.annotate({
-        description: "All the agent gets, plus the results of `dependsOn`. No secrets.",
+        description:
+          "All the member gets besides the goal and the results of `dependsOn`; it has not seen this chat. Write for a capable junior: Context (decisions made; names and interfaces to match), Read first (paths), You own (files it may edit), Steps. Put the check in `doneWhen`. No secrets.",
       }),
-      agent: TeamAgentId,
+      agent: TeamAgentId.annotate({
+        description: "The `id` of the member in `agents` that does it, not a saved agent's name.",
+      }),
       dependsOn: Schema.optional(
         Schema.Array(TeamTaskId).annotate({ description: "Task ids that must complete first." }),
+      ),
+      doneWhen: Schema.optional(
+        Schema.String.check(Schema.isMaxLength(TEAM_DONE_WHEN_MAX_CHARS)).annotate({
+          description: "The exact command that must pass, or the result to check.",
+        }),
       ),
     }),
   ).check(Schema.isMinLength(1), Schema.isMaxLength(TEAM_MAX_TASKS)),
@@ -755,6 +762,8 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
       /** Omitted when it only restates the id. */
       label: Schema.optional(Schema.String),
       options: Schema.optional(Schema.Array(OrchestratorMcpModelOption)),
+      /** US dollars per million tokens; omitted when unknown. */
+      price: Schema.optional(Schema.Struct({ input: Schema.Number, output: Schema.Number })),
     }),
   ),
   /** Models left out of `models`: unlisted visible models, or matches past the cap with `search`. */
@@ -766,7 +775,7 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
 });
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;
 
-/** One of the user's agents, which a team is built from. */
+/** One of the user's agents, for a team member's or workflow step's `agent`. */
 export const OrchestratorMcpAgentCapability = Schema.Struct({
   name: AgentName,
   title: Schema.String,
@@ -789,7 +798,7 @@ export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   providers: Schema.Array(OrchestratorMcpProviderCapability),
-  /** The user's agents, which a team is built from. */
+  /** The user's agents, for a team member's or workflow step's `agent`. */
   agents: Schema.optional(Schema.Array(OrchestratorMcpAgentCapability)),
   /** The user's connected services, for a suggested agent's `connectors`. */
   connections: Schema.optional(

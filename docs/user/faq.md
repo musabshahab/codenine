@@ -3,8 +3,9 @@
 ## What is Codenine?
 
 Codenine runs coding agents on your codebase and gives you one place to direct them. It is built
-to run a team of agents on one task: a lead agent proposes a team built from your agents, each on
-Codex or Claude Code with a recommended model and effort, and you adjust that team before it starts.
+to run a team of agents on one task: a lead agent splits it into small tasks and proposes a team,
+using your agents where they fit and making the other members itself, each on Codex or Claude Code
+with a recommended model and effort, and you adjust that team before it starts.
 [Run a team](./thread-sidebar.md#run-a-team)
 
 Codenine also runs single Codex and Claude chats, lets an agent delegate work to subagents, and

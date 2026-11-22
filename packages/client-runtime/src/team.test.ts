@@ -28,6 +28,7 @@ import {
   teamDraftChangeCount,
   teamDraftIssue,
   teamDraftOf,
+  teamMemberLeadDefined,
   teamResultHandoff,
   teamRetryCommand,
   teamRunsInSequence,
@@ -47,6 +48,13 @@ const agent = (id: string, model = "gpt-fast"): TeamAgent => ({
   role: "implement",
   modelSelection: { instanceId: codex, model },
   workspace: "shared",
+});
+/** A member the lead defined for this team, with its own instructions. */
+const inlineAgent = (id: string): TeamAgent => ({
+  ...agent(id, "gpt-mini"),
+  label: "Fact checker",
+  role: "review",
+  instructions: "Check every claim against its source.",
 });
 /** A member the lead suggested for an agent the user does not have. */
 const suggestedAgent = (id: string): TeamAgent => ({
@@ -127,6 +135,41 @@ describe("changeTeamDraft", () => {
     const once = changeTeamDraft(draft, add("  Reviewer "));
     const twice = changeTeamDraft(once, add("reviewer!"));
     const blank = changeTeamDraft(twice, { ...add("???"), assign: TeamTaskId.make("b") });
+    const inline = changeTeamDraft(blank, {
+      type: "member.add",
+      label: " Reviewer ",
+      role: "review",
+      modelSelection: { instanceId: codex, model: "gpt-mini" },
+      workspace: "shared",
+      instructions: "  Read only.  ",
+    });
+    const bare = changeTeamDraft(inline, {
+      type: "member.add",
+      label: "Docs",
+      role: "custom",
+      modelSelection: { instanceId: codex, model: "gpt-mini" },
+      workspace: "shared",
+      instructions: " ",
+      assign: TeamTaskId.make("a"),
+    });
+    expect(bare.agents.slice(5)).toEqual([
+      {
+        id: "reviewer-4",
+        label: "Reviewer",
+        role: "review",
+        modelSelection: { instanceId: codex, model: "gpt-mini" },
+        workspace: "shared",
+        instructions: "Read only.",
+      },
+      {
+        id: "docs",
+        label: "Docs",
+        role: "custom",
+        modelSelection: { instanceId: codex, model: "gpt-mini" },
+        workspace: "shared",
+      },
+    ]);
+    expect(bare.tasks[0]?.agentId).toBe("docs");
     expect(blank.agents.slice(2)).toMatchObject([
       {
         id: "reviewer-2",
@@ -168,6 +211,103 @@ describe("changeTeamDraft", () => {
     expect(teamApproveBlock(assigned)).toBeNull();
   });
 
+  it("runs a member the lead defined as a saved agent on the lead's pick, and back again", () => {
+    const defined = teamDraftOf(plan({ agents: [agent("builder"), inlineAgent("checker")] }));
+    expect(teamApproveBlock(defined)).toBeNull();
+    const checker = TeamAgentId.make("checker");
+    const assigned = changeTeamDraft(defined, {
+      type: "agent.assign",
+      agentId: checker,
+      agent: "fact-checker",
+      label: "Source checker",
+      modelSelection: { instanceId: codex, model: "gpt-strong" },
+    });
+    expect(assigned.agents[1]).toEqual({ ...inlineAgent("checker"), agent: "fact-checker" });
+    const back = changeTeamDraft(assigned, { type: "agent.unassign", agentId: checker });
+    expect(back.agents[1]).toEqual(inlineAgent("checker"));
+    // Any member can run without its saved agent, keeping its name and model.
+    const { agent: _agent, ...builderWithout } = back.agents[0]!;
+    const unassignedSaved = changeTeamDraft(back, {
+      type: "agent.unassign",
+      agentId: TeamAgentId.make("builder"),
+    });
+    expect(unassignedSaved.agents[0]).toEqual(builderWithout);
+    // The lead gives most members no instructions; the edit's base still shows it defined them.
+    const { instructions: _instructions, ...plain } = inlineAgent("checker");
+    const plainBase = teamDraftOf(plan({ agents: [agent("builder"), plain] }));
+    const plainAssigned = changeTeamDraft(
+      plainBase,
+      {
+        type: "agent.assign",
+        agentId: checker,
+        agent: "fact-checker",
+        label: "Source checker",
+        modelSelection: { instanceId: codex, model: "gpt-strong" },
+      },
+      plainBase,
+    );
+    const swapped = { ...plain, agent: "fact-checker" };
+    expect(plainAssigned.agents[1]).toEqual(swapped);
+    expect(teamMemberLeadDefined(plainBase, swapped)).toBe(true);
+    expect(teamMemberLeadDefined(teamDraftOf(plan({ agents: [swapped] })), swapped)).toBe(false);
+    const plainBack = changeTeamDraft(
+      plainAssigned,
+      { type: "agent.unassign", agentId: checker },
+      plainBase,
+    );
+    expect(plainBack.agents[1]).toEqual(plain);
+    // After a save the base shows the swap, and the member can still run without the agent.
+    const savedBase = teamDraftOf(plan({ agents: [agent("builder"), swapped] }));
+    const afterSave = changeTeamDraft(
+      savedBase,
+      { type: "agent.unassign", agentId: checker },
+      savedBase,
+    );
+    expect(afterSave.agents[1]).toEqual(plain);
+  });
+
+  it("edits a member's name, role, workspace and instructions, trimmed", () => {
+    const defined = teamDraftOf(plan({ agents: [agent("builder"), inlineAgent("checker")] }));
+    const checker = TeamAgentId.make("checker");
+    const edited = changeTeamDraft(defined, {
+      type: "member.edit",
+      agentId: checker,
+      label: " Checker ",
+      role: "research",
+      workspace: "worktree",
+      instructions: "  Cite every source.\n",
+    });
+    expect(edited.agents[1]).toEqual({
+      ...inlineAgent("checker"),
+      label: "Checker",
+      role: "research",
+      workspace: "worktree",
+      instructions: "Cite every source.",
+    });
+    const cleared = changeTeamDraft(edited, {
+      type: "member.edit",
+      agentId: checker,
+      instructions: "  ",
+    });
+    expect(cleared.agents[1]).not.toHaveProperty("instructions");
+    expect(cleared.agents[1]?.label).toBe("Checker");
+  });
+
+  it("runs 1 to 6 tasks at a time per account", () => {
+    expect(draft.maxParallelPerProvider).toBe(2);
+    for (const [asked, kept] of [
+      [4, 4],
+      [0, 1],
+      [9, 6],
+      [2.6, 3],
+    ] as const) {
+      expect(
+        changeTeamDraft(draft, { type: "parallel.set", maxParallelPerProvider: asked })
+          .maxParallelPerProvider,
+      ).toBe(kept);
+    }
+  });
+
   it("counts each choice a draft changed, once", () => {
     const edited = [
       {
@@ -189,10 +329,23 @@ describe("changeTeamDraft", () => {
         label: "Code reviewer",
         modelSelection: { instanceId: codex, model: "gpt-max" },
       },
+      { type: "member.edit", agentId: TeamAgentId.make("checker"), role: "research" },
+      { type: "member.edit", agentId: TeamAgentId.make("checker"), instructions: "Cite." },
+      { type: "parallel.set", maxParallelPerProvider: 4 },
     ] as const satisfies ReadonlyArray<Parameters<typeof changeTeamDraft>[1]>;
-    const next = edited.reduce<ReturnType<typeof teamDraftOf>>(changeTeamDraft, draft);
-    expect(teamDraftChangeCount(draft, draft)).toBe(0);
-    expect(teamDraftChangeCount(draft, next)).toBe(4);
+    const base = teamDraftOf(plan({ agents: [...plan().agents, inlineAgent("checker")] }));
+    const next = edited.reduce<ReturnType<typeof teamDraftOf>>(
+      (draft, change) => changeTeamDraft(draft, change),
+      base,
+    );
+    expect(teamDraftChangeCount(base, base)).toBe(0);
+    expect(teamDraftChangeCount(base, next)).toBe(6);
+    const renamed = changeTeamDraft(base, {
+      type: "member.edit",
+      agentId: TeamAgentId.make("checker"),
+      label: "Checker",
+    });
+    expect(teamDraftChangeCount(base, renamed)).toBe(1);
   });
 });
 
@@ -211,6 +364,7 @@ describe("resolveTeamDraft", () => {
       dirty: true,
       overtaken: false,
       draft: { agents: [{ modelSelection: { model: "gpt-strong" } }, {}] },
+      base: { agents: [{ modelSelection: { model: "gpt-fast" } }, {}] },
     });
   });
 
@@ -226,6 +380,32 @@ describe("resolveTeamDraft", () => {
     expect(resolveTeamDraft(delivered, saved)).toMatchObject({ revision: 2, dirty: false });
   });
 
+  it("reads a delivered plan as saved whatever order the server keeps its fields in", () => {
+    const defined = plan({ agents: [agent("builder"), inlineAgent("checker")] });
+    const edit = editTeamDraft(defined, null, {
+      type: "agent.assign",
+      agentId: TeamAgentId.make("checker"),
+      agent: "fact-checker",
+      label: "Fact checker",
+      modelSelection: { instanceId: codex, model: "gpt-strong" },
+    });
+    const saved = savedTeamDraftEdit(defined, resolveTeamDraft(defined, edit));
+    // The server decodes members field by field, so `agent` comes back before `instructions`.
+    const { instructions: _instructions, ...checker } = inlineAgent("checker");
+    const delivered = plan({
+      revision: 2,
+      agents: [
+        agent("builder"),
+        {
+          ...checker,
+          agent: "fact-checker",
+          instructions: "Check every claim against its source.",
+        },
+      ],
+    });
+    expect(resolveTeamDraft(delivered, saved)).toMatchObject({ revision: 2, dirty: false });
+  });
+
   it("reports unsaved edits that a newer plan replaced", () => {
     const edit = editTeamDraft(current, null, strongBuilder);
     for (const newer of [
@@ -235,6 +415,7 @@ describe("resolveTeamDraft", () => {
     ]) {
       expect(resolveTeamDraft(newer, edit)).toEqual({
         draft: teamDraftOf(newer),
+        base: teamDraftOf(newer),
         revision: newer.revision,
         dirty: false,
         overtaken: true,
@@ -269,7 +450,13 @@ describe("teamApproveCommands", () => {
   });
 
   it("saves edits first and approves the revision the save creates", () => {
-    const current = plan({ revision: 3 });
+    const current = plan({
+      revision: 3,
+      tasks: plan().tasks.map((candidate) => ({
+        ...candidate,
+        doneWhen: `${candidate.id} passes`,
+      })),
+    });
     const edit = editTeamDraft(current, null, {
       type: "task.brief",
       taskId: TeamTaskId.make("a"),
@@ -285,7 +472,12 @@ describe("teamApproveCommands", () => {
         type: "team.edit",
         commandId: "command-1",
         expectedRevision: 3,
-        tasks: [{ id: "a", brief: "Do a, carefully." }, { id: "b" }, { id: "c" }],
+        tasks: [
+          { id: "a", brief: "Do a, carefully.", doneWhen: "a passes" },
+          { id: "b", doneWhen: "b passes" },
+          { id: "c" },
+        ],
+        maxParallelPerProvider: 2,
       },
       { type: "team.approve", commandId: "command-2", expectedRevision: 4 },
     ]);
@@ -310,6 +502,11 @@ describe("teamDraftIssue", () => {
     );
     expect(teamDraftIssue(empty)).toBe("A team needs at least one agent and one task.");
     expect(teamDraftIssue(draft)).toBeNull();
+    const briefs = draft.tasks.reduce((sum, candidate) => sum + candidate.brief.length, 0);
+    expect(teamDraftIssue(draft, "g".repeat(64_000 - briefs))).toBeNull();
+    expect(teamDraftIssue(draft, "g".repeat(64_001 - briefs))).toBe(
+      "The team's text is 64,001 characters; the most is 64,000. Shorten the briefs or combine tasks.",
+    );
   });
 });
 
@@ -340,6 +537,21 @@ it("retries on another agent only when one is named", () => {
     type: "team.task.retry",
     taskId: "a",
     agentId: "reviewer",
+  });
+  const strong = { instanceId: codex, model: "gpt-strong" };
+  expect(
+    teamRetryCommand({
+      threadId,
+      task: failed,
+      modelSelection: strong,
+      commandId: CommandId.make("retry"),
+    }),
+  ).toEqual({
+    type: "team.task.retry",
+    commandId: "retry",
+    threadId,
+    taskId: "a",
+    modelSelection: strong,
   });
 });
 
@@ -558,6 +770,15 @@ describe("teamAgentHeader", () => {
       });
     },
   );
+
+  it("shows the model a retry moved the task to", () => {
+    const moved = { instanceId: ProviderInstanceId.make("claude"), model: "sonnet" };
+    const current = plan({
+      status: "running",
+      tasks: [task("a", "builder"), { ...task("b", "reviewer"), modelSelection: moved }],
+    });
+    expect(teamAgentHeader(current, ref)?.modelSelection).toEqual(moved);
+  });
 
   it("falls back to the task's title for an agent the plan does not have", () => {
     const current = plan({ tasks: [task("a", "builder"), task("b", "ghost")] });

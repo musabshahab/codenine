@@ -6,7 +6,7 @@ import { FetchHttpClient } from "effect/http";
 import { assert, expect, it } from "@effect/vitest";
 import { ComposerContextId, EnvironmentId, ThreadId } from "@codenine/contracts";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
-import { teamMemberChoiceMessage, unknownTeamAgentMessage } from "@codenine/shared/team";
+import { unknownTeamAgentMessage } from "@codenine/shared/team";
 
 import {
   answerToolCall,
@@ -247,6 +247,7 @@ it("passes a good run and names every rule a bad run breaks", () => {
     textMustNot: ["Paste .*token"],
     linked: ["~/pull/124"],
     linkedNumbers: [124],
+    team: { tasks: [{ title: "~user", model: "claude-haiku-5-5" }] },
   };
   const good: SampleRun = {
     calls: [
@@ -260,6 +261,7 @@ it("passes a good run and names every rule a bad run breaks", () => {
     text: "Started <codenine-thread://v2/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee/11111111-1111-4111-8111-111111111111>. Do not paste a token.",
     stopReason: "end_turn",
     linked: ["https://github.com/acme/app/pull/124"],
+    team: { tasks: [{ title: "Validate createUser", model: "claude-haiku-5-5" }] },
   };
   assert.deepEqual(failed(expect, good), []);
 
@@ -290,6 +292,7 @@ it("passes a good run and names every rule a bad run breaks", () => {
     "textMustNot /Paste .*token/",
     "linked ~/pull/124",
     "linkedNumbers",
+    'team {"tasks":[{"title":"~user","model":"claude-haiku-5-5"}]}',
   ]);
 });
 
@@ -312,6 +315,41 @@ it("bounds numbers and reads target.options in either schema form", () => {
   assert.deepEqual(failed(expect, run(5, { effort: "max" }, 90_000)), []);
   assert.lengthOf(failed(expect, run(21, [{ id: "effort", value: "high" }], 59_999)), 2);
   assert.lengthOf(failed(expect, run("10", {}, 60_000)), 2);
+
+  const team = (args: Record<string, unknown>, input: Record<string, unknown>) =>
+    failed(
+      { calls: [{ tool: "propose_team", args }] },
+      { calls: [{ step: 0, tool: "propose_team", input }], text: "", stopReason: "end_turn" },
+    ).length === 0;
+  const task = (n: number, extra: Record<string, unknown> = { doneWhen: "npm test" }) => ({
+    id: `t${n}`,
+    brief: `Edit src/part${n}.ts.`,
+    ...extra,
+  });
+  const tasks = (n: number) => Array.from({ length: n }, (_, i) => task(i));
+  assert.isTrue(team({ "tasks.length": ">=5" }, { tasks: tasks(5) }));
+  assert.isFalse(team({ "tasks.length": ">=5" }, { tasks: tasks(4) }));
+  assert.isTrue(team({ "goal.length": "<=20" }, { goal: "Ship the CSV export" }));
+  assert.isFalse(team({ "goal.length": "<=10" }, { goal: "Ship the CSV export" }));
+  assert.isTrue(team({ "tasks.*.doneWhen.length": ">=1" }, { tasks: tasks(3) }));
+  assert.isFalse(team({ "tasks.*.doneWhen.length": ">=1" }, { tasks: [...tasks(2), task(2, {})] }));
+  assert.isFalse(team({ "tasks.*.doneWhen.length": ">=1" }, { tasks: [] }));
+  assert.isTrue(team({ "tasks.*.brief": "~src/" }, { tasks: tasks(3) }));
+  assert.isFalse(
+    team({ "tasks.*.brief": "~src/" }, { tasks: [...tasks(2), task(2, { brief: "Review." })] }),
+  );
+  assert.isTrue(team({ "agents.length": ">=3" }, { agents: [{}, {}, {}] }));
+  assert.isFalse(team({ "agents.length": ">=3" }, { agents: [{}, {}] }));
+  // Missing text is "", so a substring check cannot tell it from present text; a length can.
+  assert.isFalse(team({ agents: [{ "instructions.length": ">=40" }] }, { agents: [{}] }));
+  assert.isTrue(
+    team(
+      { agents: [{ agent: "implementer", "target.options.effort": "low" }] },
+      {
+        agents: [{ agent: "implementer", target: { options: [{ id: "effort", value: "low" }] } }],
+      },
+    ),
+  );
 });
 
 const template = {
@@ -481,28 +519,44 @@ it("replays earlier capability results with the model under test as the caller",
   }
 });
 
-it("refuses a proposed team as Codenine does, knowing only the case's agents", () => {
+it("refuses a proposed team as Codenine does, knowing only the case's agents and models", () => {
   const base = buildBase(template, { model: "claude-sonnet-5-5", keepUserInstructions: false });
   const withAgents: McpToolUseCase = {
     ...childCase,
     setup: {
       ...childCase.setup,
-      mocks: { orchestrator_capabilities: { agents: [{ name: "builder", title: "Builder" }] } },
+      mocks: {
+        orchestrator_capabilities: {
+          agents: [{ name: "builder", title: "Builder", model: "codex/gpt-6.1-sol" }],
+        },
+      },
     },
   };
-  const propose = (member: Record<string, unknown>, agent = "builder") =>
-    codenineDefault(makeSample(withAgents, base), "propose_team", {
+  const propose = (member: Record<string, unknown>, agent = "builder", lead = base) =>
+    codenineDefault(makeSample(withAgents, lead), "propose_team", {
       goal: "Ship the rate limiter",
       agents: [{ id: "builder", role: "implement", ...member }],
-      tasks: [{ id: "build", title: "Build", brief: "Write the token bucket.", agent }],
+      tasks: [
+        {
+          id: "build",
+          title: "Build",
+          brief: "Write the token bucket.",
+          agent,
+          doneWhen: "npm test passes",
+        },
+      ],
     });
-  const suggestion = {
-    title: "Rate limiter builder",
-    description: "Builds rate limiters.",
-    instructions: "Write a token bucket with tests.",
-  };
-  assert.deepInclude(propose({ agent: "builder" }), { status: "proposed", revision: 1 });
-  assert.deepInclude(propose({ suggestion }), { status: "proposed", revision: 1 });
+  const proposed = { status: "proposed", revision: 1 };
+  assert.deepInclude(propose({ agent: "builder" }), proposed);
+  // A member with neither `agent` nor `suggestion` is defined in the plan and runs as itself.
+  assert.deepInclude(propose({}), proposed);
+  assert.deepInclude(
+    propose({
+      instructions: "Write small, tested TypeScript.",
+      target: { providerInstanceId: "codex", model: "gpt-6.1-sol" },
+    }),
+    proposed,
+  );
   assert.deepEqual(propose({ agent: "builder" }, "reviewer"), {
     code: "invalid_request",
     message: 'Task "build" names agent "reviewer", which is not on the team.',
@@ -511,12 +565,69 @@ it("refuses a proposed team as Codenine does, knowing only the case's agents", (
     code: "invalid_request",
     message: unknownTeamAgentMessage("builder", "designer"),
   });
-  for (const member of [{}, { agent: "builder", suggestion }]) {
-    assert.deepEqual(propose(member), {
+  assert.deepEqual(propose({ target: { model: "gpt-6.1-sol" } }), {
+    code: "model_unavailable",
+    message: 'Member "builder": Model gpt-6.1-sol is not advertised by provider claudeAgent.',
+  });
+  assert.deepEqual(propose({ agent: "builder", target: { providerInstanceId: "gemini" } }), {
+    code: "provider_unavailable",
+    message: 'Member "builder": Provider instance gemini is not registered.',
+  });
+  // A saved agent's target defaults to the agent's own provider instance, not the lead's.
+  assert.deepInclude(propose({ agent: "builder", target: { model: "gpt-6-luna" } }), proposed);
+  assert.deepEqual(propose({ agent: "builder", target: { model: "claude-opus-5-5" } }), {
+    code: "model_unavailable",
+    message: 'Member "builder": Model claude-opus-5-5 is not advertised by provider codex.',
+  });
+  // A member without an instance runs on the lead's, here a Codex lead's.
+  const codexLead = {
+    ...base,
+    model: "gpt-6.1-sol" as const,
+    codex: { input: [], reasoning: { effort: "high" } },
+  };
+  assert.deepInclude(propose({ target: { model: "gpt-6.1-sol" } }, "builder", codexLead), proposed);
+  assert.deepEqual(propose({ target: { model: "claude-haiku-5-5" } }, "builder", codexLead), {
+    code: "model_unavailable",
+    message: 'Member "builder": Model claude-haiku-5-5 is not advertised by provider codex.',
+  });
+  // `driverKind` picks an instance of that driver, the inherited one first.
+  assert.deepInclude(propose({ target: { driverKind: "codex", model: "gpt-6.1-sol" } }), proposed);
+  assert.deepInclude(
+    propose({ agent: "builder", target: { driverKind: "claudeAgent", model: "claude-opus-5-5" } }),
+    proposed,
+  );
+  assert.deepEqual(propose({ target: { driverKind: "gemini" } }), {
+    code: "provider_unavailable",
+    message: 'Member "builder": No V2 provider adapter is registered for driver gemini.',
+  });
+  assert.deepEqual(
+    propose({ target: { providerInstanceId: "codex", driverKind: "claudeAgent" } }),
+    {
       code: "invalid_request",
-      message: teamMemberChoiceMessage("builder"),
-    });
-  }
+      message: 'Member "builder": Provider instance codex uses driver codex, not claudeAgent.',
+    },
+  );
+  // Codenine holds the last accepted team, each task on its member's resolved model.
+  const held = makeSample(withAgents, base);
+  codenineDefault(held, "propose_team", {
+    goal: "Ship the rate limiter",
+    agents: [
+      { id: "impl", role: "implement" },
+      { id: "rev", role: "review", agent: "builder" },
+    ],
+    tasks: [
+      { id: "build", title: "Build", brief: "Write the token bucket.", agent: "impl" },
+      { id: "check", title: "Review", brief: "Review it.", agent: "rev", dependsOn: ["build"] },
+    ],
+  });
+  const tasks = [
+    { id: "build", model: "claude-sonnet-5-5" },
+    { id: "check", model: "gpt-6.1-sol" },
+  ];
+  assert.deepEqual(
+    failed({ team: { tasks } }, { calls: [], text: "", stopReason: "end_turn", team: held.team }),
+    [],
+  );
 });
 
 it("gives each launched thread its own id, and reading it back shows that thread's brief", () => {

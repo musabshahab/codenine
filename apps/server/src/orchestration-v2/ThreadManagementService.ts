@@ -743,6 +743,20 @@ const make = Effect.gen(function* () {
             ),
           ),
         );
+      case "team.task.retry": {
+        const { modelSelection } = command;
+        return modelSelection === undefined
+          ? Effect.void
+          : orchestrator.getThreadRecords(command.threadId, []).pipe(
+              Effect.flatMap((lead) =>
+                assertProviderInstanceEnabled({
+                  projectId: lead.thread.projectId,
+                  commandId: command.commandId,
+                  instanceId: modelSelection.instanceId,
+                }),
+              ),
+            );
+      }
       case "prepared-run.release":
       case "prepared-run.retry":
         return orchestrator

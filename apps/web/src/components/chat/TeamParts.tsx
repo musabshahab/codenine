@@ -99,7 +99,7 @@ function TeamAgentAvatar(props: {
 
 /**
  * A team member's mark: its agent's, an outlined one while the lead's suggestion waits for an
- * agent, or its role's glyph on plans from before agents.
+ * agent, or its role's glyph for a member the lead defined for this team.
  */
 export function TeamMemberMark(props: {
   member: Pick<TeamAgent, "role" | "label" | "agent" | "suggestion">;
@@ -207,6 +207,16 @@ export function TeamStepRow(props: {
 function TeamStepIcon(props: { state: Exclude<TeamStepState, "proposed"> }) {
   const { Icon, tone } = STATE_ICON[props.state];
   return <Icon className={cn("size-5.5 shrink-0", tone)} strokeWidth={1.75} />;
+}
+
+/** The check a step's result must pass, as the lead wrote it. */
+export function TeamDoneWhen(props: { text: string | undefined }) {
+  if (props.text === undefined || props.text.trim() === "") return null;
+  return (
+    <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground text-xs">
+      {`Done when: ${props.text}`}
+    </p>
+  );
 }
 
 /** "Starts with step 1's result", under a step's title. */

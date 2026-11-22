@@ -4,6 +4,7 @@ import {
   type OrchestrationV2AppThread,
   type OrchestrationV2Notification,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProjectId,
   type TeamAgent,
   type TeamPlan,
@@ -12,8 +13,9 @@ import {
   type TeamTaskId,
   ThreadId,
 } from "@codenine/contracts";
-import { isAwaitingReview } from "@codenine/shared/team";
+import { isAwaitingReview, teamTaskModelSelection } from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
+import { subagentResultForRun } from "@codenine/provider-core/server/subagentProjection";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -23,7 +25,7 @@ import * as Schema from "effect/Schema";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
-import { teamTaskThreadId } from "./TeamPlan.ts";
+import { TEAM_RESULT_CUT_NOTE, teamTaskThreadId } from "./TeamPlan.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import { userFacingDispatchErrorMessage } from "./UserFacingErrors.ts";
 
@@ -129,7 +131,21 @@ interface EarlierResult {
   readonly task: TeamTask;
   /** Set when the task worked in a checkout of its own. */
   readonly checkout: Pick<OrchestrationV2AppThread, "branch" | "worktreePath"> | undefined;
+  /** The task thread's own final result; the plan keeps a shorter copy. */
+  readonly result: string;
 }
+
+const DEPENDENCY_RESULT_MAX_CHARS = 8_000;
+const RESULT_SHORTENED = "\n\n[Result shortened to fit this message.]";
+
+const shortened = (result: string, cap: number) =>
+  result.length <= cap ? result : `${result.slice(0, cap).trimEnd()}${RESULT_SHORTENED}`;
+
+const TEAM_TASK_SCOPE =
+  "Do only your task; other members do the rest of the goal. Start no subagents; Codenine's tools for other chats are not available here. If you cannot finish, stop and say what blocks you instead of guessing.";
+
+const teamHandOff = (doneWhen: string | undefined) =>
+  `Your final message is the hand-off to the next agent, under 250 words: first ${doneWhen ? "whether Done when passed (the command and the last lines of its output)" : "what you checked and how it went"}, then the files you changed and the branch, then anything left open.`;
 
 function taskBrief(input: {
   readonly plan: TeamPlan;
@@ -139,12 +155,15 @@ function taskBrief(input: {
 }): string {
   const { agent, task, plan } = input;
   const { run } = plan;
-  const sections =
+  const instructions = agent.agent === undefined ? agent.instructions?.trim() : undefined;
+  const doneWhen = task.doneWhen?.trim();
+  const opening =
     run === undefined
       ? [
           agent.role === "custom"
             ? `Act as "${agent.label}" on this team.`
             : `Act as the ${agent.role} agent "${agent.label}" on this team.`,
+          ...(instructions ? [`Your instructions:\n${instructions}`] : []),
           `Team goal:\n${plan.goal}`,
           `Your task: ${task.title}\n${task.brief}`,
         ]
@@ -161,28 +180,33 @@ function taskBrief(input: {
               ]),
           `Your step: ${task.title}\n${task.brief}`,
         ];
-  const doneWhen = task.doneWhen?.trim();
-  if (doneWhen) sections.push(`Done when: ${doneWhen}`);
-  if (input.earlier.length > 0) {
-    sections.push(
-      [
-        run === undefined ? "Results from earlier tasks:" : "Results from earlier steps:",
-        ...input.earlier.map(({ task: earlier, checkout }) => {
-          const where =
-            checkout === undefined
-              ? ""
-              : `\nIts work is on branch ${checkout.branch ?? "(detached)"} in worktree ${checkout.worktreePath}.`;
-          return `### ${earlier.title}${where}\n${earlier.result ?? "No result was recorded."}`;
-        }),
-      ].join("\n\n"),
-    );
-  }
-  sections.push(
+  if (doneWhen) opening.push(`Done when: ${doneWhen}`);
+  const closing =
     run === undefined
-      ? "Your final message is the hand-off to the next agent. State what you did and where: files, branch, and anything left open."
-      : "Your final message is your result. The lead checks it against the goal and Done when, and may send it back to you with notes. State what you did and where: files, links, and anything left open.",
+      ? [TEAM_TASK_SCOPE, teamHandOff(doneWhen)]
+      : [
+          "Your final message is your result. The lead checks it against the goal and Done when, and may send it back to you with notes. State what you did and where: files, links, and anything left open.",
+        ];
+  if (input.earlier.length === 0) return [...opening, ...closing].join("\n\n");
+  const results = (cap: number) =>
+    [
+      run === undefined ? "Results from earlier tasks:" : "Results from earlier steps:",
+      ...input.earlier.map(({ task: earlier, checkout, result }) => {
+        const where =
+          checkout === undefined
+            ? ""
+            : `\nIts work is on branch ${checkout.branch ?? "(detached)"} in worktree ${checkout.worktreePath}.`;
+        return `### ${earlier.title}${where}\n${shortened(result, cap)}`;
+      }),
+    ].join("\n\n");
+  // Each result gets an even share of what the provider takes in one message.
+  const room =
+    PROVIDER_SEND_TURN_MAX_INPUT_CHARS - [...opening, results(0), ...closing].join("\n\n").length;
+  const cap = Math.max(
+    0,
+    Math.min(DEPENDENCY_RESULT_MAX_CHARS, Math.floor(room / input.earlier.length)),
   );
-  return sections.join("\n\n");
+  return [...opening, results(cap), ...closing].join("\n\n");
 }
 
 const isWorkspaceError = Schema.is(TeamTaskWorkspaceError);
@@ -197,7 +221,9 @@ const WAKE_RESULT_BUDGET_CHARS = 16_000;
 
 const memberOf = (plan: TeamPlan, task: TeamTask) => {
   const agent = plan.agents.find((candidate) => candidate.id === task.agentId);
-  return agent === undefined ? task.agentId : `${agent.label} (${agent.modelSelection.model})`;
+  return agent === undefined
+    ? task.agentId
+    : `${agent.label} (${(teamTaskModelSelection(plan, task) ?? agent.modelSelection).model})`;
 };
 
 const threadOf = (task: TeamTask) =>
@@ -229,15 +255,24 @@ const RUN_WAKE_WORDS = {
 
 function wakeText(plan: TeamPlan): string {
   const words = plan.run === undefined ? TEAM_WAKE_WORDS : RUN_WAKE_WORDS;
+  // The final tasks, such as integration or review, report on the whole goal, so they come first.
+  const dependedOn = new Set(plan.tasks.flatMap((task) => task.dependsOn));
   let budget = WAKE_RESULT_BUDGET_CHARS;
+  const kept = new Set<TeamTaskId>();
+  for (const task of [
+    ...plan.tasks.filter((task) => !dependedOn.has(task.id)),
+    ...plan.tasks.filter((task) => dependedOn.has(task.id)),
+  ]) {
+    if (task.result === null || task.result.length > budget) continue;
+    budget -= task.result.length;
+    kept.add(task.id);
+  }
   const tasks = plan.tasks.map((task) => {
     const heading = `- ${task.title}: ${task.status}. Agent: ${memberOf(plan, task)}. Thread: ${threadOf(task)}`;
     if (task.result === null) return heading;
-    if (task.result.length > budget) {
-      return `${heading}\n  Result left out to keep this message short. Read the thread.`;
-    }
-    budget -= task.result.length;
-    return `${heading}\n${task.result}`;
+    return kept.has(task.id)
+      ? `${heading}\n${task.result}`
+      : `${heading}\n  Result left out to keep this message short. Read the thread.`;
   });
   return [
     plan.status === "completed" ? words.completed : words.failed,
@@ -330,6 +365,31 @@ const make = Effect.gen(function* () {
     return { type: "worktree", baseRef: base.commitSha, startFromOrigin: false };
   });
 
+  /** What the task's own thread ended with, which the plan may keep only part of. */
+  const ownResult = Effect.fn("TeamTaskService.ownResult")(
+    function* (task: TeamTask) {
+      const { threadId, resultRunId } = task;
+      if (threadId === null || resultRunId === undefined) return undefined;
+      const { runs } = yield* threads.getThreadRecords(threadId, ["runs"], {
+        runIds: [resultRunId],
+      });
+      const run = runs.find((candidate) => candidate.id === resultRunId);
+      if (run === undefined) return undefined;
+      const output = yield* threads.getThreadRecords(
+        threadId,
+        ["messages", "turnItems", "providerTurns"],
+        {
+          messageRoles: ["assistant"],
+          messageRunIds: [run.id],
+          turnItemRunIds: [run.id],
+          turnItemTypes: ["assistant_message", "error"],
+        },
+      );
+      return subagentResultForRun(output, run).text;
+    },
+    Effect.orElseSucceed(() => undefined),
+  );
+
   const earlierResults = Effect.fn("TeamTaskService.earlierResults")(function* (
     lead: OrchestrationV2AppThread,
     plan: TeamPlan,
@@ -343,12 +403,14 @@ const make = Effect.gen(function* () {
           earlier.threadId === null ? null : yield* threads.getThreadShell(earlier.threadId);
         const ownCheckout =
           shell !== null && shell.worktreePath !== null && shell.worktreePath !== lead.worktreePath;
+        const stored = earlier.result?.replace(TEAM_RESULT_CUT_NOTE, RESULT_SHORTENED);
         return [
           {
             task: earlier,
             checkout: ownCheckout
               ? { branch: shell.branch, worktreePath: shell.worktreePath }
               : undefined,
+            result: (yield* ownResult(earlier)) ?? stored ?? "No result was recorded.",
           } satisfies EarlierResult,
         ];
       }),
@@ -386,7 +448,7 @@ const make = Effect.gen(function* () {
           threadId: taskThreadId,
           projectId: lead.projectId,
           title: task.title,
-          modelSelection: agent.modelSelection,
+          modelSelection: teamTaskModelSelection(plan, task) ?? agent.modelSelection,
           // The lead's mode is the ceiling its user set; a team agent never gets a broader one.
           runtimeMode: lead.runtimeMode,
           interactionMode: "default",
@@ -406,7 +468,12 @@ const make = Effect.gen(function* () {
             taskId: task.id,
             attempt: task.attempt,
           },
-          ...(agent.agent === undefined ? {} : { agent: agent.agent }),
+          // A member the lead defined reaches what the lead may; a saved agent brings its own.
+          ...(agent.agent === undefined
+            ? lead.connectors === undefined
+              ? {}
+              : { connectors: lead.connectors }
+            : { agent: agent.agent }),
           createdBy: "system",
           creationSource: "server",
         });

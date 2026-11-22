@@ -45,9 +45,10 @@ Choose **Automatic** for **Can't be undone** only when you trust what the agent 
 
 ## In a team
 
-A [team](./thread-sidebar.md#run-a-team) is built from your agents: the lead gives each part of the
-job to one of them. Where none fits, the lead suggests an agent, and you create it from the
-suggestion or choose one of yours instead.
+In a [team](./thread-sidebar.md#run-a-team), the lead gives a part of the job to one of your agents
+when one fits, and otherwise makes a member just for that team, which is gone when the team is.
+Before you approve, you can give any part to one of your agents instead, or keep a member the lead
+made by saving it as an agent.
 
 ## Chat with an agent
 

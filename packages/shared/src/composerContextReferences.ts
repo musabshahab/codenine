@@ -99,7 +99,7 @@ export function threadContextRecord(ref: ScopedThreadRef, title: string): Thread
 
 /** Codenine appends this to a message the user sent with Team on. */
 export const TEAM_REQUEST_INSTRUCTION =
-  "The user turned on Team for this message: plan a team with propose_team and end your turn; do not start the work yourself.";
+  "The user turned on Team for this message. Do not do the work yourself: call orchestrator_capabilities, read the files you need to write precise briefs (no edits, no subagents), then call propose_team and end your turn.";
 
 export function teamRequestContextRecord(): TeamRequestContextRecord {
   return {

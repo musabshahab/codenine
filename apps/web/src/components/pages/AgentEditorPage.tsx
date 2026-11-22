@@ -16,7 +16,6 @@ import {
   type WorkflowStep,
   type WorkflowStepId,
 } from "@codenine/contracts";
-import { teamMembersWithoutAgent } from "@codenine/shared/team";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
@@ -29,7 +28,7 @@ import { useReadSinceOpened } from "../../hooks/useEditorDraft";
 import { useEnvironmentQuery } from "../../state/query";
 import { environmentThreadDetails } from "../../state/threads";
 import { AgentForm, type AgentFormStart } from "../agents/AgentForm";
-import { suggestedAbilities, teamRoleAbilities } from "../agents/agents.logic";
+import { suggestedAbilities, teamRoleAbilities, teamRoleDescription } from "../agents/agents.logic";
 import {
   type AgentModelCatalog,
   agentChatModelSelection,
@@ -53,7 +52,7 @@ import { WorkspacePage } from "./WorkspacePage";
 
 export type AgentEditorTarget =
   | { readonly kind: "new" }
-  /** A new agent for a team member the lead suggested one for, on the lead's computer. */
+  /** A new agent for a team member that has none yet, on the lead's computer. */
   | { readonly kind: "suggested"; readonly lead: ThreadId; readonly member: TeamAgentId }
   /** A new agent for a step of a workflow being edited, named by its edit key on the machine. */
   | { readonly kind: "workflow-step"; readonly edit: string; readonly step: WorkflowStepId }
@@ -177,7 +176,7 @@ export function AgentEditorPage(props: {
 
 const NO_CONNECTIONS: ReadonlyArray<ConnectionSnapshot> = [];
 
-/** The suggestion's agent, with only the connectors the user has, on the member's model. */
+/** The member's agent, with only the connectors the user has, on the member's model. */
 function suggestionStart(
   member: TeamAgent,
   connections: ReadonlyArray<ConnectionSnapshot>,
@@ -186,8 +185,8 @@ function suggestionStart(
   const suggestion = member.suggestion;
   return {
     title: suggestion?.title ?? member.label,
-    description: suggestion?.description ?? "",
-    instructions: suggestion?.instructions ?? "",
+    description: suggestion?.description ?? teamRoleDescription(member.role),
+    instructions: member.instructions ?? suggestion?.instructions ?? "",
     model: agentModelOfSelection(catalog.entries, member.modelSelection),
     connectors: (suggestion?.connectors ?? []).flatMap((id) =>
       connections.some((connection) => connection.id === id) ? [{ id, approvals: {} }] : [],
@@ -214,20 +213,27 @@ function SuggestedAgentForm(props: {
   const edit = useTeamDraftEdit(leadRef);
   const catalog = useAgentModelCatalog(environmentId);
   const connectors = useEnvironmentQuery(connectorsEnvironment.state({ environmentId, input: {} }));
+  // A member the lead suggested an agent for, or defined for this team, until it runs as one.
   const member =
     plan?.status === "proposed"
-      ? (teamMembersWithoutAgent(resolveTeamDraft(plan, edit).draft).find(
-          (candidate) => candidate.id === props.memberId,
+      ? (resolveTeamDraft(plan, edit).draft.agents.find(
+          (candidate) => candidate.id === props.memberId && candidate.agent === undefined,
         ) ?? null)
       : null;
-  // The form starts from the suggestion once, and stays open if the team changes meanwhile.
-  const [start, setStart] = useState<AgentFormStart | null>(null);
+  // The form starts from the member once, and stays open if the team changes meanwhile.
+  const [start, setStart] = useState<{
+    readonly form: AgentFormStart;
+    readonly suggested: boolean;
+  } | null>(null);
   if (
     start === null &&
     member !== null &&
     (connectors.data !== null || connectors.error !== null)
   ) {
-    setStart(suggestionStart(member, connectors.data?.connections ?? NO_CONNECTIONS, catalog));
+    setStart({
+      form: suggestionStart(member, connectors.data?.connections ?? NO_CONNECTIONS, catalog),
+      suggested: member.suggestion !== undefined,
+    });
   }
   const backToLead = () => {
     useRightPanelStore.getState().open(leadRef, "task");
@@ -265,7 +271,17 @@ function SuggestedAgentForm(props: {
         workspace={props.workspace}
         agent={null}
         connected={props.connected}
-        forTeam={{ start, onSaved, onCancel: backToLead }}
+        forTeam={{
+          start: start.form,
+          onSaved,
+          onCancel: backToLead,
+          ...(start.suggested
+            ? {}
+            : {
+                intro:
+                  "Save this team member as one of your agents. The team then uses the saved agent.",
+              }),
+        }}
       />
     );
   }
@@ -275,9 +291,9 @@ function SuggestedAgentForm(props: {
   return (
     <Empty>
       <EmptyHeader>
-        <EmptyTitle>This suggestion is settled</EmptyTitle>
+        <EmptyTitle>This member is settled</EmptyTitle>
         <EmptyDescription>
-          The team has an agent for it now, or the lead proposed another team.
+          The team uses an agent for it now, or the lead proposed another team.
         </EmptyDescription>
       </EmptyHeader>
       <Button size="sm" variant="outline" onClick={backToLead}>

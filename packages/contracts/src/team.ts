@@ -9,7 +9,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { AgentName, AgentSuggestion } from "./agents.ts";
+import { AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS, AgentName, AgentSuggestion } from "./agents.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
   WorkflowApprovals,
@@ -21,16 +21,26 @@ import {
   WorkflowTitle,
 } from "./workflows.ts";
 
-export const TEAM_MAX_AGENTS = 8;
-export const TEAM_MAX_TASKS = 16;
+export const TEAM_MAX_AGENTS = 12;
+export const TEAM_MAX_TASKS = 32;
 export const TEAM_LABEL_MAX_CHARS = 120;
 export const TEAM_BRIEF_MAX_CHARS = 6_000;
 export const TEAM_RESULT_MAX_CHARS = 4_000;
-const TEAM_DONE_WHEN_MAX_CHARS = 1_000;
+export const TEAM_DONE_WHEN_MAX_CHARS = 1_000;
+export const TEAM_MEMBER_INSTRUCTIONS_MAX_CHARS = AGENT_SUGGESTION_INSTRUCTIONS_MAX_CHARS;
+/** The goal, briefs, done-when lines and member instructions of a plan, together. */
+export const TEAM_PLAN_TEXT_MAX_CHARS = 64_000;
+/** The stored results of a plan's tasks, together; each task gets an even share. */
+export const TEAM_RESULTS_TOTAL_MAX_CHARS = 64_000;
 export const TEAM_REVIEW_NOTES_MAX_CHARS = 4_000;
 export const TEAM_RUN_HEADLINE_MAX_CHARS = 160;
 export const TEAM_RUN_NOTE_MAX_CHARS = 500;
 export const TEAM_DEFAULT_MAX_PARALLEL_PER_PROVIDER = 2;
+export const TEAM_MAX_PARALLEL_PER_PROVIDER = 6;
+
+export const TeamMaxParallelPerProvider = PositiveInt.check(
+  Schema.isLessThanOrEqualTo(TEAM_MAX_PARALLEL_PER_PROVIDER),
+);
 
 export const TeamPlanId = TrimmedNonEmptyString.pipe(Schema.brand("TeamPlanId"));
 export type TeamPlanId = typeof TeamPlanId.Type;
@@ -58,9 +68,10 @@ export const TeamWorkspace = Schema.Literals(["shared", "worktree"]);
 export type TeamWorkspace = typeof TeamWorkspace.Type;
 
 /**
- * A member runs as the user's `agent`, on `modelSelection`, which starts as that agent's model.
- * A member the lead suggested has `suggestion` and no `agent` until the user picks or creates one,
- * and the team cannot start before then. Members of plans from before agents have neither.
+ * A member with `agent` runs as that saved agent, on `modelSelection`. A member with neither
+ * `agent` nor `suggestion` is defined by the lead for this team only: it runs as a plain thread on
+ * `modelSelection` with its `instructions`, and plans from before agents read the same way. A member
+ * with only `suggestion` comes from older plans and blocks the start until the user picks an agent.
  */
 export const TeamAgent = Schema.Struct({
   id: TeamAgentId,
@@ -70,6 +81,8 @@ export const TeamAgent = Schema.Struct({
   workspace: TeamWorkspace,
   agent: Schema.optional(AgentName),
   suggestion: Schema.optional(AgentSuggestion),
+  /** Standing role and rules shared by the member's tasks; length is checked on proposal and edit. */
+  instructions: Schema.optionalKey(Schema.String),
 });
 export type TeamAgent = typeof TeamAgent.Type;
 
@@ -130,6 +143,8 @@ export const TeamTask = Schema.Struct({
   review: Schema.optionalKey(TeamTaskReview),
   /** The run whose result is stored, so the same thread can settle again after a send-back. */
   resultRunId: Schema.optionalKey(RunId),
+  /** The model a retry moved this task to; absent means its member's. */
+  modelSelection: Schema.optionalKey(ModelSelection),
 });
 export type TeamTask = typeof TeamTask.Type;
 

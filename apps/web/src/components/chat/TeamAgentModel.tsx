@@ -71,6 +71,8 @@ export function TeamModelPicker(props: {
   onChange: (selection: ModelSelection) => void;
   /** Under the list and the effort column, such as which steps the change reaches. */
   footer?: ReactNode;
+  /** Opens the picker from elsewhere, such as a menu item; left out, its trigger opens it. */
+  open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
   const { catalog, selection, onChange } = props;
@@ -105,6 +107,7 @@ export function TeamModelPicker(props: {
       triggerDetail={effort.detail}
       effortColumn={<ComposerEffortColumn traits={traits} />}
       footer={props.footer}
+      {...(props.open === undefined ? {} : { open: props.open })}
       {...(props.onOpenChange === undefined ? {} : { onOpenChange: props.onOpenChange })}
       onInstanceModelChange={(instanceId, model) =>
         onChange(createModelSelection(instanceId, model))

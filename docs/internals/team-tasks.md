@@ -25,17 +25,43 @@ thread of every attempt of every task (attempt ids are derived from the plan, ta
 failed plan keeps its threads active, because the user reads and retries them there. The lead is never settled, and a
 thread the user explicitly unsettled keeps that choice.
 
-## Members are the user's agents
+## Members are made for the team or are the user's agents
 
-A member names one of the user's agents in `agent`, and its task's thread is created with that agent
-as `thread.agent`, so the task runs with the agent's instructions, abilities, connectors and skills,
-on the member's model. `propose_team` starts that model as the agent's own, or as the lead's when
-the agent has none or its model cannot run there. Where none of the user's agents fits, the lead
-adds a member with `suggestion` instead, and the user creates the agent or picks another; Codenine
-never creates one. The decider refuses `team.approve` until every member has an agent
-(`teamMembersWithoutAgent`). It cannot read agent files, so an agent deleted after approval fails
-its task's turn instead. A task thread is an agent chat, so Codenine's MCP tools that reach other
-chats refuse there. Members of plans from before agents have neither field and run plain threads.
+A member the lead defines in `propose_team` has no `agent`: its task runs as a plain thread, with
+the member's `instructions` placed in the brief rather than in a runtime carrier, so both providers
+get them the same way and nothing that keys on `thread.agent` applies. It lives only in the plan,
+like a Claude Code subagent made for one job, and nothing is written to the Agents folder. It gets
+the lead's `runtimeMode` and the lead's `connectors` as its ceiling; without the connectors a member
+of a lead that turned connectors off would reach every default-on connector. A member with `agent`
+names one of the user's agents, and its thread is created with that agent as `thread.agent`, so it
+runs with the agent's instructions, abilities, connectors and skills. A `target` on such a member is
+laid over the agent's own model, not the lead's. The user can swap either kind for the other in the
+Task tab. A swapped lead-defined member keeps its label and model, and any member can drop its
+saved agent again; the plan records no "lead-defined" marker, so the client tells the two apart
+only from the draft the edit began with, and only for the wording and the label it keeps.
+
+Members with `suggestion` come from plans and workflows made before inline members. The decider
+still refuses `team.approve` while one has no agent (`teamMembersWithoutAgent`), and `team.start`
+still requires `agent` on every member, because a workflow step always names a saved agent. The
+decider cannot read agent files, so an agent deleted after approval fails its task's turn instead.
+
+Every task thread, with or without an agent, refuses Codenine's MCP tools that start, read or steer
+other chats ([`McpHttpServer`](../../apps/server/src/mcp/McpHttpServer.ts)): a task that reached
+other chats could start work the user never approved. This also holds for plans that were running
+before the change. So a task's brief never points at another thread: results of `dependsOn` tasks
+are read from their threads' own final messages at launch, each cut to fit the provider's input
+limit, while the plan keeps a shorter copy whose cap shrinks as the plan grows
+(`teamResultCap`), so the whole plan stays inside the payload bound below. The lead's wake spends
+its budget on the results of tasks nothing depends on first, because those report on the goal.
+
+A retry may name a model for that task alone (`TeamTask.modelSelection`), so a part that failed on
+a cheap model can run again on a stronger one without changing the member. A retry onto another
+member without a model drops the override and runs on that member's model.
+
+The plan's text (goal, briefs, done-when lines and instructions) is bounded as a whole by
+`validateTeamDraft`, and a proposed plan over that bound cannot be edited, even to swap an agent.
+A client older than its server checks drafts against its own, smaller limits and drops
+`instructions` when it saves an edit, since `team.edit` replaces the members wholesale.
 
 ## Workflow runs
 

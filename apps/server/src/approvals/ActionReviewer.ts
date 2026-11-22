@@ -85,18 +85,33 @@ const teamOf = (
   };
 };
 
+/** A member the lead defined for its team has no agent file; its instructions are in the plan. */
+const memberInstructions = (
+  thread: Pick<OrchestrationV2AppThread, "agent" | "teamTask">,
+  leadPlan: TeamPlan | null | undefined,
+): string | undefined => {
+  const ref = thread.teamTask;
+  if (ref === undefined || thread.agent !== undefined || leadPlan?.id !== ref.planId) {
+    return undefined;
+  }
+  const task = leadPlan.tasks.find((candidate) => candidate.id === ref.taskId);
+  return leadPlan.agents.find((member) => member.id === task?.agentId)?.instructions;
+};
+
 /**
  * What the reviewer reads: what the user wrote or approved. Never tool results, the agent's own
  * messages, or messages other agents sent, any of which can carry someone else's instructions.
  */
 export const reviewContext = (input: {
-  readonly thread: Pick<OrchestrationV2AppThread, "team" | "teamTask">;
+  readonly thread: Pick<OrchestrationV2AppThread, "agent" | "team" | "teamTask">;
   readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage>;
   readonly agentInstructions: string | undefined;
   /** The plan of the lead whose task the thread runs. */
   readonly leadPlan: TeamPlan | null | undefined;
 }): Omit<ActionReviewPromptInput, "action"> => {
   const team = teamOf(input.thread, input.leadPlan);
+  const agentInstructions =
+    input.agentInstructions ?? memberInstructions(input.thread, input.leadPlan);
   return {
     userMessages: input.messages
       .filter((message) => message.role === "user" && message.createdBy === "user")
@@ -104,7 +119,7 @@ export const reviewContext = (input: {
       .filter((text) => text.length > 0)
       .slice(-USER_MESSAGES_KEPT)
       .map(shorten),
-    ...(input.agentInstructions?.trim() ? { agentInstructions: input.agentInstructions } : {}),
+    ...(agentInstructions?.trim() ? { agentInstructions } : {}),
     ...(team === undefined ? {} : { team }),
   };
 };

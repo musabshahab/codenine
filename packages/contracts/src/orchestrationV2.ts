@@ -51,6 +51,7 @@ import {
   TEAM_RUN_NOTE_MAX_CHARS,
   TeamAgentId,
   TeamDraft,
+  TeamMaxParallelPerProvider,
   TeamPlanHoldReason,
   TeamPlanId,
   TeamPlanRun,
@@ -3020,6 +3021,8 @@ export const OrchestrationV2Command = Schema.Union([
     teamTask: Schema.optional(TeamTaskRef),
     /** The agent the new chat talks to, such as a team task's agent. */
     agent: Schema.optional(AgentName),
+    /** The chat's own connectors, such as the lead's for a team task without an agent. */
+    connectors: Schema.optional(Schema.Array(ConnectionId)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.archive"),
@@ -3475,7 +3478,7 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     expectedRevision: PositiveInt,
     ...TeamDraft.fields,
-    maxParallelPerProvider: Schema.optional(PositiveInt),
+    maxParallelPerProvider: Schema.optional(TeamMaxParallelPerProvider),
   }),
   Schema.Struct({
     type: Schema.Literal("team.approve"),
@@ -3495,6 +3498,8 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     taskId: TeamTaskId,
     agentId: Schema.optional(TeamAgentId),
+    /** The model the new attempt runs on; without it, a task on the same member keeps its last model. */
+    modelSelection: Schema.optional(ModelSelection),
   }),
   /**
    * A workflow run's lead, or the user, accepts a step's result or sends it back with notes into
@@ -3652,7 +3657,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     goal: TrimmedNonEmptyString,
     ...TeamDraft.fields,
     run: TeamPlanRun,
-    maxParallelPerProvider: Schema.optional(PositiveInt),
+    maxParallelPerProvider: Schema.optional(TeamMaxParallelPerProvider),
   }),
   /** A workflow run reached a limit, or its lead left a step undecided: it waits for the user. */
   Schema.Struct({

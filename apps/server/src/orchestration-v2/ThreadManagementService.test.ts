@@ -112,7 +112,11 @@ const layerDispatchChokepointTest =
       Layer.provideMerge(layerReceiptsTest),
     );
 
-it.effect.each(["a continuation message.dispatch", "a team.propose with an agent"] as const)(
+it.effect.each([
+  "a continuation message.dispatch",
+  "a team.propose with an agent",
+  "a team.task.retry on another model",
+] as const)(
   "the dispatch chokepoint refuses %s on a project-disabled instance before reaching the orchestrator",
   (kind) => {
     const projectId = ProjectId.make("project:thread-management:chokepoint");
@@ -145,22 +149,30 @@ it.effect.each(["a continuation message.dispatch", "a team.propose with an agent
                 createdBy: "agent",
                 creationSource: "server",
               }
-            : {
-                type: "team.propose",
-                commandId,
-                threadId,
-                goal: "Ship it",
-                agents: [
-                  {
-                    id: TeamAgentId.make("builder"),
-                    label: "Builder",
-                    role: "implement",
-                    modelSelection: { instanceId, model: "test" },
-                    workspace: "shared",
-                  },
-                ],
-                tasks: [],
-              },
+            : kind === "a team.task.retry on another model"
+              ? {
+                  type: "team.task.retry",
+                  commandId,
+                  threadId,
+                  taskId: TeamTaskId.make("task"),
+                  modelSelection: { instanceId, model: "test" },
+                }
+              : {
+                  type: "team.propose",
+                  commandId,
+                  threadId,
+                  goal: "Ship it",
+                  agents: [
+                    {
+                      id: TeamAgentId.make("builder"),
+                      label: "Builder",
+                      role: "implement",
+                      modelSelection: { instanceId, model: "test" },
+                      workspace: "shared",
+                    },
+                  ],
+                  tasks: [],
+                },
         ),
       );
 

@@ -69,6 +69,21 @@ export function teamRoleAbilities(role: TeamAgentRole): AgentAbilities {
   }
 }
 
+const TEAM_ROLE_DESCRIPTIONS: Record<TeamAgentRole, string> = {
+  plan: "Plans a team's work.",
+  research: "Researches for a team.",
+  implement: "Implements part of a team's work.",
+  test: "Tests a team's changes.",
+  review: "Reviews a team's work.",
+  integrate: "Brings a team's changes together.",
+  custom: "Does part of a team's work.",
+};
+
+/** What an agent made from a team member the lead defined says it does, until the user words it. */
+export function teamRoleDescription(role: TeamAgentRole): string {
+  return TEAM_ROLE_DESCRIPTIONS[role];
+}
+
 /**
  * What a suggested agent starts able to do when its suggestion names no role: only what its own
  * words plainly ask for, so an agent told to search the web is not saved unable to. The user
