@@ -21,27 +21,41 @@ import {
   type TeamTaskStatus,
   type TeamWorkspace,
   type ThreadId,
+  TEAM_MAX_PARALLEL_PER_PROVIDER,
   TEAM_REVIEW_NOTES_MAX_CHARS,
   type WorkflowLimits,
 } from "@codenine/contracts";
-import { teamMembersWithoutAgent, validateTeamDraft } from "@codenine/shared/team";
+import {
+  teamMembersWithoutAgent,
+  teamTaskModelSelection,
+  validateTeamDraft,
+} from "@codenine/shared/team";
 
 type TeamCommand<T extends OrchestrationV2Command["type"]> = Extract<
   OrchestrationV2Command,
   { readonly type: T }
 >;
 
+/** What the Task tab edits: the draft, and how many of its tasks run at once per account. */
+export interface TeamEditorDraft extends TeamDraft {
+  readonly maxParallelPerProvider: number;
+}
+
 /** The editable part of a plan: agents and tasks without their runtime state. */
-export function teamDraftOf(plan: Pick<TeamPlan, "agents" | "tasks">): TeamDraft {
+export function teamDraftOf(
+  plan: Pick<TeamPlan, "agents" | "tasks" | "maxParallelPerProvider">,
+): TeamEditorDraft {
   return {
     agents: plan.agents,
-    tasks: plan.tasks.map(({ id, title, brief, agentId, dependsOn }) => ({
+    tasks: plan.tasks.map(({ id, title, brief, agentId, dependsOn, doneWhen }) => ({
       id,
       title,
       brief,
       agentId,
       dependsOn,
+      ...(doneWhen === undefined ? {} : { doneWhen }),
     })),
+    maxParallelPerProvider: plan.maxParallelPerProvider,
   };
 }
 
@@ -72,13 +86,41 @@ export type TeamDraftChange =
       readonly assign?: TeamTaskId;
     }
   | {
-      /** Runs a member as one of the user's agents, which settles the lead's suggestion for it. */
+      /** Adds a member defined for this team only, which runs without a saved agent. */
+      readonly type: "member.add";
+      readonly label: string;
+      readonly role: TeamAgentRole;
+      readonly modelSelection: ModelSelection;
+      readonly workspace: TeamWorkspace;
+      readonly instructions?: string;
+      readonly assign?: TeamTaskId;
+    }
+  | {
+      /**
+       * Runs a member as one of the user's agents, which settles the lead's suggestion for it. A
+       * member with the lead's own instructions keeps its name, model and instructions.
+       */
       readonly type: "agent.assign";
       readonly agentId: TeamAgentId;
       readonly agent: AgentName;
       readonly label: string;
       readonly modelSelection: ModelSelection;
     }
+  | {
+      /** Runs a member that has the lead's instructions on them again, instead of a saved agent. */
+      readonly type: "agent.unassign";
+      readonly agentId: TeamAgentId;
+    }
+  | {
+      /** Empty instructions remove them. */
+      readonly type: "member.edit";
+      readonly agentId: TeamAgentId;
+      readonly label?: string;
+      readonly role?: TeamAgentRole;
+      readonly workspace?: TeamWorkspace;
+      readonly instructions?: string;
+    }
+  | { readonly type: "parallel.set"; readonly maxParallelPerProvider: number }
   | { readonly type: "agent.remove"; readonly agentId: TeamAgentId }
   | { readonly type: "task.assign"; readonly taskId: TeamTaskId; readonly agentId: TeamAgentId }
   | { readonly type: "task.remove"; readonly taskId: TeamTaskId }
@@ -103,7 +145,24 @@ function newTeamAgentId(label: string, agents: TeamDraft["agents"]): TeamAgentId
   return TeamAgentId.make(id);
 }
 
-export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): TeamDraft {
+function withInstructions(member: TeamAgent, instructions: string): TeamAgent {
+  const { instructions: _instructions, ...rest } = member;
+  const trimmed = instructions.trim();
+  return trimmed === "" ? rest : { ...rest, instructions: trimmed };
+}
+
+function changeMember(
+  draft: TeamEditorDraft,
+  agentId: TeamAgentId,
+  change: (member: TeamAgent) => TeamAgent,
+): TeamEditorDraft {
+  return {
+    ...draft,
+    agents: draft.agents.map((member) => (member.id === agentId ? change(member) : member)),
+  };
+}
+
+export function changeTeamDraft(draft: TeamEditorDraft, change: TeamDraftChange): TeamEditorDraft {
   switch (change.type) {
     case "agent.model":
       return {
@@ -115,6 +174,7 @@ export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): Team
     case "agent.add": {
       const id = newTeamAgentId(change.label, draft.agents);
       return {
+        ...draft,
         agents: [
           ...draft.agents,
           {
@@ -131,19 +191,63 @@ export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): Team
         ),
       };
     }
-    case "agent.assign":
+    case "member.add": {
+      const id = newTeamAgentId(change.label, draft.agents);
+      const member = withInstructions(
+        {
+          id,
+          label: change.label.trim(),
+          role: change.role,
+          modelSelection: change.modelSelection,
+          workspace: change.workspace,
+        },
+        change.instructions ?? "",
+      );
       return {
         ...draft,
-        agents: draft.agents.map((member) => {
-          if (member.id !== change.agentId) return member;
-          const { suggestion: _suggestion, ...kept } = member;
-          return {
-            ...kept,
-            agent: change.agent,
-            label: change.label.trim(),
-            modelSelection: change.modelSelection,
-          };
-        }),
+        agents: [...draft.agents, member],
+        tasks: draft.tasks.map((task) =>
+          task.id === change.assign ? { ...task, agentId: id } : task,
+        ),
+      };
+    }
+    case "agent.assign":
+      return changeMember(draft, change.agentId, (member) => {
+        const { suggestion: _suggestion, ...kept } = member;
+        // The lead picked this member's model for its part; the saved agent only takes its place.
+        return member.instructions === undefined
+          ? {
+              ...kept,
+              agent: change.agent,
+              label: change.label.trim(),
+              modelSelection: change.modelSelection,
+            }
+          : { ...kept, agent: change.agent };
+      });
+    case "agent.unassign": {
+      const member = draft.agents.find((candidate) => candidate.id === change.agentId);
+      if (member?.agent === undefined || member.instructions === undefined) return draft;
+      return changeMember(draft, change.agentId, ({ agent: _agent, ...rest }) => rest);
+    }
+    case "member.edit":
+      return changeMember(draft, change.agentId, (member) => {
+        const edited = {
+          ...member,
+          ...(change.label === undefined ? {} : { label: change.label.trim() }),
+          ...(change.role === undefined ? {} : { role: change.role }),
+          ...(change.workspace === undefined ? {} : { workspace: change.workspace }),
+        };
+        return change.instructions === undefined
+          ? edited
+          : withInstructions(edited, change.instructions);
+      });
+    case "parallel.set":
+      return {
+        ...draft,
+        maxParallelPerProvider: Math.min(
+          TEAM_MAX_PARALLEL_PER_PROVIDER,
+          Math.max(1, Math.round(change.maxParallelPerProvider)),
+        ),
       };
     case "agent.remove":
       return teamAgentInUse(draft, change.agentId)
@@ -176,21 +280,15 @@ export function changeTeamDraft(draft: TeamDraft, change: TeamDraftChange): Team
 }
 
 /** How many choices the draft changed from `base`, for "2 unsaved changes". */
-export function teamDraftChangeCount(base: TeamDraft, draft: TeamDraft): number {
+export function teamDraftChangeCount(base: TeamEditorDraft, draft: TeamEditorDraft): number {
   const agentsBefore = new Map(base.agents.map((agent) => [agent.id, agent]));
   const agentsAfter = new Set(draft.agents.map((agent) => agent.id));
   const tasksAfter = new Map(draft.tasks.map((task) => [task.id, task]));
   let count = base.agents.filter((agent) => !agentsAfter.has(agent.id)).length;
+  count += Number(base.maxParallelPerProvider !== draft.maxParallelPerProvider);
   for (const agent of draft.agents) {
-    const before = agentsBefore.get(agent.id);
-    // A member's new agent brings its model, so the two count as one choice.
-    if (
-      before === undefined ||
-      before.agent !== agent.agent ||
-      !sameJson(before.modelSelection, agent.modelSelection)
-    ) {
-      count += 1;
-    }
+    // All of a member's edits count as one choice, as a new agent brings its model.
+    if (!sameJson(agentsBefore.get(agent.id), agent)) count += 1;
   }
   for (const task of base.tasks) {
     const after = tasksAfter.get(task.id);
@@ -206,12 +304,12 @@ export interface TeamDraftEdit {
   /** The plan revision the draft applies to; one ahead of the plan while a save catches up. */
   readonly revision: number;
   /** The plan as it stood when these edits began. */
-  readonly base: TeamDraft;
-  readonly draft: TeamDraft;
+  readonly base: TeamEditorDraft;
+  readonly draft: TeamEditorDraft;
 }
 
 export interface ResolvedTeamDraft {
-  readonly draft: TeamDraft;
+  readonly draft: TeamEditorDraft;
   /** The revision `draft` applies to, which a save or an approval names. */
   readonly revision: number;
   /** The draft holds changes the server does not have. */
@@ -280,8 +378,9 @@ export function savedTeamDraftEdit(plan: TeamPlan, resolved: ResolvedTeamDraft):
   };
 }
 
-function trimmedTeamDraft(draft: TeamDraft): TeamDraft {
+function trimmedTeamDraft<Draft extends TeamDraft>(draft: Draft): Draft {
   return {
+    ...draft,
     agents: draft.agents.map((agent) => ({ ...agent, label: agent.label.trim() })),
     tasks: draft.tasks.map((task) => ({
       ...task,
@@ -292,12 +391,12 @@ function trimmedTeamDraft(draft: TeamDraft): TeamDraft {
 }
 
 /** The first problem that would make the server reject the draft, as a sentence, or null. */
-export function teamDraftIssue(draft: TeamDraft): string | null {
+export function teamDraftIssue(draft: TeamDraft, goal?: string): string | null {
   const unnamed = draft.agents.find((agent) => agent.label.trim() === "");
   if (unnamed !== undefined) return `Agent "${unnamed.id}" needs a name.`;
   const briefless = draft.tasks.find((task) => task.brief.trim() === "");
   if (briefless !== undefined) return `Task "${briefless.title}" needs a brief.`;
-  return validateTeamDraft(trimmedTeamDraft(draft))?.message ?? null;
+  return validateTeamDraft({ ...trimmedTeamDraft(draft), goal })?.message ?? null;
 }
 
 /** Why the team cannot be approved yet although it can be saved: members still need an agent. */
@@ -352,11 +451,12 @@ export function teamCancelCommand(input: {
   return { type: "team.cancel", commandId: input.commandId, threadId: input.threadId };
 }
 
-/** Retries on the task's own agent unless `agentId` names another. */
+/** Retries on the task's own agent unless `agentId` names another, on `modelSelection` if given. */
 export function teamRetryCommand(input: {
   readonly threadId: ThreadId;
   readonly task: Pick<TeamTask, "id" | "agentId">;
   readonly agentId?: TeamAgentId;
+  readonly modelSelection?: ModelSelection;
   readonly commandId: CommandId;
 }): TeamCommand<"team.task.retry"> {
   return {
@@ -367,6 +467,7 @@ export function teamRetryCommand(input: {
     ...(input.agentId === undefined || input.agentId === input.task.agentId
       ? {}
       : { agentId: input.agentId }),
+    ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
   };
 }
 
@@ -722,7 +823,7 @@ export function teamAgentHeader(
   return {
     label: agentLabelOf(plan, found.task),
     position: `Agent ${found.position} of ${found.total}`,
-    modelSelection: found.agent?.modelSelection ?? null,
+    modelSelection: teamTaskModelSelection(plan, found.task) ?? null,
     status: found.superseded ? "Retried" : teamTaskStatus(plan, found.task).label,
     taskStatus: found.superseded ? null : teamTaskStatus(plan, found.task).status,
   };
