@@ -9,7 +9,11 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveSettingsScope } from "./settingsScope";
-import { retainSettingsScope, validateSettingsRouteSearch } from "./settingsScopeNavigation";
+import {
+  retainSettingsScope,
+  searchWithoutHiddenWorkspace,
+  validateSettingsRouteSearch,
+} from "./settingsScopeNavigation";
 
 const checkoutSearch = {
   project: "repository:codenine",
@@ -28,12 +32,15 @@ function createSettingsRouter(initialEntry = "/settings/general") {
       if (location.pathname === "/settings") {
         throw redirect({ to: "/settings/general", replace: true });
       }
+      const search = searchWithoutHiddenWorkspace(location.pathname, location.search);
+      if (search) throw redirect({ to: location.pathname, search, hash: true, replace: true });
     },
   });
   const general = createRoute({ getParentRoute: () => settings, path: "general" });
   const projects = createRoute({ getParentRoute: () => settings, path: "projects" });
   const integrations = createRoute({ getParentRoute: () => settings, path: "integrations" });
   const sourceControl = createRoute({ getParentRoute: () => settings, path: "source-control" });
+  const worktrees = createRoute({ getParentRoute: () => settings, path: "worktrees" });
   const providers = createRoute({
     getParentRoute: () => settings,
     path: "providers",
@@ -59,7 +66,7 @@ function createSettingsRouter(initialEntry = "/settings/general") {
   });
   return createRouter({
     routeTree: root.addChildren([
-      settings.addChildren([general, projects, integrations, sourceControl, providers]),
+      settings.addChildren([general, projects, integrations, sourceControl, worktrees, providers]),
       legacyProject,
     ]),
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
@@ -69,9 +76,13 @@ function createSettingsRouter(initialEntry = "/settings/general") {
 describe("settings scope navigation", () => {
   it("clears a checkout when selecting all environments and all projects", async () => {
     const router = createSettingsRouter();
-    await router.navigate({ to: "/settings/general", search: checkoutSearch, hash: "old-setting" });
     await router.navigate({
-      to: "/settings/general",
+      to: "/settings/source-control",
+      search: checkoutSearch,
+      hash: "old-setting",
+    });
+    await router.navigate({
+      to: "/settings/source-control",
       search: { project: undefined, machine: undefined, checkout: undefined },
       hash: "",
     });
@@ -81,8 +92,12 @@ describe("settings scope navigation", () => {
 
   it("preserves the checkout through category and settings-search navigation", async () => {
     const router = createSettingsRouter();
-    await router.navigate({ to: "/settings/general", search: checkoutSearch, hash: "new-threads" });
-    await router.navigate({ to: "/settings/integrations", hash: "", replace: true });
+    await router.navigate({
+      to: "/settings/worktrees",
+      search: checkoutSearch,
+      hash: "new-threads",
+    });
+    await router.navigate({ to: "/settings/providers", hash: "", replace: true });
     expect(router.state.location.search).toEqual(checkoutSearch);
     expect(router.state.location.hash).toBe("");
     await router.navigate({ to: "/settings/source-control", hash: "source-control-writing-style" });
@@ -90,6 +105,20 @@ describe("settings scope navigation", () => {
     expect(router.state.location.hash).toBe("source-control-writing-style");
     await router.navigate({ to: "/settings/projects", hash: "project-defaults" });
     expect(router.state.location.search).toEqual(checkoutSearch);
+  });
+
+  it("drops the workspace on pages that do not show it and keeps the environment", async () => {
+    const router = createSettingsRouter();
+    for (const to of ["/settings/general", "/settings/integrations"] as const) {
+      await router.navigate({ to: "/settings/source-control", search: checkoutSearch });
+      await router.navigate({ to, hash: "" });
+      expect(router.state.redirect).not.toBeUndefined();
+      await router.navigate(router.state.redirect!.options);
+      expect(router.state.location.pathname).toBe(to);
+      expect(router.state.location.search).toEqual({ machine: checkoutSearch.machine });
+    }
+    await router.navigate({ to: "/settings/source-control", hash: "" });
+    expect(router.state.location.search).toEqual({ machine: checkoutSearch.machine });
   });
 
   it.each(["/settings/projects", "/settings/source-control"] as const)(
@@ -140,7 +169,7 @@ describe("settings scope navigation", () => {
 
   it("honors an explicit provider environment and drops its instance on category navigation", async () => {
     const router = createSettingsRouter();
-    await router.navigate({ to: "/settings/general", search: checkoutSearch });
+    await router.navigate({ to: "/settings/source-control", search: checkoutSearch });
     await router.navigate({
       to: "/settings/providers",
       search: {
@@ -186,22 +215,25 @@ describe("settings scope navigation", () => {
 
   it("preserves escaped checkout identifiers across reload and browser history", async () => {
     const router = createSettingsRouter();
-    await router.navigate({ to: "/settings/general", search: checkoutSearch });
+    await router.navigate({ to: "/settings/source-control", search: checkoutSearch });
     const checkoutHref = router.state.location.href;
-    await router.navigate({ to: "/settings/general", search: { machine: "another" } });
+    await router.navigate({ to: "/settings/source-control", search: { machine: "another" } });
     router.history.back();
     await router.load();
     expect(router.state.location.search).toEqual(checkoutSearch);
     const reloaded = createSettingsRouter(checkoutHref);
     await reloaded.load();
     expect(reloaded.state.location.search).toEqual(checkoutSearch);
-    await reloaded.navigate({ to: "/settings/integrations", hash: "agent-browser-access" });
+    await reloaded.navigate({
+      to: "/settings/source-control",
+      hash: "source-control-writing-style",
+    });
     expect(reloaded.state.location.search).toEqual(checkoutSearch);
   });
 
   it("redirects legacy project links without carrying the prior checkout scope", async () => {
     const router = createSettingsRouter();
-    await router.navigate({ to: "/settings/general", search: checkoutSearch });
+    await router.navigate({ to: "/settings/source-control", search: checkoutSearch });
     await router.navigate({
       to: "/projects/$projectKey",
       params: { projectKey: "legacy-project" },

@@ -63,14 +63,13 @@ function useResolvedSettingsScope(rawSearch: SettingsScopeSearch, singleEnvironm
   const groups = useSettingsProjectGroups();
   const { environments: availableEnvironments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const search = singleEnvironment
-    ? selectSingleEnvironmentScope(
-        rawSearch,
-        resolveSettingsScope(rawSearch, groups, availableEnvironments),
-        availableEnvironments,
-        primaryEnvironmentId,
-      )
-    : rawSearch;
+  const search = selectSingleEnvironmentScope(
+    rawSearch,
+    resolveSettingsScope(rawSearch, groups, availableEnvironments),
+    availableEnvironments,
+    primaryEnvironmentId,
+    singleEnvironment,
+  );
   const scope = resolveSettingsScope(search, groups, availableEnvironments);
   const projectFiles = useMemberProjectFiles(scope);
   const selected = selectScopedSettingsEnvironments(

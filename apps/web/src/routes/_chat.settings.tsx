@@ -18,6 +18,7 @@ import { SETTINGS_DEVICE_ONLY_PATHS } from "../components/settings/SettingsScope
 import { SettingsPageContainer } from "../components/settings/settingsLayout";
 import {
   retainSettingsScope,
+  searchWithoutHiddenWorkspace,
   validateSettingsRouteSearch,
 } from "../components/settings/settingsScopeNavigation";
 import {
@@ -79,9 +80,15 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
       searchTarget.scope === "checkout"
         ? searchTarget.scope
         : "all";
+    const message = {
+      all: `${searchTarget.title} applies to the whole environment, not to one workspace.`,
+      environment: `${searchTarget.title} is set per environment. Choose one:`,
+      project: `Choose a workspace to see ${searchTarget.title}.`,
+      checkout: `Choose a checkout to see ${searchTarget.title}.`,
+    }[target];
     return (
       <SettingsScopeNotice target={target} targetId={hash}>
-        {`${searchTarget.title} is not available for the selected target. Choose its owning scope to continue.`}
+        {message}
       </SettingsScopeNotice>
     );
   }
@@ -150,7 +157,7 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers"}
+      singleEnvironment={pathname === "/settings/providers" || pathname === "/settings/diagnostics"}
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({
@@ -179,6 +186,8 @@ export const Route = createFileRoute("/_chat/settings")({
     }
     const moved = movedSettingsPath(location.pathname, location.hash);
     if (moved) throw redirect({ to: moved, search: true, hash: true, replace: true });
+    const search = searchWithoutHiddenWorkspace(location.pathname, location.search);
+    if (search) throw redirect({ to: location.pathname, search, hash: true, replace: true });
   },
   component: SettingsRouteLayout,
 });

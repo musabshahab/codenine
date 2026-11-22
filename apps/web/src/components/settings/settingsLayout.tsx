@@ -35,7 +35,7 @@ import {
 const EMPTY_SETTING_KEYS: readonly (keyof ServerSettings)[] = [];
 
 export const ENVIRONMENT_WIDE_SETTING_MESSAGE =
-  "Environment-wide setting. Select an environment to change it.";
+  "Applies to the whole environment. Choose All workspaces to change it.";
 
 declare module "@tanstack/react-router" {
   interface HistoryState {

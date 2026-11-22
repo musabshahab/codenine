@@ -114,9 +114,9 @@ export function SettingsScopeNotice({
               })
           : [
               {
-                label: "Open all environments",
+                label: "Show all workspaces",
                 icon: <LayersIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />,
-                search: {},
+                search: search.machine ? { machine: search.machine } : {},
               },
             ];
     return choices.map((choice) => (

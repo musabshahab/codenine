@@ -1,9 +1,13 @@
 # Settings and workspace overrides
 
 The "Applying settings for …" sentence at the top of Settings pages picks
-the workspace and environment a change applies to. Pages that only hold device preferences, such as
-Appearance, don't show it. They start at **All workspaces** and **All environments**
-and stay selected as you move between categories or search for a setting.
+the workspace and environment a change applies to. General, Appearance, Chat and Diffs are saved in
+this browser or app and say **Saved on this device** instead. With one environment, its name
+shows in place of a menu.
+
+Only Chats, Source control, Worktrees, Accounts, Maintenance and Workspaces offer a workspace. Other
+pages pick only the environment, and opening one clears the workspace you picked. The environment
+stays selected as you move between pages or search for a setting.
 
 Preferences saved on this device, such as appearance and confirmations, always
 show and ignore the selection. Everything else is stored on a server. Choose one environment to
@@ -24,9 +28,9 @@ setting you are editing, the layers icon counts them and the chain lists each on
 click a workspace to jump to it, or **Reset all** to make those workspaces follow the environment
 again.
 
-Providers and diagnostics are per machine: they show one environment at a time, the primary
-one until you pick another. Keybindings ignore the selection and edit only the primary
-environment, whose shortcuts this app uses. Every other setting fans out to the selection.
+Accounts and Diagnostics show one environment at a time, the primary one until you pick another.
+Keybindings edit only the primary environment, whose shortcuts this app uses. Every other setting
+fans out to the selection.
 
 With a workspace selected, a provider's switch in **Settings → Accounts** turns it on or off for
 that workspace only, in either direction: a provider off on the machine can be used in one workspace,
@@ -73,7 +77,7 @@ branch name remains.
 
 ## Defaults and inheritance
 
-Threads contains the model and workspace for new threads. Source control contains automatic pull
+Chats contains the model and workspace for new chats. Source control contains automatic pull
 and text generation. The same rows edit environment defaults or workspace overrides depending on
 the selected workspace.
 

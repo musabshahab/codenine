@@ -534,7 +534,7 @@ describe("project identity reset", () => {
   });
 });
 
-it("opens the fallback search target across all environments from a checkout", async () => {
+it("opens the fallback search target for all workspaces from a checkout", async () => {
   setup();
   const root = createRootRoute();
   const settings = createRoute({
@@ -549,7 +549,7 @@ it("opens the fallback search target across all environments from a checkout", a
     component: () => (
       <SettingsScopeProvider search={settings.useSearch()} onChange={() => {}}>
         <SettingsScopeNotice target="all" targetId="fallback-model">
-          Choose all environments to edit the fallback model.
+          Fallback model applies to the whole environment, not to one workspace.
         </SettingsScopeNotice>
       </SettingsScopeProvider>
     ),
@@ -571,8 +571,8 @@ it("opens the fallback search target across all environments from a checkout", a
     </RegistryContext.Provider>,
     { router: false },
   );
-  await userEvent.click(page.getByRole("button", { name: "Open all environments" }));
-  await vi.waitFor(() => expect(router.state.location.search).toEqual({}));
+  await userEvent.click(page.getByRole("button", { name: "Show all workspaces" }));
+  await vi.waitFor(() => expect(router.state.location.search).toEqual({ machine: primaryId }));
   expect(router.state.location.hash).toBe("fallback-model");
 });
 

@@ -458,7 +458,8 @@ function ProjectDetail({
         <Alert variant="info">
           <InfoIcon aria-hidden />
           <AlertDescription>
-            Can't find a setting? Keep this project picked above and hop to any other settings page.
+            Can't find a setting? This workspace stays picked on Chats, Source control, Worktrees,
+            Accounts and Maintenance.
           </AlertDescription>
         </Alert>
         <SettingsSection id="project-overview" title="Workspace" hideTitle>
@@ -471,7 +472,7 @@ function ProjectDetail({
           ) : null}
           <SettingsRow
             title="Name"
-            description="The shared name for this workspace group in the sidebar and thread lists."
+            description="The shared name for this workspace group in the sidebar and chat lists."
             resetAction={
               canResetScratchTitle ? (
                 <SettingResetButton
@@ -578,8 +579,8 @@ function ProjectDetail({
                 title="Archive"
                 description={
                   group.archived
-                    ? "Hidden from workspace pickers. Threads and files are kept."
-                    : "Hides the workspace from workspace pickers. Threads and files are kept."
+                    ? "Hidden from workspace pickers. Chats and files are kept."
+                    : "Hides the workspace from workspace pickers. Chats and files are kept."
                 }
                 control={
                   <Button
@@ -616,10 +617,10 @@ function ProjectDetail({
             }
             description={
               hasOtherMembers
-                ? "Deletes the selected machine's checkout entries and their threads. Other machines and files on disk are not touched."
+                ? "Deletes the selected environment's checkout entries and their chats. Other environments and files on disk are not touched."
                 : group.memberProjects.length > 1
-                  ? `Deletes all ${group.memberProjects.length} checkout entries and their threads on every machine. Files on disk are not touched.`
-                  : "Deletes the workspace entry and its threads. Files on disk are not touched."
+                  ? `Deletes all ${group.memberProjects.length} checkout entries and their chats on every environment. Files on disk are not touched.`
+                  : "Deletes the workspace entry and its chats. Files on disk are not touched."
             }
             control={
               <Button
@@ -648,10 +649,10 @@ function ProjectDetail({
               }
               description={
                 hasMultipleCheckouts
-                  ? "Deletes one checkout entry, its threads, and its folder on that machine, including uncommitted work. Other checkouts are not touched."
+                  ? "Deletes one checkout entry, its chats, and its folder on that environment, including uncommitted work. Other checkouts are not touched."
                   : hasOtherMembers
-                    ? "Deletes the selected machine's checkout entry, its threads, and its folder on that machine, including uncommitted work. Other machines are not touched."
-                    : "Deletes the workspace entry, its threads, and its folder on disk, including uncommitted work."
+                    ? "Deletes the selected environment's checkout entry, its chats, and its folder there, including uncommitted work. Other environments are not touched."
+                    : "Deletes the workspace entry, its chats, and its folder on disk, including uncommitted work."
               }
               control={
                 hasMultipleCheckouts ? undefined : (
