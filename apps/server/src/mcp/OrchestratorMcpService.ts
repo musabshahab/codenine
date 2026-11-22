@@ -73,6 +73,7 @@ import { agentModelSelection } from "@codenine/shared/agentModel";
 import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@codenine/shared/model";
 import { runRanAfter } from "@codenine/shared/orchestrationV2ThreadError";
 import {
+  proposedTaskMemberId,
   teamMemberChoiceMessage,
   unknownTeamAgentMessage,
   validateTeamDraft,
@@ -2602,7 +2603,7 @@ const make = Effect.gen(function* () {
           id: task.id,
           title: task.title,
           brief: task.brief,
-          agentId: task.agent,
+          agentId: proposedTaskMemberId(input.agents, task.agent),
           dependsOn: task.dependsOn ?? [],
           ...(task.doneWhen?.trim() ? { doneWhen: task.doneWhen.trim() } : {}),
         })),

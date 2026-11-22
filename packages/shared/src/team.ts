@@ -185,6 +185,19 @@ export function teamTaskModelSelection(
   );
 }
 
+/**
+ * The member a proposed task names. Leads often name the saved agent a member runs as instead of
+ * the member's id; that is unambiguous when no member has that id and one member runs that agent.
+ */
+export function proposedTaskMemberId(
+  members: ReadonlyArray<{ readonly id: string; readonly agent?: string | undefined }>,
+  named: string,
+): string {
+  if (members.some((member) => member.id === named)) return named;
+  const runningIt = members.filter((member) => member.agent === named);
+  return runningIt.length === 1 ? runningIt[0]!.id : named;
+}
+
 /** The first duplicate id, unknown dependency or cycle among a workflow's steps, or null. */
 export function workflowStepsIssue<Id extends string>(
   steps: ReadonlyArray<DependencyNode<Id>>,

@@ -47,7 +47,11 @@ import {
   ThreadId,
 } from "@codenine/contracts";
 import { projectComposerContextForProvider } from "@codenine/shared/composerContextReferences";
-import { unknownTeamAgentMessage, validateTeamDraft } from "@codenine/shared/team";
+import {
+  proposedTaskMemberId,
+  unknownTeamAgentMessage,
+  validateTeamDraft,
+} from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
 import { buildCodexAdditionalContext } from "../../apps/server/src/provider/CodexDeveloperInstructions.ts";
 import { makeSideChatContext } from "../../apps/server/src/orchestration-v2/ContextHandoffService.ts";
@@ -1255,7 +1259,7 @@ export const codenineDefault = (
             id: task.id,
             title: task.title,
             brief: task.brief,
-            agentId: task.agent,
+            agentId: proposedTaskMemberId(proposal.agents, task.agent),
             dependsOn: task.dependsOn ?? [],
             ...(doneWhen === undefined ? {} : { doneWhen }),
           };

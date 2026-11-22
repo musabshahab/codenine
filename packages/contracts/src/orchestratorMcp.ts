@@ -258,7 +258,7 @@ export const OrchestratorMcpProposeTeamInput = Schema.Struct({
       agent: Schema.optional(
         AgentName.annotate({
           description:
-            "One of the user's agents, from `orchestrator_capabilities` `agents`, when it fits this part. It brings its own model, instructions, skills and connectors. Leave it out to define the member here.",
+            "One of the user's agents, from `orchestrator_capabilities` `agents`, when it fits this part, even when the user named another model for it (set `target`). It brings its own instructions, skills, connectors and model. Leave it out to define the member here.",
         }),
       ),
       instructions: Schema.optional(

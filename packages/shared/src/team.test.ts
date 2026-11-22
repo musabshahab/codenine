@@ -12,6 +12,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  proposedTaskMemberId,
   settledTeamPlanStatus,
   startableTeamTasks,
   teamPlanSummary,
@@ -226,6 +227,27 @@ describe("teamResultCap", () => {
     [32, 2_000],
   ])("gives each of %i tasks %i characters", (taskCount, cap) => {
     expect(teamResultCap(taskCount)).toBe(cap);
+  });
+});
+
+describe("proposedTaskMemberId", () => {
+  const members = [
+    { id: "builder", agent: "implementer" },
+    { id: "reviewer", agent: "code-reviewer" },
+    { id: "second-reviewer", agent: "code-reviewer" },
+    { id: "implementer" },
+    { id: "writer" },
+  ];
+  it.each([
+    ["writer", "writer"],
+    ["code-reviewer", "code-reviewer"],
+    ["implementer", "implementer"],
+    ["nobody", "nobody"],
+  ])("resolves %s to %s when only a member id or no single agent matches", (named, id) => {
+    expect(proposedTaskMemberId(members, named)).toBe(id);
+  });
+  it("resolves a saved agent's name to the one member that runs it", () => {
+    expect(proposedTaskMemberId(members.slice(0, 2), "code-reviewer")).toBe("reviewer");
   });
 });
 
