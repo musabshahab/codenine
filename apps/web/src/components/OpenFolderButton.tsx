@@ -70,8 +70,14 @@ export function OpenFolderButton({
     button
   ) : (
     <Tooltip>
-      <TooltipTrigger render={<span className="inline-flex">{button}</span>} />
-      <TooltipPopup side="top">This connection lacks permission to open folders.</TooltipPopup>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex" tabIndex={0}>
+            {button}
+          </span>
+        }
+      />
+      <TooltipPopup side="top">This connection cannot open folders.</TooltipPopup>
     </Tooltip>
   );
 }

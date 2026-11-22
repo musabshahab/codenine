@@ -10,7 +10,6 @@ import {
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
-/** How often automatic backups run. */
 export const BackupFrequency = Schema.Literals(["off", "daily", "weekly"]);
 export type BackupFrequency = typeof BackupFrequency.Type;
 

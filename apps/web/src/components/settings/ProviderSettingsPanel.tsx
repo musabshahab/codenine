@@ -313,18 +313,17 @@ function EnvironmentWideAtWorkspace({
   readonly workspaceScoped: boolean;
   readonly children: ReactNode;
 }) {
-  if (!workspaceScoped) return children;
   return (
-    <Tooltip trackCursorAxis="both">
+    <Tooltip disabled={!workspaceScoped} trackCursorAxis="both">
       <TooltipTrigger
         render={
           <div
-            tabIndex={0}
+            tabIndex={workspaceScoped ? 0 : undefined}
             className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           />
         }
       >
-        <div inert className="opacity-50 select-none">
+        <div inert={workspaceScoped} className={cn(workspaceScoped && "opacity-50 select-none")}>
           {children}
         </div>
       </TooltipTrigger>
@@ -1076,8 +1075,8 @@ export function EnvironmentProviderSettings({
         />
       </EnvironmentWideAtWorkspace>
 
-      <EnvironmentWideAtWorkspace workspaceScoped={workspaceScoped}>
-        <SettingsSection title="Advanced">
+      <SettingsSection title="Advanced">
+        <EnvironmentWideAtWorkspace workspaceScoped={workspaceScoped}>
           <SettingsRow
             id={searchableSetting("provider-health-check-interval").id}
             title={
@@ -1142,9 +1141,9 @@ export function EnvironmentProviderSettings({
               </div>
             }
           />
-          <CompactIdleThreadsRow />
-        </SettingsSection>
-      </EnvironmentWideAtWorkspace>
+        </EnvironmentWideAtWorkspace>
+        <CompactIdleThreadsRow />
+      </SettingsSection>
 
       {isAddInstanceDialogOpen && !readOnly ? (
         <AddProviderInstanceDialog

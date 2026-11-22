@@ -147,9 +147,9 @@ function DirectSetup({
                   ))}
                 </div>
               ))}
-              <DirectApprovalCode environment={environment} />
             </>
           )}
+          <DirectApprovalCode environment={environment} />
           <p className="text-xs text-muted-foreground">
             Hosted assistants need a public https address.
           </p>

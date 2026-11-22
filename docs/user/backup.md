@@ -26,7 +26,8 @@ backups made before the change.
 
 ## Back up and keep backups
 
-**Back up now** makes a backup at any time. Automatic backups run at the time you chose. If the
+**Back up now** makes a backup at any time. Automatic backups run at the time you chose, in the time
+zone of the device you chose it on; pick the time again to move it to your current zone. If the
 computer is asleep or off then, Codenine backs up as soon as it is back.
 
 **Keep** sets how many automatic backups stay; older ones are deleted. Backups you make yourself
