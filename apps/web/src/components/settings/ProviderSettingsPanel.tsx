@@ -106,6 +106,7 @@ import {
 } from "../../onboarding/providerReadiness.logic";
 import { providerClients } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
+import { SettingsScopeNotice } from "./SettingsScopeNotice";
 import { CompactIdleThreadsRow } from "./SettingsPanels";
 import {
   backgroundActivityOverrideSettings,
@@ -114,6 +115,7 @@ import {
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
 } from "./SettingsPanels.logic";
 import {
+  ENVIRONMENT_WIDE_SETTING_MESSAGE,
   PolicyTooltip,
   SettingResetButton,
   SettingsPageContainer,
@@ -290,12 +292,45 @@ function EnvironmentUnavailablePlaceholder({
   );
 }
 
+interface ProviderSettingsWorkspace {
+  readonly name: string;
+  readonly projectIds: readonly ProjectId[];
+}
+
 interface ProviderSettingsTarget {
   readonly environmentId?: EnvironmentId;
   readonly instanceId?: ProviderInstanceId;
   readonly scoped?: boolean;
   readonly environmentIds?: readonly EnvironmentId[];
-  readonly projectIds?: readonly ProjectId[];
+  readonly workspace?: ProviderSettingsWorkspace | undefined;
+}
+
+/** At a workspace scope only the account switches save for the workspace; these parts would not. */
+function EnvironmentWideAtWorkspace({
+  workspaceScoped,
+  children,
+}: {
+  readonly workspaceScoped: boolean;
+  readonly children: ReactNode;
+}) {
+  if (!workspaceScoped) return children;
+  return (
+    <Tooltip trackCursorAxis="both">
+      <TooltipTrigger
+        render={
+          <div
+            tabIndex={0}
+            className="rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          />
+        }
+      >
+        <div inert className="opacity-50 select-none">
+          {children}
+        </div>
+      </TooltipTrigger>
+      <TooltipPopup side="top">{ENVIRONMENT_WIDE_SETTING_MESSAGE}</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
@@ -446,7 +481,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
               ? target.instanceId
               : undefined
           }
-          projectIds={target.projectIds ?? []}
+          workspace={target.workspace}
         />
       ) : null}
     </>
@@ -457,12 +492,12 @@ function RemoteSessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
-  projectIds,
+  workspace,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectIds: readonly ProjectId[];
+  readonly workspace: ProviderSettingsWorkspace | undefined;
 }) {
   const sessionState = useEnvironmentSessionState(environment.environmentId);
   const operateAccess = resolveRemoteOperateAccess({
@@ -476,7 +511,7 @@ function RemoteSessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectIds={projectIds}
+      workspace={workspace}
     />
   );
 }
@@ -486,13 +521,13 @@ function AccessGatedProviderSettings({
   operateAccess,
   deviceTabs,
   targetInstanceId,
-  projectIds,
+  workspace,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly operateAccess: ProviderOperateAccess;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectIds: readonly ProjectId[];
+  readonly workspace: ProviderSettingsWorkspace | undefined;
 }) {
   const access = classifyProviderEnvironmentAccess({
     connectionPhase: environment.connection.phase,
@@ -515,7 +550,7 @@ function AccessGatedProviderSettings({
       readOnly={access.kind === "read-only"}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
-      projectIds={projectIds}
+      workspace={workspace}
     />
   );
 }
@@ -529,13 +564,13 @@ export function EnvironmentProviderSettings({
   readOnly = false,
   deviceTabs,
   targetInstanceId,
-  projectIds = NO_PROJECT_IDS,
+  workspace,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-  readonly projectIds?: readonly ProjectId[];
+  readonly workspace?: ProviderSettingsWorkspace | undefined;
   readonly readOnly?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
@@ -552,6 +587,9 @@ export function EnvironmentProviderSettings({
     serverEnvironment.configValueAtom(environmentId),
     (config) => config?.environment.capabilities.projectProviderInstanceOverrides === true,
   );
+  const projectIds = workspace?.projectIds ?? NO_PROJECT_IDS;
+  const representativeProjectId = projectIds[0];
+  const workspaceScoped = representativeProjectId !== undefined && supportsProjectProviderOverrides;
   const refreshServerProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -855,10 +893,8 @@ export function EnvironmentProviderSettings({
   // resolveModelPreferences falls back to a fresh `[]`; keep it stable for the rows.
   const favorites = settings.favorites.length > 0 ? settings.favorites : NO_FAVORITES;
 
-  const representativeProjectId = projectIds[0];
   const renderProviderInstance = (row: InstanceRow, mode: "list" | "editor") => {
-    const showProjectOverride =
-      representativeProjectId !== undefined && supportsProjectProviderOverrides;
+    const showProjectOverride = workspaceScoped;
     return (
       <ProviderInstanceRow
         key={row.instanceId}
@@ -965,6 +1001,11 @@ export function EnvironmentProviderSettings({
             />
           </SettingsGroup>
         ) : null}
+        {workspaceScoped && workspace ? (
+          <SettingsScopeNotice inline target="environment" eligibleEnvironmentIds={[environmentId]}>
+            {`For ${workspace.name}, only turning accounts on or off is saved. Other account settings apply to all workspaces on ${environmentLabel}.`}
+          </SettingsScopeNotice>
+        ) : null}
         <SettingsGroup
           divided={false}
           className={cn(
@@ -997,10 +1038,12 @@ export function EnvironmentProviderSettings({
           <div data-provider-detail className="min-w-0 @min-[48rem]/providers:min-h-0">
             {selectedRow ? (
               <ScrollArea scrollFade chainVerticalScroll className="@min-[48rem]/providers:h-full">
-                {/* Flat sections run dividers edge to edge and inset text like the list beside them. */}
-                <div className="space-y-6 py-4">
-                  {renderProviderInstance(selectedRow, "editor")}
-                </div>
+                <EnvironmentWideAtWorkspace workspaceScoped={workspaceScoped}>
+                  {/* Flat sections run dividers edge to edge and inset text like the list beside them. */}
+                  <div className="space-y-6 py-4">
+                    {renderProviderInstance(selectedRow, "editor")}
+                  </div>
+                </EnvironmentWideAtWorkspace>
               </ScrollArea>
             ) : (
               <div className="p-6 text-sm text-muted-foreground">
@@ -1013,88 +1056,95 @@ export function EnvironmentProviderSettings({
         </SettingsGroup>
       </SettingsSection>
 
-      <UsageProviderSettings
-        key={environmentId}
-        environmentId={environmentId}
-        environmentLabel={environmentLabel}
-        sources={settings.usageLimitSources}
-        readOnly={readOnly}
-      />
+      <EnvironmentWideAtWorkspace workspaceScoped={workspaceScoped}>
+        <UsageProviderSettings
+          key={environmentId}
+          environmentId={environmentId}
+          environmentLabel={environmentLabel}
+          sources={settings.usageLimitSources}
+          readOnly={readOnly}
+        />
+      </EnvironmentWideAtWorkspace>
 
-      <TextGeneratorsSettings
-        key={`text-generators:${environmentId}`}
-        environmentId={environmentId}
-        environmentLabel={environmentLabel}
-        providers={serverProviders}
-        readOnly={readOnly}
-      />
+      <EnvironmentWideAtWorkspace workspaceScoped={workspaceScoped}>
+        <TextGeneratorsSettings
+          key={`text-generators:${environmentId}`}
+          environmentId={environmentId}
+          environmentLabel={environmentLabel}
+          providers={serverProviders}
+          readOnly={readOnly}
+        />
+      </EnvironmentWideAtWorkspace>
 
-      <SettingsSection title="Advanced">
-        <SettingsRow
-          id={searchableSetting("provider-health-check-interval").id}
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              {searchableSetting("provider-health-check-interval").title}
-              <PolicyTooltip>
-                This interval is configured here, then the shared Background activity policy decides
-                whether provider probes may run when the timer fires. Custom intervals appear as
-                Advanced in Maintenance settings.
-              </PolicyTooltip>
-            </span>
-          }
-          description="Refresh provider status, versions, and models in the background. Set to 0 to disable."
-          resetAction={
-            providerHealthRefreshIntervalSeconds !== defaultProviderHealthRefreshIntervalSeconds ? (
-              <span
+      <EnvironmentWideAtWorkspace workspaceScoped={workspaceScoped}>
+        <SettingsSection title="Advanced">
+          <SettingsRow
+            id={searchableSetting("provider-health-check-interval").id}
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                {searchableSetting("provider-health-check-interval").title}
+                <PolicyTooltip>
+                  This interval is configured here, then the shared Background activity policy
+                  decides whether provider probes may run when the timer fires. Custom intervals
+                  appear as Advanced in Maintenance settings.
+                </PolicyTooltip>
+              </span>
+            }
+            description="Refresh provider status, versions, and models in the background. Set to 0 to disable."
+            resetAction={
+              providerHealthRefreshIntervalSeconds !==
+              defaultProviderHealthRefreshIntervalSeconds ? (
+                <span
+                  inert={!canWriteSettings}
+                  className={!canWriteSettings ? "opacity-50" : undefined}
+                >
+                  <SettingResetButton
+                    label="provider health check interval"
+                    onClick={() =>
+                      updateSettings(
+                        backgroundActivityOverrideSettings(
+                          settings.backgroundActivity,
+                          resolvedBackgroundActivity,
+                          { providerHealthRefreshInterval: undefined },
+                        ),
+                      )
+                    }
+                  />
+                </span>
+              ) : null
+            }
+            control={
+              <div
                 inert={!canWriteSettings}
-                className={!canWriteSettings ? "opacity-50" : undefined}
+                aria-disabled={!canWriteSettings || undefined}
+                className={cn(
+                  "flex shrink-0 items-center gap-2",
+                  !canWriteSettings && "opacity-50 select-none",
+                )}
               >
-                <SettingResetButton
+                <IntervalSecondsField
                   label="provider health check interval"
-                  onClick={() =>
+                  value={providerHealthRefreshIntervalSeconds}
+                  min={0}
+                  step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
+                  onCommit={(seconds, options) =>
                     updateSettings(
                       backgroundActivityOverrideSettings(
                         settings.backgroundActivity,
                         resolvedBackgroundActivity,
-                        { providerHealthRefreshInterval: undefined },
+                        { providerHealthRefreshInterval: Duration.seconds(seconds) },
                       ),
+                      options,
                     )
                   }
                 />
-              </span>
-            ) : null
-          }
-          control={
-            <div
-              inert={!canWriteSettings}
-              aria-disabled={!canWriteSettings || undefined}
-              className={cn(
-                "flex shrink-0 items-center gap-2",
-                !canWriteSettings && "opacity-50 select-none",
-              )}
-            >
-              <IntervalSecondsField
-                label="provider health check interval"
-                value={providerHealthRefreshIntervalSeconds}
-                min={0}
-                step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
-                onCommit={(seconds, options) =>
-                  updateSettings(
-                    backgroundActivityOverrideSettings(
-                      settings.backgroundActivity,
-                      resolvedBackgroundActivity,
-                      { providerHealthRefreshInterval: Duration.seconds(seconds) },
-                    ),
-                    options,
-                  )
-                }
-              />
-              <span className="text-xs text-muted-foreground">seconds</span>
-            </div>
-          }
-        />
-        <CompactIdleThreadsRow />
-      </SettingsSection>
+                <span className="text-xs text-muted-foreground">seconds</span>
+              </div>
+            }
+          />
+          <CompactIdleThreadsRow />
+        </SettingsSection>
+      </EnvironmentWideAtWorkspace>
 
       {isAddInstanceDialogOpen && !readOnly ? (
         <AddProviderInstanceDialog

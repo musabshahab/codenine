@@ -3,6 +3,7 @@ import {
   DEFAULT_UNIFIED_SETTINGS,
   EnvironmentId,
   ProviderDriverKind,
+  ProjectId,
   ProviderInstanceId,
   type ProviderAuthState,
   type ServerProvider,
@@ -19,6 +20,7 @@ import { act, render } from "../../../test/render";
 
 const state = vi.hoisted(() => ({
   providers: null as unknown as Atom.Writable<ReadonlyArray<ServerProvider>>,
+  config: null as unknown as Atom.Writable<unknown>,
   providerAuthQuery: null as unknown,
   providerAuth: null as ProviderAuthState | null,
   settings: null as unknown as UnifiedSettings,
@@ -43,7 +45,8 @@ vi.mock(import("../../state/server"), async (original) => {
   const { Atom } = await import("effect/reactivity");
   const providers = Atom.make<ReadonlyArray<ServerProvider>>([]).pipe(Atom.keepAlive);
   state.providers = providers;
-  const config = Atom.make(null);
+  const config = Atom.make<unknown>(null).pipe(Atom.keepAlive);
+  state.config = config;
   const providerAuth = Atom.make(null);
   state.providerAuthQuery = providerAuth;
   const commandLabels = {
@@ -157,6 +160,12 @@ vi.mock(import("./settingsLayout"), async (original) => ({
     </div>
   )) as never,
 }));
+vi.mock(import("./SettingsScopeNotice"), async (original) => ({
+  ...(await original()),
+  SettingsScopeNotice: (({ children }: { children: string }) => (
+    <p role="status">{children}</p>
+  )) as never,
+}));
 vi.mock(import("./UsageProviderSettings"), async (original) => ({
   ...(await original()),
   UsageProviderSettings: (() => null) as never,
@@ -170,6 +179,7 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
 
 const environmentId = EnvironmentId.make("remote-device");
+const projectId = ProjectId.make("mail");
 const codexId = ProviderInstanceId.make("codex");
 const customId = ProviderInstanceId.make("codex_work");
 
@@ -204,6 +214,7 @@ const setProviders = (providers: ReadonlyArray<ServerProvider>) =>
 function panel(options?: {
   readonly readOnly?: boolean;
   readonly targetInstanceId?: ProviderInstanceId;
+  readonly workspace?: { readonly name: string; readonly projectIds: readonly ProjectId[] };
 }) {
   return (
     <RegistryContext.Provider value={appAtomRegistry}>
@@ -215,6 +226,7 @@ function panel(options?: {
           {...(options?.targetInstanceId === undefined
             ? {}
             : { targetInstanceId: options.targetInstanceId })}
+          workspace={options?.workspace}
         />
       </div>
     </RegistryContext.Provider>
@@ -241,6 +253,7 @@ async function setup() {
   state.refresh.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   state.updateProvider.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   state.logout.mockReset().mockResolvedValue(AsyncResult.success(undefined));
+  await act(async () => appAtomRegistry.set(state.config, null));
   await setProviders([]);
 }
 
@@ -412,6 +425,36 @@ describe("EnvironmentProviderSettings instance removal", () => {
         instanceId: customId,
       }),
     );
+  });
+});
+
+describe("EnvironmentProviderSettings workspace scope", () => {
+  it("saves only the account switches for the workspace", async () => {
+    await setup();
+    await act(async () =>
+      appAtomRegistry.set(state.config, {
+        environment: { capabilities: { projectProviderInstanceOverrides: true } },
+      }),
+    );
+    await setProviders([provider()]);
+    await using _screen = await render(
+      panel({ targetInstanceId: codexId, workspace: { name: "Mail", projectIds: [projectId] } }),
+    );
+    await userEvent.click(page.getByRole("switch", { name: "Enable Codex" }));
+    expect(state.updateSettings).toHaveBeenCalledWith({
+      projectSettingsOverrides: {
+        [projectId]: { providerInstances: { [codexId]: { enabled: false } } },
+      },
+    });
+
+    const environmentWide = [
+      document.getElementById(`provider-instance-${codexId}-display-name`),
+      document.querySelector('[aria-label="Provider health check interval in seconds"]'),
+    ];
+    for (const element of environmentWide) {
+      expect(element).not.toBeNull();
+      expect(element?.closest("[inert]")).not.toBeNull();
+    }
   });
 });
 
