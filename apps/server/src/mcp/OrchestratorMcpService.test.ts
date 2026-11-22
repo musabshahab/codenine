@@ -1855,6 +1855,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         let callerIsTeamAgent = false;
         const offInstanceId = ProviderInstanceId.make("codex-off");
         const elsewhereInstanceId = ProviderInstanceId.make("codex-elsewhere");
+        const otherInstanceId = ProviderInstanceId.make("codex-other");
         const userAgent = (
           name: string,
           title: string,
@@ -1886,6 +1887,11 @@ describe("OrchestratorMcpService provider resolution", () => {
             instanceId: elsewhereInstanceId,
             model: "gpt-5.4",
             effort: "low",
+          }),
+          userAgent("reviewer", "Reviewer", {
+            instanceId: otherInstanceId,
+            model: "gpt-other",
+            effort: "high",
           }),
         ];
         const layerDependencies = Layer.mergeAll(
@@ -1977,8 +1983,35 @@ describe("OrchestratorMcpService provider resolution", () => {
               driver: ProviderDriverKind.make("codex"),
               model: "gpt-5.4",
             }),
+            {
+              ...providerSnapshot({
+                instanceId: otherInstanceId,
+                driver: ProviderDriverKind.make("codex"),
+              }),
+              models: [
+                {
+                  slug: "gpt-other",
+                  name: "gpt-other",
+                  isCustom: false,
+                  capabilities: {
+                    optionDescriptors: [
+                      {
+                        id: "reasoningEffort",
+                        label: "Reasoning",
+                        type: "select",
+                        options: [
+                          { id: "low", label: "Low" },
+                          { id: "high", label: "High" },
+                        ],
+                      },
+                      { id: "fastMode", label: "Fast", type: "boolean" },
+                    ],
+                  },
+                },
+              ],
+            },
           ]),
-          adapterRegistryLayer([codexInstanceId, elsewhereInstanceId]),
+          adapterRegistryLayer([codexInstanceId, elsewhereInstanceId, otherInstanceId]),
           Layer.mock(ProjectService.ProjectService)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
         );
@@ -2051,8 +2084,12 @@ describe("OrchestratorMcpService provider resolution", () => {
             member("off", { agent: "off" }),
             member("elsewhere", { agent: "elsewhere" }),
             member("quick", {
-              agent: "builder",
+              agent: "reviewer",
               target: { options: [{ id: "reasoningEffort", value: "low" }] },
+            }),
+            member("fast", {
+              agent: "reviewer",
+              target: { options: [{ id: "fastMode", value: true }] },
             }),
             member("helper", { instructions: "  " }),
             {
@@ -2104,11 +2141,29 @@ describe("OrchestratorMcpService provider resolution", () => {
             runsAs("stale", "Stale", lead),
             runsAs("off", "Off", lead),
             runsAs("elsewhere", "Elsewhere", lead),
+            // A target on a saved agent keeps its model and changes only the options it names.
             runsAs(
               "quick",
-              "Builder",
-              { ...lead, options: [{ id: "reasoningEffort", value: "low" }] },
-              "builder",
+              "Reviewer",
+              {
+                instanceId: otherInstanceId,
+                model: "gpt-other",
+                options: [{ id: "reasoningEffort", value: "low" }],
+              },
+              "reviewer",
+            ),
+            runsAs(
+              "fast",
+              "Reviewer",
+              {
+                instanceId: otherInstanceId,
+                model: "gpt-other",
+                options: [
+                  { id: "reasoningEffort", value: "high" },
+                  { id: "fastMode", value: true },
+                ],
+              },
+              "reviewer",
             ),
             {
               id: TeamAgentId.make("helper"),
