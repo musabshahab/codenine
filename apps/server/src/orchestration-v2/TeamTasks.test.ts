@@ -784,6 +784,30 @@ it.effect(
 );
 
 it.effect(
+  "retrying a task on another model runs it there and leaves its member's model alone",
+  () =>
+    withTeam((launched) =>
+      Effect.gen(function* () {
+        yield* propose([task("build")]);
+        yield* approve();
+        yield* runEffects(launched, 1);
+        yield* endRun(yield* taskThreadId("build"), "failed");
+
+        yield* dispatch({
+          type: "team.task.retry",
+          commandId: CommandId.make("retry"),
+          threadId: leadThreadId,
+          taskId: TeamTaskId.make("build"),
+          modelSelection: strong,
+        });
+        const [retryThreadId] = yield* runEffects(launched, 1);
+        assert.deepEqual((yield* thread(retryThreadId!)).thread.modelSelection, strong);
+        assert.deepEqual((yield* team).agents, [builder, reviewer]);
+      }),
+    ),
+);
+
+it.effect(
   "recovery settles once a task whose run ended unheard, and the task it unblocks starts once",
   () =>
     withTeam((launched) =>

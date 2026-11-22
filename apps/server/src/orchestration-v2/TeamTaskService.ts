@@ -12,7 +12,7 @@ import {
   type TeamTaskId,
   ThreadId,
 } from "@codenine/contracts";
-import { isAwaitingReview } from "@codenine/shared/team";
+import { isAwaitingReview, teamTaskModelSelection } from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -386,7 +386,7 @@ const make = Effect.gen(function* () {
           threadId: taskThreadId,
           projectId: lead.projectId,
           title: task.title,
-          modelSelection: agent.modelSelection,
+          modelSelection: teamTaskModelSelection(plan, task) ?? agent.modelSelection,
           // The lead's mode is the ceiling its user set; a team agent never gets a broader one.
           runtimeMode: lead.runtimeMode,
           interactionMode: "default",
