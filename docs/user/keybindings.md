@@ -3,7 +3,8 @@
 Customize shortcuts in **Settings → Keybindings**. That page lists every command
 in your version, including those with no default shortcut, and shows a command's ID
 when you hover its name. To see what a shortcut does, search for it as you would type
-or read it, such as `ctrl+k`, `cmd k`, or `⌘K`.
+or read it, such as `ctrl+k`, `cmd k`, or `⌘K`. While you record a shortcut, Tab and
+Shift+Tab still move between fields, so a Tab shortcut needs `mod`, `ctrl`, or `alt`.
 
 ## Composer controls
 
@@ -71,7 +72,7 @@ find only searches the files loaded so far.
 Keybindings live on the environment's machine, in
 `~/.codenine/userdata/keybindings.json` by default. You can edit this file directly.
 The app takes its shortcuts from the primary environment, so **Settings → Keybindings**
-changes only that environment's file. To give a workspace command on another environment a
+changes only that environment's file. To give a workspace action on another environment a
 shortcut, edit its action in **Settings → Workspaces**.
 It is a JSON array of rules:
 
@@ -93,8 +94,8 @@ Invalid rules are ignored; if the file cannot be parsed, Codenine uses defaults.
 Each rule requires a `key` shortcut and a `command` ID. An optional `when`
 expression restricts when it runs.
 
-Workspace commands use `script.{id}.run`, such as `script.test.run`. Settings lists
-them as **Run Command: Test** and so on.
+Workspace actions use `script.{id}.run`, such as `script.test.run`. Settings lists
+them under **Workspace actions** as **Run Action: Test** and so on.
 
 ## Key syntax
 
