@@ -3915,22 +3915,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ) : null}
         </SidebarGroup>
       </SidebarContent>
-      {sidebarFolders === null ? null : (
-        <div className="px-(--sidebar-content-inset) pt-1">
-          <SidebarMenuButton
-            isActive={currentPage === "archive"}
-            onClick={() => openPage("archive")}
-          >
-            <ArchiveIcon />
-            <span className="min-w-0 flex-1 truncate">Completed &amp; archived</span>
-            {completedCount > 0 ? (
-              <span className="ml-auto shrink-0 text-xs text-sidebar-muted-foreground tabular-nums">
-                {completedCount}
-              </span>
-            ) : null}
-          </SidebarMenuButton>
-        </div>
-      )}
+      <div className="px-(--sidebar-content-inset) pt-1">
+        <SidebarMenuButton isActive={currentPage === "archive"} onClick={() => openPage("archive")}>
+          <ArchiveIcon />
+          <span className="min-w-0 flex-1 truncate">Completed &amp; archived</span>
+          {completedCount > 0 ? (
+            <span className="ml-auto shrink-0 text-xs text-sidebar-muted-foreground tabular-nums">
+              {completedCount}
+            </span>
+          ) : null}
+        </SidebarMenuButton>
+      </div>
       <SidebarChromeFooter />
     </>
   );

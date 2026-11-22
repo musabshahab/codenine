@@ -33,8 +33,7 @@ export type SettingsPath =
   | "/settings/backup"
   | "/settings/maintenance"
   | "/settings/labs"
-  | "/settings/about"
-  | "/settings/archived";
+  | "/settings/about";
 
 export type SettingsSearchScope =
   | "environment"
@@ -104,7 +103,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/maintenance": "Maintenance",
   "/settings/labs": "Labs",
   "/settings/about": "About",
-  "/settings/archived": "Archive",
 };
 
 /** Sidebar order. A group without a heading is set apart by space alone. */
@@ -136,13 +134,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   },
   {
     heading: null,
-    paths: [
-      "/settings/backup",
-      "/settings/maintenance",
-      "/settings/labs",
-      "/settings/about",
-      "/settings/archived",
-    ],
+    paths: ["/settings/backup", "/settings/maintenance", "/settings/labs", "/settings/about"],
   },
 ];
 
@@ -1000,12 +992,6 @@ export const SETTINGS_SEARCH_ITEMS = [
       `pull request routing trusted environments shared credentials permissions read actions source control ${SOURCE_CONTROL_HOST_LABELS}`,
     ],
   },
-  {
-    id: "archive",
-    title: "Archived threads",
-    to: "/settings/archived",
-    searchTerms: ["restore reopen deleted history projects"],
-  },
 ] as const satisfies ReadonlyArray<SettingsSearchItem>;
 
 export type SettingsSearchItemId = (typeof SETTINGS_SEARCH_ITEMS)[number]["id"];
@@ -1031,7 +1017,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/maintenance": null,
   "/settings/labs": null,
   "/settings/about": null,
-  "/settings/archived": "project-defaults",
 };
 
 const WORKSPACE_OVERRIDE_SCOPES: ReadonlySet<SettingsSearchScope> = new Set([

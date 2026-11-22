@@ -67,9 +67,10 @@ needs you, is running, or is done. Workflow runs are not in Tasks: a workflow's 
 under its chat (**Show 3 runs**), open while one is running. The newest 10 show there, and
 **All 12 runs** opens the rest on the workflow's page. A run's step chats are on the run's page.
 
-Finished threads leave the grouped lists for **Completed & archived**, at the bottom of the
-sidebar, where **Mark not done** brings back a done thread and **Unarchive** an archived one. An
-agent's thread is not listed there; open it from its task.
+Finished chats leave the grouped lists for **Completed & archived**, at the bottom of the
+sidebar, where **Mark not done** brings back a done chat. Its **Archived** tab lists your
+archived chats: **Unarchive** brings one back and **Delete** removes it for good. An agent's chat
+is not listed there; open it from its task.
 
 ## Build
 

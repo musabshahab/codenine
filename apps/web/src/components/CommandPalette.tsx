@@ -24,6 +24,7 @@ import {
 } from "@codenine/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  ArchiveIcon,
   ArrowLeftIcon,
   BotIcon,
   ChartNoAxesColumnIcon,
@@ -1088,6 +1089,24 @@ function OpenCommandPaletteDialog(props: {
     icon: <DatabaseBackupIcon className={ITEM_ICON_CLASS} />,
     run: async () => {
       await navigate({ to: "/settings/backup" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:archive",
+    searchTerms: [
+      "archived chats",
+      "archive",
+      "unarchive",
+      "restore",
+      "delete archived",
+      "threads",
+    ],
+    title: "Open archived chats",
+    icon: <ArchiveIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/archive", search: { show: "archived" } });
     },
   });
 
