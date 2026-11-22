@@ -244,7 +244,9 @@ function ArchiveRows(props: {
   return (
     <ul className="flex flex-col gap-px p-2">
       {props.rows.map((thread) => {
-        const when = props.archived ? thread.archivedAt : (thread.settledAt ?? thread.updatedAt);
+        const when = props.archived
+          ? (thread.archivedAt ?? thread.createdAt)
+          : (thread.settledAt ?? thread.updatedAt);
         const pending = props.pendingKeys.has(`${thread.environmentId}:${thread.id}`);
         return (
           <li

@@ -123,6 +123,12 @@ export function SettingsScopeNotice({
                 search: search.machine ? { machine: search.machine } : {},
               },
             ];
+    if (choices.length === 0 && target === "project")
+      return (
+        <p className="px-3 py-3 text-sm text-muted-foreground sm:px-4">
+          {search.machine ? "No workspaces on this environment." : "No workspaces yet."}
+        </p>
+      );
     return choices.map((choice) => (
       <button
         key={JSON.stringify(choice.search)}

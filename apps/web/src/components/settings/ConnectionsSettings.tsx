@@ -1569,7 +1569,8 @@ function ConnectionsSettingsContent({
         ))}
         <CloudRemoteEnvironmentRows
           primaryEnvironmentId={primaryEnvironmentId}
-          savedEnvironments={listedEnvironments}
+          savedEnvironments={savedEnvironments}
+          listedEnvironmentCount={listedEnvironments.length}
         />
       </SettingsSection>
       {hasCloudPublicConfig() ? (

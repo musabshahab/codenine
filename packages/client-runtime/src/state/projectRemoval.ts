@@ -31,7 +31,11 @@ export function planProjectRemoval<
     (options.unloadedThreadCount ?? 0);
   const isWholeGroup = members.length === groupMemberCount;
   const removesWorkspace = isWholeGroup && !hasOtherMembers;
-  const targetKind = removesWorkspace ? "workspace" : "checkout";
+  const targetKind = removesWorkspace
+    ? "workspace"
+    : members.length === 1
+      ? "checkout"
+      : "checkouts";
   const singleMember = members.length === 1 ? members[0]! : null;
   const targetLabel = singleMember?.title ?? displayName;
   const chatsLabel = `${threadCount} chat${threadCount === 1 ? "" : "s"}`;
