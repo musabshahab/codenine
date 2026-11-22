@@ -180,7 +180,10 @@ describe("TraceDiagnostics", () => {
     "leaves long-lived spans out of slow spans and counts a failure at its innermost span",
     () =>
       Effect.sync(() => {
-        const spawnFailure = { _tag: "Failure", cause: "Failed to spawn jj" } as const;
+        const spawnFailure = {
+          _tag: "Failure",
+          cause: "Failed to spawn jj\n    at spawn (VcsProcess.ts:10)",
+        } as const;
         const diagnostics = aggregateLines([
           record({
             name: "ws.rpc.subscribeVcsBranch",
@@ -213,7 +216,7 @@ describe("TraceDiagnostics", () => {
             parentSpanId: "span-probe",
             startMs: 3_000,
             durationMs: 6,
-            exit: spawnFailure,
+            exit: { ...spawnFailure, cause: "Failed to spawn jj\n    at run (VcsProcess.ts:20)" },
           }),
           record({
             name: "discovery.probe",

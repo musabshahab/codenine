@@ -282,12 +282,14 @@ export function makeTraceDiagnosticsAggregator(
       : exitTag === "Failure"
         ? readExitCause(parsed.exit)
         : (toStringValue(status.message)?.trim() ?? "Failure");
-    if (cause !== null && parentSpanId) {
+    // A parent's printed stack can differ from its child's, so the message line identifies the cause.
+    const causeMessage = cause?.split("\n", 1)[0];
+    if (causeMessage !== undefined && parentSpanId) {
       const parentKey = `${traceId}\0${parentSpanId}`;
       const parentCauses = failedChildCausesBySpan.get(parentKey) ?? new Set();
-      failedChildCausesBySpan.set(parentKey, parentCauses.add(cause));
+      failedChildCausesBySpan.set(parentKey, parentCauses.add(causeMessage));
     }
-    if (cause !== null && !failedChildCauses?.has(cause)) {
+    if (cause !== null && causeMessage !== undefined && !failedChildCauses?.has(causeMessage)) {
       failureCount += 1;
       insertBounded(latestFailures, { ...spanItem, cause }, RECENT_LIMIT, latestEndedFirst);
 
