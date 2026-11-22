@@ -32,6 +32,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { GitIcon, JujutsuIcon, type Icon } from "../Icons";
 import { SourceControlHostSettings } from "./SourceControlHostSettings";
 import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
+import { credentialProblem } from "./SourceControlAccountSettings.logic";
 import { SourceControlAppSignInSettings } from "./SourceControlAppSignInSettings";
 import { SourceControlTokenSettings } from "./SourceControlTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
@@ -156,10 +157,17 @@ function NotConnectedSummary({
   const command = (text: string) => (
     <code className="rounded bg-muted px-1 py-px text-2xs">{text}</code>
   );
-  const detail = item.auth.status === "unauthenticated" ? optionLabel(item.auth.detail) : null;
+  const problem = credentialProblem(item.auth);
+  if (problem !== null) {
+    return (
+      <span>
+        {problem.split("`").map((part, index) => (index % 2 === 1 ? command(part) : part))}
+      </span>
+    );
+  }
   return (
     <span>
-      {detail === null ? "Not connected." : /[.!?]$/u.test(detail) ? detail : `${detail}.`}{" "}
+      Not connected.{" "}
       {credentials.appSignIn && item.appSignIn === true
         ? `Sign in with ${item.label}, paste a token below,`
         : "Paste a token below,"}{" "}

@@ -1,3 +1,4 @@
+import * as Option from "effect/Option";
 import type { SourceControlProviderAuth } from "@codenine/contracts";
 import type { HostCredentialSettings } from "@codenine/client-runtime/source-control-clients";
 
@@ -44,4 +45,14 @@ export function nextHostAccountChoices(
   const { [host]: _replaced, ...rest } = current;
   if (enabled && account === undefined) return rest;
   return { ...rest, [host]: { enabled, ...(account === undefined ? {} : { account }) } };
+}
+
+/**
+ * The server's own diagnosis of a credential it reads (refused, unreadable, host turned off), which
+ * names its fix. gh's sign-in advice and its login errors have no host or match a listed login.
+ */
+export function credentialProblem(auth: SourceControlProviderAuth): string | null {
+  const detail = Option.getOrNull(auth.detail);
+  if (auth.status !== "unauthenticated" || Option.isNone(auth.host) || detail === null) return null;
+  return auth.accounts?.some((entry) => entry.error === detail) ? null : detail;
 }
