@@ -579,7 +579,8 @@ export function WorktreeCleanupSection() {
     return (
       <SettingsSection id="storage-worktrees" title="Cleanup" variant="plain">
         <SettingsScopeNotice inline target="all">
-          Update the selected environments to configure workspace worktree cleanup.
+          Update the selected environments to set cleanup per workspace, or show all workspaces to
+          change cleanup for the whole environment.
         </SettingsScopeNotice>
       </SettingsSection>
     );
