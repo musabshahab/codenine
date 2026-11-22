@@ -128,8 +128,11 @@ function pullRequestSettles(
   >,
   pullRequest: SettlementPullRequest,
   autoSettleOnMerge: boolean,
+  autoSettleAfterDays: number | null,
 ): boolean {
-  if (pullRequest.state !== "closed" && (pullRequest.state !== "merged" || !autoSettleOnMerge)) {
+  if (pullRequest.state === "open") return false;
+  if (pullRequest.state === "merged" && !autoSettleOnMerge) return false;
+  if (pullRequest.state === "closed" && !autoSettleOnMerge && autoSettleAfterDays === null) {
     return false;
   }
   const terminalAt = pullRequest.state === "merged" ? pullRequest.mergedAt : pullRequest.closedAt;
@@ -223,7 +226,10 @@ export function resolveAutoSettlementAt(input: {
       toMillis(thread.latestRunCompletedAt),
       toMillis(thread.workflowResultAt),
     ]) ?? DateTime.toEpochMillis(thread.createdAt);
-  if (pullRequest !== null && pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
+  if (
+    pullRequest !== null &&
+    pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge, input.autoSettleAfterDays)
+  ) {
     return DateTime.makeUnsafe(activityAtMs);
   }
   const hasPullRequest =
