@@ -100,6 +100,10 @@ describe("KeybindingsSettings.logic", () => {
       expect(found(query), query).toEqual(["chat.new"]);
     }
     expect(found("ctrl")).toEqual(["chat.find", "chat.new", "commandPalette.toggle"]);
+    expect(found("command")).toEqual(["commandPalette.toggle"]);
+    for (const word of ["control", "meta"]) {
+      expect(found(word), word).toEqual([]);
+    }
   });
 
   it("captures platform-specific mod shortcuts", () => {

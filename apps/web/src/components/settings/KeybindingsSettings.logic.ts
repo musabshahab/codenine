@@ -317,24 +317,33 @@ export function buildKeybindingRows(
 const SHORTCUT_SEARCH_MODIFIERS: ReadonlyArray<string> = ["mod", "cmd", "ctrl", "alt", "shift"];
 const SHORTCUT_SEARCH_ALIASES: Readonly<Record<string, string>> = {
   "⌘": "cmd",
-  command: "cmd",
-  meta: "cmd",
   "⌃": "ctrl",
-  control: "ctrl",
   "⌥": "alt",
-  option: "alt",
   "⇧": "shift",
   escape: "esc",
+};
+// Also plain words ("Source control", "Command Palette"), so they count as modifiers only in a chord.
+const SHORTCUT_SEARCH_MODIFIER_WORDS: Readonly<Record<string, string>> = {
+  command: "cmd",
+  meta: "cmd",
+  control: "ctrl",
+  option: "alt",
 };
 
 /** One spelling for a typed or shown chord: aliases resolved, modifiers in a fixed order. */
 export function normalizeShortcutSearchText(text: string): string {
-  const tokens = text
+  const words = text
     .toLowerCase()
     .replace(/[⌘⌃⌥⇧]/gu, " $& ")
     .split(/[\s+]+/u)
-    .filter((token) => token.length > 0)
-    .map((token) => SHORTCUT_SEARCH_ALIASES[token] ?? token);
+    .filter((token) => token.length > 0);
+  const isChord = words.length > 1 || text.includes("+");
+  const tokens = words.map(
+    (token) =>
+      SHORTCUT_SEARCH_ALIASES[token] ??
+      (isChord ? SHORTCUT_SEARCH_MODIFIER_WORDS[token] : undefined) ??
+      token,
+  );
   return [
     ...SHORTCUT_SEARCH_MODIFIERS.filter((modifier) => tokens.includes(modifier)),
     ...tokens.filter((token) => !SHORTCUT_SEARCH_MODIFIERS.includes(token)),

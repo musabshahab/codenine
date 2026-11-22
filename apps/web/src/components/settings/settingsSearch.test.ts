@@ -161,6 +161,12 @@ describe("searchSettings", () => {
     for (const query of ["mod+b", "ctrl+b", "Ctrl B", "cmd b", "⌘B"]) {
       expect(searchSettings(query)[0]?.id, query).toBe("keybinding-sidebar.toggle");
     }
+    const keybindingIds = (query: string) =>
+      searchSettings(query)
+        .map((item) => item.id)
+        .filter((id) => id.startsWith("keybinding-"));
+    expect(keybindingIds("command")).toEqual(["keybinding-commandPalette.toggle"]);
+    expect(keybindingIds("control")).toEqual([]);
     expect(searchSettings("copy link")[0]).toMatchObject({
       id: "keybinding-thread.copyReference",
       to: "/settings/keybindings",
