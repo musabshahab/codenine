@@ -13,7 +13,7 @@ import {
   US_SHIFTED_TO_UNSHIFTED_KEYS,
 } from "@codenine/shared/keybindings";
 
-import { shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
+import { formatShortcutLabel, shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -314,19 +314,61 @@ export function buildKeybindingRows(
   return rowsWithConflicts;
 }
 
+const SHORTCUT_SEARCH_MODIFIERS: ReadonlyArray<string> = ["mod", "cmd", "ctrl", "alt", "shift"];
+const SHORTCUT_SEARCH_ALIASES: Readonly<Record<string, string>> = {
+  "⌘": "cmd",
+  command: "cmd",
+  meta: "cmd",
+  "⌃": "ctrl",
+  control: "ctrl",
+  "⌥": "alt",
+  option: "alt",
+  "⇧": "shift",
+  escape: "esc",
+};
+
+/** One spelling for a typed or shown chord: aliases resolved, modifiers in a fixed order. */
+export function normalizeShortcutSearchText(text: string): string {
+  const tokens = text
+    .toLowerCase()
+    .replace(/[⌘⌃⌥⇧]/gu, " $& ")
+    .split(/[\s+]+/u)
+    .filter((token) => token.length > 0)
+    .map((token) => SHORTCUT_SEARCH_ALIASES[token] ?? token);
+  return [
+    ...SHORTCUT_SEARCH_MODIFIERS.filter((modifier) => tokens.includes(modifier)),
+    ...tokens.filter((token) => !SHORTCUT_SEARCH_MODIFIERS.includes(token)),
+  ].join("+");
+}
+
+/** A shortcut as stored and as each platform shows it, so any of them finds it. */
+export function shortcutSearchForms(shortcut: KeybindingShortcut): ReadonlyArray<string> {
+  return [
+    ...new Set(
+      [
+        shortcutToKeybindingInput(shortcut),
+        formatShortcutLabel(shortcut, "Win32"),
+        formatShortcutLabel(shortcut, "MacIntel"),
+      ].map(normalizeShortcutSearchText),
+    ),
+  ];
+}
+
 export function filterKeybindingRows(
   rows: ReadonlyArray<KeybindingRow>,
   query: string,
 ): ReadonlyArray<KeybindingRow> {
   const normalizedQuery = query.trim().toLowerCase();
   if (normalizedQuery.length === 0) return rows;
+  const shortcutQuery = normalizeShortcutSearchText(query);
   return rows.filter((row) => {
     return (
       row.command.toLowerCase().includes(normalizedQuery) ||
       commandLabel(row.command).toLowerCase().includes(normalizedQuery) ||
-      row.key.toLowerCase().includes(normalizedQuery) ||
       row.when.toLowerCase().includes(normalizedQuery) ||
-      row.source.toLowerCase().includes(normalizedQuery)
+      row.source.toLowerCase().includes(normalizedQuery) ||
+      (row.binding !== null &&
+        shortcutSearchForms(row.binding.shortcut).some((form) => form.includes(shortcutQuery)))
     );
   });
 }

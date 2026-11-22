@@ -10,6 +10,7 @@ import { resolveShortcutCommand } from "../../keybindings";
 import {
   buildKeybindingRows,
   buildWhenVariableOptions,
+  filterKeybindingRows,
   keybindingConflictLabels,
   keybindingFromKeyboardEvent,
   parseWhenExpressionDraft,
@@ -79,6 +80,26 @@ describe("KeybindingsSettings.logic", () => {
     expect(
       keybindingConflictLabels(rows, { rowId: stop?.id ?? "", key: "mod+k", when: "" }),
     ).toEqual(["Chat: New"]);
+  });
+
+  it("finds a shortcut by its stored, displayed, and typed spellings", () => {
+    const rows = buildKeybindingRows(
+      compileResolvedKeybindingsConfig([
+        { command: "commandPalette.toggle", key: "mod+k" },
+        { command: "chat.new", key: "mod+shift+k" },
+        { command: "chat.find", key: "mod+f" },
+      ]),
+    );
+    const found = (query: string) =>
+      filterKeybindingRows(rows, query).map((row) => String(row.command));
+
+    for (const query of ["mod+k", "ctrl+k", "Ctrl K", "cmd k", "⌘K", "command+k"]) {
+      expect(found(query), query).toEqual(["commandPalette.toggle"]);
+    }
+    for (const query of ["⇧⌘K", "shift+ctrl+k", "ctrl shift k"]) {
+      expect(found(query), query).toEqual(["chat.new"]);
+    }
+    expect(found("ctrl")).toEqual(["chat.find", "chat.new", "commandPalette.toggle"]);
   });
 
   it("captures platform-specific mod shortcuts", () => {

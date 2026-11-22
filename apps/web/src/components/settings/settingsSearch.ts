@@ -8,8 +8,12 @@ import {
   sourceControlClients,
   type SourceControlDefinition,
 } from "@codenine/client-runtime/source-control-clients";
-import { DEFAULT_KEYBINDINGS } from "@codenine/shared/keybindings";
-import { commandLabel } from "./KeybindingsSettings.logic";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@codenine/shared/keybindings";
+import {
+  commandLabel,
+  normalizeShortcutSearchText,
+  shortcutSearchForms,
+} from "./KeybindingsSettings.logic";
 import type { ResolvedSettingsScope } from "./settingsScope";
 
 export type SettingsPath =
@@ -46,6 +50,8 @@ export interface SettingsSearchItem {
   readonly to: SettingsPath;
   readonly targetId?: string;
   readonly searchTerms?: ReadonlyArray<string>;
+  /** A keybinding's chords, spelled by normalizeShortcutSearchText. */
+  readonly shortcuts?: ReadonlyArray<string>;
   readonly scope?: SettingsSearchScope;
   readonly desktopOnly?: boolean;
   readonly macOnly?: boolean;
@@ -146,18 +152,16 @@ export function keybindingSearchAnchorId<Command extends KeybindingCommand>(comm
 
 const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right) =>
   commandLabel(left).localeCompare(commandLabel(right)),
-).map((command) => {
-  const defaultKeys = DEFAULT_KEYBINDINGS.filter((binding) => binding.command === command).map(
-    (binding) => binding.key,
-  );
-  return {
-    id: keybindingSearchAnchorId(command),
-    title: commandLabel(command),
-    to: "/settings/keybindings" as const,
-    searchTerms: [command, ...defaultKeys],
-    secondary: true,
-  };
-});
+).map((command) => ({
+  id: keybindingSearchAnchorId(command),
+  title: commandLabel(command),
+  to: "/settings/keybindings" as const,
+  searchTerms: [command],
+  shortcuts: DEFAULT_RESOLVED_KEYBINDINGS.filter((binding) => binding.command === command).flatMap(
+    (binding) => shortcutSearchForms(binding.shortcut),
+  ),
+  secondary: true,
+}));
 
 export function sourceControlHostSettingsSearchId(kind: string) {
   return `source-control-host-${kind}` as const;
@@ -1175,6 +1179,7 @@ export function searchSettings(
   const normalizedQuery = normalizeSearchText(query);
   if (normalizedQuery.length === 0) return [];
   const queryTokens = normalizedQuery.split(" ");
+  const shortcutQuery = normalizeShortcutSearchText(query);
 
   return settingsForThisPlatform(items)
     .flatMap((item, index) => {
@@ -1184,7 +1189,14 @@ export function searchSettings(
         normalizeSearchText(SETTINGS_SECTION_LABELS[item.to]),
         ...(item.searchTerms ?? []).map(normalizeSearchText),
       ];
-      if (!queryTokens.every((token) => fields.some((field) => field.includes(token)))) return [];
+      const matchesShortcut =
+        item.shortcuts?.some((shortcut) => shortcut.includes(shortcutQuery)) === true;
+      if (
+        !matchesShortcut &&
+        !queryTokens.every((token) => fields.some((field) => field.includes(token)))
+      ) {
+        return [];
+      }
 
       const exactPhraseField = fields.findIndex((field) => field.includes(normalizedQuery));
       const rank =
@@ -1196,7 +1208,7 @@ export function searchSettings(
               ? 3
               : queryTokens.every((token) => title.includes(token))
                 ? 2
-                : exactPhraseField >= 0
+                : matchesShortcut || exactPhraseField >= 0
                   ? 1
                   : 0;
       return [{ item, index, rank }];

@@ -2,7 +2,8 @@
 
 Customize shortcuts in **Settings → Keybindings**. That page lists every command
 in your version, including those with no default shortcut, and shows a command's ID
-when you hover its name.
+when you hover its name. To see what a shortcut does, search for it as you would type
+or read it, such as `ctrl+k`, `cmd k`, or `⌘K`.
 
 ## Composer controls
 

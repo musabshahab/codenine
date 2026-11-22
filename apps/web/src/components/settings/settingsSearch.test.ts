@@ -158,7 +158,9 @@ describe("searchSettings", () => {
   it("finds keybinding commands by label, command id, and default key", () => {
     expect(searchSettings("toggle sidebar")[0]?.id).toBe("keybinding-sidebar.toggle");
     expect(searchSettings("sidebar.toggle")[0]?.id).toBe("keybinding-sidebar.toggle");
-    expect(searchSettings("mod+b")[0]?.id).toBe("keybinding-sidebar.toggle");
+    for (const query of ["mod+b", "ctrl+b", "Ctrl B", "cmd b", "⌘B"]) {
+      expect(searchSettings(query)[0]?.id, query).toBe("keybinding-sidebar.toggle");
+    }
     expect(searchSettings("copy link")[0]).toMatchObject({
       id: "keybinding-thread.copyReference",
       to: "/settings/keybindings",
