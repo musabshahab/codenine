@@ -688,7 +688,7 @@ type KeybindingRowDraftState = {
 function createKeybindingRowDraft(row: KeybindingRow): KeybindingRowDraftState {
   return {
     keyDraft: row.key,
-    whenDraft: row.binding.whenAst,
+    whenDraft: row.binding?.whenAst,
     isRecording: false,
     isWhenDraftValid: true,
   };
@@ -734,7 +734,7 @@ function useKeybindingRowEditor({
       command: row.command,
       key: keyDraft,
       when: whenDraftExpression.trim().length > 0 ? whenDraftExpression : undefined,
-      replace: rowKeybindingTarget(row),
+      replace: row.binding ? rowKeybindingTarget(row) : undefined,
     });
   };
 
@@ -810,7 +810,7 @@ function KeybindingKeyControl({
     captureKeybinding,
     pillRef,
   } = editor;
-  const showPill = !isRecording && keyDraft === row.key && row.key.length > 0 && !isDirty;
+  const showPill = !isRecording && keyDraft === row.key && !isDirty;
 
   return (
     <>
@@ -828,13 +828,18 @@ function KeybindingKeyControl({
           ref={pillRef}
           type="button"
           onClick={() => setDraft({ isRecording: true })}
-          aria-label={`Edit shortcut for ${commandLabel(row.command)}: ${formatShortcutLabel(row.binding.shortcut)}`}
+          aria-label={
+            row.binding
+              ? `Edit shortcut for ${commandLabel(row.command)}: ${formatShortcutLabel(row.binding.shortcut)}`
+              : `Set shortcut for ${commandLabel(row.command)}`
+          }
           className={cn(
             "inline-flex h-8 cursor-pointer items-center rounded-md border border-transparent px-1.5 sm:h-7 outline-none transition-colors hover:border-border/70 hover:bg-accent focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/24",
+            !row.binding && "border-dashed border-border px-2 text-xs text-muted-foreground",
             pillClassName,
           )}
         >
-          <KeybindingPill value={row.key} />
+          {row.binding ? <KeybindingPill value={row.key} /> : "Set shortcut"}
         </button>
       ) : (
         <Input

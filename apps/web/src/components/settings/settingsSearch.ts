@@ -156,7 +156,6 @@ const KEYBINDING_SEARCH_ITEMS = STATIC_KEYBINDING_COMMANDS.toSorted((left, right
     to: "/settings/keybindings" as const,
     searchTerms: [command, ...defaultKeys],
     secondary: true,
-    ...(defaultKeys.length === 0 ? { targetId: "keybindings" } : {}),
   };
 });
 

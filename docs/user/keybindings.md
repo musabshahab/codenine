@@ -1,7 +1,8 @@
 # Keybindings
 
-Customize shortcuts in **Settings → Keybindings**. That page
-also lists the command IDs and defaults available in your version.
+Customize shortcuts in **Settings → Keybindings**. That page lists every command
+in your version, including those with no default shortcut, and shows a command's ID
+when you hover its name.
 
 ## Composer controls
 

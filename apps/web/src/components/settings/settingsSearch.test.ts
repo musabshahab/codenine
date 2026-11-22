@@ -165,12 +165,9 @@ describe("searchSettings", () => {
     });
   });
 
-  it("sends commands without a default binding to the section", () => {
-    expect(searchSettings("thread.stop")[0]).toMatchObject({
-      id: "keybinding-thread.stop",
-      targetId: "keybindings",
-    });
-    expect(searchSettings("sidebar.toggle")[0]?.targetId).toBeUndefined();
+  it("sends commands without a default binding to their own row", () => {
+    expect(searchSettings("thread.stop")[0]).toMatchObject({ id: "keybinding-thread.stop" });
+    expect(searchSettings("thread.stop")[0]?.targetId).toBeUndefined();
   });
 
   it("finds rows by the titles shown on their pages", () => {

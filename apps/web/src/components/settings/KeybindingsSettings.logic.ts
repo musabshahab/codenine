@@ -50,7 +50,8 @@ export interface KeybindingRow {
   readonly source: KeybindingSource;
   readonly defaultKey: string | null;
   readonly defaultWhen: string;
-  readonly binding: ResolvedKeybindingRule;
+  /** Null for a command with no shortcut; saving its row adds a rule. */
+  readonly binding: ResolvedKeybindingRule | null;
   readonly conflicts: ReadonlyArray<string>;
 }
 
@@ -193,6 +194,7 @@ export function keybindingConflictLabels(
   for (const candidate of rows) {
     if (
       candidate.id !== input.rowId &&
+      candidate.binding !== null &&
       shortcutConflictKey(candidate.binding.shortcut, platform) === conflictKey &&
       conflictsWithWhen(candidate.when, input.when)
     ) {
@@ -266,6 +268,23 @@ export function buildKeybindingRows(
       defaultKey: defaultBinding ? shortcutToKeybindingInput(defaultBinding.shortcut) : null,
       defaultWhen: whenAstToExpression(defaultBinding?.whenAst),
       binding,
+      conflicts: [],
+    });
+  }
+  const boundCommands = new Set(keybindings.map((binding) => binding.command));
+  for (const command of STATIC_KEYBINDING_COMMANDS) {
+    if (boundCommands.has(command)) continue;
+    const defaultBinding = DEFAULT_RESOLVED_KEYBINDINGS.find((entry) => entry.command === command);
+    const id = keybindingRowId(command, "", "");
+    rowsById.set(id, {
+      id,
+      command,
+      key: "",
+      when: "",
+      source: "Default",
+      defaultKey: defaultBinding ? shortcutToKeybindingInput(defaultBinding.shortcut) : null,
+      defaultWhen: whenAstToExpression(defaultBinding?.whenAst),
+      binding: null,
       conflicts: [],
     });
   }
