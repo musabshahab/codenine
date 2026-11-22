@@ -577,8 +577,10 @@ export const discoverClaudeSkills = Effect.fn("discoverClaudeSkills")(function* 
       const userInvocationOnly =
         (frontmatter.kind === "parsed" && frontmatter.userInvocationOnly === true) ||
         override?.userInvocationOnly === true;
+      const alias = !singleSkill && frontmatter.kind === "parsed" ? frontmatter.name : undefined;
       skillsByName.set(name, {
         name,
+        ...(alias && alias !== name ? { alias } : {}),
         path: skillPath,
         enabled: override?.enabled ?? true,
         scope: root.scope,

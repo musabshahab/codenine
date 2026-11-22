@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   createProviderWorkspaceSnapshotRefreshAtomFamily,
   getProviderSkillsForSlashMenu,
+  getProviderSlashCommandsForSlashMenu,
   hasCompleteProviderWorkspaceSnapshot,
   isProviderWorkspaceSnapshotScanning,
   resolveProviderSkillsForCwd,
@@ -38,6 +39,21 @@ const provider = {
     },
   ],
 } satisfies ServerProvider;
+
+describe("getProviderSlashCommandsForSlashMenu", () => {
+  it("drops commands a visible skill already offers under its name or alias", () => {
+    const skills = [
+      { name: "review", path: "/skills/review/SKILL.md", enabled: true },
+      { name: "probe", alias: "probe-frontmatter", path: "/skills/probe/SKILL.md", enabled: true },
+    ];
+    expect(
+      getProviderSlashCommandsForSlashMenu(
+        [{ name: "Review" }, { name: "probe-frontmatter" }, { name: "compact" }],
+        skills,
+      ).map((command) => command.name),
+    ).toEqual(["compact"]);
+  });
+});
 
 describe("getProviderSkillsForSlashMenu", () => {
   it("keeps the skill alias when the provider also exposes it as a slash command", () => {

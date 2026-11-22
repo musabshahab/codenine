@@ -124,6 +124,8 @@ export const ServerProviderSkill = Schema.Struct({
   enabled: Schema.Boolean,
   displayName: Schema.optional(TrimmedNonEmptyString),
   shortDescription: Schema.optional(TrimmedNonEmptyString),
+  /** Claude: a folder skill's frontmatter name, which Claude reports its slash command under. */
+  alias: Schema.optional(TrimmedNonEmptyString),
   /** Claude disable-model-invocation: only users can invoke; composers must offer a slash command. */
   userInvocationOnly: Schema.optional(Schema.Boolean),
   /** Claude user-invocable:false: only agents can invoke; composers must hide the slash command. */

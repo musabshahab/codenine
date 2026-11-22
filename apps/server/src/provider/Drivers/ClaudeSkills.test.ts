@@ -532,6 +532,7 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
         assert.deepEqual(skills, [
           {
             name: "kane-cli",
+            alias: "frontmatter-alias",
             path: path.join(configDir, "skills", "kane-cli", "SKILL.md"),
             enabled: true,
             scope: "user",
@@ -862,8 +863,8 @@ it.layer(NodeServices.layer)("discoverClaudeSkills", (it) => {
       const skills = yield* discoverClaudeSkills({ homePath: configDir });
 
       assert.deepEqual(
-        skills.map((skill) => [skill.name, skill.enabled]),
-        [["probe-alias", true]],
+        skills.map((skill) => [skill.name, skill.enabled, skill.alias]),
+        [["probe-alias", true, "probe-alias-frontmatter"]],
       );
     }),
   );
