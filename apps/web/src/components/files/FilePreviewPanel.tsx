@@ -173,6 +173,7 @@ const FILE_EXPLORER_STORAGE_KEY = "codenine.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "codenine.renderMarkdown";
 const RENDER_BROWSER_FILE_STORAGE_KEY = "codenine.renderBrowserFile";
 const RENDER_TABLE_STORAGE_KEY = "codenine.renderTable";
+const EDIT_WORKBOOK_STORAGE_KEY = "codenine.editWorkbook";
 type FilePostRender = <LAnnotation>(
   fileContainer: HTMLElement,
   instance: FileInstance<LAnnotation, undefined>,
@@ -1225,6 +1226,11 @@ export default function FilePreviewPanel({
       ? editableSpreadsheetKind(previewPath)
       : null;
   const workbookPath = spreadsheetKind?.format === "xlsx" ? previewPath : null;
+  const [editWorkbookPreferred, setEditWorkbookPreferred] = useLocalStorage(
+    EDIT_WORKBOOK_STORAGE_KEY,
+    true,
+    Schema.Boolean,
+  );
   const [versionsOpen, setVersionsOpen] = useState(false);
   const versionedPath =
     serverConfig?.environment.capabilities.fileVersions === true &&
@@ -1378,6 +1384,12 @@ export default function FilePreviewPanel({
       />
     ) : null;
 
+  // The viewer shows a workbook as it is laid out, with its widths, merged cells and charts; the
+  // grid edits its cells. A connection that cannot write gains nothing from the grid.
+  const canViewWorkbook = workbookPath !== null && documentPreview !== null;
+  const editsWorkbook =
+    workbookPath !== null && (!canViewWorkbook || (canWriteFiles && editWorkbookPreferred));
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {breadcrumbPath !== null && breadcrumbTrail !== null ? (
@@ -1434,6 +1446,17 @@ export default function FilePreviewPanel({
                 className="size-3.5"
                 icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
               />
+            </FileSurfaceAction>
+          ) : null}
+          {canViewWorkbook && canWriteFiles ? (
+            <FileSurfaceAction
+              label={editsWorkbook ? "Show as laid out" : "Edit cells"}
+              pressed={!editsWorkbook}
+              // Unsaved edits are saved first, so the view shows the file with them.
+              disabled={editsWorkbook && selectedFilePending}
+              onPress={() => setEditWorkbookPreferred(!editsWorkbook)}
+            >
+              <MorphIcon className="size-3.5" icon={editsWorkbook ? Eye : Table2} />
             </FileSurfaceAction>
           ) : null}
           {showsRawText ? (
@@ -1633,7 +1656,7 @@ export default function FilePreviewPanel({
               revealRequestId={revealRequestId}
               wordWrap={wordWrap}
             />
-          ) : relativePath && workbookPath !== null ? (
+          ) : relativePath && workbookPath !== null && editsWorkbook ? (
             <Suspense fallback={<FileSurfaceLoading />}>
               <WorkspaceSpreadsheet
                 key={`${environmentId}:${cwd}:${workbookPath}`}

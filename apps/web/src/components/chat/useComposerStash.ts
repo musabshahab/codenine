@@ -56,6 +56,7 @@ import {
   useState,
 } from "react";
 import { BackgroundThreadContext } from "./backgroundThread";
+import { isInKeyboardGrid } from "../../lib/editableFocus";
 import { isInSideChatPane } from "../../lib/sideChatPane";
 import { useStableCallback } from "../../hooks/useStableCallback";
 
@@ -682,7 +683,8 @@ export function useComposerStash(input: {
       {
         capture: true,
         context: readShortcutContext,
-        when: (event) => !isInSideChatPane(event.target),
+        // A grid saves on Mod+S, as the key does in a spreadsheet app.
+        when: (event) => !isInSideChatPane(event.target) && !isInKeyboardGrid(event.target),
       },
     );
   }, [backgroundThread, handleStashShortcut, readShortcutContext]);

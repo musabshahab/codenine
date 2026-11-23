@@ -17,6 +17,8 @@ export type SpreadsheetProblemDetail =
 // @effect-diagnostics-next-line extendsNativeError:off - thrown by pure code and mapped to a typed error at the service.
 export class SpreadsheetProblem extends Error {
   readonly detail: SpreadsheetProblemDetail;
+  /** The operation that could not be applied, when the problem is one operation's. */
+  operationIndex: number | undefined = undefined;
   constructor(detail: SpreadsheetProblemDetail) {
     super(detail.kind);
     this.detail = detail;
@@ -30,6 +32,12 @@ export const unsupported = (feature: SpreadsheetUnsupportedError["feature"]) =>
 export const invalidOperation = (reason: SpreadsheetOperationError["reason"]) =>
   new SpreadsheetProblem({ kind: "operation", reason });
 
+/** Marks a problem thrown while applying the operation at `index` as that operation's. */
+export function atOperation(cause: unknown, index: number): unknown {
+  if (cause instanceof SpreadsheetProblem) cause.operationIndex ??= index;
+  return cause;
+}
+
 export interface SpreadsheetLimits {
   /** The largest file read from disk. */
   readonly maxFileBytes: number;
@@ -38,6 +46,8 @@ export interface SpreadsheetLimits {
   readonly maxCells: number;
   /** The most cells one format change may touch. */
   readonly maxFormatCells: number;
+  /** The most cells and ranges one recalculation may visit before it leaves the rest uncalculated. */
+  readonly maxRecalculationSteps: number;
 }
 
 /** A spreadsheet file held in memory: read in pages, changed by operations, written back whole. */

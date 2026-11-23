@@ -17,6 +17,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "~/compone
 import { toastManager } from "~/components/ui/toast";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { KEYBOARD_GRID_PROPS } from "~/lib/editableFocus";
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 
@@ -44,7 +45,8 @@ import {
   selectionArea,
 } from "./spreadsheetModel";
 import {
-  SpreadsheetSession,
+  acquireSpreadsheetSession,
+  type SpreadsheetSession,
   type SpreadsheetSnapshot,
   type SpreadsheetTransport,
 } from "./spreadsheetSession";
@@ -77,6 +79,8 @@ export interface SpreadsheetEditorState {
 export default function SpreadsheetEditor(props: {
   /** Must keep its identity while the same file is shown. */
   readonly transport: SpreadsheetTransport;
+  /** Names the file. A grid that returns to a file takes up the edits its last one left unsaved. */
+  readonly sessionKey: string;
   readonly name: string;
   readonly readOnly: boolean;
   /** Changes when the workspace may have changed, so the file is checked again. */
@@ -88,17 +92,20 @@ export default function SpreadsheetEditor(props: {
   /** Bars above the grid that act on the whole file. */
   readonly renderHeader?: (state: SpreadsheetEditorState) => ReactNode;
 }) {
-  const { transport, saveDelayMs = 500 } = props;
+  const { transport, sessionKey, saveDelayMs = 500 } = props;
   const [session, setSession] = useState<SpreadsheetSession | null>(null);
   const onPendingChange = useStableCallback(props.onPendingChange);
-  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- the session owns the file's pages, save timer and unsaved edits for this mount, and flushes on the way out
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- the session owns the file's pages, save timer and unsaved edits; it is held for this mount and released on the way out, when it sends what is unsaved
   useEffect(() => {
-    const created = new SpreadsheetSession({ transport, saveDelayMs, onPendingChange });
-    // oxlint-disable-next-line react/set-state-in-effect -- the session is made with the effect that disposes of it, so a remount never reuses a stopped one
-    setSession(created);
-    void created.open();
-    return () => created.dispose();
-  }, [transport, saveDelayMs, onPendingChange]);
+    const acquired = acquireSpreadsheetSession(sessionKey, {
+      transport,
+      saveDelayMs,
+      onPendingChange,
+    });
+    // oxlint-disable-next-line react/set-state-in-effect -- the session is acquired with the effect that releases it, so a remount never uses a stopped one
+    setSession(acquired);
+    return () => acquired.release();
+  }, [transport, sessionKey, saveDelayMs, onPendingChange]);
   if (session === null) return <FileSurfaceLoading />;
   return <SpreadsheetSurface {...props} session={session} />;
 }
@@ -198,6 +205,11 @@ function SpreadsheetSurface(props: {
           That change was not saved. {snapshot.notice}
         </FileSurfaceBar>
       ) : null}
+      {snapshot.sheetProblem !== null ? (
+        <FileSurfaceNotice>
+          This sheet cannot be shown here, so it looks empty. {snapshot.sheetProblem}
+        </FileSurfaceNotice>
+      ) : null}
       <SpreadsheetGrid
         key={snapshot.activeSheet}
         session={session}
@@ -233,7 +245,8 @@ function SpreadsheetGrid(props: {
 }) {
   const { session, snapshot } = props;
   const { selection, rowCount, columnCount, format, date1904 } = snapshot;
-  const editable = !props.readOnly && !snapshot.busy && !snapshot.conflict;
+  const editable =
+    !props.readOnly && !snapshot.busy && !snapshot.conflict && snapshot.sheetProblem === null;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ firstRow: 0, firstColumn: 0, rows: 40, columns: 12 });
   const [editing, setEditingState] = useState<Editing | null>(null);
@@ -460,12 +473,18 @@ function SpreadsheetGrid(props: {
   const paste = (event: ClipboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || !editable) return;
     event.preventDefault();
-    const targets = pasteTargets(
+    const { targets, dropped } = pasteTargets(
       clipboardTextToRows(event.clipboardData.getData("text/plain")),
       area,
-      bounds,
     );
     if (targets.length > MAX_BULK_CELLS) return tooMany();
+    if (dropped > 0) {
+      toastManager.add({
+        type: "warning",
+        title: "Not everything fitted",
+        description: `${dropped.toLocaleString()} pasted cells fell past the last row or column and were left out.`,
+      });
+    }
     if (targets.length === 0) return;
     session.setCells(
       targets.map(({ row, column, text }) => ({
@@ -738,6 +757,8 @@ function SpreadsheetGrid(props: {
         ref={scrollerRef}
         role="grid"
         tabIndex={0}
+        // A grid that cannot be edited leaves typing to the composer, as any other view does.
+        {...(props.readOnly ? {} : KEYBOARD_GRID_PROPS)}
         aria-label={`${props.name}: ${sheet}`}
         aria-rowcount={rowCount}
         aria-colcount={columnCount}
@@ -838,7 +859,8 @@ function SheetTabs(props: {
   readonly readOnly: boolean;
 }) {
   const { session, snapshot } = props;
-  const editable = !props.readOnly && !snapshot.busy && !snapshot.conflict;
+  const editable =
+    !props.readOnly && !snapshot.busy && !snapshot.conflict && snapshot.sheetProblem === null;
   const [renaming, setRenaming] = useState<string | null>(null);
   const sheets = snapshot.sheets.filter((sheet) => sheet.hidden !== true);
   const active = snapshot.activeSheet;

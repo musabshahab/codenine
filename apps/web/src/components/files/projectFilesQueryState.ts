@@ -185,6 +185,21 @@ export function reloadProjectFileQueryData(
   appAtomRegistry.refresh(getProjectFileQueryAtom(environmentId, cwd, relativePath));
 }
 
+/**
+ * Another surface wrote the file. The text editor's copy is read again, unless it holds an
+ * unsaved draft: that is kept and marked as in conflict, for the user to settle there.
+ */
+export function refreshProjectFileAfterOutsideWrite(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+  version: string | undefined,
+): void {
+  if (getUnsavedProjectFileQueryData(environmentId, cwd, relativePath) === null) {
+    reloadProjectFileQueryData(environmentId, cwd, relativePath);
+  } else markProjectFileConflict(environmentId, cwd, relativePath, version);
+}
+
 export function getOptimisticProjectFileQueryData(
   environmentId: EnvironmentId,
   cwd: string,

@@ -153,6 +153,19 @@ function readReference(
   return { length: match[0].length, start, end };
 }
 
+/** A sheet of this workbook that a formula names in a way that is not followed. */
+export interface UnfollowedSheet {
+  readonly sheet: string;
+  /** The last sheet of a reference across several sheets; null for a name such as `Data!Rate`. */
+  readonly through: string | null;
+}
+
+interface ReplacedFormula {
+  readonly formula: string;
+  readonly opaque: boolean;
+  readonly unfollowed: ReadonlyArray<UnfollowedSheet>;
+}
+
 /**
  * Replaces each cell reference in a formula with what `replace` returns and leaves the rest as
  * written. References into another workbook or across several sheets are reported as `opaque`
@@ -161,9 +174,10 @@ function readReference(
 export function replaceFormulaReferences(
   formula: string,
   replace: (reference: FormulaReference, written: string) => string,
-): { readonly formula: string; readonly opaque: boolean } {
+): ReplacedFormula {
   let output = "";
   let opaque = false;
+  const unfollowed: Array<UnfollowedSheet> = [];
   let index = 0;
   const emit = (sheet: string | null, prefixText: string, foreign: boolean) => {
     const reference = readReference(formula, index);
@@ -202,10 +216,15 @@ export function replaceFormulaReferences(
       const prefixText = formula.slice(index, end + 2);
       if (formula[end + 1] === "!") {
         index = end + 2;
-        const foreign = quoted.startsWith("[") || quoted.includes(":");
-        if (!emit(quoted, prefixText, foreign)) {
+        const external = quoted.startsWith("[");
+        const [first = "", last] = quoted.split(":");
+        const emitted = emit(quoted, prefixText, external || last !== undefined);
+        if (!emitted) {
           opaque = true;
           output += prefixText;
+        }
+        if (!external && (!emitted || last !== undefined)) {
+          unfollowed.push({ sheet: first, through: last ?? null });
         }
       } else {
         output += formula.slice(index, end + 1);
@@ -243,9 +262,13 @@ export function replaceFormulaReferences(
       if (prefix) {
         index += prefix[0].length;
         const foreign = prefix[1] !== undefined || prefix[3] !== undefined;
-        if (!emit(prefix[2]!, prefix[0], foreign)) {
+        const emitted = emit(prefix[2]!, prefix[0], foreign);
+        if (!emitted) {
           opaque = true;
           output += prefix[0];
+        }
+        if (prefix[1] === undefined && (!emitted || prefix[3] !== undefined)) {
+          unfollowed.push({ sheet: prefix[2]!, through: prefix[3]?.slice(1) ?? null });
         }
         continue;
       }
@@ -264,14 +287,14 @@ export function replaceFormulaReferences(
     output += character;
     index += 1;
   }
-  return { formula: output, opaque };
+  return { formula: output, opaque, unfollowed };
 }
 
 /** `replaceFormulaReferences` for a reference that moves, keeps its place or loses its cells. */
 export function mapFormulaReferences(
   formula: string,
   rewrite: (reference: FormulaReference) => ReferenceRewrite,
-): { readonly formula: string; readonly opaque: boolean } {
+): ReplacedFormula {
   return replaceFormulaReferences(formula, (reference, written) => {
     const result = rewrite(reference);
     if (result === null) return written;
@@ -284,6 +307,47 @@ export function mapFormulaReferences(
           : written.slice(0, written.lastIndexOf("!") + 1);
     return `${prefix}${pointName(result.start)}${result.end === null ? "" : `:${pointName(result.end)}`}`;
   });
+}
+
+/**
+ * Whether a formula is whole enough to store: its quotes and brackets close, and it neither
+ * starts nor ends with an operator that needs another value. It may still use anything a
+ * spreadsheet app knows that this code does not.
+ */
+export function formulaIsComplete(formula: string): boolean {
+  const closers: Array<string> = [];
+  let first = "";
+  let last = "";
+  for (let index = 0; index < formula.length; index++) {
+    const character = formula[index]!;
+    if (closers.at(-1) === "]") {
+      // Inside a table reference an apostrophe keeps the next character as it is.
+      if (character === "'") index += 1;
+      else if (character === "[") closers.push("]");
+      else if (character === "]") closers.pop();
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      let end = index + 1;
+      while (
+        end < formula.length &&
+        (formula[end] !== character || formula[end + 1] === character)
+      ) {
+        end += formula[end] === character ? 2 : 1;
+      }
+      if (end >= formula.length) return false;
+      index = end;
+    } else if (character === "(") closers.push(")");
+    else if (character === "{") closers.push("}");
+    else if (character === "[") closers.push("]");
+    else if (character === ")" || character === "}" || character === "]") {
+      if (closers.pop() !== character) return false;
+    }
+    if (/\s/.test(character)) continue;
+    if (first === "") first = character;
+    last = character;
+  }
+  return closers.length === 0 && !/[*/^&=<>,)%]/.test(first) && !/[-+*/^&=<>,(]/.test(last);
 }
 
 /** The references a formula makes, with whether it also reads something that cannot be followed. */

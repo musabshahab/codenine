@@ -1,3 +1,14 @@
+/**
+ * Marks a grid that takes typing, paste and editing keys itself, as a text field does, so the
+ * composer and the app's shortcuts leave them to it.
+ */
+export const KEYBOARD_GRID_SELECTOR = "[data-keyboard-grid]";
+export const KEYBOARD_GRID_PROPS = { "data-keyboard-grid": "" } as const;
+
+export function isInKeyboardGrid(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(KEYBOARD_GRID_SELECTOR) !== null;
+}
+
 const EDITABLE_SELECTOR = [
   "input",
   "textarea",
@@ -6,6 +17,7 @@ const EDITABLE_SELECTOR = [
   '[contenteditable="true"]',
   '[contenteditable="plaintext-only"]',
   '[role="textbox"]',
+  KEYBOARD_GRID_SELECTOR,
 ].join(",");
 
 /** Includes focused descendants of open shadow roots, whose key events target the host. */

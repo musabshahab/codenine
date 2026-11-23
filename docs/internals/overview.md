@@ -113,7 +113,7 @@ and pivot tables. The price is that an operation must itself move every referenc
 invalidates, so one that would leave a part pointing at the wrong cells is refused with a typed
 error instead of applied. A formula result the built-in evaluator cannot produce is cleared,
 never left stale, and the workbook is marked for a full recalculation on its next open in a
-spreadsheet app. Parsing runs on the server's own thread, which is why the size limits are low.
+spreadsheet app; results an edit does not reach are kept, since other readers have only them. Parsing runs on the server's own thread, which is why the size limits are low.
 
 Thread settlement is server-owned. The
 [settlement service](../../apps/server/src/orchestration-v2/ThreadSettlementService.ts) evaluates PR

@@ -24,6 +24,7 @@ const LIMITS: SpreadsheetLimits = {
   maxUnpackedBytes: 4 * 1024 * 1024,
   maxCells: 10_000,
   maxFormatCells: 1000,
+  maxRecalculationSteps: 3_000_000,
 };
 
 const layerWith = (limits: Partial<SpreadsheetLimits> = {}) =>
@@ -86,6 +87,30 @@ const zipOf = (parts: Record<string, string>) => {
   const zip = new JSZip();
   for (const [path, text] of Object.entries(parts)) zip.file(path, text);
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+};
+
+const sheetXml = (rows: string, around: { before?: string; after?: string } = {}) =>
+  `${XML}<worksheet xmlns="${MAIN}">${around.before ?? ""}<sheetData>${rows}</sheetData>${around.after ?? ""}</worksheet>`;
+
+const rowsXml = (count: number, cells: (row: number) => string) =>
+  Array.from(
+    { length: count },
+    (_, index) => `<row r="${index + 1}">${cells(index + 1)}</row>`,
+  ).join("");
+
+/** A workbook of the given sheets, each stored as the numbered part it names. */
+const bookOf = (sheets: ReadonlyArray<{ name: string; xml: string; part?: number }>) => {
+  const part = (index: number) => sheets[index]!.part ?? index + 1;
+  return zipOf({
+    "[Content_Types].xml": `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${part(index)}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}</Types>`,
+    "_rels/.rels": workbookParts()["_rels/.rels"]!,
+    "xl/workbook.xml": `${XML}<workbook xmlns="${MAIN}" xmlns:r="${RELATIONSHIPS}"><sheets>${sheets.map((sheet, index) => `<sheet name="${sheet.name.replaceAll("'", "&apos;")}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")}</sheets></workbook>`,
+    "xl/_rels/workbook.xml.rels": `${XML}<Relationships xmlns="${PACKAGE_RELATIONSHIPS}">${sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="${RELATIONSHIPS}/worksheet" Target="worksheets/sheet${part(index)}.xml"/>`).join("")}<Relationship Id="rId90" Type="${RELATIONSHIPS}/styles" Target="styles.xml"/></Relationships>`,
+    "xl/styles.xml": STYLES,
+    ...Object.fromEntries(
+      sheets.map((sheet, index) => [`xl/worksheets/sheet${part(index)}.xml`, sheet.xml]),
+    ),
+  });
 };
 
 const makeWorkspace = Effect.fn("DocumentsTest.makeWorkspace")(function* () {
@@ -277,6 +302,124 @@ describe("Documents spreadsheets", () => {
       }),
     );
 
+    it.effect("recalculates only what an edit reaches, however long the chain", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeWorkspace();
+        const rows = 2000;
+        // Each row's share of a total, and a running balance read from a cell above it.
+        const shares = sheetXml(
+          rowsXml(
+            rows,
+            (row) =>
+              `<c r="A${row}"><v>1</v></c><c r="B${row}"><f>A${row}/SUM($A$1:$A$${rows})</f><v>${1 / rows}</v></c><c r="C${row}"><f>${row === 1 ? "A1" : `C${row - 1}+A${row}`}</f><v>${row}</v></c>${row === 1 ? `<c r="E1"><f>C${rows}</f><v>${rows}</v></c><c r="F1"><f>MAX(C1:C${rows})</f><v>${rows}</v></c>` : ""}`,
+          ),
+        );
+        const other = sheetXml(
+          '<row r="1"><c r="A1"><v>5</v></c><c r="C1"><f>A1*2</f><v>10</v></c><c r="D1"><f>VLOOKUP(1,A1:A1,1)</f><v>77</v></c></row>',
+        );
+        yield* workspace.write(
+          "big.xlsx",
+          yield* Effect.promise(() =>
+            bookOf([
+              { name: "S", xml: shares },
+              { name: "O", xml: other },
+            ]),
+          ),
+        );
+        // An edit nothing reads leaves every stored result, including ones not calculated here.
+        yield* workspace.edit("big.xlsx", [setCell("O", "F6", { kind: "number", number: 1 })]);
+        expect((yield* workspace.cells("big.xlsx", "O")).byName).toMatchObject({
+          C1: { value: 10 },
+          D1: { value: 77 },
+        });
+        expect((yield* workspace.cells("big.xlsx", "S")).byName.B7?.value).toBe(1 / rows);
+        // An edit at the top of the chain reaches the balance through every row.
+        yield* workspace.edit("big.xlsx", [setCell("S", "A2", { kind: "number", number: 11 })]);
+        const shared = (yield* workspace.cells("big.xlsx", "S")).byName;
+        expect(shared.E1?.value).toBe(rows + 10);
+        expect(shared.F1?.value).toBe(rows + 10);
+        expect(shared.B2?.value).toBe(Number((11 / (rows + 10)).toPrecision(15)));
+        expect((yield* workspace.cells("big.xlsx", "O")).byName.D1?.value).toBe(77);
+      }),
+    );
+
+    it.effect("moves rules and copied formulas in other sheets with the cells they read", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeWorkspace();
+        const lists = sheetXml(rowsXml(8, (row) => `<c r="A${row}"><v>${row}</v></c>`));
+        const form = sheetXml(
+          `<row r="1"><c r="A1"><f t="shared" ref="A1:A3" si="0">'Bob''s'!A5</f><v>5</v></c></row><row r="2"><c r="A2"><f t="shared" si="0"/><v>6</v></c></row><row r="3"><c r="A3"><f t="shared" si="0"/><v>7</v></c></row>`,
+          {
+            before: '<cols><col min="4" max="16384" width="0" hidden="1" style="2"/></cols>',
+            after: `<conditionalFormatting sqref="B1"><cfRule type="expression" priority="1"><formula>B1='Bob''s'!$A$2</formula></cfRule></conditionalFormatting><dataValidations count="1"><dataValidation type="list" sqref="C1"><formula1>'Bob''s'!$A$2:$A$4</formula1></dataValidation></dataValidations>`,
+          },
+        );
+        const book = () =>
+          bookOf([
+            { name: "Bob's", xml: lists },
+            { name: "Form", xml: form },
+            {
+              name: "Sums",
+              xml: sheetXml('<row r="1"><c r="A1"><f>SUM(Form:Sums!B9)</f></c></row>'),
+            },
+          ]);
+        yield* workspace.write("lists.xlsx", yield* Effect.promise(book));
+        yield* workspace.edit("lists.xlsx", [
+          { type: "insertRows", sheet: "Bob's", index: 5, count: 1 },
+          { type: "insertRows", sheet: "Bob's", index: 0, count: 2 },
+          { type: "renameSheet", sheet: "Bob's", name: "Lists" },
+        ]);
+        const cells = (yield* workspace.cells("lists.xlsx", "Form")).byName;
+        expect([cells.A1, cells.A2, cells.A3].map((cell) => [cell?.formula, cell?.value])).toEqual([
+          ["Lists!A7", 5],
+          ["Lists!A9", 6],
+          ["Lists!A10", 7],
+        ]);
+        const sheet = yield* (yield* workspace.parts("lists.xlsx")).text(
+          "xl/worksheets/sheet2.xml",
+        );
+        expect(sheet).toContain("<formula1>Lists!$A$4:$A$6</formula1>");
+        expect(sheet).toContain("<formula>B1=Lists!$A$4</formula>");
+
+        // A new cell takes its column's style, and columns pushed past the edge keep theirs.
+        yield* workspace.edit("lists.xlsx", [setCell("Form", "D5", { kind: "number", number: 2 })]);
+        const styled = yield* workspace.cells("lists.xlsx", "Form");
+        expect(styled.formats[styled.byName.D5!.format!]).toEqual({ numberFormat: '0.0" kg"' });
+        yield* workspace.write(
+          "hidden.xlsx",
+          yield* Effect.promise(() =>
+            bookOf([
+              {
+                name: "Form",
+                xml: sheetXml("", {
+                  before: '<cols><col min="4" max="16384" width="0" hidden="1"/></cols>',
+                }),
+              },
+            ]),
+          ),
+        );
+        yield* workspace.edit("hidden.xlsx", [
+          { type: "insertColumns", sheet: "Form", index: 0, count: 1 },
+        ]);
+        expect(
+          yield* (yield* workspace.parts("hidden.xlsx")).text("xl/worksheets/sheet1.xml"),
+        ).toContain('<col min="5" max="16384" width="0" hidden="1"/>');
+
+        // A reference across several sheets cannot be followed, so what would break it is refused.
+        yield* workspace.write("lists.xlsx", yield* Effect.promise(book));
+        for (const operation of [
+          { type: "renameSheet", sheet: "Form", name: "Entry" },
+          { type: "deleteSheet", sheet: "Form" },
+          { type: "insertRows", sheet: "Form", index: 0, count: 1 },
+        ] satisfies ReadonlyArray<SpreadsheetOperation>) {
+          expect(yield* workspace.edit("lists.xlsx", [operation]).pipe(Effect.flip)).toMatchObject({
+            _tag: "SpreadsheetUnsupportedError",
+            feature: operation.type === "insertRows" ? "sheet-objects" : "sheet-references",
+          });
+        }
+      }),
+    );
+
     it.effect("adds, renames and deletes sheets", () =>
       Effect.gen(function* () {
         const workspace = yield* makeWorkspace();
@@ -305,6 +448,16 @@ describe("Documents spreadsheets", () => {
           "<c:f>'Raw data'!$B$2:$B$4</c:f>",
         );
         expect(yield* written.text("[Content_Types].xml")).toContain("/xl/worksheets/sheet4.xml");
+
+        // Two sheets added at once, after the delete left a gap in the part numbers, stay apart.
+        yield* workspace.edit("book.xlsx", [
+          { type: "addSheet", name: "X" },
+          { type: "addSheet", name: "Y" },
+          setCell("X", "A1", { kind: "text", text: "in X" }),
+          setCell("Y", "A1", { kind: "text", text: "in Y" }),
+        ]);
+        expect((yield* workspace.cells("book.xlsx", "X")).byName.A1?.value).toBe("in X");
+        expect((yield* workspace.cells("book.xlsx", "Y")).byName.A1?.value).toBe("in Y");
       }),
     );
 
@@ -333,7 +486,22 @@ describe("Documents spreadsheets", () => {
             setCell("Data", "B2", { kind: "number", number: 99 }),
             setCell("Gone", "A1", { kind: "number", number: 1 }),
           ]),
-        ).toMatchObject({ _tag: "SpreadsheetOperationError", reason: "unknown-sheet" });
+        ).toMatchObject({
+          _tag: "SpreadsheetOperationError",
+          reason: "unknown-sheet",
+          // Names the operation at fault, so the caller can save the others.
+          operationIndex: 1,
+        });
+        // A formula that is cut short would be stored as damaged content.
+        for (const formula of ["SUM(B2", "1+", '"open', "==1"]) {
+          expect(
+            yield* refused([setCell("Data", "D9", { kind: "formula", formula })]),
+          ).toMatchObject({
+            _tag: "SpreadsheetOperationError",
+            reason: "formula-invalid",
+            operationIndex: 0,
+          });
+        }
         expect(
           Buffer.from(yield* workspace.readBytes("book.xlsx")).equals(Buffer.from(original)),
         ).toBe(true);
@@ -385,45 +553,83 @@ describe("Documents spreadsheets", () => {
     );
   });
 
-  it.layer(layerWith({ maxFileBytes: 64 * 1024, maxUnpackedBytes: 64 * 1024, maxCells: 12 }))(
-    "limits",
-    (it) => {
-      it.effect("answers that a file, its contents or a format range is too large", () =>
-        Effect.gen(function* () {
-          const workspace = yield* makeWorkspace();
-          yield* workspace.write("big.csv", "x,".repeat(40_000));
-          expect(
-            yield* workspace.documents
-              .openSpreadsheet({ cwd: workspace.cwd, relativePath: "big.csv" })
-              .pipe(Effect.flip),
-          ).toMatchObject({ _tag: "SpreadsheetTooLargeError", limit: "file-size" });
-          yield* workspace.write("wide.csv", "1,2,3,4,5,6,7\n1,2,3,4,5,6,7\n");
-          expect(
-            yield* workspace.documents
-              .openSpreadsheet({ cwd: workspace.cwd, relativePath: "wide.csv" })
-              .pipe(Effect.flip),
-          ).toMatchObject({ _tag: "SpreadsheetTooLargeError", limit: "cell-count" });
-          // The archive is small; what it unpacks to is not.
-          yield* workspace.write(
-            "bomb.xlsx",
-            yield* Effect.promise(() =>
-              zipOf({
-                ...workbookParts(),
-                "xl/worksheets/sheet1.xml": DATA_SHEET.replace(
-                  "</worksheet>",
-                  `${"<!-- padding -->".repeat(400_000)}</worksheet>`,
+  it.layer(
+    layerWith({
+      maxFileBytes: 64 * 1024,
+      maxUnpackedBytes: 64 * 1024,
+      maxCells: 12,
+      maxRecalculationSteps: 5,
+    }),
+  )("limits", (it) => {
+    it.effect("answers that a file, its contents or a format range is too large", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeWorkspace();
+        yield* workspace.write("big.csv", "x,".repeat(40_000));
+        expect(
+          yield* workspace.documents
+            .openSpreadsheet({ cwd: workspace.cwd, relativePath: "big.csv" })
+            .pipe(Effect.flip),
+        ).toMatchObject({ _tag: "SpreadsheetTooLargeError", limit: "file-size" });
+        yield* workspace.write("wide.csv", "1,2,3,4,5,6,7\n1,2,3,4,5,6,7\n");
+        expect(
+          yield* workspace.documents
+            .openSpreadsheet({ cwd: workspace.cwd, relativePath: "wide.csv" })
+            .pipe(Effect.flip),
+        ).toMatchObject({ _tag: "SpreadsheetTooLargeError", limit: "cell-count" });
+        // The archive is small; what it unpacks to is not.
+        yield* workspace.write(
+          "bomb.xlsx",
+          yield* Effect.promise(() =>
+            zipOf({
+              ...workbookParts(),
+              "xl/worksheets/sheet1.xml": DATA_SHEET.replace(
+                "</worksheet>",
+                `${"<!-- padding -->".repeat(400_000)}</worksheet>`,
+              ),
+            }),
+          ),
+        );
+        expect(yield* workspace.cells("bomb.xlsx", "Data").pipe(Effect.flip)).toMatchObject({
+          _tag: "SpreadsheetTooLargeError",
+          limit: "unpacked-size",
+        });
+        // A sheet that is too large does not count against the sheets that can still be read.
+        yield* workspace.write(
+          "sheets.xlsx",
+          yield* Effect.promise(() =>
+            bookOf([
+              { name: "Big", xml: sheetXml(rowsXml(20, (row) => `<c r="A${row}"><v>1</v></c>`)) },
+              { name: "Tail", xml: sheetXml('<row r="1"><c r="A1"><v>3</v></c></row>') },
+            ]),
+          ),
+        );
+        expect(yield* workspace.cells("sheets.xlsx", "Big").pipe(Effect.flip)).toMatchObject({
+          _tag: "SpreadsheetTooLargeError",
+          limit: "cell-count",
+        });
+        expect((yield* workspace.cells("sheets.xlsx", "Tail")).byName.A1?.value).toBe(3);
+        // A recalculation that runs out of steps drops the results the edit reached and it
+        // could not work out, and keeps the ones the edit cannot have changed.
+        yield* workspace.write(
+          "sums.xlsx",
+          yield* Effect.promise(() =>
+            bookOf([
+              {
+                name: "S",
+                xml: sheetXml(
+                  `${rowsXml(6, (row) => `<c r="A${row}"><v>1</v></c>${row === 1 ? '<c r="B1"><f>SUM(A1:A6)</f><v>6</v></c><c r="C1"><f>D1*2</f><v>8</v></c><c r="D1"><v>4</v></c>' : ""}`)}`,
                 ),
-              }),
-            ),
-          );
-          expect(yield* workspace.cells("bomb.xlsx", "Data").pipe(Effect.flip)).toMatchObject({
-            _tag: "SpreadsheetTooLargeError",
-            limit: "unpacked-size",
-          });
-        }),
-      );
-    },
-  );
+              },
+            ]),
+          ),
+        );
+        yield* workspace.edit("sums.xlsx", [setCell("S", "A2", { kind: "number", number: 5 })]);
+        const sums = (yield* workspace.cells("sums.xlsx", "S")).byName;
+        expect(sums.B1).toEqual({ row: 0, column: 1, formula: "SUM(A1:A6)" });
+        expect(sums.C1).toMatchObject({ formula: "D1*2", value: 8 });
+      }),
+    );
+  });
 
   it.layer(layerWith())("delimited files", (it) => {
     it.effect.each([
@@ -448,6 +654,16 @@ describe("Documents spreadsheets", () => {
         ] satisfies ReadonlyArray<SpreadsheetOperation>,
         after: "a\t1.5\n\nc\n=A1+1\n",
         read: { A1: "a", B1: "1.5", A4: "=A1+1" },
+      },
+      {
+        name: "adds no lines for rows inserted below the last one",
+        file: "short.csv",
+        before: "a,b\nc,d\n",
+        operations: [
+          { type: "insertRows", sheet: "Sheet1", index: 6, count: 2 },
+        ] satisfies ReadonlyArray<SpreadsheetOperation>,
+        after: "a,b\nc,d\n",
+        read: { A2: "c" },
       },
     ])("$name", ({ file, before, operations, after, read }) =>
       Effect.gen(function* () {

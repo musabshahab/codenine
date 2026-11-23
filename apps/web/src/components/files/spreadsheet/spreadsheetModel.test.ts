@@ -11,6 +11,8 @@ import {
   clipboardTextToRows,
   columnLabel,
   EMPTY_HISTORY,
+  MAX_GRID_COLUMNS,
+  MAX_GRID_ROWS,
   moveSelection,
   parseCellInput,
   pasteTargets,
@@ -185,29 +187,37 @@ describe("clipboard", () => {
     expect(clipboardTextToRows('5" pipe\tx')).toEqual([['5" pipe', "x"]]);
   });
 
-  it("pastes from the selection's corner, fills a selection with one cell, and stops at the edge", () => {
+  it("pastes from the selection's corner, fills a selection with one cell, and stops only at the sheet's edge", () => {
     const area = { top: 8, left: 3, bottom: 9, right: 4 };
-    expect(pasteTargets([["x"]], area, BOUNDS).map(({ row, column }) => [row, column])).toEqual([
+    expect(pasteTargets([["x"]], area).targets.map(({ row, column }) => [row, column])).toEqual([
       [8, 3],
       [8, 4],
       [9, 3],
       [9, 4],
     ]);
+    // Rows and columns the grid has not laid out yet still take what is pasted.
+    const tall = pasteTargets(
+      Array.from({ length: 300 }, (_, row) => [`r${row}`, "b"]),
+      { top: 0, left: 30, bottom: 0, right: 30 },
+    );
+    expect(tall.targets).toHaveLength(600);
+    expect(tall.targets.at(-1)).toEqual({ row: 299, column: 31, text: "b" });
+    expect(tall.dropped).toBe(0);
+    const last = { top: MAX_GRID_ROWS - 1, left: MAX_GRID_COLUMNS - 2, bottom: 0, right: 0 };
     expect(
       pasteTargets(
         [
           ["a", "b", "c"],
           ["d", "e", "f"],
-          ["g", "h", "i"],
         ],
-        area,
-        BOUNDS,
+        last,
       ),
-    ).toEqual([
-      { row: 8, column: 3, text: "a" },
-      { row: 8, column: 4, text: "b" },
-      { row: 9, column: 3, text: "d" },
-      { row: 9, column: 4, text: "e" },
-    ]);
+    ).toEqual({
+      targets: [
+        { row: MAX_GRID_ROWS - 1, column: MAX_GRID_COLUMNS - 2, text: "a" },
+        { row: MAX_GRID_ROWS - 1, column: MAX_GRID_COLUMNS - 1, text: "b" },
+      ],
+      dropped: 4,
+    });
   });
 });

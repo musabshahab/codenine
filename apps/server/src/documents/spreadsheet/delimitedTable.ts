@@ -7,6 +7,7 @@ import type {
 import {
   type SpreadsheetLimits,
   type SpreadsheetModel,
+  atOperation,
   invalidOperation,
   tooLarge,
   unsupported,
@@ -176,49 +177,58 @@ export class DelimitedTable implements SpreadsheetModel {
   }
 
   async apply(operations: ReadonlyArray<SpreadsheetOperation>): Promise<void> {
-    for (const operation of operations) {
-      switch (operation.type) {
-        case "setCell":
-          this.assertSheet(operation.sheet);
-          this.setCell(operation.row, operation.column, inputText(operation.input));
-          break;
-        case "insertRows":
-          this.assertSheet(operation.sheet);
-          if (Math.max(this.records.length, operation.index) + operation.count > MAX_ROWS) {
-            throw invalidOperation("out-of-bounds");
-          }
-          this.padRows(operation.index);
-          this.records.splice(
-            operation.index,
-            0,
-            ...Array.from({ length: operation.count }, () => this.emptyRecord()),
-          );
-          break;
-        case "deleteRows":
-          this.assertSheet(operation.sheet);
-          this.records.splice(operation.index, operation.count);
-          break;
-        case "insertColumns":
-        case "deleteColumns":
-          this.assertSheet(operation.sheet);
-          if (operation.index + operation.count > MAX_COLUMNS) {
-            throw invalidOperation("out-of-bounds");
-          }
-          for (const record of this.records) {
-            if (record.fields.length <= operation.index) continue;
-            if (operation.type === "insertColumns") {
-              record.fields.splice(operation.index, 0, ...Array<string>(operation.count).fill(""));
-            } else record.fields.splice(operation.index, operation.count);
-            record.raw = null;
-          }
-          break;
-        case "setFormat":
-          throw unsupported("delimited-formats");
-        case "addSheet":
-        case "renameSheet":
-        case "deleteSheet":
-          throw unsupported("delimited-sheets");
+    for (const [index, operation] of operations.entries()) {
+      try {
+        this.applyOne(operation);
+      } catch (cause) {
+        throw atOperation(cause, index);
       }
+    }
+  }
+
+  private applyOne(operation: SpreadsheetOperation) {
+    switch (operation.type) {
+      case "setCell":
+        this.assertSheet(operation.sheet);
+        this.setCell(operation.row, operation.column, inputText(operation.input));
+        break;
+      case "insertRows":
+        this.assertSheet(operation.sheet);
+        if (Math.max(this.records.length, operation.index) + operation.count > MAX_ROWS) {
+          throw invalidOperation("out-of-bounds");
+        }
+        // Rows below the last record hold nothing, so there is nothing to move down.
+        if (operation.index >= this.records.length) break;
+        this.records.splice(
+          operation.index,
+          0,
+          ...Array.from({ length: operation.count }, () => this.emptyRecord()),
+        );
+        break;
+      case "deleteRows":
+        this.assertSheet(operation.sheet);
+        this.records.splice(operation.index, operation.count);
+        break;
+      case "insertColumns":
+      case "deleteColumns":
+        this.assertSheet(operation.sheet);
+        if (operation.index + operation.count > MAX_COLUMNS) {
+          throw invalidOperation("out-of-bounds");
+        }
+        for (const record of this.records) {
+          if (record.fields.length <= operation.index) continue;
+          if (operation.type === "insertColumns") {
+            record.fields.splice(operation.index, 0, ...Array<string>(operation.count).fill(""));
+          } else record.fields.splice(operation.index, operation.count);
+          record.raw = null;
+        }
+        break;
+      case "setFormat":
+        throw unsupported("delimited-formats");
+      case "addSheet":
+      case "renameSheet":
+      case "deleteSheet":
+        throw unsupported("delimited-sheets");
     }
   }
 

@@ -1,3 +1,4 @@
+import { KEYBOARD_GRID_SELECTOR } from "~/lib/editableFocus";
 import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 
 export const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
@@ -7,6 +8,7 @@ export const TYPE_TO_FOCUS_EDITABLE_SELECTOR = [
   '[contenteditable="true"]',
   '[contenteditable="plaintext-only"]',
   '[role="textbox"]',
+  KEYBOARD_GRID_SELECTOR,
 ].join(",");
 const TYPE_TO_FOCUS_INTERACTIVE_SELECTOR = [
   "button",

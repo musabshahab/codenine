@@ -11,7 +11,7 @@ import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { FileSurfaceBar } from "../fileSurfaceChrome";
-import { reloadProjectFileQueryData } from "../projectFilesQueryState";
+import { refreshProjectFileAfterOutsideWrite } from "../projectFilesQueryState";
 import SpreadsheetEditor, { type SpreadsheetEditorState } from "./SpreadsheetEditor";
 import type { SpreadsheetTransport } from "./spreadsheetSession";
 import { workspaceSpreadsheetTransport } from "./workspaceSpreadsheetTransport";
@@ -49,7 +49,14 @@ export default function WorkspaceSpreadsheet(props: {
       ...base,
       edit: async (operations, expectedVersion) => {
         const result = await base.edit(operations, expectedVersion);
-        if (result.ok) reloadProjectFileQueryData(environmentId, cwd, relativePath);
+        if (result.ok) {
+          refreshProjectFileAfterOutsideWrite(
+            environmentId,
+            cwd,
+            relativePath,
+            result.value.version,
+          );
+        }
         return result;
       },
     };
@@ -61,6 +68,7 @@ export default function WorkspaceSpreadsheet(props: {
   return (
     <SpreadsheetEditor
       transport={transport}
+      sessionKey={`${environmentId}\u0000${cwd}\u0000${relativePath}`}
       name={relativePath.split(/[\\/]/).at(-1) ?? relativePath}
       readOnly={props.readOnly}
       refreshKey={props.refreshKey}

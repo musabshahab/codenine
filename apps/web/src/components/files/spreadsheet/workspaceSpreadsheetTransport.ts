@@ -28,11 +28,17 @@ function settle<A>(result: AtomCommandResult<A, unknown>): SpreadsheetResult<A> 
   if (result._tag === "Success") return { ok: true, value: result.value };
   const failure = squashAtomCommandFailure(result);
   if (isConflict(failure)) return { ok: false, failure: { kind: "conflict" } };
-  if (isTooLarge(failure) || isUnsupported(failure)) {
-    return { ok: false, failure: { kind: "refused", message: failure.message, fallback: true } };
-  }
-  if (isOperationError(failure)) {
-    return { ok: false, failure: { kind: "refused", message: failure.message, fallback: false } };
+  if (isTooLarge(failure) || isUnsupported(failure) || isOperationError(failure)) {
+    const { message, operationIndex } = failure;
+    return {
+      ok: false,
+      failure: {
+        kind: "refused",
+        message,
+        fallback: !isOperationError(failure),
+        ...(operationIndex === undefined ? {} : { operationIndex }),
+      },
+    };
   }
   return {
     ok: false,

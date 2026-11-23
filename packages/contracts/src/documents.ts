@@ -11,6 +11,8 @@ const SPREADSHEET_EDIT_MAX_OPERATIONS = 20_000;
 const SpreadsheetPath = TrimmedNonEmptyString.check(
   Schema.isMaxLength(SPREADSHEET_PATH_MAX_LENGTH),
 );
+// The operation of an edit that was refused, so the caller can save the others without it.
+const RefusedOperation = { operationIndex: Schema.optionalKey(NonNegativeInt) };
 const SheetName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255));
 const CellText = Schema.String.check(Schema.isMaxLength(32_767));
 
@@ -158,6 +160,7 @@ export class SpreadsheetTooLargeError extends Schema.TaggedError<SpreadsheetTooL
   {
     relativePath: Schema.String,
     limit: Schema.Literals(["file-size", "unpacked-size", "cell-count", "range-size"]),
+    ...RefusedOperation,
   },
 ) {
   override get message(): string {
@@ -191,8 +194,10 @@ export class SpreadsheetUnsupportedError extends Schema.TaggedError<SpreadsheetU
       "array-formula",
       "sheet-objects",
       "pivot-tables",
+      "sheet-references",
       "last-sheet",
     ]),
+    ...RefusedOperation,
   },
 ) {
   override get message(): string {
@@ -213,6 +218,8 @@ export class SpreadsheetUnsupportedError extends Schema.TaggedError<SpreadsheetU
         return "This sheet holds tables, charts, filters, comments or rules that this change would damage. Make the change in a spreadsheet app.";
       case "pivot-tables":
         return "A pivot table reads from this sheet, and this change would break it. Make the change in a spreadsheet app.";
+      case "sheet-references":
+        return "Formulas or names in this workbook refer to this sheet in a way this change would break. Make the change in a spreadsheet app.";
       case "last-sheet":
         return "A workbook needs at least one visible sheet.";
     }
@@ -230,7 +237,9 @@ export class SpreadsheetOperationError extends Schema.TaggedError<SpreadsheetOpe
       "sheet-name-invalid",
       "out-of-bounds",
       "format-invalid",
+      "formula-invalid",
     ]),
+    ...RefusedOperation,
   },
 ) {
   override get message(): string {
@@ -245,6 +254,8 @@ export class SpreadsheetOperationError extends Schema.TaggedError<SpreadsheetOpe
         return "That is outside the rows and columns a sheet can hold.";
       case "format-invalid":
         return "That format cannot be used.";
+      case "formula-invalid":
+        return "That formula is not complete. Check its brackets and quotes.";
     }
   }
 }

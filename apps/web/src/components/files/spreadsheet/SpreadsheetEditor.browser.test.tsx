@@ -4,6 +4,10 @@ import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
+import { shouldTypeToFocusComposer } from "~/components/chat/composerFocusRedirect";
+import { shouldRefocusComposerOnWindowFocus } from "~/components/ChatView.logic";
+import { isEditableFocused, isInKeyboardGrid } from "~/lib/editableFocus";
+
 import { render } from "../../../../test/render";
 import SpreadsheetEditor from "./SpreadsheetEditor";
 import type { SpreadsheetResult, SpreadsheetTransport } from "./spreadsheetSession";
@@ -70,6 +74,7 @@ it("saves a typed cell as an operation, undoes it, and stops at a file that chan
     <div style={{ display: "flex", flexDirection: "column", height: 420, width: 640 }}>
       <SpreadsheetEditor
         transport={transport}
+        sessionKey="book.xlsx"
         name="book.xlsx"
         readOnly={false}
         refreshKey={null}
@@ -82,8 +87,19 @@ it("saves a typed cell as an operation, undoes it, and stops at a file that chan
   const cell = (name: string) => screen.container.querySelector(`[data-cell="${name}"]`);
   await vi.waitFor(() => expect(cell("B1")?.textContent).toBe("10"));
 
+  // What the chat's window listeners ask before taking a key, a paste or the focus for the composer.
+  const takenForComposer: Array<boolean> = [];
+  const onKey = (event: KeyboardEvent) => takenForComposer.push(shouldTypeToFocusComposer(event));
+  window.addEventListener("keydown", onKey, true);
+  using _keys = { [Symbol.dispose]: () => window.removeEventListener("keydown", onKey, true) };
+
   await userEvent.click(cell("A1")!);
+  // The selected grid keeps typing, undo, save and the focus on return to the window.
+  expect(isEditableFocused()).toBe(true);
+  expect(isInKeyboardGrid(document.activeElement)).toBe(true);
+  expect(shouldRefocusComposerOnWindowFocus(document.activeElement)).toBe(false);
   await userEvent.keyboard("7{Enter}");
+  expect(takenForComposer).toEqual([false, false]);
   // The edit shows at once, travels as one operation against the version that was read, and
   // the formula's new result comes back from the server.
   await vi.waitFor(() =>

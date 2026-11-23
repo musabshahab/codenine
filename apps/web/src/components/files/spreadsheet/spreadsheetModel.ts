@@ -296,14 +296,18 @@ export function clipboardTextToRows(text: string): Array<Array<string>> {
 
 /**
  * Where pasted rows land. One copied cell fills the whole selection; anything larger is pasted
- * once from the selection's top-left corner. Cells past the grid's edge are dropped.
+ * once from the selection's top-left corner. Only the sheet's own limits stop a paste, not the
+ * part of it the grid has laid out; `dropped` counts the cells past them.
  */
 export function pasteTargets(
   rows: ReadonlyArray<ReadonlyArray<string>>,
   area: GridArea,
-  bounds: { readonly rowCount: number; readonly columnCount: number },
-): Array<CellPosition & { readonly text: string }> {
+): {
+  readonly targets: Array<CellPosition & { readonly text: string }>;
+  readonly dropped: number;
+} {
   const targets: Array<CellPosition & { readonly text: string }> = [];
+  let dropped = 0;
   const single = rows.length === 1 && rows[0]!.length === 1;
   const height = single ? area.bottom - area.top + 1 : rows.length;
   for (let rowOffset = 0; rowOffset < height; rowOffset++) {
@@ -312,9 +316,9 @@ export function pasteTargets(
     for (let columnOffset = 0; columnOffset < width; columnOffset++) {
       const row = area.top + rowOffset;
       const column = area.left + columnOffset;
-      if (row >= bounds.rowCount || column >= bounds.columnCount) continue;
-      targets.push({ row, column, text: single ? source[0]! : source[columnOffset]! });
+      if (row >= MAX_GRID_ROWS || column >= MAX_GRID_COLUMNS) dropped += 1;
+      else targets.push({ row, column, text: single ? source[0]! : source[columnOffset]! });
     }
   }
-  return targets;
+  return { targets, dropped };
 }

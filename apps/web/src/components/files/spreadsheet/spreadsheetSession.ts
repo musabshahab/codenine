@@ -34,7 +34,13 @@ export type SpreadsheetFailure =
   /** The file changed on disk since it was opened. */
   | { readonly kind: "conflict" }
   /** The server understood the request and will not do it; `fallback` when the file cannot be opened here at all. */
-  | { readonly kind: "refused"; readonly message: string; readonly fallback: boolean }
+  | {
+      readonly kind: "refused";
+      readonly message: string;
+      readonly fallback: boolean;
+      /** The one operation of an edit that was refused; absent when the whole request was. */
+      readonly operationIndex?: number;
+    }
   | { readonly kind: "failed"; readonly message: string };
 
 export type SpreadsheetResult<A> =
@@ -82,6 +88,8 @@ export interface SpreadsheetSnapshot {
   readonly conflict: boolean;
   /** A change the server refused, to tell the user about once. */
   readonly notice: string | null;
+  /** Why the active sheet's cells cannot be read, when they cannot. */
+  readonly sheetProblem: string | null;
   /** True while a change that moves cells is being saved, when no other edit can be placed. */
   readonly busy: boolean;
   readonly canUndo: boolean;
@@ -99,6 +107,7 @@ const MIN_COLUMNS = 26;
 const MAX_OPTIMISTIC_FORMAT_CELLS = 5000;
 /** The most operations one save sends, under the server's limit for a request. */
 const MAX_BATCH_OPERATIONS = 10_000;
+const MOVE_NOT_MADE = "Saving failed, so the rows, columns and sheets were left as they were.";
 const ORIGIN: GridSelection = { anchor: { row: 0, column: 0 }, focus: { row: 0, column: 0 } };
 
 interface Page {
@@ -119,6 +128,31 @@ const pageKey = (sheet: string, pageRow: number, pageColumn: number) =>
 const movesCells = (operation: SpreadsheetOperation) =>
   operation.type !== "setCell" && operation.type !== "setFormat";
 
+interface SessionInput {
+  readonly transport: SpreadsheetTransport;
+  readonly saveDelayMs: number;
+  readonly onPendingChange: (pending: boolean) => void;
+}
+
+// Sessions whose grid is gone while edits are still unsaved, by file.
+const parked = new Map<string, SpreadsheetSession>();
+
+/**
+ * The session for a file: the one an earlier grid left holding unsaved edits, or a new one
+ * that opens the file. The caller releases it when its grid goes.
+ */
+export function acquireSpreadsheetSession(key: string, input: SessionInput): SpreadsheetSession {
+  const held = parked.get(key);
+  if (held !== undefined) {
+    parked.delete(key);
+    held.resume(input.onPendingChange);
+    return held;
+  }
+  const session = new SpreadsheetSession({ ...input, key });
+  void session.open();
+  return session;
+}
+
 /**
  * One open spreadsheet: the pages of cells read so far, the user's edits not yet saved, and
  * their undo history. Edits show at once and are sent as operations after a short pause.
@@ -126,7 +160,8 @@ const movesCells = (operation: SpreadsheetOperation) =>
 export class SpreadsheetSession {
   private readonly transport: SpreadsheetTransport;
   private readonly saveDelayMs: number;
-  private readonly onPendingChange: (pending: boolean) => void;
+  private readonly key: string | null;
+  private onPendingChange: (pending: boolean) => void;
   private readonly listeners = new Set<() => void>();
   private snapshot: SpreadsheetSnapshot = {
     status: "loading",
@@ -143,6 +178,7 @@ export class SpreadsheetSession {
     saveState: "saved",
     conflict: false,
     notice: null,
+    sheetProblem: null,
     busy: false,
     canUndo: false,
     canRedo: false,
@@ -152,6 +188,8 @@ export class SpreadsheetSession {
   private readonly loading = new Set<string>();
   private readonly overrides = new Map<string, Map<number, Override>>();
   private readonly usedSizes = new Map<string, { rows: number; columns: number }>();
+  /** Sheets the server refused to read, with why, so they are not asked for again. */
+  private readonly unreadable = new Map<string, string>();
   private pending: Array<SpreadsheetOperation> = [];
   private history: EditHistory = EMPTY_HISTORY;
   private sequence = 0;
@@ -162,16 +200,15 @@ export class SpreadsheetSession {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private visible: GridArea | null = null;
   private reportedPending = false;
+  private released = false;
   private disposed = false;
 
-  constructor(input: {
-    readonly transport: SpreadsheetTransport;
-    readonly saveDelayMs: number;
-    readonly onPendingChange: (pending: boolean) => void;
-  }) {
+  /** Without a key the session ends with its grid, whatever is still unsaved. */
+  constructor(input: SessionInput & { readonly key?: string }) {
     this.transport = input.transport;
     this.saveDelayMs = input.saveDelayMs;
     this.onPendingChange = input.onPendingChange;
+    this.key = input.key ?? null;
   }
 
   readonly subscribe = (listener: () => void) => {
@@ -229,6 +266,7 @@ export class SpreadsheetSession {
     this.visible = area;
     if (this.snapshot.status !== "ready") return;
     const sheet = this.snapshot.activeSheet;
+    if (this.unreadable.has(sheet)) return;
     for (
       let pageRow = Math.floor(area.top / PAGE_ROWS);
       pageRow <= Math.floor(area.bottom / PAGE_ROWS);
@@ -258,7 +296,12 @@ export class SpreadsheetSession {
 
   selectSheet(name: string): void {
     if (name === this.snapshot.activeSheet) return;
-    this.update({ activeSheet: name, selection: ORIGIN, ...this.gridSize(name) });
+    this.update({
+      activeSheet: name,
+      selection: ORIGIN,
+      sheetProblem: this.unreadable.get(name) ?? null,
+      ...this.gridSize(name),
+    });
     this.bump();
   }
 
@@ -308,7 +351,21 @@ export class SpreadsheetSession {
   setFormat(format: Extract<SpreadsheetOperation, { type: "setFormat" }>["format"]): void {
     if (!this.canEdit()) return;
     const sheet = this.snapshot.activeSheet;
-    const area = selectionArea(this.snapshot.selection);
+    const selected = selectionArea(this.snapshot.selection);
+    const used = this.usedSizes.get(sheet) ?? { rows: 0, columns: 0 };
+    // A whole column or row is selected to the grid's edge, past the last cell in use. Only the
+    // part in use is formatted, so the sheet does not grow by empty cells that carry a format.
+    const area = {
+      ...selected,
+      bottom:
+        selected.top === 0 && selected.bottom >= this.snapshot.rowCount - 1
+          ? Math.max(0, used.rows - 1)
+          : selected.bottom,
+      right:
+        selected.left === 0 && selected.right >= this.snapshot.columnCount - 1
+          ? Math.max(0, used.columns - 1)
+          : selected.right,
+    };
     this.sequence += 1;
     if (areaCellCount(area) <= MAX_OPTIMISTIC_FORMAT_CELLS) {
       for (let row = area.top; row <= area.bottom; row++) {
@@ -337,8 +394,9 @@ export class SpreadsheetSession {
   }
 
   /**
-   * A change that moves cells or sheets. It is saved at once, and the edit history ends there:
-   * the cells it names are no longer where it left them.
+   * A change that moves cells or sheets. It is saved at once, after the cell edits made before
+   * it and in a request of its own, and the edit history ends there: the cells it names are no
+   * longer where it left them.
    */
   restructure(operation: SpreadsheetOperation): void {
     if (!this.canEdit()) return;
@@ -358,7 +416,13 @@ export class SpreadsheetSession {
     this.pending = [];
     this.failed = false;
     this.overwrite = false;
-    this.update({ status: "loading", conflict: false, notice: null, busy: false });
+    this.update({
+      status: "loading",
+      conflict: false,
+      notice: null,
+      sheetProblem: null,
+      busy: false,
+    });
     this.reportPending();
     await this.open();
   }
@@ -379,18 +443,44 @@ export class SpreadsheetSession {
     this.update({ notice: null });
   }
 
-  /** Stops the session. Edits still waiting are sent on their way out. */
-  dispose(): void {
+  /**
+   * The grid is gone. Edits still unsaved are sent, and the session lives on until they are
+   * saved; while a save keeps failing or the file is in conflict it waits for the next grid
+   * over the same file, which takes it up with those edits.
+   */
+  release(): void {
+    this.visible = null;
+    this.released = true;
+    if (!this.hasUnsaved()) return this.stop();
+    if (this.key !== null) parked.set(this.key, this);
+    this.failed = false;
+    void this.save();
+  }
+
+  /** A new grid takes up the session an earlier one released. */
+  resume(onPendingChange: (pending: boolean) => void): void {
+    this.released = false;
+    this.onPendingChange = onPendingChange;
+    if (this.reportedPending) onPendingChange(true);
+    if (this.failed) this.retry();
+    void this.checkForChanges();
+  }
+
+  private hasUnsaved() {
+    return this.saving || this.pending.length > 0;
+  }
+
+  private stop() {
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
-    if (this.pending.length > 0 && !this.snapshot.conflict && !this.saving) void this.save();
     this.disposed = true;
-    this.listeners.clear();
+    if (this.key !== null && parked.get(this.key) === this) parked.delete(this.key);
     if (this.reportedPending) this.onPendingChange(false);
   }
 
   private canEdit() {
-    return this.snapshot.status === "ready" && !this.snapshot.busy && !this.snapshot.conflict;
+    const { status, busy, conflict, sheetProblem } = this.snapshot;
+    return status === "ready" && !busy && !conflict && sheetProblem === null;
   }
 
   private adopt(opened: SpreadsheetOpenResult, resetView: boolean) {
@@ -398,6 +488,7 @@ export class SpreadsheetSession {
     this.pages.clear();
     this.overrides.clear();
     this.usedSizes.clear();
+    this.unreadable.clear();
     this.history = EMPTY_HISTORY;
     this.savedSequence = this.sequence;
     const visibleSheets = opened.sheets.filter((sheet) => sheet.hidden !== true);
@@ -411,6 +502,7 @@ export class SpreadsheetSession {
       date1904: opened.date1904,
       sheets: opened.sheets,
       activeSheet,
+      sheetProblem: null,
       selection: resetView || kept === undefined ? ORIGIN : this.snapshot.selection,
       ...this.gridSize(activeSheet),
     });
@@ -449,7 +541,16 @@ export class SpreadsheetSession {
       columnCount: PAGE_COLUMNS,
     });
     this.loading.delete(key);
-    if (this.disposed || !result.ok) return;
+    if (this.disposed) return;
+    if (!result.ok) {
+      // A sheet the server will not read is said to be so, not shown as empty and asked for again.
+      if (result.failure.kind !== "refused") return;
+      this.unreadable.set(sheet, result.failure.message);
+      if (sheet === this.snapshot.activeSheet) {
+        this.update({ sheetProblem: result.failure.message });
+      }
+      return;
+    }
     const range = result.value;
     if (range.version !== this.version) {
       // A page answered before this session's own save landed is read again; any other version
@@ -540,8 +641,14 @@ export class SpreadsheetSession {
       this.reportPending();
       return;
     }
-    const batch = this.pending.slice(0, MAX_BATCH_OPERATIONS);
-    const rest = this.pending.slice(MAX_BATCH_OPERATIONS);
+    // A change that moves cells travels alone: refused or failed, it takes no cell edit with it.
+    const firstMove = this.pending.findIndex(movesCells);
+    const size =
+      firstMove === 0
+        ? 1
+        : Math.min(firstMove === -1 ? this.pending.length : firstMove, MAX_BATCH_OPERATIONS);
+    const batch = this.pending.slice(0, size);
+    const rest = this.pending.slice(size);
     // Edits left for the next batch are not saved by this one, so their cells keep showing.
     const batchSequence = rest.length === 0 ? this.sequence : this.savedSequence;
     const moved = batch.some(movesCells);
@@ -550,7 +657,6 @@ export class SpreadsheetSession {
     this.reportPending();
     const result = await this.transport.edit(batch, this.overwrite ? undefined : this.version);
     this.saving = false;
-    if (this.disposed) return;
     if (result.ok) {
       this.overwrite = false;
       this.version = result.value.version;
@@ -558,25 +664,56 @@ export class SpreadsheetSession {
       this.savedSequence = batchSequence;
       if (moved) this.afterMove(result.value.sheets, batch);
       else for (const page of this.pages.values()) page.stale = true;
-      if (this.visible !== null) this.showArea(this.visible);
-      if (this.pending.length > 0) this.scheduleSave();
-      this.reportPending();
-      return;
-    }
-    const { failure } = result;
-    if (failure.kind === "refused") {
-      // Nothing of the batch was written, and what the grid shows no longer matches the file.
-      await this.reload();
-      this.update({ notice: failure.message });
+      this.saveNext(false);
+    } else if (result.failure.kind === "refused") {
+      const { message, operationIndex } = result.failure;
+      if (operationIndex === undefined || operationIndex >= batch.length) {
+        // Nothing can be saved to this file as it is, so the grid shows it as it is on disk.
+        await this.reload();
+        this.update({ notice: message });
+      } else {
+        // Only that operation is at fault. The others were not written either, so they go again
+        // without it. Undo steps may name the refused change, so they end here.
+        this.pending = [...batch.filter((_, index) => index !== operationIndex), ...this.pending];
+        this.history = EMPTY_HISTORY;
+        this.update({ notice: message, busy: this.pending.some(movesCells) });
+        if (this.pending.length === 0) {
+          this.savedSequence = this.sequence;
+          for (const page of this.pages.values()) page.stale = true;
+        }
+        this.saveNext(true);
+      }
     } else {
-      this.pending = [...batch, ...this.pending];
-      if (failure.kind === "conflict") this.update({ conflict: true, busy: false });
-      else {
+      // The grid still shows cells where they were, so a move that was not made is not kept:
+      // cell edits queued behind it would land on the wrong cells once it went through.
+      const kept = [...batch, ...this.pending];
+      this.pending = kept.filter((operation) => !movesCells(operation));
+      const notice = kept.length === this.pending.length ? this.snapshot.notice : MOVE_NOT_MADE;
+      if (this.pending.length === 0) {
+        this.update({ busy: false, notice });
+        void this.checkForChanges();
+      } else if (result.failure.kind === "conflict") {
+        this.update({ conflict: true, busy: false, notice });
+      } else {
         this.failed = true;
-        this.update({ busy: false });
+        this.update({ busy: false, notice });
       }
     }
     this.reportPending();
+    if (this.released && !this.hasUnsaved()) this.stop();
+  }
+
+  /**
+   * After a save settles: the next batch and fresh pages. The batch goes at once when it was
+   * already due, when a move is waiting, or when no grid is left to wait for more typing.
+   */
+  private saveNext(due: boolean) {
+    const next = this.pending[0];
+    if (next !== undefined && (due || movesCells(next) || this.released)) void this.save();
+    else {
+      if (this.visible !== null) this.showArea(this.visible);
+      if (next !== undefined) this.scheduleSave();
+    }
   }
 
   /** Cells and sheets are somewhere else now, so everything read or recorded before is dropped. */
@@ -587,6 +724,7 @@ export class SpreadsheetSession {
     this.pages.clear();
     this.overrides.clear();
     this.usedSizes.clear();
+    this.unreadable.clear();
     this.history = EMPTY_HISTORY;
     let activeSheet = this.snapshot.activeSheet;
     for (const operation of batch) {
@@ -602,6 +740,7 @@ export class SpreadsheetSession {
     this.update({
       sheets,
       activeSheet,
+      sheetProblem: null,
       busy: false,
       selection: changedSheet ? ORIGIN : this.snapshot.selection,
       ...this.gridSize(activeSheet),

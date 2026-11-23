@@ -29,6 +29,7 @@ import {
   hasProjectFileConflict,
   markProjectFileConflict,
   rebaseProjectFileQueryData,
+  refreshProjectFileAfterOutsideWrite,
   getOptimisticProjectFileQueryData,
   getUnsavedProjectFileQueryData,
   resolveProjectFileQueryData,
@@ -201,5 +202,20 @@ describe("project files queries", () => {
 
     rebaseProjectFileQueryData(environmentId, ...file, "saved-version");
     expect(draft()).toMatchObject({ contents: "abc", version: "saved-version" });
+  });
+
+  it("keeps an unsaved draft, marked as in conflict, when another surface writes the file", () => {
+    const file = ["/repo", "table.csv"] as const;
+    setProjectFileQueryData(environmentId, ...file, "a,b", "read-version");
+    refreshProjectFileAfterOutsideWrite(environmentId, ...file, "grid-version");
+    expect(getUnsavedProjectFileQueryData(environmentId, ...file)).toMatchObject({
+      contents: "a,b",
+      version: "read-version",
+    });
+    expect(hasProjectFileConflict(environmentId, ...file)).toBe(true);
+    // With nothing unsaved the stale copy is dropped and the file is read again.
+    clearProjectFileQueryData(environmentId, ...file);
+    refreshProjectFileAfterOutsideWrite(environmentId, ...file, "grid-version");
+    expect(getOptimisticProjectFileQueryData(environmentId, ...file)).toBeNull();
   });
 });

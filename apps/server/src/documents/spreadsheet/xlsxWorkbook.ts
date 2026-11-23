@@ -16,6 +16,7 @@ import {
 import {
   type SpreadsheetLimits,
   type SpreadsheetModel,
+  atOperation,
   invalidOperation,
   tooLarge,
   unsupported,
@@ -27,6 +28,7 @@ import {
   type ReferenceRewrite,
   areaName,
   cellName,
+  formulaIsComplete,
   formulaReferences,
   mapFormulaReferences,
   MAX_COLUMNS,
@@ -36,6 +38,7 @@ import {
   parseCellName,
   REFERENCE_ERROR,
   shiftReference,
+  type UnfollowedSheet,
 } from "./references.ts";
 import {
   type XmlElement,
@@ -56,11 +59,14 @@ const WORKSHEET_RELATIONSHIP = `${RELATIONSHIPS_NAMESPACE}/worksheet`;
 const WORKSHEET_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
 const MAIN_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-// Cells a recalculation may visit before it gives up and leaves every result to the next app.
-const RECALCULATION_BUDGET = 3_000_000;
-
 // Parts of a sheet that name cells by position, which inserting or deleting rows would leave
 // pointing at the wrong cells.
+// Formulas a sheet holds outside its cells: validation lists, formatting rules and their
+// extended forms. They may read any sheet, so they move with the cells they name.
+const RULE_FORMULA_PATTERN = /(<((?:\w+:)?(?:formula[12]?|f))>)([^<]*)(<\/\2>)/g;
+const HYPERLINK_LOCATION_PATTERN = /(<hyperlink\b[^>]*?\blocation=")([^"]*)(")/g;
+const VOLATILE_REFERENCE_PATTERN = /\b(?:INDIRECT|OFFSET)\s*\(/i;
+
 const POSITIONED_SHEET_PARTS =
   /<(?:conditionalFormatting|dataValidations|autoFilter|hyperlinks|tableParts|drawing|legacyDrawing|legacyDrawingHF|rowBreaks|colBreaks|sortState|protectedRanges|scenarios|customSheetViews|oleObjects|controls|extLst|picture|ignoredErrors|dataConsolidate|cellWatches)[\s/>]/;
 
@@ -120,6 +126,11 @@ interface SheetContents {
   readonly shared: Map<string, { row: number; column: number; text: string }>;
   /** Areas held by an array formula or a data table, whose cells cannot be changed one by one. */
   readonly arrayAreas: ReadonlyArray<CellArea>;
+  /** The styles the `cols` records of `prefix` give whole columns, read when first needed. */
+  columnStyles?: {
+    readonly prefix: string;
+    readonly records: ReadonlyArray<{ min: number; max: number; style: string }>;
+  };
   dirty: boolean;
 }
 
@@ -412,7 +423,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
     await this.strings();
     const changed = new Map<Sheet, Array<{ row: number; column: number }>>();
     let everythingChanged = false;
-    for (const operation of operations) {
+    const applyOne = async (operation: SpreadsheetOperation) => {
       switch (operation.type) {
         case "setCell": {
           const sheet = this.sheetNamed(operation.sheet);
@@ -447,6 +458,13 @@ export class XlsxWorkbook implements SpreadsheetModel {
           await this.deleteSheet(this.sheetNamed(operation.sheet));
           everythingChanged = true;
           break;
+      }
+    };
+    for (const [index, operation] of operations.entries()) {
+      try {
+        await applyOne(operation);
+      } catch (cause) {
+        throw atOperation(cause, index);
       }
     }
     if (everythingChanged || changed.size > 0) {
@@ -599,6 +617,8 @@ export class XlsxWorkbook implements SpreadsheetModel {
     const arrayAreas: Array<CellArea> = [];
     let sorted = true;
     let nextRow = 0;
+    // Added to the workbook's count only once the sheet is held, so a refused sheet costs nothing.
+    let cellCount = 0;
     for (const rowElement of childElements(sheetData.inner ?? "")) {
       if (rowElement.name !== "row") throw unsupported("workbook-layout");
       const rowAttributes = parseAttributes(rowElement.attributes);
@@ -648,10 +668,11 @@ export class XlsxWorkbook implements SpreadsheetModel {
           }
         }
       }
-      this.cellCount += cells.length;
-      if (this.cellCount > this.limits.maxCells) throw tooLarge("cell-count");
+      cellCount += cells.length;
+      if (this.cellCount + cellCount > this.limits.maxCells) throw tooLarge("cell-count");
       rows.push({ index, attributes: attributeText(rowAttributes), cells });
     }
+    this.cellCount += cellCount;
     if (!sorted) {
       rows.sort((left, right) => left.index - right.index);
       for (const row of rows) row.cells.sort((left, right) => left.column - right.column);
@@ -712,7 +733,13 @@ export class XlsxWorkbook implements SpreadsheetModel {
     const cell = found.cells[cellIndex];
     if (cell?.column === column) return cell;
     if (!create) return null;
-    const made: Cell = { column, style: undefined, type: undefined, extra: "", inner: "" };
+    const made: Cell = {
+      column,
+      style: inheritedStyle(contents, found, column),
+      type: undefined,
+      extra: "",
+      inner: "",
+    };
     found.cells.splice(cellIndex, 0, made);
     this.cellCount += 1;
     if (this.cellCount > this.limits.maxCells) throw tooLarge("cell-count");
@@ -732,6 +759,8 @@ export class XlsxWorkbook implements SpreadsheetModel {
     }
     this.expandSharedFormulas(contents);
     const formula = input.kind === "formula" ? input.formula.replace(/^=/, "") : "";
+    // A spreadsheet app treats a formula it cannot read as damage and removes it.
+    if (!formulaIsComplete(formula)) throw invalidOperation("formula-invalid");
     const blank =
       input.kind === "blank" ||
       (input.kind === "text" && input.text === "") ||
@@ -834,7 +863,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
       const held = other.contents!;
       if (
         other === sheet ||
-        [...held.shared.values()].some((origin) => origin.text.includes(sheet.name))
+        [...held.shared.values()].some((origin) => namesSheet(origin.text, sheet.name))
       ) {
         this.expandSharedFormulas(held);
       }
@@ -866,28 +895,65 @@ export class XlsxWorkbook implements SpreadsheetModel {
     contents.dirty = true;
     const shift = (reference: Pick<FormulaReference, "start" | "end">) =>
       shiftReference(reference, axis, index + 1, count);
-    await this.rewriteReferences(sheet.name, shift);
+    await this.rewriteReferences(sheet, "resize", shift);
     contents.suffix = shiftAreaList(contents.suffix, "mergeCells", "mergeCell", shift);
-    if (axis === "column") contents.prefix = shiftColumnWidths(contents.prefix, shift);
+    if (axis === "column") contents.prefix = shiftColumnWidths(contents.prefix, index + 1, count);
   }
 
-  /** Rewrites every reference to one sheet: in cells, in defined names and in chart series. */
+  /**
+   * Rewrites every reference to one sheet: in cells, in the rules other sheets hold, in defined
+   * names and in chart series. Refuses when a formula names the sheet in a way that cannot be
+   * followed and the change would leave it wrong.
+   */
   private async rewriteReferences(
-    sheetName: string,
+    changed: Sheet,
+    change: "resize" | "rename" | "delete",
     rewrite: (reference: FormulaReference) => ReferenceRewrite,
   ) {
-    const mapper = (own: string | null) => (reference: FormulaReference) => {
-      const target = reference.sheet ?? own;
-      return target !== null && sameName(target, sheetName) ? rewrite(reference) : null;
+    const sheetName = changed.name;
+    const position = this.allSheets.indexOf(changed);
+    const positionOf = (name: string) =>
+      this.allSheets.findIndex((sheet) => sameName(sheet.name, name));
+    const breaks = ({ sheet, through }: UnfollowedSheet) => {
+      // A name such as `Data!Rate` keeps its meaning when cells move, since the name is rewritten.
+      if (through === null) return change !== "resize" && sameName(sheet, sheetName);
+      if (change === "rename") return sameName(sheet, sheetName) || sameName(through, sheetName);
+      const [from, to] = [positionOf(sheet), positionOf(through)];
+      return (
+        from !== -1 && to !== -1 && position >= Math.min(from, to) && position <= Math.max(from, to)
+      );
+    };
+    const mapper = (own: string | null) => {
+      const map = (reference: FormulaReference) => {
+        const target = reference.sheet ?? own;
+        return target !== null && sameName(target, sheetName) ? rewrite(reference) : null;
+      };
+      return (text: string) => {
+        const mapped = mapFormulaReferences(text, map);
+        if (mapped.unfollowed.some(breaks)) throw unsupported("sheet-references");
+        return mapped.formula;
+      };
     };
     for (const sheet of this.worksheets()) {
       const contents = sheet.contents!;
       const map = mapper(sheet.name);
+      const mapXml = (_: string, open: string, _name: string, text: string, close: string) =>
+        `${open}${escapeXml(map(unescapeXml(text)))}${close}`;
+      const mapLocation = (_: string, open: string, text: string, close: string) =>
+        `${open}${escapeAttribute(map(unescapeXml(text)))}${close}`;
+      for (const part of ["prefix", "suffix"] as const) {
+        const next = contents[part]
+          .replace(RULE_FORMULA_PATTERN, mapXml)
+          .replace(HYPERLINK_LOCATION_PATTERN, mapLocation);
+        if (next === contents[part]) continue;
+        contents[part] = next;
+        contents.dirty = true;
+      }
       for (const row of contents.rows) {
         for (const cell of row.cells) {
           const formula = formulaOf(cell);
           if (formula === null || formula.text === "") continue;
-          const next = mapFormulaReferences(formula.text, map).formula;
+          const next = map(formula.text);
           if (next === formula.text) continue;
           cell.inner = cell.inner.replace(
             FORMULA_PATTERN,
@@ -899,7 +965,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
     }
     const foreign = mapper(null);
     for (const name of this.definedNames) {
-      const next = mapFormulaReferences(name.text, foreign).formula;
+      const next = foreign(name.text);
       if (next !== name.text) {
         name.text = next;
         this.workbookDirty = true;
@@ -911,7 +977,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
       const next = xml.replace(
         /(<(?:\w+:)?f>)([^<]*)(<\/(?:\w+:)?f>)/g,
         (_, open: string, text: string, close: string) =>
-          `${open}${escapeXml(mapFormulaReferences(unescapeXml(text), foreign).formula)}${close}`,
+          `${open}${escapeXml(foreign(unescapeXml(text)))}${close}`,
       );
       if (next !== xml) this.setPart(path, next);
     }
@@ -928,12 +994,12 @@ export class XlsxWorkbook implements SpreadsheetModel {
     this.assertNewName(name);
     const folder = `${this.workbookPath.slice(0, this.workbookPath.lastIndexOf("/") + 1)}worksheets/`;
     let number = this.allSheets.length + 1;
-    while (
-      this.zip.file(`${folder}sheet${number}.xml`) !== null ||
-      this.parts.has(`${folder}sheet${number}.xml`)
-    ) {
-      number += 1;
-    }
+    const taken = (path: string) =>
+      this.zip.file(path) !== null ||
+      this.parts.has(path) ||
+      // A sheet added earlier in the same edit is in neither until it is saved.
+      this.allSheets.some((sheet) => sheet.path === path);
+    while (taken(`${folder}sheet${number}.xml`)) number += 1;
     const path = `${folder}sheet${number}.xml`;
     const relationsPath = relationshipsPath(this.workbookPath);
     const relations = (await this.part(relationsPath)) ?? "";
@@ -987,11 +1053,11 @@ export class XlsxWorkbook implements SpreadsheetModel {
     await this.assertNoPivotSource(sheet);
     for (const other of this.worksheets()) {
       const held = other.contents!;
-      if ([...held.shared.values()].some((origin) => origin.text.includes(sheet.name))) {
+      if ([...held.shared.values()].some((origin) => namesSheet(origin.text, sheet.name))) {
         this.expandSharedFormulas(held);
       }
     }
-    await this.rewriteReferences(sheet.name, (reference) =>
+    await this.rewriteReferences(sheet, "rename", (reference) =>
       // A reference without a sheet stays one: it is in the renamed sheet itself.
       reference.sheet === null ? null : { start: reference.start, end: reference.end, sheet: name },
     );
@@ -1010,7 +1076,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
     }
     for (const other of this.worksheets()) this.expandSharedFormulas(other.contents!);
     const position = this.allSheets.indexOf(sheet);
-    await this.rewriteReferences(sheet.name, (reference) =>
+    await this.rewriteReferences(sheet, "delete", (reference) =>
       reference.sheet === null ? null : REFERENCE_ERROR,
     );
     const relationsPath = relationshipsPath(this.workbookPath);
@@ -1043,136 +1109,229 @@ export class XlsxWorkbook implements SpreadsheetModel {
   }
 
   /**
-   * Brings formula results up to date after an edit. A formula that reads a changed cell, directly
-   * or through other formulas, is calculated again; one this code cannot calculate loses its
-   * stored result, so no stale number is shown and a spreadsheet app works it out on opening.
+   * Brings formula results up to date after an edit. A formula the edit reaches, directly or
+   * through other formulas, is calculated again, or loses its stored result when this code cannot
+   * calculate it; the others keep theirs. Nothing recurses per formula: a long chain costs steps.
    */
   private recalculate(changed: Map<Sheet, Array<{ row: number; column: number }>> | null) {
     const strings = this.sharedStrings ?? [];
-    const stale = new Map<Cell, boolean>();
-    const computed = new Map<Cell, FormulaValue | null | undefined>();
-    const inProgress = new Set<Cell>();
-    let budget = RECALCULATION_BUDGET;
-    const spend = (amount = 1) => {
-      budget -= amount;
+    const sheets = this.worksheets();
+    const sheetsByName = new Map(sheets.map((sheet) => [sheet.name.toLowerCase(), sheet]));
+    const sheetFor = (name: string | null, own: Sheet) =>
+      name === null ? own : sheetsByName.get(name.toLowerCase());
+    const numberOf = new Map(sheets.map((sheet, index) => [sheet, index]));
+    const areaOf = (reference: FormulaReference): CellArea => {
+      const end = reference.end ?? reference.start;
+      return {
+        top: Math.min(reference.start.row ?? 1, end.row ?? 1) - 1,
+        bottom: Math.max(reference.start.row ?? MAX_ROWS, end.row ?? MAX_ROWS) - 1,
+        left: Math.min(reference.start.column ?? 1, end.column ?? 1) - 1,
+        right: Math.max(reference.start.column ?? MAX_COLUMNS, end.column ?? MAX_COLUMNS) - 1,
+      };
+    };
+    let budget = this.limits.maxRecalculationSteps;
+    const spend = () => {
+      budget -= 1;
       if (budget < 0) throw new RecalculationTooLarge();
     };
-    const sheetFor = (name: string | null, own: Sheet) =>
-      name === null ? own : this.worksheets().find((sheet) => sameName(sheet.name, name));
 
-    const cellsOf = function* (sheet: Sheet, reference: FormulaReference) {
+    const entries: Array<Entry> = [];
+    const entryOf = new Map<Cell, Entry>();
+    for (const sheet of sheets) {
+      for (const row of sheet.contents!.rows) {
+        for (const cell of row.cells) {
+          if (!cell.inner.includes("<f")) continue;
+          const text = this.formulaText(sheet.contents!, row, cell);
+          if (text === null) continue;
+          const entry = { sheet, row, cell, text, stale: changed === null };
+          entries.push(entry);
+          entryOf.set(cell, entry);
+        }
+      }
+    }
+
+    if (changed !== null) {
+      // Staleness spreads forwards from the edited cells to the formulas that read them.
+      const cellReaders = new Map<Sheet, Map<number, Array<Entry>>>();
+      const areaReaders = new Map<Sheet, Map<string, { area: CellArea; readers: Array<Entry> }>>();
+      const queue: Array<{ sheet: Sheet; row: number; column: number }> = [];
+      const mark = (entry: Entry) => {
+        if (entry.stale) return;
+        entry.stale = true;
+        queue.push({ sheet: entry.sheet, row: entry.row.index, column: entry.cell.column });
+      };
+      const listed = <K, V>(map: Map<K, V>, key: K, make: () => V) => {
+        let value = map.get(key);
+        if (value === undefined) map.set(key, (value = make()));
+        return value;
+      };
+      for (const entry of entries) {
+        const { references, opaque } = formulaReferences(entry.text);
+        if (opaque || VOLATILE_REFERENCE_PATTERN.test(entry.text)) {
+          mark(entry);
+          continue;
+        }
+        for (const reference of references) {
+          const target = sheetFor(reference.sheet, entry.sheet);
+          if (target === undefined) {
+            mark(entry);
+            break;
+          }
+          const area = areaOf(reference);
+          if (area.top === area.bottom && area.left === area.right) {
+            const byCell = listed(cellReaders, target, () => new Map<number, Array<Entry>>());
+            listed(byCell, area.top * MAX_COLUMNS + area.left, () => []).push(entry);
+          } else {
+            const byArea = listed(areaReaders, target, () => new Map());
+            const key = `${area.top}:${area.bottom}:${area.left}:${area.right}`;
+            listed(byArea, key, () => ({ area, readers: [] as Array<Entry> })).readers.push(entry);
+          }
+        }
+      }
+      for (const [sheet, edits] of changed) {
+        for (const edit of edits) {
+          queue.push({ sheet, row: edit.row, column: edit.column });
+          const cell = this.cellAt(sheet.contents!, edit.row, edit.column, false);
+          const entry = cell === null ? undefined : entryOf.get(cell);
+          if (entry !== undefined) mark(entry);
+        }
+      }
+      const watched = new Map<Sheet, Array<{ area: CellArea; readers: Array<Entry> }>>();
+      for (const [sheet, byArea] of areaReaders) watched.set(sheet, [...byArea.values()]);
+      try {
+        for (let from = 0; from < queue.length;) {
+          // Changed cells, as sorted rows by column, for one pass over the watched areas.
+          const batch = new Map<Sheet, Map<number, Array<number>>>();
+          for (; from < queue.length; from++) {
+            const point = queue[from]!;
+            const readers = cellReaders
+              .get(point.sheet)
+              ?.get(point.row * MAX_COLUMNS + point.column);
+            for (const reader of readers ?? []) mark(reader);
+            if (!watched.has(point.sheet)) continue;
+            const columns = listed(batch, point.sheet, () => new Map<number, Array<number>>());
+            listed(columns, point.column, () => []).push(point.row);
+          }
+          for (const [sheet, columns] of batch) {
+            for (const rows of columns.values()) rows.sort((left, right) => left - right);
+            const areas = watched.get(sheet)!;
+            for (let index = areas.length - 1; index >= 0; index--) {
+              const { area, readers } = areas[index]!;
+              let reached = false;
+              for (const [column, rows] of columns) {
+                spend();
+                if (column < area.left || column > area.right) continue;
+                const row = rows[lowerBound(rows, area.top, (value) => value)];
+                if (row !== undefined && row <= area.bottom) {
+                  reached = true;
+                  break;
+                }
+              }
+              if (!reached) continue;
+              for (const reader of readers) mark(reader);
+              areas[index] = areas.at(-1)!;
+              areas.pop();
+            }
+          }
+        }
+      } catch (cause) {
+        if (!(cause instanceof RecalculationTooLarge)) throw cause;
+        // What the edit reaches is unknown, so every result is worked out again or dropped.
+        for (const entry of entries) entry.stale = true;
+      }
+    }
+
+    const cellsIn = function* (sheet: Sheet, area: CellArea) {
       const contents = sheet.contents!;
-      const end = reference.end ?? reference.start;
-      const top = Math.min(reference.start.row ?? 1, end.row ?? 1) - 1;
-      const bottom = Math.max(reference.start.row ?? MAX_ROWS, end.row ?? MAX_ROWS) - 1;
-      const left = Math.min(reference.start.column ?? 1, end.column ?? 1) - 1;
-      const right = Math.max(reference.start.column ?? MAX_COLUMNS, end.column ?? MAX_COLUMNS) - 1;
       for (
-        let at = lowerBound(contents.rows, top, rowIndex);
-        at < contents.rows.length && contents.rows[at]!.index <= bottom;
+        let at = lowerBound(contents.rows, area.top, rowIndex);
+        at < contents.rows.length && contents.rows[at]!.index <= area.bottom;
         at++
       ) {
         const row = contents.rows[at]!;
         for (
-          let cellAt = lowerBound(row.cells, left, cellColumn);
-          cellAt < row.cells.length && row.cells[cellAt]!.column <= right;
+          let cellAt = lowerBound(row.cells, area.left, cellColumn);
+          cellAt < row.cells.length && row.cells[cellAt]!.column <= area.right;
           cellAt++
         ) {
-          yield { row, cell: row.cells[cellAt]! };
+          yield row.cells[cellAt]!;
         }
       }
-      return { top, bottom, left, right };
     };
 
-    const edited = new Map<Sheet, Set<number>>();
-    for (const [sheet, edits] of changed ?? []) {
-      edited.set(sheet, new Set(edits.map((edit) => edit.row * MAX_COLUMNS + edit.column)));
-    }
-    const isStale = (sheet: Sheet, row: Row, cell: Cell, formula: string): boolean => {
-      if (changed === null) return true;
-      const known = stale.get(cell);
-      if (known !== undefined) return known;
-      if (edited.get(sheet)?.has(row.index * MAX_COLUMNS + cell.column)) {
-        stale.set(cell, true);
-        return true;
-      }
-      // A formula that reads itself is settled by the cell that started the walk.
-      stale.set(cell, false);
-      const { references, opaque } = formulaReferences(formula);
-      let result = opaque || /\b(?:INDIRECT|OFFSET)\s*\(/i.test(formula);
-      for (const reference of references) {
-        if (result) break;
-        const target = sheetFor(reference.sheet, sheet);
-        if (target === undefined) {
-          result = true;
-          break;
-        }
-        const walk = cellsOf(target, reference);
-        let step = walk.next();
-        for (; !step.done; step = walk.next()) {
-          spend();
-          const text = this.formulaText(target.contents!, step.value.row, step.value.cell);
-          if (text !== null && isStale(target, step.value.row, step.value.cell, text)) {
-            result = true;
-            break;
-          }
-        }
-        if (result || !step.done) break;
-        const area = step.value;
-        const edits = changed.get(target) ?? [];
-        spend(edits.length);
-        result = edits.some(
-          (edit) =>
-            edit.row >= area.top &&
-            edit.row <= area.bottom &&
-            edit.column >= area.left &&
-            edit.column <= area.right,
-        );
-      }
-      stale.set(cell, result);
-      return result;
-    };
-
-    const valueOf = (sheet: Sheet, row: Row, cell: Cell): FormulaValue => {
-      const formula = this.formulaText(sheet.contents!, row, cell);
-      if (formula === null) return cachedValue(cell, strings) ?? null;
-      if (!isStale(sheet, row, cell, formula)) {
+    // Undefined marks a formula that cannot be calculated here.
+    const computed = new Map<Cell, FormulaValue | undefined>();
+    const waiting = new Set<Entry>();
+    const areaValues = new Map<string, ReadonlyArray<FormulaValue>>();
+    /** A cell's value, or null after adding the formula that has to be calculated first. */
+    const valueOf = (cell: Cell, needed: Array<Entry>): FormulaValue => {
+      const entry = entryOf.get(cell);
+      if (entry === undefined) return cachedValue(cell, strings) ?? null;
+      if (!entry.stale) {
         const held = cachedValue(cell, strings);
         if (held !== undefined) return held;
       }
-      return calculate(sheet, row, cell, formula);
-    };
-
-    const calculate = (sheet: Sheet, row: Row, cell: Cell, formula: string): FormulaValue => {
       if (computed.has(cell)) {
-        const held = computed.get(cell);
-        if (held === undefined) throw new FormulaNotCalculated();
-        return held;
-      }
-      if (inProgress.has(cell)) throw new FormulaNotCalculated();
-      inProgress.add(cell);
-      try {
-        const value = evaluateFormula(formula, {
-          values: (reference) => {
-            const target = sheetFor(reference.sheet, sheet);
-            if (target === undefined) return [new FormulaErrorValue(REFERENCE_ERROR)];
-            const values: Array<FormulaValue> = [];
-            for (const found of cellsOf(target, reference)) {
-              spend();
-              const value = valueOf(target, found.row, found.cell);
-              if (value !== null) values.push(value);
-            }
-            return values;
-          },
-        });
-        computed.set(cell, value);
+        const value = computed.get(cell);
+        if (value === undefined) throw new FormulaNotCalculated();
         return value;
-      } catch (cause) {
-        if (!(cause instanceof FormulaNotCalculated)) throw cause;
-        computed.set(cell, undefined);
-        throw cause;
-      } finally {
-        inProgress.delete(cell);
+      }
+      // A formula that reads itself, directly or through others, has no result here.
+      if (waiting.has(entry)) throw new FormulaNotCalculated();
+      needed.push(entry);
+      return null;
+    };
+    const evaluate = (entry: Entry) =>
+      evaluateFormula(entry.text, {
+        values: (reference) => {
+          const target = sheetFor(reference.sheet, entry.sheet);
+          if (target === undefined) return [new FormulaErrorValue(REFERENCE_ERROR)];
+          const area = areaOf(reference);
+          const key = `${numberOf.get(target)}:${area.top}:${area.bottom}:${area.left}:${area.right}`;
+          const known = areaValues.get(key);
+          if (known !== undefined) return known;
+          const values: Array<FormulaValue> = [];
+          const needed: Array<Entry> = [];
+          for (const cell of cellsIn(target, area)) {
+            spend();
+            const value = valueOf(cell, needed);
+            if (value !== null) values.push(value);
+          }
+          if (needed.length > 0) throw new FormulasNeeded(needed);
+          // Many formulas read the same area, such as one total; its values are gathered once.
+          if (reference.end !== null) areaValues.set(key, values);
+          return values;
+        },
+      });
+    /** Calculates a formula after the formulas it reads, which wait on a list, not the stack. */
+    const calculate = (root: Entry) => {
+      const pending = [root];
+      waiting.add(root);
+      while (pending.length > 0) {
+        const entry = pending.at(-1)!;
+        try {
+          computed.set(entry.cell, evaluate(entry));
+        } catch (cause) {
+          if (cause instanceof FormulasNeeded) {
+            for (const needed of cause.entries) {
+              if (waiting.has(needed) || computed.has(needed.cell)) continue;
+              waiting.add(needed);
+              pending.push(needed);
+            }
+            if (pending.at(-1) !== entry) continue;
+          }
+          // A formula nested too deeply to parse overflows the stack; it is left uncalculated.
+          if (
+            !(cause instanceof FormulaNotCalculated) &&
+            !(cause instanceof FormulasNeeded) &&
+            !(cause instanceof RangeError)
+          ) {
+            throw cause;
+          }
+          computed.set(entry.cell, undefined);
+        }
+        pending.pop();
+        waiting.delete(entry);
       }
     };
 
@@ -1196,33 +1355,20 @@ export class XlsxWorkbook implements SpreadsheetModel {
       contents.dirty = true;
     };
 
-    const eachFormula = (visit: (sheet: Sheet, row: Row, cell: Cell, formula: string) => void) => {
-      for (const sheet of this.worksheets()) {
-        for (const row of sheet.contents!.rows) {
-          for (const cell of row.cells) {
-            if (!cell.inner.includes("<f")) continue;
-            const formula = this.formulaText(sheet.contents!, row, cell);
-            if (formula !== null) visit(sheet, row, cell, formula);
-          }
+    budget = this.limits.maxRecalculationSteps;
+    let exhausted = false;
+    for (const entry of entries) {
+      if (!entry.stale) continue;
+      if (!exhausted && !computed.has(entry.cell)) {
+        try {
+          calculate(entry);
+        } catch (cause) {
+          if (!(cause instanceof RecalculationTooLarge)) throw cause;
+          // The stale results not worked out by now are dropped; the others are kept.
+          exhausted = true;
         }
       }
-    };
-
-    try {
-      eachFormula((sheet, row, cell, formula) => {
-        spend();
-        if (!isStale(sheet, row, cell, formula)) return;
-        let value: FormulaValue | undefined;
-        try {
-          value = calculate(sheet, row, cell, formula);
-        } catch (cause) {
-          if (!(cause instanceof FormulaNotCalculated)) throw cause;
-        }
-        store(sheet.contents!, cell, value);
-      });
-    } catch (cause) {
-      if (!(cause instanceof RecalculationTooLarge)) throw cause;
-      eachFormula((sheet, _row, cell) => store(sheet.contents!, cell, undefined));
+      store(entry.sheet.contents!, entry.cell, computed.get(entry.cell));
     }
   }
 
@@ -1299,6 +1445,24 @@ export class XlsxWorkbook implements SpreadsheetModel {
 
 // @effect-diagnostics-next-line extendsNativeError:off - a local sentinel that never leaves `recalculate`.
 class RecalculationTooLarge extends Error {}
+
+/** A formula cell during a recalculation. */
+interface Entry {
+  readonly sheet: Sheet;
+  readonly row: Row;
+  readonly cell: Cell;
+  readonly text: string;
+  /** True when an edit reaches the formula, so its stored result can no longer be trusted. */
+  stale: boolean;
+}
+
+/** Formulas whose results another formula is waiting for. Never leaves `recalculate`. */
+class FormulasNeeded {
+  readonly entries: ReadonlyArray<Entry>;
+  constructor(entries: ReadonlyArray<Entry>) {
+    this.entries = entries;
+  }
+}
 
 async function readZipText(zip: JSZip, path: string, budget: number): Promise<string | null> {
   const file = zip.file(path);
@@ -1450,8 +1614,8 @@ function shiftAreaList(xml: string, container: string, item: string, shift: Shif
   return xml.slice(0, element.start) + rebuilt + xml.slice(element.end);
 }
 
-/** Moves the column width records with their columns. */
-function shiftColumnWidths(xml: string, shift: Shift): string {
+/** Moves the column width records with their columns, `count` of them from the one-based `at`. */
+function shiftColumnWidths(xml: string, at: number, count: number): string {
   const start = xml.indexOf("<cols");
   if (start === -1) return xml;
   const element = childElements(xml, start).next().value;
@@ -1459,19 +1623,64 @@ function shiftColumnWidths(xml: string, shift: Shift): string {
   const items: Array<string> = [];
   for (const child of childElements(element.inner ?? "")) {
     const attributes = parseAttributes(child.attributes);
-    const min = Number(attributes.get("min"));
-    const max = Number(attributes.get("max"));
-    const point = (column: number) => ({ row: null, column, rowFixed: false, columnFixed: false });
-    const moved = shift({ start: point(min), end: point(max) });
-    if (moved === REFERENCE_ERROR) continue;
-    if (moved !== null && moved.end !== null) {
-      attributes.set("min", String(moved.start.column));
-      attributes.set("max", String(moved.end.column));
+    let min = Number(attributes.get("min"));
+    let max = Number(attributes.get("max"));
+    if (count > 0) {
+      if (min >= at) min += count;
+      // A record that runs to the last column still does: only what is pushed past it is lost.
+      if (max >= at) max = Math.min(MAX_COLUMNS, max + count);
+    } else {
+      const end = at - count - 1;
+      min = min > end ? min + count : Math.min(min, at);
+      max = max > end ? max + count : Math.min(max, at - 1);
     }
+    if (min > max) continue;
+    attributes.set("min", String(min));
+    attributes.set("max", String(max));
     items.push(`<col${attributeText(attributes)}/>`);
   }
   const rebuilt = items.length === 0 ? "" : `<cols>${items.join("")}</cols>`;
   return xml.slice(0, element.start) + rebuilt + xml.slice(element.end);
+}
+
+/** The style a new cell starts with: its row's when the row has one, or else its column's. */
+function inheritedStyle(contents: SheetContents, row: Row, column: number): string | undefined {
+  if (row.attributes.includes("customFormat")) {
+    const attributes = parseAttributes(row.attributes);
+    const style = attributes.get("s");
+    if (style !== undefined && /^(1|true)$/.test(attributes.get("customFormat") ?? "")) {
+      return style;
+    }
+  }
+  if (contents.columnStyles?.prefix !== contents.prefix) {
+    const records: Array<{ min: number; max: number; style: string }> = [];
+    const start = contents.prefix.indexOf("<cols");
+    const element = start === -1 ? undefined : childElements(contents.prefix, start).next().value;
+    for (const child of childElements(element?.name === "cols" ? (element.inner ?? "") : "")) {
+      const attributes = parseAttributes(child.attributes);
+      const style = attributes.get("style");
+      if (style !== undefined) {
+        records.push({
+          min: Number(attributes.get("min")),
+          max: Number(attributes.get("max")),
+          style,
+        });
+      }
+    }
+    contents.columnStyles = { prefix: contents.prefix, records };
+  }
+  return contents.columnStyles.records.find(
+    (record) => column + 1 >= record.min && column + 1 <= record.max,
+  )?.style;
+}
+
+/** Whether a formula reads the sheet, or reads something that cannot be followed and so might. */
+function namesSheet(formula: string, name: string): boolean {
+  const { references, opaque } = formulaReferences(formula);
+  return (
+    opaque ||
+    references.some((reference) => reference.sheet !== null && sameName(reference.sheet, name))
+  );
 }
 
 function formatOf(styles: Styles, style: string): SpreadsheetCellFormat | null {

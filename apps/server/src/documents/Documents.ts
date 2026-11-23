@@ -45,6 +45,7 @@ export const DocumentLimits = Context.Reference<SpreadsheetLimits>(
       maxUnpackedBytes: 96 * MEBIBYTE,
       maxCells: 600_000,
       maxFormatCells: 100_000,
+      maxRecalculationSteps: 12_000_000,
     }),
   },
 );
@@ -142,14 +143,15 @@ const make = Effect.gen(function* () {
         if (!(cause instanceof SpreadsheetProblem)) {
           return new DocumentFailureError({ relativePath, stage, cause });
         }
-        const { detail } = cause;
+        const { detail, operationIndex } = cause;
+        const at = { relativePath, ...(operationIndex === undefined ? {} : { operationIndex }) };
         switch (detail.kind) {
           case "too-large":
-            return new SpreadsheetTooLargeError({ relativePath, limit: detail.limit });
+            return new SpreadsheetTooLargeError({ ...at, limit: detail.limit });
           case "unsupported":
-            return new SpreadsheetUnsupportedError({ relativePath, feature: detail.feature });
+            return new SpreadsheetUnsupportedError({ ...at, feature: detail.feature });
           case "operation":
-            return new SpreadsheetOperationError({ relativePath, reason: detail.reason });
+            return new SpreadsheetOperationError({ ...at, reason: detail.reason });
         }
       },
     });

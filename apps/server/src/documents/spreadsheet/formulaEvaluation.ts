@@ -218,8 +218,11 @@ const FUNCTIONS: Record<string, Calculation> = {
       ? error("#DIV/0!")
       : settle(values.reduce((sum, value) => sum + value, 0) / values.length),
   ),
-  MIN: aggregate((values) => (values.length === 0 ? 0 : Math.min(...values))),
-  MAX: aggregate((values) => (values.length === 0 ? 0 : Math.max(...values))),
+  // Reduced one by one: spreading a large range into arguments overflows the stack.
+  MIN: aggregate((values) =>
+    values.reduce((least, value) => Math.min(least, value), values[0] ?? 0),
+  ),
+  MAX: aggregate((values) => values.reduce((most, value) => Math.max(most, value), values[0] ?? 0)),
   COUNT: (operands) =>
     operands.reduce(
       (count, operand) =>
