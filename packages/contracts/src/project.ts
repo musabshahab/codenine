@@ -461,6 +461,8 @@ export const ProjectReadFileResult = Schema.Struct({
   truncated: Schema.Boolean,
   // Omitted by older servers; false only for an absent optional file.
   exists: Schema.optional(Schema.Boolean),
+  // Hash of the bytes on disk. Omitted by older servers and for truncated or absent files.
+  version: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
 
@@ -525,13 +527,108 @@ export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
+  // The read `version` the writer last saw. A file that differs is not written. Omit to overwrite.
+  expectedVersion: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectWriteFileInput = typeof ProjectWriteFileInput.Type;
 
 export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
+  // The `version` a read of the written file returns. Omitted by older servers.
+  version: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
+
+/** The file changed on disk after the writer read it, so nothing was written. */
+export class ProjectWriteFileConflictError extends Schema.TaggedError<ProjectWriteFileConflictError>()(
+  "ProjectWriteFileConflictError",
+  {
+    cwd: TrimmedNonEmptyString,
+    relativePath: TrimmedNonEmptyString,
+    // Absent when the file no longer exists.
+    currentVersion: Schema.optional(TrimmedNonEmptyString),
+  },
+) {
+  override get message(): string {
+    return `Workspace file '${this.relativePath}' changed on disk since it was read.`;
+  }
+}
+
+export const ProjectFileBaselineSource = Schema.Union([
+  /** The workspace's last commit. */
+  Schema.Struct({ kind: Schema.Literal("head") }),
+  /** The checkpoint a thread's turn started from. */
+  Schema.Struct({
+    kind: Schema.Literal("turn"),
+    threadId: ThreadId,
+    turnCount: PositiveInt,
+  }),
+]);
+export type ProjectFileBaselineSource = typeof ProjectFileBaselineSource.Type;
+
+export const ProjectReadFileBaselineInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  source: ProjectFileBaselineSource,
+  // The `revision` of a baseline the caller holds; a match is answered without the contents.
+  knownRevision: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProjectReadFileBaselineInput = typeof ProjectReadFileBaselineInput.Type;
+
+export const ProjectReadFileBaselineResult = Schema.Struct({
+  // False without Git, without the commit or checkpoint, and for binary or oversized files.
+  available: Schema.Boolean,
+  // Null when the file did not exist in the baseline, and when `unchanged`.
+  contents: Schema.NullOr(Schema.String),
+  // The commit the baseline was read from.
+  revision: Schema.optional(TrimmedNonEmptyString),
+  // True when `revision` is the caller's `knownRevision`, so the contents were left out.
+  unchanged: Schema.optional(Schema.Boolean),
+});
+export type ProjectReadFileBaselineResult = typeof ProjectReadFileBaselineResult.Type;
+
+export class ProjectReadFileBaselineError extends Schema.TaggedError<ProjectReadFileBaselineError>()(
+  "ProjectReadFileBaselineError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
+/** Zero-based line ranges of one change: the baseline's lines and the lines that replaced them. */
+export const ProjectFileLineChange = Schema.Struct({
+  baseStart: NonNegativeInt,
+  baseCount: NonNegativeInt,
+  currentStart: NonNegativeInt,
+  currentCount: NonNegativeInt,
+});
+export type ProjectFileLineChange = typeof ProjectFileLineChange.Type;
+
+export const ProjectRevertFileChangeInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  threadId: ThreadId,
+  turnCount: PositiveInt,
+  expectedVersion: TrimmedNonEmptyString,
+  // Omit to restore the whole file, which deletes a file the turn created.
+  change: Schema.optional(ProjectFileLineChange),
+});
+export type ProjectRevertFileChangeInput = typeof ProjectRevertFileChangeInput.Type;
+
+export const ProjectRevertFileChangeResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  deleted: Schema.Boolean,
+  version: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProjectRevertFileChangeResult = typeof ProjectRevertFileChangeResult.Type;
+
+export class ProjectRevertFileChangeError extends Schema.TaggedError<ProjectRevertFileChangeError>()(
+  "ProjectRevertFileChangeError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
 
 export const ProjectEnsureScratchResult = Schema.Struct({
   projectId: ProjectId,

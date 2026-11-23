@@ -1944,6 +1944,7 @@ export default function ChatView(props: ChatViewProps) {
   } = useRightPanelSurfaceClose({
     threadRef: activeThreadRef,
     terminalLabelsById: activeTerminalLabelsById,
+    fileWorkspaceRoot: activeWorkspaceRoot,
   });
   const closeRightPanelSurfaceStable = closeRightPanelSurface;
   const persistThreadSettingsForNextTurn = async (input: {
@@ -3415,7 +3416,8 @@ export default function ChatView(props: ChatViewProps) {
                     : {})}
                   // Side chat runs keep no checkpoints to diff, and a fork would promote the side chat.
                   {...(embedded ? {} : { onForkFromRun: onForkFromRunStable })}
-                  {...(embedded || !diffTabOffered ? {} : { onOpenTurnDiff: onOpenTurnDiffStable })}
+                  {...(embedded ? {} : { onOpenTurnDiff: onOpenTurnDiffStable })}
+                  turnDiffTabOffered={diffTabOffered}
                   onOpenThread={onOpenRelatedThreadStable}
                   parentThreadLink={parentThreadLink}
                   workflowOpening={workflowOpening}

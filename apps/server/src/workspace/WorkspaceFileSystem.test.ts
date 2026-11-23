@@ -195,6 +195,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           contents: "export const answer = 42;\n",
           byteLength: 26,
           truncated: false,
+          version: expect.any(String),
         });
       }),
     );
@@ -213,6 +214,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           contents,
           byteLength: Buffer.byteLength(contents),
           truncated: false,
+          version: expect.any(String),
         });
       }),
     );
@@ -249,6 +251,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           contents: "# Report\n",
           byteLength: 9,
           truncated: false,
+          version: expect.any(String),
         });
       }),
     );
@@ -270,6 +273,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           contents: "# Notes\n",
           byteLength: 8,
           truncated: false,
+          version: expect.any(String),
         });
       }),
     );
@@ -565,6 +569,51 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           ),
         ),
       ),
+    );
+
+    it.effect("writes only over the version the writer read, when it names one", () =>
+      Effect.gen(function* () {
+        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const target = { cwd, relativePath: "notes.md" };
+        const onDisk = fileSystem.readFileString(path.join(cwd, "notes.md"));
+        yield* writeTextFile(cwd, "notes.md", "read\n");
+        const read = yield* files.readFile(target);
+
+        const saved = yield* files.writeFile({
+          ...target,
+          contents: "mine\n",
+          expectedVersion: read.version!,
+        });
+        expect(yield* onDisk).toBe("mine\n");
+        expect(saved.version).toBe((yield* files.readFile(target)).version);
+
+        yield* writeTextFile(cwd, "notes.md", "theirs\n");
+        const refused = yield* files
+          .writeFile({ ...target, contents: "mine again\n", expectedVersion: saved.version! })
+          .pipe(Effect.flip);
+        expect(refused).toMatchObject({
+          _tag: "WorkspaceFileConflictError",
+          currentVersion: (yield* files.readFile(target)).version,
+        });
+        expect(yield* onDisk).toBe("theirs\n");
+        expect(
+          yield* files.removeFile({ ...target, expectedVersion: saved.version! }).pipe(Effect.flip),
+        ).toMatchObject({ _tag: "WorkspaceFileConflictError" });
+
+        yield* files.writeFile({ ...target, contents: "forced\n" });
+        expect(yield* onDisk).toBe("forced\n");
+
+        yield* fileSystem.remove(path.join(cwd, "notes.md"));
+        const missing = yield* files
+          .writeFile({ ...target, contents: "mine\n", expectedVersion: saved.version! })
+          .pipe(Effect.flip);
+        expect(
+          missing._tag === "WorkspaceFileConflictError" && missing.currentVersion,
+        ).toBeUndefined();
+      }),
     );
 
     it.effect("rejects writes outside the workspace root", () =>

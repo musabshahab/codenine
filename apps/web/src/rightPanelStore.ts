@@ -41,6 +41,8 @@ export type RightPanelSurface =
       relativePath: string;
       revealLine: number | null;
       revealRequestId: number;
+      /** Bumped each time the file is opened to review the latest turn's change to it. */
+      reviewRequestId?: number;
       attachment?: ChatFileAttachment;
       /** Deepest workspace path retained for navigating back down after moving up. */
       folderTrail?: string;
@@ -111,7 +113,12 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (ref: ScopedThreadRef, kind: SingletonRightPanelKind) => void;
   openSideChat: (ref: ScopedThreadRef, threadId: ThreadId) => void;
-  openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
+  openFile: (
+    ref: ScopedThreadRef,
+    relativePath: string,
+    line?: number,
+    options?: { readonly review?: boolean },
+  ) => void;
   /** Moves in place; "" opens the root explorer. folderTrail keeps the return path; keepSource opens beside the source. */
   navigateFolder: (
     ref: ScopedThreadRef,
@@ -604,7 +611,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             upsertSurface(current, { id: `side-chat:${threadId}`, kind: "side-chat", threadId }),
           ),
         ),
-      openFile: (ref, requestedPath, line) =>
+      openFile: (ref, requestedPath, line, options) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
             if (requestedPath === ".") {
@@ -622,11 +629,16 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
                 surface.id === surfaceId && surface.kind === "file",
             );
-            const surface = fileSurface(
-              relativePath,
-              normalizeRevealLine(line),
-              (existing?.revealRequestId ?? 0) + 1,
-            );
+            const reviewRequestId =
+              (existing?.reviewRequestId ?? 0) + (options?.review === true ? 1 : 0);
+            const surface = {
+              ...fileSurface(
+                relativePath,
+                normalizeRevealLine(line),
+                (existing?.revealRequestId ?? 0) + 1,
+              ),
+              ...(reviewRequestId > 0 ? { reviewRequestId } : {}),
+            };
             return {
               ...current,
               isOpen: true,

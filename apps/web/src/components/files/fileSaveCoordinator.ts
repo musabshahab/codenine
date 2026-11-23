@@ -44,6 +44,13 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     void this.persistLatest();
   }
 
+  /** Forgets the unsaved draft; nothing further is written for it. */
+  discard(): void {
+    this.clearTimer();
+    this.confirmedRevision = this.latestRevision;
+    this.options.onPendingChange(false);
+  }
+
   dispose(): void {
     this.disposed = true;
     this.clearTimer();
@@ -78,7 +85,8 @@ export class FileSaveCoordinator<A = unknown, E = unknown> {
     const succeeded = result._tag === "Success";
     let confirmed = false;
     if (succeeded) {
-      this.confirmedRevision = revision;
+      // A discard during the write already confirmed a later revision.
+      this.confirmedRevision = Math.max(this.confirmedRevision, revision);
       confirmed = this.options.onConfirmed(contents) !== false;
     }
 

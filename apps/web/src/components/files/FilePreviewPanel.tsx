@@ -92,6 +92,7 @@ import {
   FILE_LINK_REVEAL_UNSAFE_CSS,
   FILE_SURFACE_SUBHEADER_CLASS,
   FileSurfaceAction,
+  FileSurfaceBar,
   FileSurfaceFailure,
   FileSurfaceLoading,
 } from "./fileSurfaceChrome";
@@ -107,13 +108,26 @@ import {
   workspaceAssetResource,
 } from "./filePreviewMode";
 import { setMarkdownTaskChecked } from "@codenine/shared/markdownTaskList";
-import { changeFileSaveSession, useFileSaveSession } from "./fileSaveSessions";
+import {
+  changeFileSaveSession,
+  discardFileDraft,
+  overwriteFileSaveConflict,
+  useFileSaveSession,
+} from "./fileSaveSessions";
+import { fileChangeMarkerCssFor } from "./fileChangeBlocks";
+import { FileReviewSurface } from "./FileReviewSurface";
+import { type FileBaseline, useFileBaseline } from "./useFileBaseline";
+import { isFileReviewKept, useFileReviewStore } from "~/fileReviewStore";
+import { useThreadCheckpointSummaries } from "~/state/entities";
+import { scopedThreadKey } from "@codenine/client-runtime/environment";
+import { Button } from "~/components/ui/button";
 import { revisionedQuery } from "~/state/revisionedQuery";
 import {
   getOptimisticProjectFileQueryData,
   getProjectFileContents,
   getProjectFileQueryAtom,
   setProjectFileQueryData,
+  useProjectFileConflict,
   useProjectFileQuery,
 } from "./projectFilesQueryState";
 
@@ -132,6 +146,8 @@ interface FilePreviewPanelProps {
   openInShortcutEnabled: boolean;
   revealLine: number | null;
   revealRequestId: number;
+  /** Changes each time the file is opened to review the latest turn's change; zero is never. */
+  reviewRequestId: number;
   onOpenFile: (relativePath: string) => void;
   onNavigateFolder: (relativePath: string, folderTrail: string, keepSource: boolean) => void;
   /** Retained descendant breadcrumb path after navigating up; see navigateFolder. */
@@ -375,6 +391,12 @@ function WorkspaceAudioPreview(props: {
       onError={() => setFailedUrl(url)}
     />
   );
+}
+
+/** Turn summaries name files from the repository root, which can sit above the workspace. */
+function isSameWorkspaceFile(changedPath: string, relativePath: string): boolean {
+  const changed = changedPath.replaceAll("\\", "/");
+  return changed === relativePath || changed.endsWith(`/${relativePath}`);
 }
 
 function clampFileLine(contents: string, requestedLine: number): number {
@@ -637,12 +659,36 @@ function useEditableAfterHighlight(file: FileContents) {
   return { ready, onPostRender };
 }
 
+const HEAD_BASELINE_SOURCE = { kind: "head" } as const;
+const CHANGE_MARKER_DELAY_MS = 250;
+
+/** Gutter marker CSS against the last commit, recomputed once typing pauses. */
+function useFileChangeMarkerCss(name: string, baseline: FileBaseline | null, contents: string) {
+  const [markerCss, setMarkerCss] = useState("");
+  const available = baseline?.available === true;
+  const baselineContents = baseline?.contents ?? null;
+
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- diffs the file against its baseline on a timer, so the diff never runs inside a keystroke
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setMarkerCss(available ? fileChangeMarkerCssFor(name, baselineContents, contents) : ""),
+      CHANGE_MARKER_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [available, baselineContents, contents, name]);
+  return markerCss;
+}
+
 interface EditableFileSurfaceProps {
   environmentId: EnvironmentId;
   cwd: string;
   relativePath: string;
   composerDraftTarget: ScopedThreadRef | DraftId;
   contents: string;
+  /** The disk version `contents` came from, which a save of the first edit must still find. */
+  version: string | undefined;
+  /** The file at the last commit; null without Git or before it loads. */
+  headBaseline: FileBaseline | null;
   resolvedTheme: "light" | "dark";
   revealRequestId: number;
   wordWrap: boolean;
@@ -661,12 +707,15 @@ function EditableFileSurface({
   relativePath,
   composerDraftTarget,
   contents,
+  version,
+  headBaseline,
   resolvedTheme,
   revealRequestId,
   wordWrap,
   onPostRender,
   onPendingChange,
 }: EditableFileSurfaceProps) {
+  const changeMarkerCss = useFileChangeMarkerCss(relativePath, headBaseline, contents);
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
   const [lineAnnotations, setLineAnnotations] = useState<FileCommentLineAnnotation[]>([]);
@@ -707,7 +756,7 @@ function EditableFileSurface({
   }: EditorChangeEvent<"file", FileCommentAnnotationGroup, undefined>) => {
     if (file.contents === getProjectFileContents(environmentId, cwd, relativePath)) return;
     setEditedContents(file.contents);
-    setProjectFileQueryData(environmentId, cwd, relativePath, file.contents);
+    setProjectFileQueryData(environmentId, cwd, relativePath, file.contents, version);
     changeFileSaveSession(saveTarget, file.contents);
     if (!nextLineAnnotations) return;
     const remapped = remapFileCommentAnnotations(nextLineAnnotations);
@@ -876,7 +925,10 @@ function EditableFileSurface({
               theme: resolveDiffThemeName(resolvedTheme),
               preferredHighlighter: PREFERRED_HIGHLIGHTER,
               themeType: resolvedTheme,
-              unsafeCSS: FILE_LINK_REVEAL_UNSAFE_CSS,
+              unsafeCSS:
+                changeMarkerCss === ""
+                  ? FILE_LINK_REVEAL_UNSAFE_CSS
+                  : `${FILE_LINK_REVEAL_UNSAFE_CSS}\n${changeMarkerCss}`,
               onPostRender: handlePostRender,
             }}
             selectedLines={selectedRange}
@@ -909,6 +961,7 @@ function RenderedMarkdownSurface({
   cwd,
   relativePath,
   contents,
+  version,
   threadRef,
   workspaceMutationId,
   readOnly,
@@ -916,6 +969,7 @@ function RenderedMarkdownSurface({
 }: Omit<
   EditableFileSurfaceProps,
   | "resolvedTheme"
+  | "headBaseline"
   | "composerDraftTarget"
   | "revealLine"
   | "revealRequestId"
@@ -946,7 +1000,7 @@ function RenderedMarkdownSurface({
                   contents;
                 const nextContents = setMarkdownTaskChecked(currentContents, markerOffset, checked);
                 if (nextContents === currentContents) return;
-                setProjectFileQueryData(environmentId, cwd, relativePath, nextContents);
+                setProjectFileQueryData(environmentId, cwd, relativePath, nextContents, version);
                 changeFileSaveSession(saveTarget, nextContents);
               }
         }
@@ -987,6 +1041,7 @@ export default function FilePreviewPanel({
   openInShortcutEnabled,
   revealLine,
   revealRequestId,
+  reviewRequestId,
   onOpenFile,
   onNavigateFolder,
   folderTrail,
@@ -1138,6 +1193,83 @@ export default function FilePreviewPanel({
         ? resolvePathLinkTarget(relativePath, cwd)
         : null;
   const onFilePostRender = useFileLineReveal(relativePath, revealLine, revealRequestId);
+  // Text the editor can hold: the files that get change markers and an in-file review.
+  const editablePath =
+    previewPath !== null &&
+    attachment === undefined &&
+    !isHostFile &&
+    !isMedia &&
+    !isPdf &&
+    !isDocument &&
+    file.data !== null &&
+    !file.data.truncated
+      ? previewPath
+      : null;
+  const saveConflict = useProjectFileConflict(environmentId, cwd, editablePath);
+  const headBaseline = useFileBaseline(
+    editablePath !== null && canWriteFiles
+      ? { environmentId, cwd, relativePath: editablePath, source: HEAD_BASELINE_SOURCE }
+      : null,
+    workspaceMutationId,
+  );
+  const threadKey = scopedThreadKey(threadRef);
+  const latestTurn = useThreadCheckpointSummaries(draft ? null : threadRef).at(-1);
+  const reviewTurnCount =
+    editablePath !== null &&
+    latestTurn?.status === "ready" &&
+    latestTurn.checkpointTurnCount > 0 &&
+    // A long file list is cut short, so any file may be among the turn's changes.
+    (latestTurn.filesTotal !== undefined ||
+      latestTurn.files.some((changed) => isSameWorkspaceFile(changed.path, editablePath)))
+      ? latestTurn.checkpointTurnCount
+      : null;
+  const reviewKept = useFileReviewStore(
+    (state) =>
+      reviewTurnCount !== null &&
+      editablePath !== null &&
+      isFileReviewKept(state, threadKey, reviewTurnCount, editablePath),
+  );
+  const turnBaseline = useFileBaseline(
+    editablePath !== null && reviewTurnCount !== null && !reviewKept
+      ? {
+          environmentId,
+          cwd,
+          relativePath: editablePath,
+          source: { kind: "turn", threadId: threadRef.threadId, turnCount: reviewTurnCount },
+        }
+      : null,
+    null,
+  );
+  const reviewAvailable =
+    turnBaseline?.available === true &&
+    file.data !== null &&
+    turnBaseline.contents !== file.data.contents;
+  // The user's last choice for this file, turn and open request; a new request reopens the review.
+  const [reviewChoice, setReviewChoice] = useState<{
+    path: string;
+    turnCount: number;
+    requestId: number;
+    open: boolean;
+  } | null>(null);
+  const reviewChosen =
+    reviewChoice !== null &&
+    reviewChoice.path === editablePath &&
+    reviewChoice.turnCount === reviewTurnCount &&
+    reviewChoice.requestId === reviewRequestId;
+  const reviewOpen = reviewAvailable && (reviewChosen ? reviewChoice.open : reviewRequestId > 0);
+  const chooseReview = (open: boolean) => {
+    if (editablePath === null || reviewTurnCount === null) return;
+    setReviewChoice({
+      path: editablePath,
+      turnCount: reviewTurnCount,
+      requestId: reviewRequestId,
+      open,
+    });
+  };
+  const keepReviewedFile = () => {
+    if (editablePath === null || reviewTurnCount === null) return;
+    useFileReviewStore.getState().keep(threadKey, reviewTurnCount, editablePath);
+  };
   // Mounting the file read under the workspace mutation id refetches it after each mutation.
   useAtomMount(
     canReadFiles &&
@@ -1274,6 +1406,57 @@ export default function FilePreviewPanel({
         <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
           Read-only connection. Unsaved edits are kept until write access returns.
         </div>
+      ) : null}
+      {saveConflict && editablePath !== null ? (
+        <FileSurfaceBar
+          tone="warning"
+          actions={
+            <>
+              <Button
+                type="button"
+                size="micro"
+                variant="outline"
+                onClick={() => discardFileDraft({ environmentId, cwd, relativePath: editablePath })}
+              >
+                Reload from disk
+              </Button>
+              <Button
+                type="button"
+                size="micro"
+                variant="destructive-outline"
+                onClick={() =>
+                  overwriteFileSaveConflict({ environmentId, cwd, relativePath: editablePath })
+                }
+              >
+                Overwrite
+              </Button>
+            </>
+          }
+        >
+          This file changed on disk while you were editing, so your edits are not saved. Reloading
+          drops them.
+        </FileSurfaceBar>
+      ) : null}
+      {reviewAvailable && !reviewOpen ? (
+        <FileSurfaceBar
+          actions={
+            <>
+              <Button
+                type="button"
+                size="micro"
+                variant="outline"
+                onClick={() => chooseReview(true)}
+              >
+                Review changes
+              </Button>
+              <Button type="button" size="micro" variant="ghost-muted" onClick={keepReviewedFile}>
+                Keep
+              </Button>
+            </>
+          }
+        >
+          The agent changed this file in its last turn.
+        </FileSurfaceBar>
       ) : null}
       {previewPath &&
       attachment === undefined &&
@@ -1416,7 +1599,24 @@ export default function FilePreviewPanel({
               <Spinner size="lg" />
             </div>
           ) : relativePath && file.data ? (
-            renderMermaid ? (
+            reviewOpen && turnBaseline && reviewTurnCount !== null ? (
+              <FileReviewSurface
+                key={`${relativePath}:${reviewTurnCount}`}
+                environmentId={environmentId}
+                cwd={cwd}
+                relativePath={relativePath}
+                threadRef={threadRef}
+                turnCount={reviewTurnCount}
+                baseline={turnBaseline.contents}
+                contents={file.data.contents}
+                version={selectedFilePending || saveConflict ? undefined : file.data.version}
+                canDiscard={canWriteFiles}
+                resolvedTheme={resolvedTheme}
+                wordWrap={wordWrap}
+                onKeep={keepReviewedFile}
+                onClose={() => chooseReview(false)}
+              />
+            ) : renderMermaid ? (
               <Suspense fallback={<FileSurfaceLoading />}>
                 <MermaidFilePreview text={file.data.contents} />
               </Suspense>
@@ -1428,6 +1628,7 @@ export default function FilePreviewPanel({
                 relativePath={relativePath}
                 threadRef={threadRef}
                 contents={file.data.contents}
+                version={file.data.version}
                 workspaceMutationId={workspaceMutationId}
                 readOnly={file.data.truncated || isHostFile || !canWriteFiles}
                 onPendingChange={onPendingChange}
@@ -1456,6 +1657,8 @@ export default function FilePreviewPanel({
                   relativePath={relativePath}
                   composerDraftTarget={composerDraftTarget}
                   contents={file.data.contents}
+                  version={file.data.version}
+                  headBaseline={headBaseline}
                   resolvedTheme={resolvedTheme}
                   revealRequestId={revealRequestId}
                   wordWrap={wordWrap}

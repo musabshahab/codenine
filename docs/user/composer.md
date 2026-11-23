@@ -364,6 +364,28 @@ Follow an agent's file link to read a report or other file outside the workspace
 These files open read-only. An HTML file outside the workspace cannot load scripts,
 styles, or images from neighboring files.
 
+## Edit workspace files
+
+Open a workspace file from the Files tab or a file link to edit it beside the conversation. Each
+file opens in its own tab, and edits save as you type. A dot on a tab means that file has edits
+that are not saved yet.
+
+If the file changes on disk while you have unsaved edits, for example because an agent wrote to
+it, Codenine does not save over it. Choose **Reload from disk** to drop your edits and see the
+file as it is now, or **Overwrite** to save yours anyway. Closing the tab in that state asks
+before it discards your edits.
+
+In a Git workspace, the line numbers carry a marker for each line that differs from the last
+commit: green for added, blue for changed, and a red tick where lines were removed.
+
+When the agent's latest turn changed a file you have open, the file offers **Review changes**. The
+review shows that turn's changes inside the file, against the file as it was when the turn
+started. **Keep** accepts them and **Discard** puts the earlier text back, for the whole file or
+for one change at a time. Discarding a file the turn created deletes it. You can also right-click
+a file in a turn's changed files or in the Diff tab and choose **Review in file**. In Work and
+Create workspaces, selecting a file in a turn's changed files opens this review. The review needs
+a Git workspace, because it relies on the checkpoints Codenine saves each turn.
+
 ## HTML and PDF files in the file viewer
 
 HTML and PDF files open as rendered pages. Switch an HTML

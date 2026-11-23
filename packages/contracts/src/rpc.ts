@@ -152,15 +152,22 @@ import {
   ProjectListEntriesResult,
   ProjectListIgnoredFilesInput,
   ProjectListIgnoredFilesResult,
+  ProjectReadFileBaselineError,
+  ProjectReadFileBaselineInput,
+  ProjectReadFileBaselineResult,
   ProjectReadFileError,
   ProjectReadFileInput,
   ProjectReadFileResult,
+  ProjectRevertFileChangeError,
+  ProjectRevertFileChangeInput,
+  ProjectRevertFileChangeResult,
   ProjectSearchContentsError,
   ProjectSearchContentsInput,
   ProjectSearchContentsResult,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
+  ProjectWriteFileConflictError,
   ProjectWriteFileError,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
@@ -322,6 +329,8 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsReadFileBaseline: "projects.readFileBaseline",
+  projectsRevertFileChange: "projects.revertFileChange",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
@@ -1154,7 +1163,27 @@ const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
 const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
-  error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
+  error: Schema.Union([
+    ProjectWriteFileError,
+    ProjectWriteFileConflictError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
+const WsProjectsReadFileBaselineRpc = Rpc.make(WS_METHODS.projectsReadFileBaseline, {
+  payload: ProjectReadFileBaselineInput,
+  success: ProjectReadFileBaselineResult,
+  error: Schema.Union([ProjectReadFileBaselineError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsRevertFileChangeRpc = Rpc.make(WS_METHODS.projectsRevertFileChange, {
+  payload: ProjectRevertFileChangeInput,
+  success: ProjectRevertFileChangeResult,
+  error: Schema.Union([
+    ProjectRevertFileChangeError,
+    ProjectWriteFileConflictError,
+    EnvironmentAuthorizationError,
+  ]),
 });
 
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
@@ -1709,6 +1738,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsCreateNewRpc,
   WsProjectsCreateFromThreadRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsReadFileBaselineRpc,
+  WsProjectsRevertFileChangeRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,

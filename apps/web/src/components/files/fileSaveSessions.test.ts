@@ -258,4 +258,32 @@ describe("file save sessions", () => {
     await vi.runAllTimersAsync();
     expect(h.persist).not.toHaveBeenCalled();
   });
+
+  it("holds a refused draft until it is retried, and stops saving one that was discarded", async () => {
+    using h = setup();
+    h.sessions.acquire(target, h.onPendingChange);
+    h.persist.mockResolvedValueOnce(AsyncResult.failure(Cause.fail("changed on disk")));
+    h.sessions.change(target, "my edit");
+    h.state.unsaved = "my edit";
+    await vi.runAllTimersAsync();
+    // A refusal blocks further saves, as a conflict does until the user decides.
+    h.state.writable = false;
+    h.sessions.change(target, "my edit, continued");
+    h.state.unsaved = "my edit, continued";
+    await vi.runAllTimersAsync();
+    expect(h.writes()).toEqual([[target, "my edit"]]);
+    expect(h.onPendingChange).toHaveBeenLastCalledWith("file.txt", true);
+
+    h.state.writable = true;
+    h.sessions.retry(target);
+    await vi.runAllTimersAsync();
+    expect(h.writes().at(-1)).toEqual([target, "my edit, continued"]);
+    expect(h.onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
+
+    h.sessions.change(target, "dropped edit");
+    h.sessions.discard(target);
+    await vi.runAllTimersAsync();
+    expect(h.writes()).toHaveLength(2);
+    expect(h.onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
+  });
 });

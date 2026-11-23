@@ -66,6 +66,7 @@ import * as McpProviderSessions from "@codenine/provider-core/server/McpProvider
 import * as ProviderHostLive from "./provider/ProviderHostLive.ts";
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
+import * as FileBaselines from "./checkpointing/FileBaselines.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
 import * as SourceControlSignIn from "./sourceControl/SourceControlSignIn.ts";
@@ -438,7 +439,9 @@ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   ),
 );
 
-const layerOrchestrationApplication = CheckpointDiffQuery.layer.pipe(
+const layerOrchestrationApplication = FileBaselines.layer.pipe(
+  Layer.provide(layerWorkspace),
+  Layer.provideMerge(CheckpointDiffQuery.layer),
   Layer.provideMerge(layerCheckpointStore),
   Layer.provideMerge(layerOrchestrationV2Runtime),
 );

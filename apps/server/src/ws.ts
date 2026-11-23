@@ -51,9 +51,12 @@ import {
   type ProjectFileOperation,
   type ProjectMutation,
   ProjectListEntriesError,
+  ProjectReadFileBaselineError,
   ProjectReadFileError,
+  ProjectRevertFileChangeError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
+  ProjectWriteFileConflictError,
   ProjectWriteFileError,
   ProjectMutationError,
   ProviderUploadFeedbackError,
@@ -87,6 +90,7 @@ import {
 import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
+import * as FileBaselines from "./checkpointing/FileBaselines.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -617,6 +621,16 @@ function projectFileFailureContext(
       return unexpectedCompatibilityError(error);
   }
 }
+
+const projectWriteFileConflict = (
+  input: { readonly cwd: string; readonly relativePath: string },
+  cause: WorkspaceFileSystem.WorkspaceFileConflictError,
+) =>
+  new ProjectWriteFileConflictError({
+    cwd: input.cwd,
+    relativePath: input.relativePath,
+    ...(cause.currentVersion === undefined ? {} : { currentVersion: cause.currentVersion }),
+  });
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
@@ -1352,6 +1366,7 @@ export const layerWsRpc = (
         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
       const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
+      const fileBaselines = yield* FileBaselines.FileBaselines;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -2364,16 +2379,35 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.projectsWriteFile]: (input) =>
           workspaceFileSystem.writeFile(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ProjectWriteFileError({
-                  cwd: input.cwd,
-                  relativePath: input.relativePath,
-                  ...projectFileFailureContext(cause),
-                  cause,
-                }),
+            Effect.mapError((cause) =>
+              cause._tag === "WorkspaceFileConflictError"
+                ? projectWriteFileConflict(input, cause)
+                : new ProjectWriteFileError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
             ),
           ),
+        [WS_METHODS.projectsReadFileBaseline]: (input) =>
+          fileBaselines
+            .read(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new ProjectReadFileBaselineError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.projectsRevertFileChange]: (input) =>
+          fileBaselines
+            .revertTurnChange(input)
+            .pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "WorkspaceFileConflictError"
+                  ? projectWriteFileConflict(input, cause)
+                  : new ProjectRevertFileChangeError({ message: cause.message, cause }),
+              ),
+            ),
         [WS_METHODS.projectsMutate]: (mutation) =>
           startup.enqueueCommand(mutateProject(mutation)).pipe(
             Effect.mapError(

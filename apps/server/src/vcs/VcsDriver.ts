@@ -48,6 +48,24 @@ export interface VcsDeleteCheckpointRefsInput {
   readonly checkpointRefs: ReadonlyArray<CheckpointRef>;
 }
 
+export interface VcsReadFileAtRevisionInput {
+  readonly cwd: string;
+  readonly revision: CheckpointRef | "HEAD";
+  /** Relative to `cwd`, with `/` separators. */
+  readonly relativePath: string;
+  /** A commit the caller already read this file from; a match skips the read. */
+  readonly knownCommit?: string | undefined;
+}
+
+/** `unavailable` covers a missing revision and files that are binary or over the size limit. */
+export type VcsFileAtRevision =
+  | { readonly kind: "text"; readonly commit: string; readonly contents: string }
+  | { readonly kind: "absent"; readonly commit: string }
+  | { readonly kind: "unchanged"; readonly commit: string }
+  | { readonly kind: "unavailable" };
+
+export const FILE_AT_REVISION_MAX_BYTES = 1024 * 1024;
+
 export interface VcsCheckpointOps {
   readonly captureCheckpoint: (input: VcsCaptureCheckpointInput) => Effect.Effect<void, VcsError>;
   readonly hasCheckpointRef: (
@@ -63,6 +81,9 @@ export interface VcsCheckpointOps {
   readonly deleteCheckpointRefs: (
     input: VcsDeleteCheckpointRefsInput,
   ) => Effect.Effect<void, VcsError>;
+  readonly readFileAtRevision: (
+    input: VcsReadFileAtRevisionInput,
+  ) => Effect.Effect<VcsFileAtRevision, VcsError>;
 }
 
 export class VcsDriver extends Context.Service<

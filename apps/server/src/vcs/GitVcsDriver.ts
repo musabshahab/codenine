@@ -1574,6 +1574,30 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         );
       },
     ),
+
+    readFileAtRevision: Effect.fn("GitVcsDriver.checkpoints.readFileAtRevision")(function* (input) {
+      const operation = "GitVcsDriver.checkpoints.readFileAtRevision";
+      const commit =
+        input.revision === "HEAD"
+          ? yield* resolveHeadCommit(input.cwd)
+          : yield* resolveCheckpointCommit(input.cwd, input.revision);
+      if (!commit) return { kind: "unavailable" };
+      if (commit === input.knownCommit) return { kind: "unchanged", commit };
+      // `./` resolves the path from cwd, which can be a subdirectory of the repository.
+      const blob = yield* execute({
+        operation,
+        cwd: input.cwd,
+        args: ["cat-file", "blob", `${commit}:./${input.relativePath}`],
+        allowNonZeroExit: true,
+        maxOutputBytes: VcsDriver.FILE_AT_REVISION_MAX_BYTES,
+        outputMode: "truncate",
+      });
+      if (blob.exitCode !== 0) return { kind: "absent", commit };
+      if (blob.stdoutTruncated || blob.stdoutInvalidUtf8 || blob.stdout.includes("\0")) {
+        return { kind: "unavailable" };
+      }
+      return { kind: "text", commit, contents: blob.stdout };
+    }),
   };
 
   return {

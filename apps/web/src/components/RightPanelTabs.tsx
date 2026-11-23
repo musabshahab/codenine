@@ -598,7 +598,13 @@ function RightPanelTab(
             <button
               type="button"
               className="cursor-pointer flex min-w-0 items-center"
-              aria-label={sideChatState === null ? undefined : `${title}, ${sideChatState}`}
+              aria-label={
+                sideChatState !== null
+                  ? `${title}, ${sideChatState}`
+                  : props.pending
+                    ? `${title}, unsaved changes`
+                    : undefined
+              }
               onClick={() => onActivate(surface)}
             >
               <span className="truncate">{title}</span>

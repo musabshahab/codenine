@@ -23,8 +23,12 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
+  acceptProjectFileConflict,
   clearProjectFileQueryData,
   confirmProjectFileQueryData,
+  hasProjectFileConflict,
+  markProjectFileConflict,
+  rebaseProjectFileQueryData,
   getOptimisticProjectFileQueryData,
   getUnsavedProjectFileQueryData,
   resolveProjectFileQueryData,
@@ -176,5 +180,26 @@ describe("project files queries", () => {
     expect(
       confirmProjectFileQueryData(environmentId, "/repo", "convex.json", '{"nodeVersion":"22"}'),
     ).toBe(true);
+  });
+
+  it("carries the version a draft began from until a save or an accepted conflict moves it", () => {
+    const file = ["/repo", "convex.json"] as const;
+    const draft = () => getUnsavedProjectFileQueryData(environmentId, ...file);
+    setProjectFileQueryData(environmentId, ...file, "a", "read-version");
+    // The disk moved on under the draft; later edits must still expect what the draft began from.
+    setProjectFileQueryData(environmentId, ...file, "ab", "newer-read-version");
+    expect(draft()).toMatchObject({ contents: "ab", version: "read-version" });
+
+    markProjectFileConflict(environmentId, ...file, "disk-version");
+    setProjectFileQueryData(environmentId, ...file, "abc");
+    expect(hasProjectFileConflict(environmentId, ...file)).toBe(true);
+    expect(draft()).toMatchObject({ contents: "abc", version: "read-version" });
+
+    acceptProjectFileConflict(environmentId, ...file);
+    expect(hasProjectFileConflict(environmentId, ...file)).toBe(false);
+    expect(draft()).toMatchObject({ contents: "abc", version: "disk-version" });
+
+    rebaseProjectFileQueryData(environmentId, ...file, "saved-version");
+    expect(draft()).toMatchObject({ contents: "abc", version: "saved-version" });
   });
 });

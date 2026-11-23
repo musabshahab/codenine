@@ -10,6 +10,9 @@ rebases, the files Git brought in are left out. A file stays in the list when th
 committed it, or fixed a conflict in it. Use the branch comparison to review everything that changed
 against your base branch. Restore still returns the complete saved workspace.
 
+To keep or undo the latest turn's change to a single file, right-click the file and choose
+**Review in file**. See [Edit workspace files](composer.md#edit-workspace-files).
+
 Open the Diff pane source picker and choose **Commits** to review one local
 commit at a time. The list shows the newest 100 commits in the branch comparison. A merge commit
 shows its changes against its first parent.

@@ -38,8 +38,11 @@ export type {
 } from "../operations/commands.ts";
 
 export interface OptimisticProjectFile {
+  /** `version` is the disk version these contents were edited from, which a save must still find. */
   readonly data: ProjectReadFileResult;
   readonly confirmedAgainst: object | null | undefined;
+  /** Set when a save was refused because the file changed on disk; saving waits for a decision. */
+  readonly conflict?: { readonly currentVersion: string | undefined };
 }
 
 export interface OptimisticProjectFileTarget {
@@ -53,8 +56,8 @@ function optimisticProjectFileKey(target: OptimisticProjectFileTarget): string {
 }
 
 function writtenFilePaths(
-  input: EnvironmentRpcInput<typeof WS_METHODS.projectsWriteFile>,
-  result: EnvironmentRpcSuccess<typeof WS_METHODS.projectsWriteFile>,
+  input: Pick<EnvironmentRpcInput<typeof WS_METHODS.projectsWriteFile>, "cwd" | "relativePath">,
+  result: Pick<EnvironmentRpcSuccess<typeof WS_METHODS.projectsWriteFile>, "relativePath">,
 ) {
   return new Set(
     [result.relativePath, input.relativePath].map((path) =>
@@ -147,6 +150,12 @@ export function createProjectEnvironmentAtoms<R, E>(
               : fileMetadata.rememberFile(input.cwd, result, isCurrent),
         ),
     }),
+    readFileBaseline: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:read-file-baseline",
+      tag: WS_METHODS.projectsReadFileBaseline,
+      staleTimeMs: 30_000,
+      idleTtlMs: 60_000,
+    }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
     create: createEnvironmentCommand(runtime, {
@@ -218,6 +227,28 @@ export function createProjectEnvironmentAtoms<R, E>(
       },
       execute: (input) =>
         requestGuarded(WS_METHODS.projectsWriteFile, input).pipe(
+          Effect.tap((result) =>
+            Effect.forEach(writtenFilePaths(input, result), fileMetadata.invalidate),
+          ),
+        ),
+      onSuccess: ({ environmentId, input }, registry, result) =>
+        Effect.sync(() => {
+          for (const path of writtenFilePaths(input, result))
+            fileMetadata.refreshPath(environmentId, path, registry);
+        }),
+    }),
+    revertFileChange: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:revert-file-change",
+      tag: WS_METHODS.projectsRevertFileChange,
+      scheduler: fileScheduler,
+      // The key `writeFile` uses, so a revert and a save of one file never interleave.
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.projectsRevertFileChange, input).pipe(
           Effect.tap((result) =>
             Effect.forEach(writtenFilePaths(input, result), fileMetadata.invalidate),
           ),

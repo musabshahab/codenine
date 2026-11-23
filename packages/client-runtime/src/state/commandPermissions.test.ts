@@ -8,6 +8,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
   AuthEnvironmentMaintainScope,
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthProvidersManageScope,
@@ -18,6 +19,7 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   ProjectId,
   WS_METHODS,
+  type AuthEnvironmentScope,
   type AuthSessionState,
 } from "@codenine/contracts";
 import * as Cause from "effect/Cause";
@@ -37,7 +39,10 @@ const sessions = Atom.family((_id: EnvironmentId) =>
 );
 const env = EnvironmentId.make("target");
 const other = EnvironmentId.make("other");
-const grant = (allowed: boolean): AuthSessionState => ({
+const grant = (
+  allowed: boolean,
+  scope: AuthEnvironmentScope = AuthOrchestrationOperateScope,
+): AuthSessionState => ({
   authenticated: true,
   auth: {
     policy: "remote-reachable",
@@ -45,8 +50,8 @@ const grant = (allowed: boolean): AuthSessionState => ({
     sessionMethods: [],
     sessionCookieName: "test",
   },
-  scopes: allowed ? [AuthOrchestrationOperateScope] : [],
-  permissions: allowed ? [AuthOrchestrationOperateScope] : [],
+  scopes: allowed ? [scope] : [],
+  permissions: allowed ? [scope] : [],
 });
 const runtime = Atom.runtime(
   Layer.succeed(EnvironmentRegistry, {
@@ -170,14 +175,18 @@ describe("command permissions", () => {
     ),
   );
 
-  it.effect.each([WS_METHODS.projectsCreateFromThread, ORCHESTRATION_V2_WS_METHODS.stopWorkflow])(
+  it.effect.each([
+    [WS_METHODS.projectsCreateFromThread, AuthOrchestrationOperateScope],
+    [WS_METHODS.projectsRevertFileChange, AuthFilesystemWriteScope],
+    [ORCHESTRATION_V2_WS_METHODS.stopWorkflow, AuthOrchestrationOperateScope],
+  ] as const)(
     "uses the target grant for both availability and execution of %s",
-    (method) =>
+    ([method, scope]) =>
       Effect.scoped(
         Effect.gen(function* () {
           const registry = yield* setup;
           const permissions = createCommandPermissions(runtime, method);
-          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          registry.set(sessions(env), AsyncResult.success(grant(true, scope)));
           expect(registry.get(permissions.permissionAtom(env))).toBe(true);
           expect(permissions.permissionAtom(env)).toBe(permissions.permissionAtom(env));
           yield* permissions.authorize(registry, env);

@@ -4,7 +4,11 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import type { CheckpointStoreError } from "./Errors.ts";
-import type { VcsCheckpointOps } from "../vcs/VcsDriver.ts";
+import type {
+  VcsCheckpointOps,
+  VcsFileAtRevision,
+  VcsReadFileAtRevisionInput,
+} from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
 export interface CaptureCheckpointInput {
@@ -71,6 +75,11 @@ export class CheckpointStore extends Context.Service<
     readonly deleteCheckpointRefs: (
       input: DeleteCheckpointRefsInput,
     ) => Effect.Effect<void, CheckpointStoreError>;
+
+    /** A file's text at a checkpoint or at HEAD. Unavailable outside a Git repository. */
+    readonly readFileAtRevision: (
+      input: VcsReadFileAtRevisionInput,
+    ) => Effect.Effect<VcsFileAtRevision, CheckpointStoreError>;
   }
 >()("codenine/checkpointing/CheckpointStore") {}
 
@@ -132,6 +141,14 @@ export const make = Effect.gen(function* () {
     return yield* checkpoints.deleteCheckpointRefs(input);
   });
 
+  const readFileAtRevision: CheckpointStore["Service"]["readFileAtRevision"] = Effect.fn(
+    "readFileAtRevision",
+  )(function* (input) {
+    if (!(yield* isGitRepository(input.cwd))) return { kind: "unavailable" };
+    const checkpoints = yield* resolveCheckpoints(input.cwd);
+    return yield* checkpoints.readFileAtRevision(input);
+  });
+
   return CheckpointStore.of({
     isGitRepository,
     captureCheckpoint,
@@ -140,6 +157,7 @@ export const make = Effect.gen(function* () {
     diffCheckpoints,
     listAuthoredPaths,
     deleteCheckpointRefs,
+    readFileAtRevision,
   });
 });
 

@@ -6,7 +6,10 @@ import {
 import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import { getTerminalLabel } from "@codenine/shared/terminalLabels";
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
+import { discardFileDraft } from "../components/files/fileSaveSessions";
+import { hasProjectFileConflict } from "../components/files/projectFilesQueryState";
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
+import { readLocalApi } from "../localApi";
 import { focusPanelTerminalAfterClose } from "../lib/terminalFocus";
 import {
   selectThreadRightPanelState,
@@ -22,15 +25,36 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useStableCallback } from "./useStableCallback";
 
+async function confirmDiscardFileEdits(paths: ReadonlyArray<string>): Promise<boolean> {
+  const localApi = readLocalApi();
+  if (!localApi) return true;
+  const names = paths.map((path) => `"${path.split(/[\\/]/).at(-1) ?? path}"`).join(", ");
+  try {
+    return await localApi.dialogs.confirm(
+      [
+        paths.length === 1 ? `Close ${names} without saving?` : "Close without saving?",
+        paths.length === 1
+          ? "Your edits were not saved because the file changed on disk. Closing discards them."
+          : `Your edits to ${names} were not saved because the files changed on disk. Closing discards them.`,
+      ].join("\n"),
+      { variant: "destructive" },
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Closing releases terminal sessions and deletes a side chat that never ran. Terminal tabs
- * require confirmation.
+ * require confirmation, and so does a file whose edits a save conflict left unsaved.
  */
 export function useRightPanelSurfaceClose(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly terminalLabelsById: ReadonlyMap<string, string>;
+  /** The folder file tabs are relative to. */
+  readonly fileWorkspaceRoot: string | undefined;
 }) {
-  const { threadRef, terminalLabelsById } = input;
+  const { threadRef, terminalLabelsById, fileWorkspaceRoot } = input;
   const deleteThread = useAtomCommand(threadEnvironment.delete, "side chat delete");
   const terminalActions = useThreadTerminalActions(threadRef);
   const storeCloseTerminal = useTerminalUiStateStore((state) => state.closeTerminal);
@@ -82,7 +106,29 @@ export function useRightPanelSurfaceClose(input: {
     terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId);
   const closeSurfaces = (toClose: readonly RightPanelSurface[]) => {
     if (!threadRef) return;
-    finishClose(toClose);
+    const unsavedPaths = toClose.flatMap((surface) =>
+      surface.kind === "file" &&
+      surface.attachment === undefined &&
+      fileWorkspaceRoot !== undefined &&
+      hasProjectFileConflict(threadRef.environmentId, fileWorkspaceRoot, surface.relativePath)
+        ? [surface.relativePath]
+        : [],
+    );
+    if (unsavedPaths.length === 0 || fileWorkspaceRoot === undefined) {
+      finishClose(toClose);
+      return;
+    }
+    void confirmDiscardFileEdits(unsavedPaths).then((confirmed) => {
+      if (!confirmed) return;
+      for (const relativePath of unsavedPaths) {
+        discardFileDraft({
+          environmentId: threadRef.environmentId,
+          cwd: fileWorkspaceRoot,
+          relativePath,
+        });
+      }
+      finishClose(toClose);
+    });
   };
 
   const closeSurface = useStableCallback((surface: RightPanelSurface) => {
@@ -91,7 +137,7 @@ export function useRightPanelSurfaceClose(input: {
       surface.kind !== "terminal" ||
       !readEnvironmentScope(threadRef.environmentId, AuthTerminalOperateScope)
     ) {
-      finishClose([surface]);
+      closeSurfaces([surface]);
       return;
     }
     const otherLabels = surface.terminalIds

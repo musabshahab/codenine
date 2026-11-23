@@ -11,6 +11,23 @@ const fixture = vi.hoisted(() => ({
   allowed: new Set<string>(),
   sessions: new Map<string, string>(),
   failClose: false,
+  conflictedFiles: new Set<string>(),
+  discardedFiles: [] as string[],
+  confirmDiscard: (_message: string): Promise<boolean> => Promise.resolve(false),
+}));
+// The real modules read the app's query cache, which would connect a client.
+vi.mock("../components/files/projectFilesQueryState", () => ({
+  hasProjectFileConflict: (_environmentId: string, _cwd: string, relativePath: string) =>
+    fixture.conflictedFiles.has(relativePath),
+}));
+vi.mock("../components/files/fileSaveSessions", () => ({
+  discardFileDraft: (target: { relativePath: string }) =>
+    fixture.discardedFiles.push(target.relativePath),
+}));
+vi.mock("../localApi", () => ({
+  readLocalApi: () => ({
+    dialogs: { confirm: (message: string) => fixture.confirmDiscard(message) },
+  }),
 }));
 vi.mock("../lib/terminalCloseConfirm", () => ({
   confirmTerminalClose: (labels: readonly string[]) => fixture.confirm(labels),
@@ -67,6 +84,8 @@ function setup() {
   fixture.allowed = new Set(["environment-a", "environment-b"]);
   fixture.sessions = new Map();
   fixture.failClose = false;
+  fixture.conflictedFiles = new Set();
+  fixture.discardedFiles = [];
   useRightPanelStore.setState({ byThreadKey: {} });
   useTerminalUiStateStore.setState({ terminalUiStateByThreadKey: {} });
   const original: ScopedThreadRef = {
@@ -92,6 +111,7 @@ function setup() {
     const { closeSurface } = useRightPanelSurfaceClose({
       threadRef,
       terminalLabelsById: new Map(),
+      fileWorkspaceRoot: undefined,
     });
     return <button onClick={() => closeSurface(surface)}>Close original terminal</button>;
   }
@@ -133,5 +153,53 @@ it.each(["cancel", "revoked"])(
     expect(
       useRightPanelStore.getState().byThreadKey[scopedThreadKey(other)]?.surfaces,
     ).toHaveLength(1);
+  },
+);
+
+it.each([
+  { confirmed: true, discarded: ["notes.md"], openFiles: 0 },
+  { confirmed: false, discarded: [], openFiles: 1 },
+])(
+  "asks before closing a file whose edits a save conflict left unsaved, confirmed=$confirmed",
+  async ({ confirmed, discarded, openFiles }) => {
+    const { original } = setup();
+    fixture.conflictedFiles = new Set(["notes.md"]);
+    const asked: string[] = [];
+    fixture.confirmDiscard = (message) => {
+      asked.push(message);
+      return Promise.resolve(confirmed);
+    };
+    useRightPanelStore.getState().openFile(original, "notes.md");
+    useRightPanelStore.getState().openFile(original, "saved.md");
+    const fileSurfaces = () =>
+      selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        original,
+      ).surfaces.filter((surface) => surface.kind === "file");
+    const [unsaved, saved] = fileSurfaces();
+    function Harness() {
+      const { closeSurface } = useRightPanelSurfaceClose({
+        threadRef: original,
+        terminalLabelsById: new Map(),
+        fileWorkspaceRoot: "/workspace",
+      });
+      return (
+        <>
+          <button onClick={() => closeSurface(saved!)}>Close saved file</button>
+          <button onClick={() => closeSurface(unsaved!)}>Close unsaved file</button>
+        </>
+      );
+    }
+    await using screen = await render(<Harness />);
+
+    await screen.getByRole("button", { name: "Close saved file" }).click();
+    expect(fileSurfaces()).toHaveLength(1);
+    expect(asked).toEqual([]);
+    await screen.getByRole("button", { name: "Close unsaved file" }).click();
+    expect(asked).toHaveLength(1);
+    // Lets the answered confirmation run its close.
+    await act(async () => {});
+    expect(fileSurfaces()).toHaveLength(openFiles);
+    expect(fixture.discardedFiles).toEqual(discarded);
   },
 );

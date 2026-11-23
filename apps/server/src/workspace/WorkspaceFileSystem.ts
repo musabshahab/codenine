@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 
@@ -28,6 +29,9 @@ import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
+
+const fileVersion = (bytes: Uint8Array) =>
+  NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 
 // NTFS reaches .git through trailing dots/spaces, stream suffixes and GIT~1; compare uppercased names.
 const isGitMetadataName = (segment: string) => {
@@ -100,6 +104,27 @@ export class WorkspaceBinaryFileError extends Schema.TaggedError<WorkspaceBinary
   }
 }
 
+/** The file's bytes differ from the version the writer expected, so nothing was written. */
+export class WorkspaceFileConflictError extends Schema.TaggedError<WorkspaceFileConflictError>()(
+  "WorkspaceFileConflictError",
+  {
+    workspaceRoot: Schema.String,
+    relativePath: Schema.String,
+    /** Absent when the file no longer exists. */
+    currentVersion: Schema.optional(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `Workspace file '${this.relativePath}' in '${this.workspaceRoot}' changed on disk since it was read.`;
+  }
+}
+
+export interface RemoveWorkspaceFileInput {
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly expectedVersion: string;
+}
+
 export const WorkspaceFileSystemError = Schema.Union([
   WorkspaceFileSystemOperationError,
   WorkspaceFilePathEscapeError,
@@ -127,6 +152,17 @@ export class WorkspaceFileSystem extends Context.Service<
     ) => Effect.Effect<
       ProjectWriteFileResult,
       | WorkspaceFileSystemError
+      | WorkspaceFileConflictError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /** Deletes a file inside a known workspace, only while it still has the expected version. */
+    readonly removeFile: (
+      input: RemoveWorkspaceFileInput,
+    ) => Effect.Effect<
+      void,
+      | WorkspaceFileSystemError
+      | WorkspaceFileConflictError
       | WorkspacePaths.WorkspacePathOutsideRootError
       | KnownWorkspaces.UnknownWorkspaceError
     >;
@@ -438,6 +474,7 @@ export const make = Effect.gen(function* () {
             contents: new TextDecoder("utf-8").decode(fileBytes, { stream: truncated }),
             byteLength: stat.size,
             truncated,
+            ...(truncated ? {} : { version: fileVersion(fileBytes) }),
           };
         }),
       (handle) =>
@@ -460,7 +497,7 @@ export const make = Effect.gen(function* () {
 
   // Resolve existing ancestors and reject dangling links so creation cannot follow symlinks outside root.
   const resolveWriteTarget = Effect.fn("WorkspaceFileSystem.resolveWriteTarget")(function* (
-    input: ProjectWriteFileInput,
+    input: Pick<ProjectWriteFileInput, "cwd" | "relativePath">,
   ) {
     const target = yield* workspacePaths.resolveRelativePathWithinRoot({
       workspaceRoot: input.cwd,
@@ -540,12 +577,46 @@ export const make = Effect.gen(function* () {
     return { relativePath: target.relativePath, realTargetPath };
   });
 
+  // A writer between this check and the write still loses; the check only narrows that window.
+  const assertVersion = Effect.fn("WorkspaceFileSystem.assertVersion")(function* (
+    input: Pick<ProjectWriteFileInput, "cwd" | "relativePath">,
+    realTargetPath: string,
+    expectedVersion: string,
+  ) {
+    const currentVersion = yield* Effect.tryPromise({
+      try: () =>
+        NodeFSP.readFile(realTargetPath).then(fileVersion, (cause: NodeJS.ErrnoException) => {
+          if (cause.code === "ENOENT") return undefined;
+          throw cause;
+        }),
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: realTargetPath,
+          operationPath: realTargetPath,
+          operation: "read",
+          cause,
+        }),
+    });
+    if (currentVersion !== expectedVersion) {
+      return yield* new WorkspaceFileConflictError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        ...(currentVersion === undefined ? {} : { currentVersion }),
+      });
+    }
+  });
+
   const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = Effect.fn(
     "WorkspaceFileSystem.writeFile",
   )(function* (input) {
     yield* knownWorkspaces.assertContains(input.cwd);
     const target = yield* resolveWriteTarget(input);
     const realTargetPath = target.realTargetPath;
+    if (input.expectedVersion !== undefined) {
+      yield* assertVersion(input, realTargetPath, input.expectedVersion);
+    }
     const replacesFile = yield* fileSystem
       .exists(realTargetPath)
       .pipe(Effect.orElseSucceed(() => false));
@@ -589,10 +660,34 @@ export const make = Effect.gen(function* () {
     if (!replacesFile) {
       yield* workspaceEntries.refresh(input.cwd);
     }
-    return { relativePath: target.relativePath };
+    return {
+      relativePath: target.relativePath,
+      version: fileVersion(Buffer.from(input.contents)),
+    };
   });
 
-  return WorkspaceFileSystem.of({ getMetadata, readFile, writeFile });
+  const removeFile: WorkspaceFileSystem["Service"]["removeFile"] = Effect.fn(
+    "WorkspaceFileSystem.removeFile",
+  )(function* (input) {
+    yield* knownWorkspaces.assertContains(input.cwd);
+    const { realTargetPath } = yield* resolveWriteTarget(input);
+    yield* assertVersion(input, realTargetPath, input.expectedVersion);
+    yield* Effect.tryPromise({
+      try: () => NodeFSP.unlink(realTargetPath),
+      catch: (cause) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath: realTargetPath,
+          operationPath: realTargetPath,
+          operation: "write-file",
+          cause,
+        }),
+    });
+    yield* workspaceEntries.refresh(input.cwd);
+  });
+
+  return WorkspaceFileSystem.of({ getMetadata, readFile, writeFile, removeFile });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

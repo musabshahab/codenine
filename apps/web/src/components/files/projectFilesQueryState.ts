@@ -81,16 +81,23 @@ export function getProjectFileQueryAtom(
   });
 }
 
+/**
+ * Stores an unsaved draft. `baseVersion` is the disk version the editor showed when the draft
+ * began; later edits keep the version the draft already carries.
+ */
 export function setProjectFileQueryData(
   environmentId: EnvironmentId,
   cwd: string,
   relativePath: string,
   contents: string,
+  baseVersion?: string,
 ): void {
   const atom = optimisticFileAtom(environmentId, cwd, relativePath);
   if (!unsavedFileMounts.has(atom)) {
     unsavedFileMounts.set(atom, appAtomRegistry.mount(atom));
   }
+  const current = appAtomRegistry.get(atom);
+  const version = current ? current.data.version : baseVersion;
   appAtomRegistry.set(atom, {
     confirmedAgainst: undefined,
     data: {
@@ -98,8 +105,84 @@ export function setProjectFileQueryData(
       contents,
       byteLength: new TextEncoder().encode(contents).byteLength,
       truncated: false,
+      ...(version === undefined ? {} : { version }),
     },
+    ...(current?.conflict ? { conflict: current.conflict } : {}),
   });
+}
+
+/** Records the version a save or revert left on disk, so the next save expects it. */
+export function rebaseProjectFileQueryData(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+  version: string | undefined,
+): void {
+  const atom = optimisticFileAtom(environmentId, cwd, relativePath);
+  const current = appAtomRegistry.get(atom);
+  if (!current) return;
+  const { version: _replaced, ...data } = current.data;
+  appAtomRegistry.set(atom, {
+    confirmedAgainst: current.confirmedAgainst,
+    data: version === undefined ? data : { ...data, version },
+  });
+}
+
+/** Marks the draft as refused by a save because the file changed on disk. */
+export function markProjectFileConflict(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+  currentVersion: string | undefined,
+): void {
+  const atom = optimisticFileAtom(environmentId, cwd, relativePath);
+  const current = appAtomRegistry.get(atom);
+  if (current) appAtomRegistry.set(atom, { ...current, conflict: { currentVersion } });
+}
+
+export function hasProjectFileConflict(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+): boolean {
+  return (
+    appAtomRegistry.get(optimisticFileAtom(environmentId, cwd, relativePath))?.conflict !==
+    undefined
+  );
+}
+
+/** Lets the next save replace what is on disk now, keeping the draft. */
+export function acceptProjectFileConflict(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+): void {
+  const conflict = appAtomRegistry.get(
+    optimisticFileAtom(environmentId, cwd, relativePath),
+  )?.conflict;
+  if (conflict)
+    rebaseProjectFileQueryData(environmentId, cwd, relativePath, conflict.currentVersion);
+}
+
+export function useProjectFileConflict(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string | null,
+): boolean {
+  const optimistic = useAtomValue(
+    optimisticFileAtom(environmentId, cwd, relativePath ?? EMPTY_PROJECT_FILE_PATH),
+  );
+  return relativePath !== null && optimistic?.conflict !== undefined;
+}
+
+/** Drops any draft and reads the file again. */
+export function reloadProjectFileQueryData(
+  environmentId: EnvironmentId,
+  cwd: string,
+  relativePath: string,
+): void {
+  clearProjectFileQueryData(environmentId, cwd, relativePath);
+  appAtomRegistry.refresh(getProjectFileQueryAtom(environmentId, cwd, relativePath));
 }
 
 export function getOptimisticProjectFileQueryData(

@@ -34,9 +34,12 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   resolvedTheme: "light" | "dark";
   onToggleAllDirectories: () => void;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
+  /** False where there is no Diff tab; selecting a file then opens its in-file review. */
+  fullDiffOffered?: boolean;
   onFileContextMenu?: ChangedFileContextMenuHandler | undefined;
 }) {
   const {
+    fullDiffOffered = true,
     runId,
     files,
     totals,
@@ -102,23 +105,25 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
               </TooltipPopup>
             </Tooltip>
           )}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost-muted"
-                  aria-label="Open diff"
-                  onClick={() => onOpenTurnDiff(runId, files[0]?.path)}
-                />
-              }
-            >
-              <FileDiffIcon className="size-3" />
-              <span className="hidden @[24rem]/changed-files:inline">Open diff</span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">Open the full diff</TooltipPopup>
-          </Tooltip>
+          {fullDiffOffered && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost-muted"
+                    aria-label="Open diff"
+                    onClick={() => onOpenTurnDiff(runId, files[0]?.path)}
+                  />
+                }
+              >
+                <FileDiffIcon className="size-3" />
+                <span className="hidden @[24rem]/changed-files:inline">Open diff</span>
+              </TooltipTrigger>
+              <TooltipPopup side="top">Open the full diff</TooltipPopup>
+            </Tooltip>
+          )}
         </div>
       </div>
       <ChangedFilesTree
@@ -130,7 +135,7 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
         onOpenTurnDiff={onOpenTurnDiff}
         onFileContextMenu={onFileContextMenu}
       />
-      {hiddenFileCount > 0 && (
+      {hiddenFileCount > 0 && fullDiffOffered && (
         <div className="px-3 pb-2">
           <Button
             type="button"
@@ -142,6 +147,11 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
             full diff
           </Button>
         </div>
+      )}
+      {hiddenFileCount > 0 && !fullDiffOffered && (
+        <p className="px-3 pb-2 text-xs text-muted-foreground">
+          {hiddenFileCount.toLocaleString()} more file{hiddenFileCount === 1 ? "" : "s"} changed
+        </p>
       )}
     </div>
   );

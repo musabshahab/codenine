@@ -1,4 +1,5 @@
 import { EnvironmentId, ThreadId, type ProjectReadFileResult } from "@codenine/contracts";
+import { RegistryContext } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { act, fakeTimers, render } from "../../../test/render";
@@ -73,6 +74,8 @@ vi.mock(import("./projectFilesQueryState"), async (original) => ({
   confirmProjectFileQueryData: () => true,
 }));
 
+import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { projectEnvironment } from "~/state/projects";
 import FilePreviewPanel from "./FilePreviewPanel";
 
 const environmentId = EnvironmentId.make("markdown-preview-test");
@@ -83,7 +86,7 @@ function setup() {
   localStorage.setItem(keys[0]!, "false");
   localStorage.setItem(keys[1]!, "true");
   state.optimistic = null;
-  state.writeFile.mockReset().mockResolvedValue(AsyncResult.success(undefined));
+  state.writeFile.mockReset().mockResolvedValue(AsyncResult.success({ relativePath: "tasks.md" }));
   return {
     [Symbol.dispose]() {
       for (const [index, key] of keys.entries()) {
@@ -115,6 +118,7 @@ function markdownPreview(truncated: boolean) {
       openInShortcutEnabled={false}
       revealLine={null}
       revealRequestId={0}
+      reviewRequestId={0}
       onOpenFile={vi.fn()}
       onNavigateFolder={vi.fn()}
       folderTrail={undefined}
@@ -158,5 +162,47 @@ describe("rendered Markdown task saves", () => {
         contents: "- [x] Keep the rest of this file\n",
       },
     });
+  });
+
+  it("offers to overwrite or reload when a save was refused", async () => {
+    using _settings = setup();
+    const optimisticFile = projectEnvironment.optimisticFile({
+      environmentId,
+      cwd: "/workspace",
+      relativePath: "tasks.md",
+    });
+    using _mounted = { [Symbol.dispose]: appAtomRegistry.mount(optimisticFile) };
+    const refuse = () =>
+      appAtomRegistry.set(optimisticFile, {
+        data: {
+          relativePath: "tasks.md",
+          contents: "- [x] Mine\n",
+          byteLength: 11,
+          truncated: false,
+          version: "read",
+        },
+        confirmedAgainst: undefined,
+        conflict: { currentVersion: "disk" },
+      });
+    refuse();
+    await using screen = await render(
+      <RegistryContext.Provider value={appAtomRegistry}>
+        {markdownPreview(false)}
+      </RegistryContext.Provider>,
+    );
+
+    await screen.getByRole("button", { name: "Overwrite" }).click();
+    await expect.element(screen.getByRole("button", { name: "Overwrite" })).not.toBeInTheDocument();
+    expect(appAtomRegistry.get(optimisticFile)).toMatchObject({
+      data: { contents: "- [x] Mine\n", version: "disk" },
+    });
+    expect(appAtomRegistry.get(optimisticFile)?.conflict).toBeUndefined();
+
+    await act(async () => refuse());
+    await screen.getByRole("button", { name: "Reload from disk" }).click();
+    await expect
+      .element(screen.getByRole("button", { name: "Reload from disk" }))
+      .not.toBeInTheDocument();
+    expect(appAtomRegistry.get(optimisticFile)).toBeNull();
   });
 });

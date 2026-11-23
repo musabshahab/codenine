@@ -113,6 +113,28 @@ export function FileSurfaceNotice(props: { readonly children: ReactNode }) {
   );
 }
 
+/** A line under the file header that states something about the file and offers what to do. */
+export function FileSurfaceBar(props: {
+  readonly tone?: "warning";
+  readonly actions: ReactNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-2xs",
+        props.tone === "warning"
+          ? "border-warning/20 bg-warning-surface text-warning-foreground"
+          : "text-muted-foreground",
+      )}
+    >
+      <span className="min-w-0 flex-1">{props.children}</span>
+      <span className="flex shrink-0 items-center gap-1.5">{props.actions}</span>
+    </div>
+  );
+}
+
 export function FileSurfaceLoading(props: { readonly className?: string }) {
   return (
     <div

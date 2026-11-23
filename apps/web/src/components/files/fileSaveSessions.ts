@@ -1,5 +1,14 @@
-import { AuthFilesystemWriteScope, type EnvironmentId } from "@codenine/contracts";
-import { type AtomCommandResult, runAtomCommand } from "@codenine/client-runtime/state/runtime";
+import {
+  AuthFilesystemWriteScope,
+  type EnvironmentId,
+  ProjectWriteFileConflictError,
+} from "@codenine/contracts";
+import {
+  type AtomCommandResult,
+  runAtomCommand,
+  squashAtomCommandFailure,
+} from "@codenine/client-runtime/state/runtime";
+import * as Schema from "effect/Schema";
 import { useEffect } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
@@ -8,8 +17,13 @@ import { environmentSession, readEnvironmentScope, sessionHasScope } from "~/sta
 
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
+  acceptProjectFileConflict,
   confirmProjectFileQueryData,
   getUnsavedProjectFileQueryData,
+  hasProjectFileConflict,
+  markProjectFileConflict,
+  rebaseProjectFileQueryData,
+  reloadProjectFileQueryData,
 } from "./projectFilesQueryState";
 
 export interface FileSaveTarget {
@@ -129,6 +143,17 @@ export function createFileSaveSessions(deps: FileSaveSessionDeps) {
       const session = sessions.get(fileSaveKey(target));
       if (session && session.leases > 0) session.coordinator.change(contents);
     },
+    /** Saves the unsaved draft now, after whatever blocked its last save was cleared. */
+    retry(target: FileSaveTarget): void {
+      const session = sessions.get(fileSaveKey(target));
+      if (!session) return;
+      recover(target, session.coordinator);
+      session.coordinator.flush();
+    },
+    /** Stops saving the draft the caller has dropped. */
+    discard(target: FileSaveTarget): void {
+      sessions.get(fileSaveKey(target))?.coordinator.discard();
+    },
   };
 }
 
@@ -136,9 +161,14 @@ function fileSaveKey({ environmentId, cwd, relativePath }: FileSaveTarget): stri
   return `${environmentId}\u0000${cwd}\u0000${relativePath}`;
 }
 
+const isWriteConflict = Schema.is(ProjectWriteFileConflictError);
+
 const fileSaveSessions = createFileSaveSessions({
   debounceMs: 500,
-  canPersist: ({ environmentId }) => readEnvironmentScope(environmentId, AuthFilesystemWriteScope),
+  // A refused save waits for the user to reload or overwrite; retrying would resend the file.
+  canPersist: ({ environmentId, cwd, relativePath }) =>
+    readEnvironmentScope(environmentId, AuthFilesystemWriteScope) &&
+    !hasProjectFileConflict(environmentId, cwd, relativePath),
   subscribeWritable: ({ environmentId }, onWritable) => {
     let writable = readEnvironmentScope(environmentId, AuthFilesystemWriteScope);
     return appAtomRegistry.subscribe(
@@ -150,11 +180,31 @@ const fileSaveSessions = createFileSaveSessions({
       },
     );
   },
-  persist: ({ environmentId, cwd, relativePath }, contents) =>
-    runAtomCommand(appAtomRegistry, projectEnvironment.writeFile, {
+  persist: async ({ environmentId, cwd, relativePath }, contents) => {
+    const expectedVersion = getUnsavedProjectFileQueryData(
       environmentId,
-      input: { cwd, relativePath, contents },
-    }),
+      cwd,
+      relativePath,
+    )?.version;
+    const result = await runAtomCommand(appAtomRegistry, projectEnvironment.writeFile, {
+      environmentId,
+      input: {
+        cwd,
+        relativePath,
+        contents,
+        ...(expectedVersion === undefined ? {} : { expectedVersion }),
+      },
+    });
+    if (result._tag === "Success") {
+      rebaseProjectFileQueryData(environmentId, cwd, relativePath, result.value.version);
+    } else {
+      const failure = squashAtomCommandFailure(result);
+      if (isWriteConflict(failure)) {
+        markProjectFileConflict(environmentId, cwd, relativePath, failure.currentVersion);
+      }
+    }
+    return result;
+  },
   confirm: ({ environmentId, cwd, relativePath }, contents) =>
     confirmProjectFileQueryData(environmentId, cwd, relativePath, contents),
   readUnsaved: ({ environmentId, cwd, relativePath }) =>
@@ -175,4 +225,16 @@ export function useFileSaveSession(
 
 export function changeFileSaveSession(target: FileSaveTarget, contents: string): void {
   fileSaveSessions.change(target, contents);
+}
+
+/** Saves the draft over the file that changed on disk. */
+export function overwriteFileSaveConflict(target: FileSaveTarget): void {
+  acceptProjectFileConflict(target.environmentId, target.cwd, target.relativePath);
+  fileSaveSessions.retry(target);
+}
+
+/** Drops the draft and shows the file as it is on disk. */
+export function discardFileDraft(target: FileSaveTarget): void {
+  fileSaveSessions.discard(target);
+  reloadProjectFileQueryData(target.environmentId, target.cwd, target.relativePath);
 }

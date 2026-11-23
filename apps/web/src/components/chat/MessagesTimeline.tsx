@@ -255,6 +255,8 @@ interface MessagesTimelineProps {
   announceTurnStatus?: boolean;
   onOpenToolDiff?: (target: ToolCallDiffTarget) => void;
   onOpenTurnDiff?: (runId: RunId, filePath?: string) => void;
+  /** False where the workspace has no Diff tab, so a turn's files open their in-file review. */
+  turnDiffTabOffered?: boolean;
   onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
   turnItemSource?: TimelineRowSharedState["turnItemSource"];
   /**
@@ -365,6 +367,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   announceTurnStatus = true,
   onOpenToolDiff,
   onOpenTurnDiff,
+  turnDiffTabOffered = true,
   onOpenThread,
   turnItemSource,
   parentThreadLink = null,
@@ -997,6 +1000,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     openPullRequest,
     onOpenToolDiff,
     onOpenTurnDiff,
+    turnDiffTabOffered,
     onOpenThread,
     turnItemSource,
     workflowOpening,

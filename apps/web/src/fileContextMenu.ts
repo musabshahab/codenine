@@ -3,6 +3,7 @@ import {
   type ContextMenuItem,
   type EditorId,
   type EnvironmentId,
+  type ScopedThreadRef,
 } from "@codenine/contracts";
 
 import { resolveDiffPathForWorkspace } from "./diffFileActions";
@@ -11,6 +12,7 @@ import {
   revealInFileExplorerLabelForOs,
 } from "~/lib/fileExplorerLabel";
 import { readLocalApi } from "./localApi";
+import { useRightPanelStore } from "./rightPanelStore";
 import { serverEnvironment } from "./state/server";
 import { shellEnvironment } from "./state/shell";
 import { useAtomCommand } from "./state/use-atom-command";
@@ -19,6 +21,7 @@ import { toastManager } from "./components/ui/toast";
 import { useAtomValue } from "@effect/atom-react";
 
 export type FileContextMenuAction =
+  | "review-in-file"
   | "reveal-in-folder"
   | "open"
   /** Submenu parent; never the activated id. */
@@ -31,6 +34,17 @@ export interface FileContextMenuTarget {
   readonly filePath: string;
   readonly workspaceRoot: string | undefined;
   readonly repositoryRoot?: string | undefined;
+  /** The thread whose right panel opens the file to review the latest turn's change in place. */
+  readonly reviewThreadRef?: ScopedThreadRef | null | undefined;
+}
+
+function reviewInFilePath(target: FileContextMenuTarget): string | null {
+  if (!target.reviewThreadRef || target.workspaceRoot === undefined) return null;
+  return resolveDiffPathForWorkspace({
+    filePath: target.filePath,
+    workspaceRoot: target.workspaceRoot,
+    repositoryRoot: target.repositoryRoot,
+  });
 }
 
 export function resolveFileContextMenuAbsolutePath(target: FileContextMenuTarget): string | null {
@@ -58,10 +72,14 @@ export interface FileContextMenuCapabilities {
 
 function buildFileContextMenuItems(input: {
   readonly hasAbsolutePath: boolean;
+  readonly canReviewInFile: boolean;
   readonly capabilities: FileContextMenuCapabilities;
 }): readonly ContextMenuItem<FileContextMenuAction>[] {
-  if (!input.hasAbsolutePath) return [];
   const items: ContextMenuItem<FileContextMenuAction>[] = [];
+  if (input.canReviewInFile) {
+    items.push({ id: "review-in-file", label: "Review in file" });
+  }
+  if (!input.hasAbsolutePath) return items;
   if (input.capabilities.canOpenDefault) {
     items.push({ id: "open", label: "Open", icon: "pencil" });
   }
@@ -109,6 +127,15 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
     action: FileContextMenuAction,
     target: FileContextMenuTarget,
   ): Promise<void> => {
+    if (action === "review-in-file") {
+      const relativePath = reviewInFilePath(target);
+      if (relativePath !== null && target.reviewThreadRef) {
+        useRightPanelStore
+          .getState()
+          .openFile(target.reviewThreadRef, relativePath, undefined, { review: true });
+      }
+      return;
+    }
     const absolutePath = resolveFileContextMenuAbsolutePath(target);
     if (absolutePath === null || environmentId === null) return;
 
@@ -143,6 +170,7 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
     const api = readLocalApi();
     const items = buildFileContextMenuItems({
       hasAbsolutePath: resolveFileContextMenuAbsolutePath(target) !== null,
+      canReviewInFile: reviewInFilePath(target) !== null,
       capabilities,
     });
     if (items.length === 0 || api === undefined) return;
@@ -155,6 +183,7 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
     buildItems: (target: FileContextMenuTarget) =>
       buildFileContextMenuItems({
         hasAbsolutePath: resolveFileContextMenuAbsolutePath(target) !== null,
+        canReviewInFile: reviewInFilePath(target) !== null,
         capabilities,
       }),
     capabilities,
