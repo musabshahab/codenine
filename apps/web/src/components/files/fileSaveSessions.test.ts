@@ -261,7 +261,7 @@ describe("file save sessions", () => {
 
   it("holds a refused draft until it is retried, and stops saving one that was discarded", async () => {
     using h = setup();
-    h.sessions.acquire(target, h.onPendingChange);
+    const release = h.sessions.acquire(target, h.onPendingChange);
     h.persist.mockResolvedValueOnce(AsyncResult.failure(Cause.fail("changed on disk")));
     h.sessions.change(target, "my edit");
     h.state.unsaved = "my edit";
@@ -285,5 +285,16 @@ describe("file save sessions", () => {
     await vi.runAllTimersAsync();
     expect(h.writes()).toHaveLength(2);
     expect(h.onPendingChange).toHaveBeenLastCalledWith("file.txt", false);
+
+    // The editor can close while a save is refused, which ends the session; a retry still saves.
+    h.state.writable = false;
+    h.sessions.change(target, "edit left behind");
+    h.state.unsaved = "edit left behind";
+    release();
+    await vi.runAllTimersAsync();
+    h.state.writable = true;
+    h.sessions.retry(target);
+    await vi.runAllTimersAsync();
+    expect(h.writes().at(-1)).toEqual([target, "edit left behind"]);
   });
 });

@@ -4,6 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   AuthSessionId,
+  AuthFilesystemWriteScope,
   AuthSourceControlWriteScope,
   EnvironmentId,
   EventId,
@@ -1372,6 +1373,76 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
       [yield* Queue.take(refreshes), yield* Queue.take(refreshes)],
       ["identity /repo refresh=true", "status /repo"],
     );
+  }).pipe(Effect.provide(Layer.fresh(layerConfigSources)), Effect.scoped),
+);
+
+it.effect("a refused save or discard reaches the client as a write conflict", () =>
+  Effect.gen(function* () {
+    const exits = yield* Queue.unbounded<Exit.Exit<unknown, unknown>>();
+    const conflict = new WorkspaceFileSystem.WorkspaceFileConflictError({
+      workspaceRoot: "/repo",
+      relativePath: "notes.md",
+      currentVersion: "on-disk",
+    });
+    const services = Layer.mergeAll(
+      layerUnusedConfigRpcServices,
+      Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({
+        writeFile: () => Effect.fail(conflict),
+      }),
+      Layer.mock(FileBaselines.FileBaselines)({ revertTurnChange: () => Effect.fail(conflict) }),
+      Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+      Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+      Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+      Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+      Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/unused" }),
+      Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+      Layer.mock(ServerEnvironment.ServerEnvironment)({}),
+      Layer.mock(EnvironmentAuth.EnvironmentAuth)({}),
+    );
+    const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
+      ...WS_RPC_SERVER_OPTIONS,
+      onFromServer: (response) =>
+        response._tag === "Exit" ? Queue.offer(exits, response.exit) : Effect.void,
+    }).pipe(
+      Effect.provide(
+        layerWsRpc(
+          {
+            sessionId: AuthSessionId.make("write-conflict-test"),
+            subject: "write-conflict-test",
+            method: "browser-session-cookie",
+            scopes: [AuthFilesystemWriteScope],
+          },
+          { secretReferences: true },
+        ).pipe(
+          Layer.provide(services),
+          Layer.merge(RpcAuthorization.layer([AuthFilesystemWriteScope])),
+        ),
+      ),
+    );
+    const file = { cwd: "/repo", relativePath: "notes.md" };
+    const requests = [
+      [WS_METHODS.projectsWriteFile, { ...file, contents: "mine\n", expectedVersion: "read" }],
+      [
+        WS_METHODS.projectsRevertFileChange,
+        { ...file, threadId: "thread", turnCount: 1, expectedVersion: "read" },
+      ],
+    ] as const;
+    for (const [tag, payload] of requests) {
+      yield* server.write(0, {
+        _tag: "Request",
+        id: RpcMessage.RequestId(tag),
+        tag,
+        payload,
+        headers: Headers.empty,
+      });
+      const exit = yield* Queue.take(exits);
+      assert.deepInclude(Exit.isFailure(exit) ? Cause.squash(exit.cause) : null, {
+        _tag: "ProjectWriteFileConflictError",
+        relativePath: "notes.md",
+        currentVersion: "on-disk",
+      });
+    }
   }).pipe(Effect.provide(Layer.fresh(layerConfigSources)), Effect.scoped),
 );
 

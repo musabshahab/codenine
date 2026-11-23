@@ -55,13 +55,20 @@ export interface VcsReadFileAtRevisionInput {
   readonly relativePath: string;
   /** A commit the caller already read this file from; a match skips the read. */
   readonly knownCommit?: string | undefined;
+  /** A checkpoint to compare with; a file that is the same there is answered `same`, unread. */
+  readonly unlessSameAt?: CheckpointRef | undefined;
 }
 
-/** `unavailable` covers a missing revision and files that are binary or over the size limit. */
+/**
+ * `text` is the checked-out form, with line-ending conversion and filters applied. `absent` means
+ * the revision does not track the path, which includes files Git ignores. `unavailable` covers a
+ * missing revision, links, submodules, folders, and files that are binary or over the size limit.
+ */
 export type VcsFileAtRevision =
   | { readonly kind: "text"; readonly commit: string; readonly contents: string }
   | { readonly kind: "absent"; readonly commit: string }
   | { readonly kind: "unchanged"; readonly commit: string }
+  | { readonly kind: "same" }
   | { readonly kind: "unavailable" };
 
 export const FILE_AT_REVISION_MAX_BYTES = 1024 * 1024;

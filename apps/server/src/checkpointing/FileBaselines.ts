@@ -39,6 +39,8 @@ export class FileBaselineUnavailableError extends Schema.TaggedError<FileBaselin
 // Lines keep their terminators, so a restored range brings its own line endings back.
 const splitLines = (text: string) => (text === "" ? [] : text.split(/(?<=\n)/));
 
+const BYTE_ORDER_MARK = "\uFEFF";
+
 /** Puts the baseline's lines back in place of one change. Null when a range is outside its file. */
 function revertLineChange(
   current: string,
@@ -50,17 +52,27 @@ function revertLineChange(
   const currentEnd = change.currentStart + change.currentCount;
   const baselineEnd = change.baseStart + change.baseCount;
   if (currentEnd > currentLines.length || baselineEnd > baselineLines.length) return null;
-  return [
+  const lines = [
     ...currentLines.slice(0, change.currentStart),
     ...baselineLines.slice(change.baseStart, baselineEnd),
     ...currentLines.slice(currentEnd),
-  ].join("");
+  ];
+  // Only a file's last line may lack a terminator; one moved off the end would join the next line.
+  const terminator = current.includes("\r\n") ? "\r\n" : "\n";
+  return lines
+    .map((line, index) =>
+      index < lines.length - 1 && !line.endsWith("\n") ? line + terminator : line,
+    )
+    .join("");
 }
 
 export class FileBaselines extends Context.Service<
   FileBaselines,
   {
-    /** A workspace file's text at the last commit or at the start of a thread's turn. */
+    /**
+     * A workspace file's text at the last commit or at the start of a thread's turn. A turn that
+     * did not change the file has no baseline for it.
+     */
     readonly read: (
       input: ProjectReadFileBaselineInput,
     ) => Effect.Effect<
@@ -93,16 +105,18 @@ const make = Effect.gen(function* () {
   const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
 
-  const read: FileBaselines["Service"]["read"] = Effect.fn("FileBaselines.read")(function* (input) {
+  const readWithByteOrderMark = Effect.fn("FileBaselines.read")(function* (
+    input: ProjectReadFileBaselineInput,
+  ) {
     const target = yield* workspacePaths.resolveRelativePathWithinRoot({
       workspaceRoot: input.cwd,
       relativePath: input.relativePath,
     });
     const source = input.source;
-    const revision =
+    const turn =
       source.kind === "head"
-        ? ("HEAD" as const)
-        : yield* checkpointDiffQuery.getTurnStartRef(source).pipe(
+        ? undefined
+        : yield* checkpointDiffQuery.getTurnRefs(source).pipe(
             // A turn whose checkpoints are missing or not yet captured has no baseline.
             Effect.catchTags({
               CheckpointTurnRangeUnavailableError: () => Effect.succeed(null),
@@ -110,29 +124,43 @@ const make = Effect.gen(function* () {
               CheckpointWorkspacePathMissingError: () => Effect.succeed(null),
             }),
           );
-    if (revision === null) return UNAVAILABLE;
+    if (turn === null) return { result: UNAVAILABLE, byteOrderMark: false };
     const file = yield* checkpointStore.readFileAtRevision({
       cwd: input.cwd,
-      revision,
+      revision: turn?.start ?? "HEAD",
       relativePath: target.relativePath,
       knownCommit: input.knownRevision,
+      // A file the turn left alone has nothing to review. That covers files a checkpoint never
+      // holds, such as ignored ones, which would otherwise look created by the turn.
+      unlessSameAt: turn?.end,
     });
-    if (file.kind === "unavailable") return UNAVAILABLE;
+    if (file.kind === "unavailable" || file.kind === "same") {
+      return { result: UNAVAILABLE, byteOrderMark: false };
+    }
+    const byteOrderMark = file.kind === "text" && file.contents.startsWith(BYTE_ORDER_MARK);
     const result: ProjectReadFileBaselineResult = {
       available: true,
       // Workspace reads drop a byte order mark, so the baseline drops it too.
-      contents: file.kind === "text" ? file.contents.replace(/^\uFEFF/, "") : null,
+      contents:
+        file.kind === "text"
+          ? byteOrderMark
+            ? file.contents.slice(BYTE_ORDER_MARK.length)
+            : file.contents
+          : null,
       revision: file.commit,
       ...(file.kind === "unchanged" ? { unchanged: true } : {}),
     };
-    return result;
+    return { result, byteOrderMark };
   });
+
+  const read: FileBaselines["Service"]["read"] = (input) =>
+    readWithByteOrderMark(input).pipe(Effect.map(({ result }) => result));
 
   const revertTurnChange: FileBaselines["Service"]["revertTurnChange"] = Effect.fn(
     "FileBaselines.revertTurnChange",
   )(function* (input) {
     const target = { cwd: input.cwd, relativePath: input.relativePath };
-    const baseline = yield* read({
+    const { result: baseline, byteOrderMark } = yield* readWithByteOrderMark({
       ...target,
       source: { kind: "turn", threadId: input.threadId, turnCount: input.turnCount },
     });
@@ -164,7 +192,8 @@ const make = Effect.gen(function* () {
     // The write checks the version again, so a change after the read above is still refused.
     const written = yield* workspaceFileSystem.writeFile({
       ...target,
-      contents,
+      // Reads hide the mark, so it is put back for a file that began the turn with one.
+      contents: byteOrderMark ? BYTE_ORDER_MARK + contents : contents,
       expectedVersion: input.expectedVersion,
     });
     return { ...written, deleted: false };

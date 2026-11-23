@@ -2,6 +2,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import { CheckpointRef, ThreadId } from "@codenine/contracts";
+import { symlinksSupported } from "@codenine/shared/testing/symlinks";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -19,6 +20,7 @@ import * as CheckpointStore from "./CheckpointStore.ts";
 import * as FileBaselines from "./FileBaselines.ts";
 
 const TURN_START = CheckpointRef.make("refs/codenine/checkpoints/file-baselines/ordinal/0");
+const TURN_END = CheckpointRef.make("refs/codenine/checkpoints/file-baselines/ordinal/1");
 const turn = { threadId: ThreadId.make("thread"), turnCount: 1 };
 
 const layerPlatform = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer);
@@ -33,7 +35,7 @@ const layerWorkspaceFileSystem = WorkspaceFileSystem.layer.pipe(
 const layerTest = FileBaselines.layer.pipe(
   Layer.provide(
     Layer.mock(CheckpointDiffQuery.CheckpointDiffQuery)({
-      getTurnStartRef: () => Effect.succeed(TURN_START),
+      getTurnRefs: () => Effect.succeed({ start: TURN_START, end: TURN_END }),
     }),
   ),
   Layer.provideMerge(layerWorkspaceFileSystem),
@@ -49,7 +51,14 @@ const layerTest = FileBaselines.layer.pipe(
 const BEFORE_TURN = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n";
 const AFTER_TURN = "one\nTWO\nthree\nfour\nfive\nsix\nseven\nEIGHT\nnine\n";
 
-/** A committed repository whose turn-start checkpoint holds `notes.md` as it was before the turn. */
+const TAIL_BEFORE_TURN = "# Title\n\nintro\n\nfooter\n";
+const MARKED_BEFORE_TURN = "\uFEFFname,count\na,1\n";
+const CRLF_COMMITTED = "a\r\nb\r\n";
+
+/**
+ * A committed repository with checkpoints around one turn. The turn changed `notes.md`, `tail.md`,
+ * `marked.csv` and `crlf.txt`, and created `created.md` and the link `latest.md`. `.env` is ignored.
+ */
 const makeTurnWorkspace = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -62,15 +71,29 @@ const makeTurnWorkspace = Effect.gen(function* () {
   yield* git("config", "user.email", "test@test.com");
   yield* git("config", "user.name", "Test");
   yield* fileSystem.writeFileString(path.join(cwd, "notes.md"), "committed\n");
+  yield* fileSystem.writeFileString(path.join(cwd, ".gitignore"), ".env\n");
+  yield* fileSystem.writeFileString(path.join(cwd, ".gitattributes"), "crlf.txt text eol=crlf\n");
+  yield* fileSystem.writeFileString(path.join(cwd, ".env"), "SECRET=1\n");
+  yield* fileSystem.writeFileString(path.join(cwd, "crlf.txt"), CRLF_COMMITTED);
   yield* git("add", ".");
   yield* git("commit", "-m", "initial commit");
   yield* fileSystem.writeFileString(path.join(cwd, "notes.md"), BEFORE_TURN);
+  yield* fileSystem.writeFileString(path.join(cwd, "tail.md"), TAIL_BEFORE_TURN);
+  yield* fileSystem.writeFileString(path.join(cwd, "marked.csv"), MARKED_BEFORE_TURN);
   yield* checkpointStore.captureCheckpoint({ cwd, checkpointRef: TURN_START });
   yield* fileSystem.writeFileString(path.join(cwd, "notes.md"), AFTER_TURN);
   yield* fileSystem.writeFileString(path.join(cwd, "created.md"), "new\n");
+  yield* fileSystem.writeFileString(path.join(cwd, "tail.md"), "intro");
+  yield* fileSystem.writeFileString(path.join(cwd, "marked.csv"), "\uFEFFname,count\na,2\n");
+  yield* fileSystem.writeFileString(path.join(cwd, "crlf.txt"), "a\r\nB\r\n");
+  if (symlinksSupported) yield* fileSystem.symlink("notes.md", path.join(cwd, "latest.md"));
+  yield* checkpointStore.captureCheckpoint({ cwd, checkpointRef: TURN_END });
   return {
     cwd,
     readDisk: (name: string) => fileSystem.readFileString(path.join(cwd, name)),
+    // String reads drop a byte order mark, so a file that has one is compared by its bytes.
+    readDiskBytes: (name: string) =>
+      fileSystem.readFile(path.join(cwd, name)).pipe(Effect.map((bytes) => Buffer.from(bytes))),
     writeDisk: (name: string, contents: string) =>
       fileSystem.writeFileString(path.join(cwd, name), contents),
     exists: (name: string) => fileSystem.exists(path.join(cwd, name)),
@@ -98,6 +121,14 @@ it.layer(layerTest)("FileBaselines", (it) => {
         expect(
           yield* baselines.read({ ...notes, source: { kind: "turn", ...turn } }),
         ).toMatchObject({ available: true, contents: BEFORE_TURN });
+        // The checked-out form, not the stored blob, which holds LF for this file.
+        expect(
+          yield* baselines.read({ cwd, relativePath: "crlf.txt", source: { kind: "head" } }),
+        ).toMatchObject({ available: true, contents: CRLF_COMMITTED });
+        // No checkpoint holds an ignored file, so the turn neither changed nor created it.
+        expect(
+          yield* baselines.read({ cwd, relativePath: ".env", source: { kind: "turn", ...turn } }),
+        ).toEqual({ available: false, contents: null });
         expect(
           yield* baselines.read({ cwd, relativePath: "created.md", source: { kind: "head" } }),
         ).toEqual({ available: true, contents: null, revision: head.revision });
@@ -121,7 +152,7 @@ it.layer(layerTest)("FileBaselines", (it) => {
       Effect.gen(function* () {
         const baselines = yield* FileBaselines.FileBaselines;
         const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-        const { cwd, readDisk, writeDisk } = yield* makeTurnWorkspace;
+        const { cwd, readDisk, readDiskBytes, writeDisk } = yield* makeTurnWorkspace;
         const notes = { cwd, relativePath: "notes.md", ...turn };
         const seen = (yield* files.readFile(notes)).version!;
 
@@ -161,14 +192,51 @@ it.layer(layerTest)("FileBaselines", (it) => {
           expectedVersion: (yield* files.readFile(notes)).version!,
         });
         expect(yield* readDisk("notes.md")).toBe(BEFORE_TURN);
+
+        // Lines restored after a last line that has no terminator must not join onto it.
+        const tail = { cwd, relativePath: "tail.md", ...turn };
+        yield* baselines.revertTurnChange({
+          ...tail,
+          expectedVersion: (yield* files.readFile(tail)).version!,
+          change: { baseStart: 3, baseCount: 2, currentStart: 1, currentCount: 0 },
+        });
+        expect(yield* readDisk("tail.md")).toBe("intro\n\nfooter\n");
+
+        const marked = { cwd, relativePath: "marked.csv", ...turn };
+        yield* baselines.revertTurnChange({
+          ...marked,
+          expectedVersion: (yield* files.readFile(marked)).version!,
+        });
+        expect(yield* readDiskBytes("marked.csv")).toEqual(Buffer.from(MARKED_BEFORE_TURN));
       }),
     );
 
-    it.effect("deletes a file the turn created", () =>
+    it.effect("deletes a file the turn created, and no other file missing from its start", () =>
       Effect.gen(function* () {
         const baselines = yield* FileBaselines.FileBaselines;
         const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-        const { cwd, exists } = yield* makeTurnWorkspace;
+        const { cwd, exists, readDisk } = yield* makeTurnWorkspace;
+        const discard = (relativePath: string) =>
+          Effect.gen(function* () {
+            const file = { cwd, relativePath, ...turn };
+            return yield* baselines.revertTurnChange({
+              ...file,
+              expectedVersion: (yield* files.readFile(file)).version!,
+            });
+          });
+
+        expect(yield* discard(".env").pipe(Effect.flip)).toMatchObject({
+          _tag: "FileBaselineUnavailableError",
+          reason: "no-baseline",
+        });
+        expect(yield* readDisk(".env")).toBe("SECRET=1\n");
+        if (symlinksSupported) {
+          // The link is not text to restore, and removing it must not remove what it points to.
+          expect(yield* discard("latest.md").pipe(Effect.flip)).toMatchObject({
+            _tag: "FileBaselineUnavailableError",
+          });
+          expect(yield* readDisk("notes.md")).toBe(AFTER_TURN);
+        }
         const created = { cwd, relativePath: "created.md", ...turn };
 
         expect(

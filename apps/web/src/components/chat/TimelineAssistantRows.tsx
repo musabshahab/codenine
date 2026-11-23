@@ -10,7 +10,14 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { checkpointFileTotals } from "@codenine/client-runtime/state/thread-checkpoints";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import { useFileContextMenuHandler } from "../../fileContextMenu";
-import { useAssistantMessageText, useProject, useThreadShell } from "../../state/entities";
+import {
+  useAssistantMessageText,
+  useProject,
+  useThreadCheckpointSummaries,
+  useThreadShell,
+} from "../../state/entities";
+import { resolveDiffPathForWorkspace } from "../../diffFileActions";
+import { openFileForReview, reviewableTurnCount } from "../../fileReviewStore";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
@@ -318,6 +325,28 @@ function AssistantChangedFilesSectionInner({
       : null,
   );
   const onFileContextMenu = useFileContextMenuHandler(ctx.activeThreadEnvironmentId);
+  // Turn summaries name files from the repository root, which can sit above the workspace.
+  const repositoryRoot =
+    thread?.worktreePath == null ? activeProject?.repositoryIdentity?.rootPath : undefined;
+  // Only the latest turn's change can be reviewed in the file.
+  const latestTurn = useThreadCheckpointSummaries(ctx.threadRef).at(-1);
+  const reviewTurnCount =
+    latestTurn?.runId === turnSummary.runId ? reviewableTurnCount(latestTurn, () => true) : null;
+  const threadRef = ctx.threadRef;
+  // Without a Diff tab, a file opens itself, on its review when this is the latest turn.
+  const openInFile = (_runId: RunId, filePath?: string) => {
+    const relativePath =
+      filePath === undefined
+        ? null
+        : resolveDiffPathForWorkspace({
+            filePath,
+            workspaceRoot: ctx.workspaceRoot,
+            repositoryRoot,
+          });
+    if (threadRef && relativePath !== null) {
+      openFileForReview(threadRef, relativePath, reviewTurnCount);
+    }
+  };
 
   return (
     <ChangedFilesCard
@@ -329,7 +358,7 @@ function AssistantChangedFilesSectionInner({
       onToggleAllDirectories={() =>
         setExpanded(routeThreadKey, turnSummary.runId, !allDirectoriesExpanded)
       }
-      onOpenTurnDiff={onOpenTurnDiff}
+      onOpenTurnDiff={ctx.turnDiffTabOffered ? onOpenTurnDiff : openInFile}
       fullDiffOffered={ctx.turnDiffTabOffered}
       onFileContextMenu={(filePath, event) =>
         onFileContextMenu(
@@ -337,11 +366,11 @@ function AssistantChangedFilesSectionInner({
             environmentId: ctx.activeThreadEnvironmentId,
             filePath,
             workspaceRoot: ctx.workspaceRoot,
-            reviewThreadRef: ctx.threadRef,
-            repositoryRoot:
-              thread?.worktreePath == null
-                ? activeProject?.repositoryIdentity?.rootPath
-                : undefined,
+            review:
+              threadRef && reviewTurnCount !== null
+                ? { threadRef, turnCount: reviewTurnCount }
+                : null,
+            repositoryRoot,
           },
           event,
         )

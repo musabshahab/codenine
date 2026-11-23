@@ -3,6 +3,7 @@ import { type EnvironmentId, RunId, TeamPlanId, ThreadId } from "@codenine/contr
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { useClosedViewStore } from "./closedViewStore";
+import { isFileReviewKept, openFileForReview, useFileReviewStore } from "./fileReviewStore";
 import {
   hostRightPanel,
   migratePersistedRightPanelState,
@@ -52,6 +53,35 @@ describe("rightPanelStore", () => {
     expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refB)?.id).toBe(
       "file:src/app.ts",
     );
+  });
+
+  it("keeps a file tab's review choice, and undoes Keep when a review is asked for", () => {
+    const reviewTurn = () => {
+      const surface = selectActiveRightPanelSurface(
+        useRightPanelStore.getState().byThreadKey,
+        refA,
+      );
+      return surface?.kind === "file" ? surface.reviewTurnCount : "not a file";
+    };
+    const kept = () =>
+      isFileReviewKept(useFileReviewStore.getState(), scopedThreadKey(refA), 3, "notes.md");
+    useFileReviewStore.getState().keep(scopedThreadKey(refA), 3, "notes.md");
+
+    openFileForReview(refA, "notes.md", 3);
+    expect(reviewTurn()).toBe(3);
+    expect(kept()).toBe(false);
+
+    // "Back to editing" holds through tab switches and plain reopens of the same file.
+    useRightPanelStore.getState().setFileReview(refA, "file:notes.md", null);
+    useRightPanelStore.getState().open(refA, "files");
+    useRightPanelStore.getState().openFile(refA, "notes.md");
+    expect(reviewTurn()).toBeUndefined();
+
+    // With no turn to review, the file opens in the editor and a Keep stays.
+    useFileReviewStore.getState().keep(scopedThreadKey(refA), 3, "notes.md");
+    openFileForReview(refA, "notes.md", null);
+    expect(reviewTurn()).toBeUndefined();
+    expect(kept()).toBe(true);
   });
 
   it("records single and bulk tab closes, newest first", () => {

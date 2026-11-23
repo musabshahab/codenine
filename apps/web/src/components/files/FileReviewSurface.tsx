@@ -199,7 +199,10 @@ export function FileReviewSurface(props: {
                     size="micro"
                     variant="destructive-outline"
                     disabled={discardDisabled}
-                    onClick={() => void discard(annotation.metadata.change)}
+                    // A file the turn created is one change, and discarding it removes the file.
+                    onClick={() =>
+                      void discard(props.baseline === null ? undefined : annotation.metadata.change)
+                    }
                   >
                     Discard change
                   </Button>

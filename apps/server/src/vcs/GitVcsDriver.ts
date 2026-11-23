@@ -1584,19 +1584,49 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       if (!commit) return { kind: "unavailable" };
       if (commit === input.knownCommit) return { kind: "unchanged", commit };
       // `./` resolves the path from cwd, which can be a subdirectory of the repository.
-      const blob = yield* execute({
+      const treePath = `./${input.relativePath}`;
+      // The tree entry tells a missing file from a link, a submodule or a folder, which have no text.
+      const readEntry = (revision: string) =>
+        execute({
+          operation,
+          cwd: input.cwd,
+          args: ["ls-tree", revision, "--", treePath],
+        }).pipe(
+          Effect.map((result) => {
+            const [mode, , blob] = result.stdout.split(/\s+/, 3);
+            if (mode === undefined || mode === "" || blob === undefined) return "absent" as const;
+            return mode === "100644" || mode === "100755" ? { blob } : ("not-a-file" as const);
+          }),
+        );
+      const entry = yield* readEntry(commit);
+      if (entry === "not-a-file") return { kind: "unavailable" };
+      if (input.unlessSameAt !== undefined) {
+        const otherCommit = yield* resolveCheckpointCommit(input.cwd, input.unlessSameAt);
+        if (!otherCommit) return { kind: "unavailable" };
+        const other = yield* readEntry(otherCommit);
+        if (other === "not-a-file") return { kind: "unavailable" };
+        const blobOf = (found: typeof entry) => (found === "absent" ? null : found.blob);
+        if (blobOf(entry) === blobOf(other)) return { kind: "same" };
+      }
+      if (entry === "absent") return { kind: "absent", commit };
+      const contents = yield* execute({
         operation,
         cwd: input.cwd,
-        args: ["cat-file", "blob", `${commit}:./${input.relativePath}`],
+        // The checked-out form: line endings and filters applied, as the file is on disk.
+        args: ["cat-file", "--filters", `${commit}:${treePath}`],
         allowNonZeroExit: true,
         maxOutputBytes: VcsDriver.FILE_AT_REVISION_MAX_BYTES,
         outputMode: "truncate",
       });
-      if (blob.exitCode !== 0) return { kind: "absent", commit };
-      if (blob.stdoutTruncated || blob.stdoutInvalidUtf8 || blob.stdout.includes("\0")) {
+      if (
+        contents.exitCode !== 0 ||
+        contents.stdoutTruncated ||
+        contents.stdoutInvalidUtf8 ||
+        contents.stdout.includes("\0")
+      ) {
         return { kind: "unavailable" };
       }
-      return { kind: "text", commit, contents: blob.stdout };
+      return { kind: "text", commit, contents: contents.stdout };
     }),
   };
 

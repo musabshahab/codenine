@@ -61,11 +61,17 @@ export class CheckpointDiffQuery extends Context.Service<
       input: OrchestrationGetFullThreadDiffInput,
     ) => Effect.Effect<OrchestrationGetFullThreadDiffResult, CheckpointServiceError>;
 
-    /** The checkpoint a completed turn started from, which `getTurnDiff` compares against. */
-    readonly getTurnStartRef: (input: {
+    /**
+     * The checkpoints a turn started from and ended at. Unlike `getTurnDiff`, this covers a turn
+     * the user stopped, whose changes still need reviewing.
+     */
+    readonly getTurnRefs: (input: {
       readonly threadId: ThreadId;
       readonly turnCount: number;
-    }) => Effect.Effect<CheckpointRef, CheckpointServiceError>;
+    }) => Effect.Effect<
+      { readonly start: CheckpointRef; readonly end: CheckpointRef },
+      CheckpointServiceError
+    >;
   }
 >()("codenine/checkpointing/CheckpointDiffQuery") {}
 
@@ -97,6 +103,7 @@ export const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly fromTurnCount: number;
     readonly toTurnCount: number;
+    readonly includeStoppedRuns?: boolean;
   }) {
     const operation = "CheckpointDiffQuery.getTurnDiff";
     const projection = yield* threads.getCheckpointContext(input.threadId).pipe(
@@ -109,15 +116,22 @@ export const make = Effect.gen(function* () {
       ),
       Effect.withSpan("checkpoint.turnDiff.lookupContext"),
     );
-    const completedRunIds = new Set(
-      projection.runs.filter((run) => run.status === "completed").map((run) => run.id),
+    const eligibleRunIds = new Set(
+      projection.runs
+        .filter(
+          (run) =>
+            run.status === "completed" ||
+            (input.includeStoppedRuns === true &&
+              (run.status === "interrupted" || run.status === "cancelled")),
+        )
+        .map((run) => run.id),
     );
     const readyCheckpoints = projection.checkpoints.filter(
       (checkpoint) =>
         checkpoint.status === "ready" &&
         checkpoint.appRunOrdinal !== null &&
         checkpoint.runId !== null &&
-        completedRunIds.has(checkpoint.runId),
+        eligibleRunIds.has(checkpoint.runId),
     );
     const maxTurnCount = readyCheckpoints.reduce(
       (max, checkpoint) => Math.max(max, checkpoint.appRunOrdinal ?? 0),
@@ -322,17 +336,20 @@ export const make = Effect.gen(function* () {
     return turnDiff satisfies OrchestrationGetFullThreadDiffResult;
   });
 
-  const getTurnStartRef: CheckpointDiffQuery["Service"]["getTurnStartRef"] = (input) =>
+  const getTurnRefs: CheckpointDiffQuery["Service"]["getTurnRefs"] = (input) =>
     resolveTurnRange({
       ...input,
       fromTurnCount: input.turnCount - 1,
       toTurnCount: input.turnCount,
-    }).pipe(Effect.map((range) => range.fromCheckpointRef));
+      includeStoppedRuns: true,
+    }).pipe(
+      Effect.map((range) => ({ start: range.fromCheckpointRef, end: range.toCheckpointRef })),
+    );
 
   return CheckpointDiffQuery.of({
     getTurnDiff,
     getFullThreadDiff,
-    getTurnStartRef,
+    getTurnRefs,
   });
 });
 

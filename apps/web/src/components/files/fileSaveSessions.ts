@@ -146,7 +146,11 @@ export function createFileSaveSessions(deps: FileSaveSessionDeps) {
     /** Saves the unsaved draft now, after whatever blocked its last save was cleared. */
     retry(target: FileSaveTarget): void {
       const session = sessions.get(fileSaveKey(target));
-      if (!session) return;
+      if (!session) {
+        // No surface holds the file: a session opened and released at once saves the draft.
+        acquire(target, () => {})();
+        return;
+      }
       recover(target, session.coordinator);
       session.coordinator.flush();
     },

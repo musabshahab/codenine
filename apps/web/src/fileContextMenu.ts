@@ -12,7 +12,7 @@ import {
   revealInFileExplorerLabelForOs,
 } from "~/lib/fileExplorerLabel";
 import { readLocalApi } from "./localApi";
-import { useRightPanelStore } from "./rightPanelStore";
+import { openFileForReview } from "./fileReviewStore";
 import { serverEnvironment } from "./state/server";
 import { shellEnvironment } from "./state/shell";
 import { useAtomCommand } from "./state/use-atom-command";
@@ -34,12 +34,15 @@ export interface FileContextMenuTarget {
   readonly filePath: string;
   readonly workspaceRoot: string | undefined;
   readonly repositoryRoot?: string | undefined;
-  /** The thread whose right panel opens the file to review the latest turn's change in place. */
-  readonly reviewThreadRef?: ScopedThreadRef | null | undefined;
+  /** Set where the file's change in the thread's latest turn can be reviewed in the file. */
+  readonly review?:
+    | { readonly threadRef: ScopedThreadRef; readonly turnCount: number }
+    | null
+    | undefined;
 }
 
 function reviewInFilePath(target: FileContextMenuTarget): string | null {
-  if (!target.reviewThreadRef || target.workspaceRoot === undefined) return null;
+  if (!target.review || target.workspaceRoot === undefined) return null;
   return resolveDiffPathForWorkspace({
     filePath: target.filePath,
     workspaceRoot: target.workspaceRoot,
@@ -129,10 +132,8 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
   ): Promise<void> => {
     if (action === "review-in-file") {
       const relativePath = reviewInFilePath(target);
-      if (relativePath !== null && target.reviewThreadRef) {
-        useRightPanelStore
-          .getState()
-          .openFile(target.reviewThreadRef, relativePath, undefined, { review: true });
+      if (relativePath !== null && target.review) {
+        openFileForReview(target.review.threadRef, relativePath, target.review.turnCount);
       }
       return;
     }

@@ -67,6 +67,15 @@ describe("fileChangeMarkers", () => {
       { baseStart: 1, baseCount: 1, currentStart: 1, currentCount: 1 },
       { baseStart: 7, baseCount: 1, currentStart: 7, currentCount: 2 },
     ]);
+    // An empty side has no line to point at, and the server takes no negative index.
+    const blocksFor = (baseline: string, current: string) =>
+      fileChangeBlocks(diffFileAgainstBaseline("notes.md", baseline, current)!);
+    expect(blocksFor("", "hello\nworld\n")).toEqual([
+      { baseStart: 0, baseCount: 0, currentStart: 0, currentCount: 2 },
+    ]);
+    expect(blocksFor("a\nb\n", "")).toEqual([
+      { baseStart: 0, baseCount: 2, currentStart: 0, currentCount: 0 },
+    ]);
   });
 
   it("styles nothing for an unchanged file and every line of a new one", () => {

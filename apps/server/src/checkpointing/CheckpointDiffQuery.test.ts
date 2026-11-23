@@ -186,6 +186,16 @@ it.effect.each([false, true])(
         { checkpoint: stoppedTurnError.checkpoint, turnCount: stoppedTurnError.turnCount },
         { checkpoint: "to", turnCount: 2 },
       );
+      // A stopped turn cannot be diffed above, but its changes can still be reviewed in the file.
+      const stoppedTurnRefs = yield* query
+        .getTurnRefs({ threadId, turnCount: 2 })
+        .pipe(Effect.result);
+      assert.deepEqual(
+        stoppedTurnRefs._tag === "Success" ? stoppedTurnRefs.success : null,
+        stoppedRunCheckpoint
+          ? { start: "refs/codenine/test/ordinal/1", end: "refs/codenine/test/ordinal/2" }
+          : null,
+      );
     }).pipe(Effect.provide(layer));
   },
 );

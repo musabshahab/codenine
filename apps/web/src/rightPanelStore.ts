@@ -41,8 +41,8 @@ export type RightPanelSurface =
       relativePath: string;
       revealLine: number | null;
       revealRequestId: number;
-      /** Bumped each time the file is opened to review the latest turn's change to it. */
-      reviewRequestId?: number;
+      /** The turn whose change to the file the tab shows as a review; unset shows the editor. */
+      reviewTurnCount?: number;
       attachment?: ChatFileAttachment;
       /** Deepest workspace path retained for navigating back down after moving up. */
       folderTrail?: string;
@@ -117,8 +117,10 @@ interface RightPanelStoreState {
     ref: ScopedThreadRef,
     relativePath: string,
     line?: number,
-    options?: { readonly review?: boolean },
+    options?: { readonly reviewTurnCount?: number },
   ) => void;
+  /** Shows a file tab's review of a turn, or its editor again when `turnCount` is null. */
+  setFileReview: (ref: ScopedThreadRef, surfaceId: string, turnCount: number | null) => void;
   /** Moves in place; "" opens the root explorer. folderTrail keeps the return path; keepSource opens beside the source. */
   navigateFolder: (
     ref: ScopedThreadRef,
@@ -629,15 +631,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               (surface): surface is Extract<RightPanelSurface, { kind: "file" }> =>
                 surface.id === surfaceId && surface.kind === "file",
             );
-            const reviewRequestId =
-              (existing?.reviewRequestId ?? 0) + (options?.review === true ? 1 : 0);
+            const reviewTurnCount = options?.reviewTurnCount ?? existing?.reviewTurnCount;
             const surface = {
               ...fileSurface(
                 relativePath,
                 normalizeRevealLine(line),
                 (existing?.revealRequestId ?? 0) + 1,
               ),
-              ...(reviewRequestId > 0 ? { reviewRequestId } : {}),
+              ...(reviewTurnCount === undefined ? {} : { reviewTurnCount }),
             };
             return {
               ...current,
@@ -650,6 +651,17 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 : [...withoutStandaloneExplorer, surface],
             };
           }),
+        ),
+      setFileReview: (ref, surfaceId, turnCount) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => ({
+            ...current,
+            surfaces: current.surfaces.map((surface) => {
+              if (surface.id !== surfaceId || surface.kind !== "file") return surface;
+              const { reviewTurnCount: _replaced, ...editing } = surface;
+              return turnCount === null ? editing : { ...editing, reviewTurnCount: turnCount };
+            }),
+          })),
         ),
       navigateFolder: (ref, surfaceId, relativePath, folderTrail, keepSource = false) =>
         set((state) =>

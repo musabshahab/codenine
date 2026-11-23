@@ -1,5 +1,10 @@
 import { render, fakeTimers } from "../../../test/render";
-import { type AuthSessionState, EnvironmentId } from "@codenine/contracts";
+import {
+  type AuthSessionState,
+  EnvironmentId,
+  ProjectWriteFileConflictError,
+} from "@codenine/contracts";
+import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -31,6 +36,7 @@ vi.mock(import("./projectFilesQueryState"), async (original) => ({
 }));
 
 import { changeFileSaveSession, useFileSaveSession } from "./fileSaveSessions";
+import { hasProjectFileConflict, setProjectFileQueryData } from "./projectFilesQueryState";
 
 const target = {
   environmentId: EnvironmentId.make("file-save-sessions-browser"),
@@ -48,6 +54,11 @@ function EditorSurface() {
 function MarkdownSurface() {
   useFileSaveSession({ ...target }, onPendingChange);
   return <div>markdown</div>;
+}
+const refusedTarget = { ...target, relativePath: "refused.md" };
+function RefusedFileSurface() {
+  useFileSaveSession({ ...refusedTarget }, onPendingChange);
+  return <div>editor</div>;
 }
 
 describe("file save sessions in React", () => {
@@ -87,5 +98,33 @@ describe("file save sessions in React", () => {
       },
     ]);
     expect(onPendingChange).toHaveBeenLastCalledWith("README.md", false);
+  });
+
+  it("saves over the version the draft began from, and holds a refused draft as a conflict", async () => {
+    const { environmentId, cwd, relativePath } = refusedTarget;
+    runAtomCommand
+      .mockReset()
+      .mockResolvedValue(
+        AsyncResult.failure(
+          Cause.fail(
+            new ProjectWriteFileConflictError({ cwd, relativePath, currentVersion: "disk" }),
+          ),
+        ),
+      );
+    getUnsavedFile.mockReset().mockReturnValue(null);
+    await using _screen = await render(
+      <RefusedFileSurface />,
+      { router: false }, // no routes involved; the surface is a bare effect host
+    );
+    using _timers = fakeTimers();
+    setProjectFileQueryData(environmentId, cwd, relativePath, "draft", "read");
+    getUnsavedFile.mockReturnValue({ contents: "draft", version: "read" });
+    changeFileSaveSession(refusedTarget, "draft");
+    await vi.runAllTimersAsync();
+
+    expect(runAtomCommand.mock.calls.map(([, , request]) => request)).toEqual([
+      { environmentId, input: { cwd, relativePath, contents: "draft", expectedVersion: "read" } },
+    ]);
+    expect(hasProjectFileConflict(environmentId, cwd, relativePath)).toBe(true);
   });
 });

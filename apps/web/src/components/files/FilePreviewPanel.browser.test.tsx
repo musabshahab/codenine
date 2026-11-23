@@ -118,7 +118,8 @@ function markdownPreview(truncated: boolean) {
       openInShortcutEnabled={false}
       revealLine={null}
       revealRequestId={0}
-      reviewRequestId={0}
+      reviewTurnCount={null}
+      onReviewChange={vi.fn()}
       onOpenFile={vi.fn()}
       onNavigateFolder={vi.fn()}
       folderTrail={undefined}

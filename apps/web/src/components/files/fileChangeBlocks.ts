@@ -20,16 +20,19 @@ export function diffFileAgainstBaseline(
   return parseDiffFromFile({ name, contents: baseline }, { name, contents: current });
 }
 
-/** Each run of changed lines, as zero-based line ranges in the baseline and in the file. */
+/**
+ * Each run of changed lines, as zero-based line ranges in the baseline and in the file. The diff
+ * gives an empty side the index -1, which is reported as an empty range at the top.
+ */
 export function fileChangeBlocks(diff: Pick<FileDiffMetadata, "hunks">): ProjectFileLineChange[] {
   return diff.hunks.flatMap((hunk) =>
     hunk.hunkContent.flatMap((content) =>
       content.type === "change"
         ? [
             {
-              baseStart: content.deletionLineIndex,
+              baseStart: Math.max(0, content.deletionLineIndex),
               baseCount: content.deletions,
-              currentStart: content.additionLineIndex,
+              currentStart: Math.max(0, content.additionLineIndex),
               currentCount: content.additions,
             },
           ]

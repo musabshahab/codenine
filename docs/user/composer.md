@@ -382,9 +382,11 @@ When the agent's latest turn changed a file you have open, the file offers **Rev
 review shows that turn's changes inside the file, against the file as it was when the turn
 started. **Keep** accepts them and **Discard** puts the earlier text back, for the whole file or
 for one change at a time. Discarding a file the turn created deletes it. You can also right-click
-a file in a turn's changed files or in the Diff tab and choose **Review in file**. In Work and
-Create workspaces, selecting a file in a turn's changed files opens this review. The review needs
-a Git workspace, because it relies on the checkpoints Codenine saves each turn.
+a file in the latest turn's changed files or in the Diff tab and choose **Review in file**, which
+also brings back a review you closed with **Keep**. In Work and Create workspaces, selecting a file
+in the latest turn's changed files opens this review; files from earlier turns open in the editor.
+The review covers files Git tracks or would track, not ignored files or links, and it needs a Git
+workspace, because it relies on the checkpoints Codenine saves each turn.
 
 ## HTML and PDF files in the file viewer
 

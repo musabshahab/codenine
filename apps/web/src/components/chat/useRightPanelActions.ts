@@ -3,7 +3,6 @@ import type { EnvironmentProject } from "@codenine/client-runtime/state/shell";
 import { formatFilePathForClipboard } from "@codenine/client-runtime/media-actions";
 import { resolvePathLinkTarget } from "@codenine/shared/fileLinks";
 import { resolveExplicitDiffOpenOnActivate } from "../ChatView.logic";
-import { resolveDiffPathForWorkspace } from "../../diffFileActions";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { type ScopedThreadRef, type RunId } from "@codenine/contracts";
 import { useDiffPanelStore } from "../../diffPanelStore";
@@ -205,24 +204,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const copyRightPanelFilePathStable = useStableCallback(copyRightPanelFilePath);
   const onOpenTurnDiff = (runId: RunId, filePath?: string) => {
-    if (!isServerThread || !activeThreadRef) return;
-    if (!diffTabOffered) {
-      // Without a Diff tab, the file itself shows what the turn changed in it.
-      const relativePath =
-        filePath === undefined
-          ? null
-          : resolveDiffPathForWorkspace({
-              filePath,
-              workspaceRoot: activeProjectCwd ?? undefined,
-              repositoryRoot: undefined,
-            });
-      if (relativePath !== null) {
-        useRightPanelStore
-          .getState()
-          .openFile(activeThreadRef, relativePath, undefined, { review: true });
-      }
-      return;
-    }
+    if (!isServerThread || !activeThreadRef || !diffTabOffered) return;
     const diffOpen =
       selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) === "diff";
     explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;

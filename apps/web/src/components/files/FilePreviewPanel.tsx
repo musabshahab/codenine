@@ -117,7 +117,7 @@ import {
 import { fileChangeMarkerCssFor } from "./fileChangeBlocks";
 import { FileReviewSurface } from "./FileReviewSurface";
 import { type FileBaseline, useFileBaseline } from "./useFileBaseline";
-import { isFileReviewKept, useFileReviewStore } from "~/fileReviewStore";
+import { isFileReviewKept, reviewableTurnCount, useFileReviewStore } from "~/fileReviewStore";
 import { useThreadCheckpointSummaries } from "~/state/entities";
 import { scopedThreadKey } from "@codenine/client-runtime/environment";
 import { Button } from "~/components/ui/button";
@@ -146,8 +146,9 @@ interface FilePreviewPanelProps {
   openInShortcutEnabled: boolean;
   revealLine: number | null;
   revealRequestId: number;
-  /** Changes each time the file is opened to review the latest turn's change; zero is never. */
-  reviewRequestId: number;
+  /** The turn whose change the tab was asked to show as a review; null shows the editor. */
+  reviewTurnCount: number | null;
+  onReviewChange: (turnCount: number | null) => void;
   onOpenFile: (relativePath: string) => void;
   onNavigateFolder: (relativePath: string, folderTrail: string, keepSource: boolean) => void;
   /** Retained descendant breadcrumb path after navigating up; see navigateFolder. */
@@ -1041,7 +1042,8 @@ export default function FilePreviewPanel({
   openInShortcutEnabled,
   revealLine,
   revealRequestId,
-  reviewRequestId,
+  reviewTurnCount: requestedReviewTurnCount,
+  onReviewChange,
   onOpenFile,
   onNavigateFolder,
   folderTrail,
@@ -1215,14 +1217,9 @@ export default function FilePreviewPanel({
   const threadKey = scopedThreadKey(threadRef);
   const latestTurn = useThreadCheckpointSummaries(draft ? null : threadRef).at(-1);
   const reviewTurnCount =
-    editablePath !== null &&
-    latestTurn?.status === "ready" &&
-    latestTurn.checkpointTurnCount > 0 &&
-    // A long file list is cut short, so any file may be among the turn's changes.
-    (latestTurn.filesTotal !== undefined ||
-      latestTurn.files.some((changed) => isSameWorkspaceFile(changed.path, editablePath)))
-      ? latestTurn.checkpointTurnCount
-      : null;
+    editablePath === null
+      ? null
+      : reviewableTurnCount(latestTurn, (changed) => isSameWorkspaceFile(changed, editablePath));
   const reviewKept = useFileReviewStore(
     (state) =>
       reviewTurnCount !== null &&
@@ -1244,27 +1241,11 @@ export default function FilePreviewPanel({
     turnBaseline?.available === true &&
     file.data !== null &&
     turnBaseline.contents !== file.data.contents;
-  // The user's last choice for this file, turn and open request; a new request reopens the review.
-  const [reviewChoice, setReviewChoice] = useState<{
-    path: string;
-    turnCount: number;
-    requestId: number;
-    open: boolean;
-  } | null>(null);
-  const reviewChosen =
-    reviewChoice !== null &&
-    reviewChoice.path === editablePath &&
-    reviewChoice.turnCount === reviewTurnCount &&
-    reviewChoice.requestId === reviewRequestId;
-  const reviewOpen = reviewAvailable && (reviewChosen ? reviewChoice.open : reviewRequestId > 0);
+  // The tab holds the choice, so it survives switching tabs. It names the turn it was made for,
+  // so a later turn never swaps the editor for a review under the user's hands.
+  const reviewOpen = reviewAvailable && requestedReviewTurnCount === reviewTurnCount;
   const chooseReview = (open: boolean) => {
-    if (editablePath === null || reviewTurnCount === null) return;
-    setReviewChoice({
-      path: editablePath,
-      turnCount: reviewTurnCount,
-      requestId: reviewRequestId,
-      open,
-    });
+    if (reviewTurnCount !== null) onReviewChange(open ? reviewTurnCount : null);
   };
   const keepReviewedFile = () => {
     if (editablePath === null || reviewTurnCount === null) return;

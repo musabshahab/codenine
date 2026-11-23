@@ -574,7 +574,7 @@ export const make = Effect.gen(function* () {
         resolvedPath: realTargetPath,
       });
     }
-    return { relativePath: target.relativePath, realTargetPath };
+    return { relativePath: target.relativePath, realTargetPath, namedTargetPath };
   });
 
   // A writer between this check and the write still loses; the check only narrows that window.
@@ -670,7 +670,21 @@ export const make = Effect.gen(function* () {
     "WorkspaceFileSystem.removeFile",
   )(function* (input) {
     yield* knownWorkspaces.assertContains(input.cwd);
-    const { realTargetPath } = yield* resolveWriteTarget(input);
+    const { realTargetPath, namedTargetPath } = yield* resolveWriteTarget(input);
+    // Unlinking the resolved path of a link would delete the file it points to and keep the link.
+    const namedLink = yield* Effect.promise(() =>
+      NodeFSP.lstat(namedTargetPath).then(
+        (stat) => stat.isSymbolicLink(),
+        () => false,
+      ),
+    );
+    if (namedLink) {
+      return yield* new WorkspacePathNotFileError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: realTargetPath,
+      });
+    }
     yield* assertVersion(input, realTargetPath, input.expectedVersion);
     yield* Effect.tryPromise({
       try: () => NodeFSP.unlink(realTargetPath),

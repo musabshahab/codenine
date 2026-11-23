@@ -1,3 +1,4 @@
+import { reviewableTurnCount } from "../fileReviewStore";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
@@ -302,6 +303,13 @@ export default function DiffPanel({
   const toolCallItem = toolCallDetail.data?.item;
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadRef);
+  const diffFileReview = (filePath: string) => {
+    const turnCount = reviewableTurnCount(
+      turnDiffSummaries.at(-1),
+      (changedPath) => changedPath === filePath,
+    );
+    return routeThreadRef && turnCount !== null ? { threadRef: routeThreadRef, turnCount } : null;
+  };
   const orderedTurnDiffSummaries = turnDiffSummaries.toSorted((left, right) => {
     if (left.checkpointTurnCount !== right.checkpointTurnCount) {
       return right.checkpointTurnCount - left.checkpointTurnCount;
@@ -1417,7 +1425,7 @@ export default function DiffPanel({
                         filePath,
                         workspaceRoot: activeCwd,
                         repositoryRoot: activeRepositoryRoot,
-                        reviewThreadRef: routeThreadRef,
+                        review: diffFileReview(filePath),
                       },
                       event,
                     );

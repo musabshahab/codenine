@@ -616,6 +616,27 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
+    it.effect.skipIf(!symlinksSupported)(
+      "does not remove a link's target when asked to remove the link",
+      () =>
+        Effect.gen(function* () {
+          const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* makeTempDir;
+          yield* writeTextFile(cwd, "report.md", "# Report\n");
+          yield* fileSystem.symlink("report.md", path.join(cwd, "latest.md"));
+          const link = { cwd, relativePath: "latest.md" };
+
+          expect(
+            yield* files
+              .removeFile({ ...link, expectedVersion: (yield* files.readFile(link)).version! })
+              .pipe(Effect.flip),
+          ).toMatchObject({ _tag: "WorkspacePathNotFileError" });
+          expect(yield* fileSystem.exists(path.join(cwd, "report.md"))).toBe(true);
+        }),
+    );
+
     it.effect("rejects writes outside the workspace root", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
