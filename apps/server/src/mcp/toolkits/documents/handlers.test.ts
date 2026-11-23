@@ -2,7 +2,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { PDFDocument, StandardFonts } from "@cantoo/pdf-lib";
-import { EnvironmentId, ProviderInstanceId, ThreadId } from "@codenine/contracts";
+import { EnvironmentId, ProviderInstanceId, type RuntimeMode, ThreadId } from "@codenine/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -55,7 +55,11 @@ const client = McpSchema.McpServerClient.of({
 });
 
 // The chat's folder, made per test and read by the mocked project lookup.
-const workspace = { root: "", interactionMode: "default" as "default" | "plan" };
+const workspace = {
+  root: "",
+  interactionMode: "default" as "default" | "plan",
+  runtimeMode: "full-access" as RuntimeMode,
+};
 
 const layer = McpHttpServer.layerDocumentsToolkit.pipe(
   Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
@@ -65,6 +69,7 @@ const layer = McpHttpServer.layerDocumentsToolkit.pipe(
         Effect.sync(() => ({
           ...McpToolAccessTestkit.liveThreadShell(id),
           interactionMode: workspace.interactionMode,
+          runtimeMode: workspace.runtimeMode,
         })),
     }),
   ),
@@ -123,6 +128,7 @@ const setup = Effect.fn("DocumentsToolkitTest.setup")(function* () {
   const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-mcp-documents-" });
   workspace.root = cwd;
   workspace.interactionMode = "default";
+  workspace.runtimeMode = "full-access";
   yield* fileSystem.writeFile(path.join(cwd, "deck.pptx"), yield* Effect.promise(deckFixture));
   yield* fileSystem.writeFile(path.join(cwd, "form.pdf"), yield* Effect.promise(formPdf));
   yield* fileSystem.writeFile(
@@ -315,6 +321,31 @@ it.layer(layer)("document tools", (it) => {
         expect(planned).toMatchObject({ ok: false, value: { code: "capability_denied" } });
         expect((yield* call("codenine_deck_read", { path: "deck.pptx" })).ok).toBe(true);
         workspace.interactionMode = "default";
+
+        // A chat that asks before each file change has no approval for these tools to wait on.
+        workspace.runtimeMode = "approval-required";
+        const notes = { type: "setNotes", slide: 1, notes: "Welcome" };
+        const cell = {
+          type: "setCell",
+          sheet: "Table",
+          row: 1,
+          column: 1,
+          input: { kind: "number", number: 1 },
+        };
+        const unapproved = [
+          yield* call("codenine_deck_edit", { path: "deck.pptx", operations: [notes] }),
+          yield* call("codenine_spreadsheet_edit", { path: "plan.xlsx", operations: [cell] }),
+          yield* call("codenine_pdf_edit", {
+            path: "form.pdf",
+            fields: [{ name: "name", value: { kind: "text", text: "Ada" } }],
+          }),
+        ];
+        for (const result of unapproved) {
+          expect(result).toMatchObject({ ok: false, value: { code: "capability_denied" } });
+        }
+        expect(yield* readBytes("deck.pptx")).toEqual(before);
+        expect((yield* call("codenine_deck_read", { path: "deck.pptx" })).ok).toBe(true);
+        workspace.runtimeMode = "auto-accept-edits";
 
         const edited = yield* call("codenine_deck_edit", {
           path: "deck.pptx",

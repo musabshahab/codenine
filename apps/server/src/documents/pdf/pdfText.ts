@@ -1,7 +1,13 @@
 import type { PdfReadTextResult, PdfRect } from "@codenine/contracts";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+// @ts-expect-error -- pdfjs-dist ships no types for its worker module.
+import * as pdfWorker from "pdfjs-dist/legacy/build/pdf.worker.mjs";
 
 import { PdfProblem } from "./pdfEdits.ts";
+
+// The reader otherwise imports its worker from a file beside itself, which a bundled server
+// does not have. Handing it the worker here keeps the worker inside the bundle.
+(globalThis as { pdfjsWorker?: unknown }).pdfjsWorker ??= pdfWorker;
 
 /** The most text one page answers with, so a page of dense tables stays small on the wire. */
 const PAGE_TEXT_MAX_LENGTH = 20_000;

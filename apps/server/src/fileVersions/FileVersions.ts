@@ -517,6 +517,7 @@ const make = Effect.gen(function* () {
     function* (input) {
       const rows = yield* storage.recent(rootOf(input.cwd), {
         since: input.since ?? null,
+        threadId: input.threadId ?? null,
         limit: ACTIVITY_MAX_ENTRIES,
       });
       return {

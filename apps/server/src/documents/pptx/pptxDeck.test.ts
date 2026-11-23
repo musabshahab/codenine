@@ -144,6 +144,25 @@ it("deletes and reorders slides, and drops a deleted slide's parts", async () =>
   expect(types).not.toContain("/ppt/notesSlides/notesSlide1.xml");
   expect(await text(zip, "ppt/_rels/presentation.xml.rels")).not.toContain("slides/slide1.xml");
   expect(await zip.file("ppt/media/image1.png")!.async("uint8array")).toEqual(DECK_PICTURE);
+
+  // A custom show names a slide by relationship and a section by slide id.
+  const listed = await JSZip.loadAsync(await deckFixture());
+  listed.file(
+    "ppt/presentation.xml",
+    (await text(listed, "ppt/presentation.xml")).replace(
+      "</p:presentation>",
+      '<p:custShowLst><p:custShow name="Short" id="0"><p:sldLst><p:sld r:id="rId2"/><p:sld r:id="rId3"/></p:sldLst></p:custShow></p:custShowLst>' +
+        '<p:extLst><p:ext uri="{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"><p14:sectionLst xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main"><p14:section name="All" id="{0}"><p14:sldIdLst><p14:sldId id="256"/><p14:sldId id="257"/></p14:sldIdLst></p14:section></p14:sectionLst></p:ext></p:extLst></p:presentation>',
+    ),
+  );
+  const shown = await edit(
+    [{ type: "deleteSlide", slide: 2 }],
+    await listed.generateAsync({ type: "uint8array" }),
+  );
+  const presentation = await text(shown.zip, "ppt/presentation.xml");
+  expect(presentation).toContain('<p:sldLst><p:sld r:id="rId2"/></p:sldLst>');
+  expect(presentation).toContain('<p14:sldIdLst><p14:sldId id="256"/></p14:sldIdLst>');
+  expect(presentation).toContain('<p:sldMasterId id="2147483648" r:id="rId1"/>');
 });
 
 it.each([

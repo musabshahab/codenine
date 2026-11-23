@@ -131,7 +131,16 @@ export function markdownTables(markdown: string): Array<ReadonlyArray<ReadonlyAr
   return blocks(markdown).flatMap((block) => (block.kind === "table" ? [block.rows] : []));
 }
 
-const PLAIN_NUMBER = /^-?(\d+|\d{1,3}(,\d{3})+)(\.\d+)?$/;
+const PLAIN_NUMBER = /^-?(0|[1-9]\d*|[1-9]\d{0,2}(,\d{3})+)(\.\d+)?$/;
+
+/**
+ * The number a cell's text writes, or undefined when it should stay text. Leading zeros and more
+ * digits than a number holds exactly mark an identifier, which a number would change.
+ */
+function plainNumber(text: string): number | undefined {
+  if (!PLAIN_NUMBER.test(text) || text.replaceAll(/\D/g, "").length > 15) return undefined;
+  return Number(text.replaceAll(",", ""));
+}
 
 const EMPTY_WORKBOOK_PARTS: Readonly<Record<string, string>> = {
   "[Content_Types].xml":
@@ -163,15 +172,13 @@ export async function tableWorkbook(
   for (const [row, cells] of rows.entries()) {
     for (const [column, text] of cells.entries()) {
       if (text === "") continue;
+      const number = row > 0 ? plainNumber(text) : undefined;
       operations.push({
         type: "setCell",
         sheet: "Table",
         row,
         column,
-        input:
-          row > 0 && PLAIN_NUMBER.test(text)
-            ? { kind: "number", number: Number(text.replaceAll(",", "")) }
-            : { kind: "text", text },
+        input: number === undefined ? { kind: "text", text } : { kind: "number", number },
       });
     }
   }
@@ -272,21 +279,38 @@ function wrap(font: PDFFont, size: number, text: string, width: number): Array<s
   const lines: Array<string> = [];
   let line = "";
   const fits = (candidate: string) => font.widthOfTextAtSize(candidate, size) <= width;
+  // How much of `word` fits after `lead`. It measures prefixes about a line long, never the whole
+  // word, so a long run with no spaces costs time in proportion to its length.
+  const fitting = (lead: string, word: string) => {
+    let high = 1;
+    while (high < word.length && fits(lead + word.slice(0, high))) high *= 2;
+    high = Math.min(high, word.length);
+    if (fits(lead + word.slice(0, high))) return high;
+    let low = 0;
+    while (high - low > 1) {
+      const middle = (low + high) >> 1;
+      if (fits(lead + word.slice(0, middle))) low = middle;
+      else high = middle;
+    }
+    return low;
+  };
   for (const word of drawable(font, text).split(/\s+/).filter(Boolean)) {
     let rest = word;
     // A word wider than the line is cut across lines.
-    while (!fits(rest) && rest.length > 1) {
-      let cut = rest.length - 1;
-      while (cut > 1 && !fits((line === "" ? "" : `${line} `) + rest.slice(0, cut))) cut--;
+    while (fitting("", rest) < rest.length) {
+      const lead = line === "" ? "" : `${line} `;
+      const cut = fitting(lead, rest);
       if (line !== "" && cut <= 1) {
         lines.push(line);
         line = "";
         continue;
       }
-      lines.push((line === "" ? "" : `${line} `) + rest.slice(0, cut));
+      const taken = Math.max(1, cut);
+      lines.push(lead + rest.slice(0, taken));
       line = "";
-      rest = rest.slice(cut);
+      rest = rest.slice(taken);
     }
+    if (rest === "") continue;
     const candidate = line === "" ? rest : `${line} ${rest}`;
     if (fits(candidate)) line = candidate;
     else {

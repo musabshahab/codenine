@@ -1,6 +1,7 @@
 import { threadPullRequestLinkMode } from "@codenine/client-runtime/thread-pull-request-compatibility";
 
 import { latestReplyText, useSaveReplyStore } from "./work/saveReplyStore";
+import { useCanSaveReply } from "./work/SaveReplyDialog";
 import {
   scopedThreadKey,
   scopeProjectRef,
@@ -483,11 +484,6 @@ function OpenCommandPaletteDialog(props: {
   const activeThreadKey = activeThread
     ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
     : null;
-  const activeServerConfig = environments.find(
-    (environment) => environment.environmentId === activeThread?.environmentId,
-  )?.serverConfig;
-  // Older servers cannot write a reply into the workspace.
-  const savesReplies = activeServerConfig?.environment.capabilities.replyFiles === true;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -505,6 +501,11 @@ function OpenCommandPaletteDialog(props: {
     currentProjectId,
   );
   const currentProjectCwd = currentProject?.workspaceRoot ?? null;
+  // The same test as the reply's own save button, so the two never disagree.
+  const savesReplies = useCanSaveReply(
+    activeThread?.environmentId ?? null,
+    activeThread ? (activeThread.worktreePath ?? currentProjectCwd ?? undefined) : undefined,
+  );
   const currentProjectCwdForBrowse =
     browseEnvironmentId && currentProjectEnvironmentId === browseEnvironmentId
       ? currentProjectCwd

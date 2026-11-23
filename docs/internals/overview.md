@@ -136,7 +136,9 @@ as that turn's change, exactly as for a file the agent changed from its shell. R
 write as a save would hide it from the turn, and with it the review and Discard. A deck is
 edited like a workbook, part by part in its Open XML package, and no client edits one. Both
 adapters turn the edit tools off for an agent without `editFiles`, because neither provider's
-own sandbox covers a tool that runs in the server. A document that is not text has no line
+own sandbox covers a tool that runs in the server. For the same reason the tools refuse an edit
+in an `approval-required` chat: the providers pre-approve Codenine's tools, so no approval card
+would cover the write. A document that is not text has no line
 review: its turn baseline answers `wholeFileOnly`, from the version store or, in a Git
 checkout, from the turn's first checkpoint, and Discard puts those bytes back.
 

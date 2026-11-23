@@ -675,6 +675,9 @@ export const ProjectListFileActivityInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // Only changes recorded at or after this time.
   since: Schema.optional(IsoDateTime),
+  // The chat asking. Changes it never lists (another chat's turns, and changes made outside
+  // Codenine) are then left out before the newest few hundred are taken.
+  threadId: Schema.optional(ThreadId),
 });
 export type ProjectListFileActivityInput = typeof ProjectListFileActivityInput.Type;
 

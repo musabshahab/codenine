@@ -449,7 +449,9 @@ sets cells and formulas, fills in a PDF's form fields, highlights passages of a 
 and in a `.pptx` deck replaces text, adds a slide from one of the deck's own layouts, deletes or
 reorders slides and writes speaker notes. Everything it does not touch is kept, such as charts,
 pictures, themes and animations. Both Claude and Codex agents can do this. An agent that may not
-edit files cannot.
+edit files cannot, and neither can an agent in a chat set to ask before each change: it tells you
+what it would change, and you make the change yourself or switch the chat to a mode that accepts
+edits.
 
 Decks are view-only for you: the agent edits them, and you read the result. An open spreadsheet,
 PDF or deck shows the agent's change when its turn ends. If you had unsaved edits of your own in
@@ -486,7 +488,8 @@ command palette. Pick the format, the file name and a folder inside the workspac
 - **PDF** saves it as pages of text with its headings, lists, code and tables. Characters
   outside Western European text print as a question mark.
 - **Spreadsheet** is offered when the reply holds a table, and saves the first one as an
-  `.xlsx` sheet with a bold header row. Plain numbers become numbers you can sum.
+  `.xlsx` sheet with a bold header row. Plain numbers become numbers you can sum. Codes that
+  start with a zero and numbers longer than 15 digits stay as text, so they are kept as written.
 
 The file opens beside the chat. If a file with that name is already there, nothing is written
 until you choose **Replace file** or change the name.

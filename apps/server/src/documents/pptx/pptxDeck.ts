@@ -139,6 +139,13 @@ function removeFromRoot(xml: string, matches: (attributes: Map<string, string>) 
   return output;
 }
 
+/** Every element of that local name whose attribute holds the value, wherever it sits. */
+const elementsWith = (localName: string, attribute: string, value: string) =>
+  new RegExp(
+    `<((?:[\\w.-]+:)?${localName})\\s(?:[^>]*\\s)?${attribute}="${value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}"[^>]*?(?:/>|>\\s*</\\1>)`,
+    "g",
+  );
+
 /** Text shapes of a shape tree in drawing order, groups included. */
 function* textShapes(xml: string, tree: XmlElement): Generator<XmlElement> {
   for (const child of childrenOf(xml, tree)) {
@@ -663,6 +670,18 @@ export class PptxDeck {
     const notes = await this.notesPath(slide.path);
     this.slides.splice(number - 1, 1);
     await this.writeSlideList();
+    // Custom shows name the slide by relationship and sections by slide id. One left behind
+    // points at nothing, and PowerPoint then asks to repair the file.
+    const { xml, relationshipAttribute } = await this.presentation();
+    const slideId = /\sid="(\d+)"/.exec(slide.listed)?.[1];
+    const unlisted = xml.replace(
+      elementsWith("sld", relationshipAttribute, slide.relationshipId),
+      "",
+    );
+    this.write(
+      this.presentationPath,
+      slideId === undefined ? unlisted : unlisted.replace(elementsWith("sldId", "id", slideId), ""),
+    );
     const relationshipsPath = relationshipsPathOf(this.presentationPath);
     this.write(
       relationshipsPath,

@@ -70,6 +70,14 @@ const locate = Effect.fn("mcp.documents.locate")(function* (
       message: "This chat is in plan mode, which does not change files.",
     });
   }
+  // These tools are pre-approved for the provider, so no approval card would cover the write.
+  if (access === "edit" && caller.runtimeMode === "approval-required") {
+    return yield* new OrchestratorMcpFailure({
+      code: "capability_denied",
+      message:
+        "This chat asks the user before each file change, and Codenine cannot ask for a document edit. Tell the user what you would change, and that they can make the change in the file's tab or switch the chat to a mode that accepts edits.",
+    });
+  }
   const projects = yield* ProjectService.ProjectService;
   const project = yield* projects.getById(caller.projectId).pipe(Effect.mapError(unavailable));
   if (Option.isNone(project)) {

@@ -47,7 +47,11 @@ export default function ActivityPanel(props: {
       ? revisionedQuery(
           projectEnvironment.listFileActivity({
             environmentId,
-            input: { cwd: workspaceRoot, since: IsoDateTime.make(since) },
+            input: {
+              cwd: workspaceRoot,
+              since: IsoDateTime.make(since),
+              threadId: threadRef.threadId,
+            },
           }),
           props.workspaceMutationId,
         )

@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { IsoDateTime } from "@codenine/contracts";
+import { IsoDateTime, ThreadId } from "@codenine/contracts";
 import type {
   PdfSignaturePlacement,
   SpreadsheetCell,
@@ -891,6 +891,31 @@ describe("Documents reply files", () => {
           (yield* versions.activity({ cwd, since: IsoDateTime.make("2999-01-01T00:00:00.000Z") }))
             .entries,
         ).toEqual([]);
+        // A chat's activity leaves out other chats' turns and outside changes before the
+        // newest are taken, so they cannot crowd out its own.
+        const mine = ThreadId.make("activity-mine");
+        const theirs = ThreadId.make("activity-theirs");
+        yield* write("taken.md", "theirs\n");
+        yield* versions.syncWorkspace({
+          cwd,
+          origin: { kind: "agent", threadId: theirs, turnCount: 1 },
+        });
+        yield* write("taken.md", "mine again\n");
+        yield* versions.syncWorkspace({
+          cwd,
+          origin: { kind: "agent", threadId: mine, turnCount: 1 },
+        });
+        expect(
+          (yield* versions.activity({ cwd, threadId: mine })).entries.map(
+            ({ relativePath, origin, threadId }) => [relativePath, origin, threadId],
+          ),
+        ).toEqual([
+          ["taken.md", "agent", mine],
+          ["taken.md", "user", undefined],
+          ["plan.pdf", "user", undefined],
+          ["plan.xlsx", "user", undefined],
+          ["notes/plan.md", "user", undefined],
+        ]);
 
         expect(yield* save("plain.xlsx", "xlsx", "No table.").pipe(Effect.flip)).toMatchObject({
           _tag: "ReplyFileError",
