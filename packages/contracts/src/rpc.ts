@@ -142,6 +142,18 @@ import {
   OrchestrationV2ThreadLaunchError,
 } from "./orchestrationV2.ts";
 import {
+  SpreadsheetEditInput,
+  SpreadsheetEditResult,
+  SpreadsheetFileError,
+  SpreadsheetOpenInput,
+  SpreadsheetOpenResult,
+  SpreadsheetOperationError,
+  SpreadsheetReadRangeInput,
+  SpreadsheetReadRangeResult,
+  SpreadsheetTooLargeError,
+  SpreadsheetUnsupportedError,
+} from "./documents.ts";
+import {
   ProjectCreateNewInput,
   ProjectCreateNewResult,
   ProjectCreateFromThreadInput,
@@ -341,6 +353,9 @@ export const WS_METHODS = {
   projectsListFileVersions: "projects.listFileVersions",
   projectsReadFileVersion: "projects.readFileVersion",
   projectsRestoreFileVersion: "projects.restoreFileVersion",
+  documentsOpenSpreadsheet: "documents.openSpreadsheet",
+  documentsReadSpreadsheetRange: "documents.readSpreadsheetRange",
+  documentsEditSpreadsheet: "documents.editSpreadsheet",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
@@ -1218,6 +1233,32 @@ const WsProjectsRestoreFileVersionRpc = Rpc.make(WS_METHODS.projectsRestoreFileV
   ]),
 });
 
+const SpreadsheetReadErrors = [
+  SpreadsheetTooLargeError,
+  SpreadsheetUnsupportedError,
+  SpreadsheetOperationError,
+  SpreadsheetFileError,
+  EnvironmentAuthorizationError,
+] as const;
+
+const WsDocumentsOpenSpreadsheetRpc = Rpc.make(WS_METHODS.documentsOpenSpreadsheet, {
+  payload: SpreadsheetOpenInput,
+  success: SpreadsheetOpenResult,
+  error: Schema.Union(SpreadsheetReadErrors),
+});
+
+const WsDocumentsReadSpreadsheetRangeRpc = Rpc.make(WS_METHODS.documentsReadSpreadsheetRange, {
+  payload: SpreadsheetReadRangeInput,
+  success: SpreadsheetReadRangeResult,
+  error: Schema.Union(SpreadsheetReadErrors),
+});
+
+const WsDocumentsEditSpreadsheetRpc = Rpc.make(WS_METHODS.documentsEditSpreadsheet, {
+  payload: SpreadsheetEditInput,
+  success: SpreadsheetEditResult,
+  error: Schema.Union([...SpreadsheetReadErrors, ProjectWriteFileConflictError]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
@@ -1775,6 +1816,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsListFileVersionsRpc,
   WsProjectsReadFileVersionRpc,
   WsProjectsRestoreFileVersionRpc,
+  WsDocumentsOpenSpreadsheetRpc,
+  WsDocumentsReadSpreadsheetRangeRpc,
+  WsDocumentsEditSpreadsheetRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,

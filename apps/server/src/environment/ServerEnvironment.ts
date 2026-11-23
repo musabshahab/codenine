@@ -270,6 +270,7 @@ export const make = Effect.gen(function* () {
       projectOrganization: true,
       workspaceKinds: true,
       fileVersions: true,
+      spreadsheetEditing: true,
       projectFolderDeletion: true,
       ignoredFileListing: true,
       freshContext: true,

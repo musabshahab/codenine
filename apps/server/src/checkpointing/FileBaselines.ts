@@ -105,6 +105,7 @@ export class FileBaselines extends Context.Service<
 >()("codenine/checkpointing/FileBaselines") {}
 
 const UNAVAILABLE: ProjectReadFileBaselineResult = { available: false, contents: null };
+const WHOLE_FILE_ONLY: ProjectReadFileBaselineResult = { ...UNAVAILABLE, wholeFileOnly: true };
 // The largest text a workspace read returns, so a baseline never exceeds what it is compared to.
 const VERSION_BASELINE_MAX_BYTES = 1024 * 1024;
 const BYTE_ORDER_MARK_BYTES = [0xef, 0xbb, 0xbf];
@@ -134,13 +135,11 @@ const make = Effect.gen(function* () {
     if (bytes === null) {
       return { result: { available: true, contents: null }, byteOrderMark: false };
     }
-    if (bytes.byteLength > VERSION_BASELINE_MAX_BYTES || bytes.includes(0)) {
-      return { result: UNAVAILABLE, byteOrderMark: false };
-    }
-    // Text in another encoding has no baseline, as with Git: a Discard would write it back
-    // as UTF-8 with every other character replaced.
-    const contents = decodeUtf8(bytes);
-    if (contents === null) return { result: UNAVAILABLE, byteOrderMark: false };
+    // Contents that are not UTF-8 text cannot be compared or put back as text: a Discard
+    // would write them as UTF-8 with every other character replaced. They can go back whole.
+    const contents =
+      bytes.byteLength > VERSION_BASELINE_MAX_BYTES || bytes.includes(0) ? null : decodeUtf8(bytes);
+    if (contents === null) return { result: WHOLE_FILE_ONLY, byteOrderMark: false };
     return {
       // Decoding drops a byte order mark, as a workspace read does.
       result: { available: true, contents },
@@ -215,6 +214,18 @@ const make = Effect.gen(function* () {
       ...target,
       source: { kind: "turn", threadId: input.threadId, turnCount: input.turnCount },
     });
+    if (baseline.wholeFileOnly === true && input.change === undefined) {
+      const earlier = yield* fileVersions.turnBaseline({ ...target, ...input });
+      if (earlier?.bytes) {
+        // The write refuses a file that no longer has the version the caller saw.
+        const written = yield* fileVersions.overwriteFileBytes({
+          ...target,
+          bytes: earlier.bytes,
+          expectedVersion: input.expectedVersion,
+        });
+        return { ...written, deleted: false };
+      }
+    }
     if (!baseline.available) {
       return yield* new FileBaselineUnavailableError({ ...target, reason: "no-baseline" });
     }

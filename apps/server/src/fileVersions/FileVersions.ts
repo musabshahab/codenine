@@ -98,9 +98,17 @@ export class FileVersions extends Context.Service<
     readonly writeFile: (
       input: ProjectWriteFileInput,
     ) => Effect.Effect<ProjectWriteFileResult, SaveError>;
+    /** `writeFile` for contents of any type, such as a workbook. */
+    readonly writeFileBytes: (
+      input: WorkspaceFileSystem.WriteWorkspaceFileBytesInput,
+    ) => Effect.Effect<ProjectWriteFileResult, SaveError>;
     /** `writeFile` for a write that promises an undo: refused when what it replaces is not kept. */
     readonly overwriteFile: (
       input: ProjectWriteFileInput,
+    ) => Effect.Effect<ProjectWriteFileResult, WriteError>;
+    /** `overwriteFile` for contents of any type. */
+    readonly overwriteFileBytes: (
+      input: WorkspaceFileSystem.WriteWorkspaceFileBytesInput,
     ) => Effect.Effect<ProjectWriteFileResult, WriteError>;
     /**
      * A delete that first records what it removes, and is refused when it cannot. In a Git
@@ -400,6 +408,20 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const writeFileBytes: FileVersions["Service"]["writeFileBytes"] = Effect.fn(
+    "FileVersions.writeFileBytes",
+  )(function* (input) {
+    const write = workspaceFileSystem.writeFileBytes(input);
+    if (!(yield* isTracked(input.cwd))) return yield* write;
+    return yield* recorded(
+      input,
+      write,
+      { kind: "bytes", bytes: input.bytes },
+      "user",
+      replacedIfPossible(input.cwd),
+    );
+  });
+
   const overwriteFile: FileVersions["Service"]["overwriteFile"] = Effect.fn(
     "FileVersions.overwriteFile",
   )(function* (input) {
@@ -410,6 +432,20 @@ const make = Effect.gen(function* () {
       input,
       write,
       { kind: "bytes", bytes },
+      "restore",
+      replacedKept(input.cwd),
+    );
+  });
+
+  const overwriteFileBytes: FileVersions["Service"]["overwriteFileBytes"] = Effect.fn(
+    "FileVersions.overwriteFileBytes",
+  )(function* (input) {
+    const write = workspaceFileSystem.writeFileBytes(input);
+    if (!(yield* isTracked(input.cwd))) return yield* write;
+    return yield* recorded(
+      input,
+      write,
+      { kind: "bytes", bytes: input.bytes },
       "restore",
       replacedKept(input.cwd),
     );
@@ -686,7 +722,9 @@ const make = Effect.gen(function* () {
 
   return FileVersions.of({
     writeFile,
+    writeFileBytes,
     overwriteFile,
+    overwriteFileBytes,
     removeFile,
     list,
     read,

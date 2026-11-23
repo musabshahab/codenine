@@ -416,6 +416,31 @@ tab. A folder that becomes a Git checkout later keeps the versions it already ha
 **Versions** stays on the files that have some. When several agents work in one folder at once,
 a change is listed under the turn that ended first after it.
 
+### Spreadsheets
+
+An `.xlsx` workbook opens as a grid you can edit, and so does a `.csv` or `.tsv` file in its
+table view. Select a cell and type to replace its contents, or press F2 or double-click to change
+them; Enter and Tab save the cell and move on. Start with `=` for a formula. Copy and paste work
+with other spreadsheet apps, Ctrl/Cmd+Z undoes your own cell edits, and edits save as you type,
+with the same **Reload from disk** and **Overwrite** choice as a text file when the file changed
+underneath you. Here **Overwrite** puts only your edited cells into the file as it is now.
+
+**Rows and columns** inserts or deletes them, **Format** sets a number format, and the sheet tabs
+add, rename and delete sheets. These save at once and are not undone with Ctrl/Cmd+Z, so use
+[file versions](#file-versions) or Git to go back. A CSV or TSV file holds text only: no
+formulas, formats or extra sheets.
+
+Saving keeps what Codenine does not show, such as charts, images, styles and other sheets.
+Codenine recalculates everyday formulas (arithmetic, `SUM`, `AVERAGE`, `IF`, `ROUND` and the
+like). A formula it cannot work out shows as its text until a spreadsheet app opens the file and
+calculates it. A change that would damage the workbook is refused with the reason, for example
+inserting rows in a sheet that holds a chart, a table, a filter or comments; make that change in
+a spreadsheet app. Workbooks over 16 MB or about 600,000 cells, files protected with a password,
+and CSV files that are not UTF-8 open for viewing only. Presentations are view-only.
+
+When the agent's latest turn changed a workbook in a folder without Git, the file offers
+**Discard changes** to put the whole file back as it was, or **Keep**.
+
 ## HTML and PDF files in the file viewer
 
 HTML and PDF files open as rendered pages. Switch an HTML

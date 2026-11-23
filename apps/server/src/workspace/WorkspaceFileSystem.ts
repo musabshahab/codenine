@@ -30,7 +30,8 @@ import { fileHeaderMimeType } from "./fileHeaderMimeType.ts";
 
 const PROJECT_READ_FILE_MAX_BYTES = 1024 * 1024;
 
-const fileVersion = (bytes: Uint8Array) =>
+/** The `version` a read of a file with these bytes returns. */
+export const fileVersion = (bytes: Uint8Array) =>
   NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 
 // NTFS reaches .git through trailing dots/spaces, stream suffixes and GIT~1; compare uppercased names.

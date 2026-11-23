@@ -293,13 +293,29 @@ it.layer(layerTest)("FileBaselines", (it) => {
         expect(yield* read("notes.md")).toEqual({ available: true, contents: BEFORE_TURN });
         expect(yield* read("created.md")).toEqual({ available: true, contents: null });
         expect(yield* read("untouched.md")).toEqual({ available: false, contents: null });
-        // Text in another encoding cannot be put back as text, so it has no baseline, as in Git.
-        expect(yield* read("latin.csv")).toEqual({ available: false, contents: null });
-        expect((yield* discard("latin.csv").pipe(Effect.flip))._tag).toBe(
-          "FileBaselineUnavailableError",
-        );
+        // Contents that are not UTF-8 text, as a workbook's are not, cannot be compared or have
+        // one change put back. The whole file goes back byte for byte.
+        const wholeFileOnly = { available: false, contents: null, wholeFileOnly: true };
+        expect(yield* read("latin.csv")).toEqual(wholeFileOnly);
+        const latinFile = { cwd, relativePath: "latin.csv", ...turn };
+        const onDisk = WorkspaceFileSystem.fileVersion(latin("20"));
+        expect(
+          (yield* baselines
+            .revertTurnChange({
+              ...latinFile,
+              expectedVersion: onDisk,
+              change: { baseStart: 0, baseCount: 1, currentStart: 0, currentCount: 1 },
+            })
+            .pipe(Effect.flip))._tag,
+        ).toBe("FileBaselineUnavailableError");
+        expect(
+          (yield* baselines
+            .revertTurnChange({ ...latinFile, expectedVersion: "stale" })
+            .pipe(Effect.flip))._tag,
+        ).toBe("WorkspaceFileConflictError");
+        yield* baselines.revertTurnChange({ ...latinFile, expectedVersion: onDisk });
         expect(Buffer.from(yield* fileSystem.readFile(path.join(cwd, "latin.csv")))).toEqual(
-          latin("20"),
+          latin("10"),
         );
         // A file the turn deleted is put back; there is no version of it on disk to expect.
         expect(yield* discard("removed.md")).toMatchObject({ deleted: false });

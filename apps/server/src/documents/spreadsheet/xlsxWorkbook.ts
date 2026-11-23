@@ -1,0 +1,1594 @@
+import type {
+  SpreadsheetCell,
+  SpreadsheetCellFormat,
+  SpreadsheetCellInput,
+  SpreadsheetOperation,
+  SpreadsheetSheet,
+} from "@codenine/contracts";
+import JSZip from "jszip";
+
+import {
+  evaluateFormula,
+  FormulaErrorValue,
+  FormulaNotCalculated,
+  type FormulaValue,
+} from "./formulaEvaluation.ts";
+import {
+  type SpreadsheetLimits,
+  type SpreadsheetModel,
+  invalidOperation,
+  tooLarge,
+  unsupported,
+} from "./problems.ts";
+import {
+  type Axis,
+  type CellArea,
+  type FormulaReference,
+  type ReferenceRewrite,
+  areaName,
+  cellName,
+  formulaReferences,
+  mapFormulaReferences,
+  MAX_COLUMNS,
+  MAX_ROWS,
+  offsetReference,
+  parseArea,
+  parseCellName,
+  REFERENCE_ERROR,
+  shiftReference,
+} from "./references.ts";
+import {
+  type XmlElement,
+  attributeText,
+  childElements,
+  escapeAttribute,
+  escapeXml,
+  findChild,
+  localNameOf,
+  parseAttributes,
+  rootElement,
+  unescapeXml,
+} from "./xml.ts";
+
+const RELATIONSHIPS_NAMESPACE =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const WORKSHEET_RELATIONSHIP = `${RELATIONSHIPS_NAMESPACE}/worksheet`;
+const WORKSHEET_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
+const MAIN_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+// Cells a recalculation may visit before it gives up and leaves every result to the next app.
+const RECALCULATION_BUDGET = 3_000_000;
+
+// Parts of a sheet that name cells by position, which inserting or deleting rows would leave
+// pointing at the wrong cells.
+const POSITIONED_SHEET_PARTS =
+  /<(?:conditionalFormatting|dataValidations|autoFilter|hyperlinks|tableParts|drawing|legacyDrawing|legacyDrawingHF|rowBreaks|colBreaks|sortState|protectedRanges|scenarios|customSheetViews|oleObjects|controls|extLst|picture|ignoredErrors|dataConsolidate|cellWatches)[\s/>]/;
+
+const BUILT_IN_NUMBER_FORMATS: Record<number, string> = {
+  1: "0",
+  2: "0.00",
+  3: "#,##0",
+  4: "#,##0.00",
+  9: "0%",
+  10: "0.00%",
+  11: "0.00E+00",
+  12: "# ?/?",
+  13: "# ??/??",
+  14: "m/d/yyyy",
+  15: "d-mmm-yy",
+  16: "d-mmm",
+  17: "mmm-yy",
+  18: "h:mm AM/PM",
+  19: "h:mm:ss AM/PM",
+  20: "h:mm",
+  21: "h:mm:ss",
+  22: "m/d/yyyy h:mm",
+  37: "#,##0;(#,##0)",
+  38: "#,##0;[Red](#,##0)",
+  39: "#,##0.00;(#,##0.00)",
+  40: "#,##0.00;[Red](#,##0.00)",
+  45: "mm:ss",
+  46: "[h]:mm:ss",
+  47: "mm:ss.0",
+  48: "##0.0E+0",
+  49: "@",
+};
+
+interface Cell {
+  column: number;
+  style: string | undefined;
+  type: string | undefined;
+  /** Attributes other than the position, style and type, as written. */
+  extra: string;
+  /** The cell's child elements, as written. */
+  inner: string;
+}
+
+interface Row {
+  index: number;
+  /** Attributes other than the row number and the span hint, as written. */
+  readonly attributes: string;
+  cells: Array<Cell>;
+}
+
+interface SheetContents {
+  prefix: string;
+  suffix: string;
+  readonly sheetDataAttributes: string;
+  rows: Array<Row>;
+  /** Shared formulas by group: the cell that holds the text the others derive theirs from. */
+  readonly shared: Map<string, { row: number; column: number; text: string }>;
+  /** Areas held by an array formula or a data table, whose cells cannot be changed one by one. */
+  readonly arrayAreas: ReadonlyArray<CellArea>;
+  dirty: boolean;
+}
+
+interface Sheet {
+  name: string;
+  readonly sheetId: number;
+  readonly relationshipId: string;
+  readonly path: string;
+  /** Attributes other than the name, id and relationship, such as `state`. */
+  readonly attributes: Map<string, string>;
+  /** A chart sheet holds no cells and is never offered. */
+  readonly worksheet: boolean;
+  contents: SheetContents | null;
+}
+
+interface DefinedName {
+  attributes: Map<string, string>;
+  text: string;
+}
+
+interface Styles {
+  readonly xml: string;
+  readonly root: XmlElement;
+  readonly sections: Map<string, { element: XmlElement; children: Array<string> }>;
+  readonly customNumberFormats: Map<number, string>;
+  readonly derived: Map<string, string>;
+  readonly formats: Map<string, SpreadsheetCellFormat | null>;
+  dirty: boolean;
+}
+
+const FORMULA_PATTERN = /<f\b([^>]*?)(?:\/>|>([\s\S]*?)<\/f>)/;
+const VALUE_PATTERN = /<v\b[^>]*?(?:\/>|>([\s\S]*?)<\/v>)/;
+const TEXT_RUN_PATTERN = /<t\b[^>]*?(?:\/>|>([\s\S]*?)<\/t>)/g;
+const PHONETIC_PATTERN = /<rPh\b[\s\S]*?<\/rPh>/g;
+
+/** The text of a string item, which may be split into formatted runs. */
+function richText(xml: string): string {
+  let text = "";
+  const visible = xml.includes("<rPh") ? xml.replace(PHONETIC_PATTERN, "") : xml;
+  for (const match of visible.matchAll(TEXT_RUN_PATTERN)) text += unescapeXml(match[1] ?? "");
+  return text;
+}
+
+const sameName = (left: string, right: string) => left.toLowerCase() === right.toLowerCase();
+
+function resolveTarget(sourcePath: string, target: string): string {
+  if (target.startsWith("/")) return target.slice(1);
+  const segments = sourcePath.split("/").slice(0, -1);
+  for (const segment of target.split("/")) {
+    if (segment === "..") segments.pop();
+    else if (segment !== "." && segment !== "") segments.push(segment);
+  }
+  return segments.join("/");
+}
+
+const relationshipsPath = (partPath: string) => {
+  const slash = partPath.lastIndexOf("/");
+  return `${partPath.slice(0, slash + 1)}_rels/${partPath.slice(slash + 1)}.rels`;
+};
+
+function lowerBound<T>(items: ReadonlyArray<T>, value: number, key: (item: T) => number) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (key(items[middle]!) < value) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+const rowIndex = (row: Row) => row.index;
+const cellColumn = (cell: Cell) => cell.column;
+
+function formulaOf(cell: Cell): { attributes: Map<string, string>; text: string } | null {
+  if (!cell.inner.includes("<f")) return null;
+  const match = FORMULA_PATTERN.exec(cell.inner);
+  if (!match) return null;
+  return { attributes: parseAttributes(match[1] ?? ""), text: unescapeXml(match[2] ?? "") };
+}
+
+function validSheetName(name: string): boolean {
+  return (
+    name.length >= 1 &&
+    name.length <= 31 &&
+    !/[[\]:*?/\\]/.test(name) &&
+    !name.startsWith("'") &&
+    !name.endsWith("'")
+  );
+}
+
+/**
+ * An .xlsx workbook held as its parts. Only the parts an edit touches are rewritten, and in a
+ * sheet that is rewritten everything but its cells is kept as written, so charts, styles, names
+ * and whatever else the file holds survive a save.
+ */
+export class XlsxWorkbook implements SpreadsheetModel {
+  readonly format = "xlsx";
+  readonly date1904: boolean;
+  private readonly zip: JSZip;
+  private readonly limits: SpreadsheetLimits;
+  private readonly parts = new Map<string, string>();
+  private readonly changedParts = new Set<string>();
+  private readonly removedParts = new Set<string>();
+  // A part counts toward the unpacked limit once, however often it is read again after a save.
+  private readonly countedParts = new Set<string>();
+  private unpackedBytes = 0;
+  private cellCount = 0;
+  private readonly workbookPath: string;
+  private readonly relationshipPrefix: string;
+  private workbookXml: string;
+  private workbookDirty = false;
+  private valuesChanged = false;
+  private readonly allSheets: Array<Sheet>;
+  private readonly definedNames: Array<DefinedName>;
+  private readonly sharedStringsPath: string | null;
+  private readonly stylesPath: string | null;
+  private sharedStrings: ReadonlyArray<string> | null = null;
+  private styles: Styles | null = null;
+
+  private constructor(input: {
+    zip: JSZip;
+    limits: SpreadsheetLimits;
+    workbookPath: string;
+    workbookXml: string;
+    relationshipPrefix: string;
+    sheets: Array<Sheet>;
+    definedNames: Array<DefinedName>;
+    sharedStringsPath: string | null;
+    stylesPath: string | null;
+    date1904: boolean;
+    unpackedBytes: number;
+  }) {
+    this.zip = input.zip;
+    this.limits = input.limits;
+    this.workbookPath = input.workbookPath;
+    this.workbookXml = input.workbookXml;
+    this.relationshipPrefix = input.relationshipPrefix;
+    this.allSheets = input.sheets;
+    this.definedNames = input.definedNames;
+    this.sharedStringsPath = input.sharedStringsPath;
+    this.stylesPath = input.stylesPath;
+    this.date1904 = input.date1904;
+    this.unpackedBytes = input.unpackedBytes;
+  }
+
+  static async open(bytes: Uint8Array, limits: SpreadsheetLimits): Promise<XlsxWorkbook> {
+    const zip = await JSZip.loadAsync(bytes).catch(() => {
+      throw unsupported("not-a-workbook");
+    });
+    let unpackedBytes = 0;
+    const read = async (path: string) => {
+      const text = await readZipText(zip, path, limits.maxUnpackedBytes - unpackedBytes);
+      unpackedBytes += text?.length ?? 0;
+      return text;
+    };
+    const packageRelationships = await read("_rels/.rels");
+    if (packageRelationships === null) throw unsupported("not-a-workbook");
+    const workbookPath =
+      readRelationships(packageRelationships, "").find((relationship) =>
+        relationship.type.endsWith("/officeDocument"),
+      )?.path ?? "xl/workbook.xml";
+    const workbookXml = await read(workbookPath);
+    if (workbookXml === null) throw unsupported("not-a-workbook");
+    const root = rootElement(workbookXml);
+    // A workbook that prefixes the main namespace, or uses the strict one, is not parsed here.
+    if (root?.name !== "workbook" || root.inner === null) throw unsupported("workbook-layout");
+    const rootAttributes = parseAttributes(root.attributes);
+    if (rootAttributes.get("xmlns") !== MAIN_NAMESPACE) throw unsupported("workbook-layout");
+    const relationshipPrefix = [...rootAttributes].find(
+      ([name, value]) => name.startsWith("xmlns:") && value === RELATIONSHIPS_NAMESPACE,
+    )?.[0];
+    if (relationshipPrefix === undefined) throw unsupported("workbook-layout");
+    const prefix = relationshipPrefix.slice("xmlns:".length);
+    const relationships = readRelationships(
+      (await read(relationshipsPath(workbookPath))) ?? "",
+      workbookPath,
+    );
+    const sheetsElement = findChild(root.inner, "sheets");
+    if (sheetsElement?.name !== "sheets") throw unsupported("workbook-layout");
+    const sheets: Array<Sheet> = [];
+    for (const element of childElements(sheetsElement.inner ?? "")) {
+      const attributes = parseAttributes(element.attributes);
+      const relationshipId = attributes.get(`${prefix}:id`);
+      const relationship = relationships.find((candidate) => candidate.id === relationshipId);
+      const name = attributes.get("name");
+      if (name === undefined || relationshipId === undefined || relationship === undefined) {
+        throw unsupported("workbook-layout");
+      }
+      const sheetId = Number(attributes.get("sheetId"));
+      attributes.delete("name");
+      attributes.delete("sheetId");
+      attributes.delete(`${prefix}:id`);
+      sheets.push({
+        name,
+        sheetId,
+        relationshipId,
+        path: relationship.path,
+        attributes,
+        worksheet: relationship.type === WORKSHEET_RELATIONSHIP,
+        contents: null,
+      });
+    }
+    const definedNames: Array<DefinedName> = [];
+    for (const element of childElements(findChild(root.inner, "definedNames")?.inner ?? "")) {
+      definedNames.push({
+        attributes: parseAttributes(element.attributes),
+        text: unescapeXml(element.inner ?? ""),
+      });
+    }
+    const workbookProperties = findChild(root.inner, "workbookPr");
+    const date1904 = /^(1|true)$/.test(
+      parseAttributes(workbookProperties?.attributes ?? "").get("date1904") ?? "",
+    );
+    const partOfType = (suffix: string) =>
+      relationships.find((relationship) => relationship.type.endsWith(suffix))?.path ?? null;
+    return new XlsxWorkbook({
+      zip,
+      limits,
+      workbookPath,
+      workbookXml,
+      relationshipPrefix: prefix,
+      sheets,
+      definedNames,
+      sharedStringsPath: partOfType("/sharedStrings"),
+      stylesPath: partOfType("/styles"),
+      date1904,
+      unpackedBytes,
+    });
+  }
+
+  sheets(): ReadonlyArray<SpreadsheetSheet> {
+    return this.worksheets().map((sheet) => ({
+      name: sheet.name,
+      ...(this.isHidden(sheet) ? { hidden: true } : {}),
+    }));
+  }
+
+  async readRange(input: {
+    readonly sheet: string;
+    readonly row: number;
+    readonly column: number;
+    readonly rowCount: number;
+    readonly columnCount: number;
+  }) {
+    const sheet = this.sheetNamed(input.sheet);
+    const contents = await this.load(sheet);
+    const strings = await this.strings();
+    const styles = await this.loadStyles();
+    const cells: Array<SpreadsheetCell> = [];
+    const formats: Record<string, SpreadsheetCellFormat> = {};
+    const lastRow = input.row + input.rowCount;
+    const lastColumn = input.column + input.columnCount;
+    for (
+      let at = lowerBound(contents.rows, input.row, rowIndex);
+      at < contents.rows.length && contents.rows[at]!.index < lastRow;
+      at++
+    ) {
+      const row = contents.rows[at]!;
+      for (
+        let cellAt = lowerBound(row.cells, input.column, cellColumn);
+        cellAt < row.cells.length && row.cells[cellAt]!.column < lastColumn;
+        cellAt++
+      ) {
+        const cell = row.cells[cellAt]!;
+        const formula = this.formulaText(contents, row, cell);
+        const value = cachedValue(cell, strings);
+        const format =
+          cell.style === undefined || styles === null ? null : formatOf(styles, cell.style);
+        if (formula === null && value === undefined && format === null) continue;
+        if (format !== null && cell.style !== undefined) formats[cell.style] = format;
+        cells.push({
+          row: row.index,
+          column: cell.column,
+          ...(value === undefined || value === null
+            ? {}
+            : value instanceof FormulaErrorValue
+              ? { value: value.code, error: true }
+              : { value }),
+          ...(formula === null ? {} : { formula }),
+          ...(format === null || cell.style === undefined ? {} : { format: cell.style }),
+        });
+      }
+    }
+    return { ...usedSize(contents), cells, formats };
+  }
+
+  async apply(operations: ReadonlyArray<SpreadsheetOperation>): Promise<void> {
+    for (const sheet of this.worksheets()) await this.load(sheet);
+    await this.strings();
+    const changed = new Map<Sheet, Array<{ row: number; column: number }>>();
+    let everythingChanged = false;
+    for (const operation of operations) {
+      switch (operation.type) {
+        case "setCell": {
+          const sheet = this.sheetNamed(operation.sheet);
+          this.setCell(sheet, operation.row, operation.column, operation.input);
+          const list = changed.get(sheet) ?? [];
+          list.push({ row: operation.row, column: operation.column });
+          changed.set(sheet, list);
+          break;
+        }
+        case "setFormat":
+          await this.setFormat(this.sheetNamed(operation.sheet), operation);
+          break;
+        case "insertRows":
+        case "deleteRows":
+        case "insertColumns":
+        case "deleteColumns":
+          await this.resize(
+            this.sheetNamed(operation.sheet),
+            operation.type.endsWith("Rows") ? "row" : "column",
+            operation.index,
+            operation.type.startsWith("insert") ? operation.count : -operation.count,
+          );
+          everythingChanged = true;
+          break;
+        case "addSheet":
+          await this.addSheet(operation.name);
+          break;
+        case "renameSheet":
+          await this.renameSheet(this.sheetNamed(operation.sheet), operation.name);
+          break;
+        case "deleteSheet":
+          await this.deleteSheet(this.sheetNamed(operation.sheet));
+          everythingChanged = true;
+          break;
+      }
+    }
+    if (everythingChanged || changed.size > 0) {
+      this.valuesChanged = true;
+      this.recalculate(everythingChanged ? null : changed);
+    }
+  }
+
+  async save(): Promise<Uint8Array> {
+    for (const sheet of this.allSheets) {
+      if (sheet.contents?.dirty) {
+        this.setPart(sheet.path, serializeSheet(sheet.contents));
+        sheet.contents.dirty = false;
+      }
+    }
+    if (this.styles?.dirty && this.stylesPath !== null) {
+      this.setPart(this.stylesPath, serializeStyles(this.styles));
+      this.styles = null;
+    }
+    if (this.valuesChanged) await this.dropCalculationChain();
+    if (this.workbookDirty || this.valuesChanged) {
+      this.setPart(this.workbookPath, this.serializeWorkbook());
+    }
+    this.workbookDirty = false;
+    this.valuesChanged = false;
+    for (const path of this.removedParts) this.zip.remove(path);
+    for (const path of this.changedParts) this.zip.file(path, this.parts.get(path) ?? "");
+    this.removedParts.clear();
+    this.changedParts.clear();
+    // The archive now holds every part, so the copies kept as text are read again when needed.
+    this.parts.clear();
+    return this.zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+  }
+
+  private worksheets() {
+    return this.allSheets.filter((sheet) => sheet.worksheet);
+  }
+
+  private isHidden(sheet: Sheet) {
+    const state = sheet.attributes.get("state");
+    return state === "hidden" || state === "veryHidden";
+  }
+
+  private sheetNamed(name: string): Sheet {
+    const sheet = this.worksheets().find((candidate) => sameName(candidate.name, name));
+    if (sheet === undefined) throw invalidOperation("unknown-sheet");
+    return sheet;
+  }
+
+  private async part(path: string): Promise<string | null> {
+    if (this.removedParts.has(path)) return null;
+    const held = this.parts.get(path);
+    if (held !== undefined) return held;
+    const counted = this.countedParts.has(path);
+    const text = await readZipText(
+      this.zip,
+      path,
+      counted ? this.limits.maxUnpackedBytes : this.limits.maxUnpackedBytes - this.unpackedBytes,
+    );
+    if (text === null) return null;
+    if (!counted) this.unpackedBytes += text.length;
+    this.countedParts.add(path);
+    this.parts.set(path, text);
+    return text;
+  }
+
+  private setPart(path: string, text: string) {
+    this.parts.set(path, text);
+    this.changedParts.add(path);
+    this.removedParts.delete(path);
+  }
+
+  private removePart(path: string) {
+    this.parts.delete(path);
+    this.changedParts.delete(path);
+    this.removedParts.add(path);
+  }
+
+  private partPaths(pattern: RegExp) {
+    return Object.keys(this.zip.files).filter(
+      (path) => pattern.test(path) && !this.removedParts.has(path),
+    );
+  }
+
+  private async strings(): Promise<ReadonlyArray<string>> {
+    if (this.sharedStrings !== null) return this.sharedStrings;
+    const xml = this.sharedStringsPath === null ? null : await this.part(this.sharedStringsPath);
+    const strings: Array<string> = [];
+    const root = xml === null ? null : rootElement(xml);
+    for (const item of childElements(root?.inner ?? "")) strings.push(richText(item.inner ?? ""));
+    // The table is only read, so its text is not held twice.
+    if (this.sharedStringsPath !== null) this.parts.delete(this.sharedStringsPath);
+    this.sharedStrings = strings;
+    return strings;
+  }
+
+  private async loadStyles(): Promise<Styles | null> {
+    if (this.styles !== null) return this.styles;
+    const xml = this.stylesPath === null ? null : await this.part(this.stylesPath);
+    const root = xml === null ? null : rootElement(xml);
+    if (xml === null || root?.name !== "styleSheet" || root.inner === null) return null;
+    const sections: Styles["sections"] = new Map();
+    for (const element of childElements(xml, root.innerStart)) {
+      if (!["numFmts", "fonts", "fills", "cellXfs"].includes(element.name)) continue;
+      const children: Array<string> = [];
+      for (const child of childElements(element.inner ?? "")) {
+        children.push((element.inner ?? "").slice(child.start, child.end));
+      }
+      sections.set(element.name, { element, children });
+    }
+    if (!sections.has("cellXfs") || !sections.has("fonts") || !sections.has("fills")) return null;
+    const customNumberFormats = new Map<number, string>();
+    for (const child of sections.get("numFmts")?.children ?? []) {
+      const attributes = parseAttributes(child);
+      customNumberFormats.set(
+        Number(attributes.get("numFmtId")),
+        attributes.get("formatCode") ?? "",
+      );
+    }
+    this.styles = {
+      xml,
+      root,
+      sections,
+      customNumberFormats,
+      derived: new Map(),
+      formats: new Map(),
+      dirty: false,
+    };
+    return this.styles;
+  }
+
+  private async load(sheet: Sheet): Promise<SheetContents> {
+    if (sheet.contents !== null) return sheet.contents;
+    const xml = await this.part(sheet.path);
+    const root = xml === null ? null : rootElement(xml);
+    if (xml === null || root?.name !== "worksheet" || root.inner === null) {
+      throw unsupported("workbook-layout");
+    }
+    let sheetData: XmlElement | null = null;
+    for (const element of childElements(xml, root.innerStart)) {
+      if (element.name === "sheetData") {
+        sheetData = element;
+        break;
+      }
+      if (localNameOf(element.name) === "sheetData") throw unsupported("workbook-layout");
+    }
+    if (sheetData === null) throw unsupported("workbook-layout");
+    const rows: Array<Row> = [];
+    const shared: SheetContents["shared"] = new Map();
+    const arrayAreas: Array<CellArea> = [];
+    let sorted = true;
+    let nextRow = 0;
+    for (const rowElement of childElements(sheetData.inner ?? "")) {
+      if (rowElement.name !== "row") throw unsupported("workbook-layout");
+      const rowAttributes = parseAttributes(rowElement.attributes);
+      const named = Number(rowAttributes.get("r"));
+      const index = Number.isInteger(named) && named >= 1 ? named - 1 : nextRow;
+      if (index < nextRow) sorted = false;
+      nextRow = index + 1;
+      rowAttributes.delete("r");
+      rowAttributes.delete("spans");
+      const cells: Array<Cell> = [];
+      let nextColumn = 0;
+      for (const cellElement of childElements(rowElement.inner ?? "")) {
+        if (cellElement.name !== "c") throw unsupported("workbook-layout");
+        const attributes = parseAttributes(cellElement.attributes);
+        const column = parseCellName(attributes.get("r") ?? "")?.column ?? nextColumn;
+        if (column < nextColumn) sorted = false;
+        nextColumn = column + 1;
+        const cell: Cell = {
+          column,
+          style: attributes.get("s"),
+          type: attributes.get("t"),
+          extra: "",
+          inner: cellElement.inner ?? "",
+        };
+        attributes.delete("r");
+        attributes.delete("s");
+        attributes.delete("t");
+        if (attributes.size > 0) cell.extra = attributeText(attributes);
+        cells.push(cell);
+        if (cell.inner.includes("<f")) {
+          const formula = formulaOf(cell);
+          const kind = formula?.attributes.get("t");
+          if (formula && kind === "shared" && formula.text !== "") {
+            shared.set(formula.attributes.get("si") ?? "", {
+              row: index,
+              column,
+              text: formula.text,
+            });
+          } else if (formula && (kind === "array" || kind === "dataTable")) {
+            const area = parseArea(formula.attributes.get("ref") ?? "");
+            if (
+              area &&
+              (area.top !== area.bottom || area.left !== area.right || kind !== "array")
+            ) {
+              arrayAreas.push(area);
+            }
+          }
+        }
+      }
+      this.cellCount += cells.length;
+      if (this.cellCount > this.limits.maxCells) throw tooLarge("cell-count");
+      rows.push({ index, attributes: attributeText(rowAttributes), cells });
+    }
+    if (!sorted) {
+      rows.sort((left, right) => left.index - right.index);
+      for (const row of rows) row.cells.sort((left, right) => left.column - right.column);
+    }
+    sheet.contents = {
+      prefix: xml.slice(0, sheetData.start),
+      suffix: xml.slice(sheetData.end),
+      sheetDataAttributes: sheetData.attributes,
+      rows,
+      shared,
+      arrayAreas,
+      dirty: false,
+    };
+    // The parsed rows replace the text, which is rebuilt from them when the sheet is saved.
+    this.parts.delete(sheet.path);
+    return sheet.contents;
+  }
+
+  private formulaText(contents: SheetContents, row: Row, cell: Cell): string | null {
+    const formula = formulaOf(cell);
+    if (formula === null) return null;
+    if (formula.attributes.get("t") !== "shared" || formula.text !== "") return formula.text;
+    const origin = contents.shared.get(formula.attributes.get("si") ?? "");
+    if (origin === undefined) return null;
+    return mapFormulaReferences(origin.text, (reference) =>
+      offsetReference(reference, row.index - origin.row, cell.column - origin.column),
+    ).formula;
+  }
+
+  /** Gives every cell of a shared formula its own text, so each can be changed on its own. */
+  private expandSharedFormulas(contents: SheetContents) {
+    if (contents.shared.size === 0) return;
+    for (const row of contents.rows) {
+      for (const cell of row.cells) {
+        const formula = formulaOf(cell);
+        if (formula?.attributes.get("t") !== "shared") continue;
+        const text = this.formulaText(contents, row, cell);
+        cell.inner = cell.inner.replace(FORMULA_PATTERN, () =>
+          text === null ? "" : `<f>${escapeXml(text)}</f>`,
+        );
+      }
+    }
+    contents.shared.clear();
+    contents.dirty = true;
+  }
+
+  private cellAt(contents: SheetContents, row: number, column: number, create: true): Cell;
+  private cellAt(contents: SheetContents, row: number, column: number, create: false): Cell | null;
+  private cellAt(contents: SheetContents, row: number, column: number, create: boolean) {
+    const rowAt = lowerBound(contents.rows, row, rowIndex);
+    let found = contents.rows[rowAt];
+    if (found?.index !== row) {
+      if (!create) return null;
+      found = { index: row, attributes: "", cells: [] };
+      contents.rows.splice(rowAt, 0, found);
+    }
+    const cellIndex = lowerBound(found.cells, column, cellColumn);
+    const cell = found.cells[cellIndex];
+    if (cell?.column === column) return cell;
+    if (!create) return null;
+    const made: Cell = { column, style: undefined, type: undefined, extra: "", inner: "" };
+    found.cells.splice(cellIndex, 0, made);
+    this.cellCount += 1;
+    if (this.cellCount > this.limits.maxCells) throw tooLarge("cell-count");
+    return made;
+  }
+
+  private setCell(sheet: Sheet, row: number, column: number, input: SpreadsheetCellInput) {
+    const contents = sheet.contents!;
+    if (row >= MAX_ROWS || column >= MAX_COLUMNS) throw invalidOperation("out-of-bounds");
+    if (
+      contents.arrayAreas.some(
+        (area) =>
+          row >= area.top && row <= area.bottom && column >= area.left && column <= area.right,
+      )
+    ) {
+      throw unsupported("array-formula");
+    }
+    this.expandSharedFormulas(contents);
+    const formula = input.kind === "formula" ? input.formula.replace(/^=/, "") : "";
+    const blank =
+      input.kind === "blank" ||
+      (input.kind === "text" && input.text === "") ||
+      (input.kind === "formula" && formula === "");
+    const cell = blank
+      ? this.cellAt(contents, row, column, false)
+      : this.cellAt(contents, row, column, true);
+    if (cell === null) return;
+    contents.dirty = true;
+    cell.type = undefined;
+    // Cell and value metadata describe the contents being replaced.
+    cell.extra = "";
+    if (blank) {
+      cell.inner = "";
+      if (cell.style === undefined && cell.extra === "") {
+        const held = contents.rows[lowerBound(contents.rows, row, rowIndex)]!;
+        held.cells.splice(held.cells.indexOf(cell), 1);
+        this.cellCount -= 1;
+      }
+    } else if (input.kind === "number") cell.inner = `<v>${input.number}</v>`;
+    else if (input.kind === "boolean") {
+      cell.type = "b";
+      cell.inner = `<v>${input.boolean ? 1 : 0}</v>`;
+    } else if (input.kind === "text") {
+      cell.type = "inlineStr";
+      cell.inner = `<is><t xml:space="preserve">${escapeXml(input.text)}</t></is>`;
+    } else cell.inner = `<f>${escapeXml(formula)}</f>`;
+  }
+
+  private async setFormat(
+    sheet: Sheet,
+    operation: Extract<SpreadsheetOperation, { type: "setFormat" }>,
+  ) {
+    const contents = sheet.contents!;
+    if (
+      operation.row + operation.rowCount > MAX_ROWS ||
+      operation.column + operation.columnCount > MAX_COLUMNS
+    ) {
+      throw invalidOperation("out-of-bounds");
+    }
+    if (operation.rowCount * operation.columnCount > this.limits.maxFormatCells) {
+      throw tooLarge("range-size");
+    }
+    const { fill } = operation.format;
+    if (typeof fill === "string" && !/^[0-9A-Fa-f]{6}$/.test(fill)) {
+      throw invalidOperation("format-invalid");
+    }
+    const styles = await this.loadStyles();
+    if (styles === null) throw unsupported("workbook-layout");
+    for (let row = operation.row; row < operation.row + operation.rowCount; row++) {
+      for (
+        let column = operation.column;
+        column < operation.column + operation.columnCount;
+        column++
+      ) {
+        const cell = this.cellAt(contents, row, column, true);
+        cell.style = styleWith(styles, cell.style, operation.format);
+      }
+    }
+    contents.dirty = true;
+  }
+
+  /** Refuses a sheet that owns other parts, such as drawings, tables, comments or pivot tables. */
+  private async assertNoSheetObjects(sheet: Sheet) {
+    const relations = await this.part(relationshipsPath(sheet.path));
+    for (const element of childElements(rootElement(relations ?? "")?.inner ?? "")) {
+      const type = parseAttributes(element.attributes).get("Type") ?? "";
+      if (!type.endsWith("/printerSettings") && !type.endsWith("/hyperlink")) {
+        throw unsupported("sheet-objects");
+      }
+    }
+  }
+
+  private async assertNoPivotSource(sheet: Sheet) {
+    const marker = `sheet="${escapeAttribute(sheet.name)}"`;
+    for (const path of this.partPaths(/pivotCacheDefinition[^/]*\.xml$/)) {
+      if ((await this.part(path))?.includes(marker)) throw unsupported("pivot-tables");
+    }
+  }
+
+  private async resize(sheet: Sheet, axis: Axis, index: number, count: number) {
+    const contents = sheet.contents!;
+    if (contents.arrayAreas.length > 0) throw unsupported("array-formula");
+    if (
+      POSITIONED_SHEET_PARTS.test(contents.prefix) ||
+      POSITIONED_SHEET_PARTS.test(contents.suffix)
+    ) {
+      throw unsupported("sheet-objects");
+    }
+    await this.assertNoSheetObjects(sheet);
+    await this.assertNoPivotSource(sheet);
+    const limit = axis === "row" ? MAX_ROWS : MAX_COLUMNS;
+    const size = usedSize(contents);
+    const used = axis === "row" ? size.rowCount : size.columnCount;
+    if (index >= limit || (count > 0 && Math.max(used, index) + count > limit)) {
+      throw invalidOperation("out-of-bounds");
+    }
+    // A copied formula in another sheet follows its origin, which would move without it.
+    for (const other of this.worksheets()) {
+      const held = other.contents!;
+      if (
+        other === sheet ||
+        [...held.shared.values()].some((origin) => origin.text.includes(sheet.name))
+      ) {
+        this.expandSharedFormulas(held);
+      }
+    }
+    const removedEnd = index - count;
+    const moved = (position: number) =>
+      count > 0
+        ? position >= index
+          ? position + count
+          : position
+        : position >= removedEnd
+          ? position + count
+          : position >= index
+            ? -1
+            : position;
+    if (axis === "row") {
+      contents.rows = contents.rows.filter((row) => {
+        row.index = moved(row.index);
+        return row.index >= 0;
+      });
+    } else {
+      for (const row of contents.rows) {
+        row.cells = row.cells.filter((cell) => {
+          cell.column = moved(cell.column);
+          return cell.column >= 0;
+        });
+      }
+    }
+    contents.dirty = true;
+    const shift = (reference: Pick<FormulaReference, "start" | "end">) =>
+      shiftReference(reference, axis, index + 1, count);
+    await this.rewriteReferences(sheet.name, shift);
+    contents.suffix = shiftAreaList(contents.suffix, "mergeCells", "mergeCell", shift);
+    if (axis === "column") contents.prefix = shiftColumnWidths(contents.prefix, shift);
+  }
+
+  /** Rewrites every reference to one sheet: in cells, in defined names and in chart series. */
+  private async rewriteReferences(
+    sheetName: string,
+    rewrite: (reference: FormulaReference) => ReferenceRewrite,
+  ) {
+    const mapper = (own: string | null) => (reference: FormulaReference) => {
+      const target = reference.sheet ?? own;
+      return target !== null && sameName(target, sheetName) ? rewrite(reference) : null;
+    };
+    for (const sheet of this.worksheets()) {
+      const contents = sheet.contents!;
+      const map = mapper(sheet.name);
+      for (const row of contents.rows) {
+        for (const cell of row.cells) {
+          const formula = formulaOf(cell);
+          if (formula === null || formula.text === "") continue;
+          const next = mapFormulaReferences(formula.text, map).formula;
+          if (next === formula.text) continue;
+          cell.inner = cell.inner.replace(
+            FORMULA_PATTERN,
+            () => `<f${attributeText(formula.attributes)}>${escapeXml(next)}</f>`,
+          );
+          contents.dirty = true;
+        }
+      }
+    }
+    const foreign = mapper(null);
+    for (const name of this.definedNames) {
+      const next = mapFormulaReferences(name.text, foreign).formula;
+      if (next !== name.text) {
+        name.text = next;
+        this.workbookDirty = true;
+      }
+    }
+    for (const path of this.partPaths(/^xl\/charts\/[^/]+\.xml$/)) {
+      const xml = await this.part(path);
+      if (xml === null) continue;
+      const next = xml.replace(
+        /(<(?:\w+:)?f>)([^<]*)(<\/(?:\w+:)?f>)/g,
+        (_, open: string, text: string, close: string) =>
+          `${open}${escapeXml(mapFormulaReferences(unescapeXml(text), foreign).formula)}${close}`,
+      );
+      if (next !== xml) this.setPart(path, next);
+    }
+  }
+
+  private assertNewName(name: string) {
+    if (!validSheetName(name)) throw invalidOperation("sheet-name-invalid");
+    if (this.allSheets.some((sheet) => sameName(sheet.name, name))) {
+      throw invalidOperation("sheet-name-taken");
+    }
+  }
+
+  private async addSheet(name: string) {
+    this.assertNewName(name);
+    const folder = `${this.workbookPath.slice(0, this.workbookPath.lastIndexOf("/") + 1)}worksheets/`;
+    let number = this.allSheets.length + 1;
+    while (
+      this.zip.file(`${folder}sheet${number}.xml`) !== null ||
+      this.parts.has(`${folder}sheet${number}.xml`)
+    ) {
+      number += 1;
+    }
+    const path = `${folder}sheet${number}.xml`;
+    const relationsPath = relationshipsPath(this.workbookPath);
+    const relations = (await this.part(relationsPath)) ?? "";
+    const contentTypes = await this.part("[Content_Types].xml");
+    if (contentTypes === null || !relations.includes("</Relationships>")) {
+      throw unsupported("workbook-layout");
+    }
+    let idNumber = 1;
+    while (relations.includes(`Id="rId${idNumber}"`)) idNumber += 1;
+    const relationshipId = `rId${idNumber}`;
+    this.setPart(
+      relationsPath,
+      relations.replace(
+        "</Relationships>",
+        `<Relationship Id="${relationshipId}" Type="${WORKSHEET_RELATIONSHIP}" Target="worksheets/sheet${number}.xml"/></Relationships>`,
+      ),
+    );
+    this.setPart(
+      "[Content_Types].xml",
+      contentTypes.replace(
+        "</Types>",
+        `<Override PartName="/${path}" ContentType="${WORKSHEET_CONTENT_TYPE}"/></Types>`,
+      ),
+    );
+    this.allSheets.push({
+      name,
+      sheetId: Math.max(0, ...this.allSheets.map((sheet) => sheet.sheetId)) + 1,
+      relationshipId,
+      path,
+      attributes: new Map(),
+      worksheet: true,
+      contents: {
+        prefix: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="${MAIN_NAMESPACE}">`,
+        suffix: "</worksheet>",
+        sheetDataAttributes: "",
+        rows: [],
+        shared: new Map(),
+        arrayAreas: [],
+        dirty: true,
+      },
+    });
+    this.workbookDirty = true;
+  }
+
+  private async renameSheet(sheet: Sheet, name: string) {
+    if (name === sheet.name) return;
+    if (!validSheetName(name)) throw invalidOperation("sheet-name-invalid");
+    if (this.allSheets.some((other) => other !== sheet && sameName(other.name, name))) {
+      throw invalidOperation("sheet-name-taken");
+    }
+    await this.assertNoPivotSource(sheet);
+    for (const other of this.worksheets()) {
+      const held = other.contents!;
+      if ([...held.shared.values()].some((origin) => origin.text.includes(sheet.name))) {
+        this.expandSharedFormulas(held);
+      }
+    }
+    await this.rewriteReferences(sheet.name, (reference) =>
+      // A reference without a sheet stays one: it is in the renamed sheet itself.
+      reference.sheet === null ? null : { start: reference.start, end: reference.end, sheet: name },
+    );
+    sheet.name = name;
+    this.workbookDirty = true;
+  }
+
+  private async deleteSheet(sheet: Sheet) {
+    if (!this.worksheets().some((other) => other !== sheet && !this.isHidden(other))) {
+      throw unsupported("last-sheet");
+    }
+    await this.assertNoSheetObjects(sheet);
+    await this.assertNoPivotSource(sheet);
+    if (this.zip.file(relationshipsPath(sheet.path)) !== null) {
+      this.removePart(relationshipsPath(sheet.path));
+    }
+    for (const other of this.worksheets()) this.expandSharedFormulas(other.contents!);
+    const position = this.allSheets.indexOf(sheet);
+    await this.rewriteReferences(sheet.name, (reference) =>
+      reference.sheet === null ? null : REFERENCE_ERROR,
+    );
+    const relationsPath = relationshipsPath(this.workbookPath);
+    const relations = (await this.part(relationsPath)) ?? "";
+    const contentTypes = (await this.part("[Content_Types].xml")) ?? "";
+    this.setPart(
+      relationsPath,
+      removeElements(relations, (attributes) => attributes.get("Id") === sheet.relationshipId),
+    );
+    this.setPart(
+      "[Content_Types].xml",
+      removeElements(contentTypes, (attributes) => attributes.get("PartName") === `/${sheet.path}`),
+    );
+    this.removePart(sheet.path);
+    this.allSheets.splice(position, 1);
+    for (let index = this.definedNames.length - 1; index >= 0; index--) {
+      const scope = this.definedNames[index]!.attributes.get("localSheetId");
+      if (scope === undefined) continue;
+      if (Number(scope) === position) this.definedNames.splice(index, 1);
+      else if (Number(scope) > position) {
+        this.definedNames[index]!.attributes.set("localSheetId", String(Number(scope) - 1));
+      }
+    }
+    this.workbookXml = this.workbookXml.replace(
+      /(<workbookView\b[^>]*\bactiveTab=")(\d+)(")/g,
+      (_, before: string, tab: string, after: string) =>
+        `${before}${Math.min(Number(tab) > position ? Number(tab) - 1 : Number(tab), this.allSheets.length - 1)}${after}`,
+    );
+    this.workbookDirty = true;
+  }
+
+  /**
+   * Brings formula results up to date after an edit. A formula that reads a changed cell, directly
+   * or through other formulas, is calculated again; one this code cannot calculate loses its
+   * stored result, so no stale number is shown and a spreadsheet app works it out on opening.
+   */
+  private recalculate(changed: Map<Sheet, Array<{ row: number; column: number }>> | null) {
+    const strings = this.sharedStrings ?? [];
+    const stale = new Map<Cell, boolean>();
+    const computed = new Map<Cell, FormulaValue | null | undefined>();
+    const inProgress = new Set<Cell>();
+    let budget = RECALCULATION_BUDGET;
+    const spend = (amount = 1) => {
+      budget -= amount;
+      if (budget < 0) throw new RecalculationTooLarge();
+    };
+    const sheetFor = (name: string | null, own: Sheet) =>
+      name === null ? own : this.worksheets().find((sheet) => sameName(sheet.name, name));
+
+    const cellsOf = function* (sheet: Sheet, reference: FormulaReference) {
+      const contents = sheet.contents!;
+      const end = reference.end ?? reference.start;
+      const top = Math.min(reference.start.row ?? 1, end.row ?? 1) - 1;
+      const bottom = Math.max(reference.start.row ?? MAX_ROWS, end.row ?? MAX_ROWS) - 1;
+      const left = Math.min(reference.start.column ?? 1, end.column ?? 1) - 1;
+      const right = Math.max(reference.start.column ?? MAX_COLUMNS, end.column ?? MAX_COLUMNS) - 1;
+      for (
+        let at = lowerBound(contents.rows, top, rowIndex);
+        at < contents.rows.length && contents.rows[at]!.index <= bottom;
+        at++
+      ) {
+        const row = contents.rows[at]!;
+        for (
+          let cellAt = lowerBound(row.cells, left, cellColumn);
+          cellAt < row.cells.length && row.cells[cellAt]!.column <= right;
+          cellAt++
+        ) {
+          yield { row, cell: row.cells[cellAt]! };
+        }
+      }
+      return { top, bottom, left, right };
+    };
+
+    const edited = new Map<Sheet, Set<number>>();
+    for (const [sheet, edits] of changed ?? []) {
+      edited.set(sheet, new Set(edits.map((edit) => edit.row * MAX_COLUMNS + edit.column)));
+    }
+    const isStale = (sheet: Sheet, row: Row, cell: Cell, formula: string): boolean => {
+      if (changed === null) return true;
+      const known = stale.get(cell);
+      if (known !== undefined) return known;
+      if (edited.get(sheet)?.has(row.index * MAX_COLUMNS + cell.column)) {
+        stale.set(cell, true);
+        return true;
+      }
+      // A formula that reads itself is settled by the cell that started the walk.
+      stale.set(cell, false);
+      const { references, opaque } = formulaReferences(formula);
+      let result = opaque || /\b(?:INDIRECT|OFFSET)\s*\(/i.test(formula);
+      for (const reference of references) {
+        if (result) break;
+        const target = sheetFor(reference.sheet, sheet);
+        if (target === undefined) {
+          result = true;
+          break;
+        }
+        const walk = cellsOf(target, reference);
+        let step = walk.next();
+        for (; !step.done; step = walk.next()) {
+          spend();
+          const text = this.formulaText(target.contents!, step.value.row, step.value.cell);
+          if (text !== null && isStale(target, step.value.row, step.value.cell, text)) {
+            result = true;
+            break;
+          }
+        }
+        if (result || !step.done) break;
+        const area = step.value;
+        const edits = changed.get(target) ?? [];
+        spend(edits.length);
+        result = edits.some(
+          (edit) =>
+            edit.row >= area.top &&
+            edit.row <= area.bottom &&
+            edit.column >= area.left &&
+            edit.column <= area.right,
+        );
+      }
+      stale.set(cell, result);
+      return result;
+    };
+
+    const valueOf = (sheet: Sheet, row: Row, cell: Cell): FormulaValue => {
+      const formula = this.formulaText(sheet.contents!, row, cell);
+      if (formula === null) return cachedValue(cell, strings) ?? null;
+      if (!isStale(sheet, row, cell, formula)) {
+        const held = cachedValue(cell, strings);
+        if (held !== undefined) return held;
+      }
+      return calculate(sheet, row, cell, formula);
+    };
+
+    const calculate = (sheet: Sheet, row: Row, cell: Cell, formula: string): FormulaValue => {
+      if (computed.has(cell)) {
+        const held = computed.get(cell);
+        if (held === undefined) throw new FormulaNotCalculated();
+        return held;
+      }
+      if (inProgress.has(cell)) throw new FormulaNotCalculated();
+      inProgress.add(cell);
+      try {
+        const value = evaluateFormula(formula, {
+          values: (reference) => {
+            const target = sheetFor(reference.sheet, sheet);
+            if (target === undefined) return [new FormulaErrorValue(REFERENCE_ERROR)];
+            const values: Array<FormulaValue> = [];
+            for (const found of cellsOf(target, reference)) {
+              spend();
+              const value = valueOf(target, found.row, found.cell);
+              if (value !== null) values.push(value);
+            }
+            return values;
+          },
+        });
+        computed.set(cell, value);
+        return value;
+      } catch (cause) {
+        if (!(cause instanceof FormulaNotCalculated)) throw cause;
+        computed.set(cell, undefined);
+        throw cause;
+      } finally {
+        inProgress.delete(cell);
+      }
+    };
+
+    const store = (contents: SheetContents, cell: Cell, value: FormulaValue | undefined) => {
+      const formula = FORMULA_PATTERN.exec(cell.inner)?.[0] ?? "";
+      let type: string | undefined;
+      let inner = formula;
+      if (value instanceof FormulaErrorValue) {
+        type = "e";
+        inner += `<v>${escapeXml(value.code)}</v>`;
+      } else if (typeof value === "string") {
+        type = "str";
+        inner += `<v>${escapeXml(value)}</v>`;
+      } else if (typeof value === "boolean") {
+        type = "b";
+        inner += `<v>${value ? 1 : 0}</v>`;
+      } else if (typeof value === "number") inner += `<v>${value}</v>`;
+      if (cell.inner === inner && cell.type === type) return;
+      cell.inner = inner;
+      cell.type = type;
+      contents.dirty = true;
+    };
+
+    const eachFormula = (visit: (sheet: Sheet, row: Row, cell: Cell, formula: string) => void) => {
+      for (const sheet of this.worksheets()) {
+        for (const row of sheet.contents!.rows) {
+          for (const cell of row.cells) {
+            if (!cell.inner.includes("<f")) continue;
+            const formula = this.formulaText(sheet.contents!, row, cell);
+            if (formula !== null) visit(sheet, row, cell, formula);
+          }
+        }
+      }
+    };
+
+    try {
+      eachFormula((sheet, row, cell, formula) => {
+        spend();
+        if (!isStale(sheet, row, cell, formula)) return;
+        let value: FormulaValue | undefined;
+        try {
+          value = calculate(sheet, row, cell, formula);
+        } catch (cause) {
+          if (!(cause instanceof FormulaNotCalculated)) throw cause;
+        }
+        store(sheet.contents!, cell, value);
+      });
+    } catch (cause) {
+      if (!(cause instanceof RecalculationTooLarge)) throw cause;
+      eachFormula((sheet, _row, cell) => store(sheet.contents!, cell, undefined));
+    }
+  }
+
+  private async dropCalculationChain() {
+    const relationsPath = relationshipsPath(this.workbookPath);
+    const relations = await this.part(relationsPath);
+    const chain = readRelationships(relations ?? "", this.workbookPath).find((relationship) =>
+      relationship.type.endsWith("/calcChain"),
+    );
+    if (relations === null || chain === undefined) return;
+    const contentTypes = (await this.part("[Content_Types].xml")) ?? "";
+    this.setPart(
+      relationsPath,
+      removeElements(relations, (attributes) => attributes.get("Id") === chain.id),
+    );
+    this.setPart(
+      "[Content_Types].xml",
+      removeElements(contentTypes, (attributes) => attributes.get("PartName") === `/${chain.path}`),
+    );
+    this.removePart(chain.path);
+  }
+
+  private serializeWorkbook(): string {
+    let xml = this.workbookXml;
+    const replaceChild = (name: string, text: string, after: ReadonlyArray<string>) => {
+      const root = rootElement(xml)!;
+      let existing: XmlElement | null = null;
+      let insertAt = root.innerStart;
+      for (const element of childElements(xml, root.innerStart)) {
+        if (element.name === name) existing = element;
+        if (after.includes(element.name)) insertAt = element.end;
+      }
+      xml =
+        existing === null
+          ? xml.slice(0, insertAt) + text + xml.slice(insertAt)
+          : xml.slice(0, existing.start) + text + xml.slice(existing.end);
+    };
+    const prefix = this.relationshipPrefix;
+    replaceChild(
+      "sheets",
+      `<sheets>${this.allSheets
+        .map(
+          (sheet) =>
+            `<sheet name="${escapeAttribute(sheet.name)}" sheetId="${sheet.sheetId}"${attributeText(sheet.attributes)} ${prefix}:id="${escapeAttribute(sheet.relationshipId)}"/>`,
+        )
+        .join("")}</sheets>`,
+      [],
+    );
+    const before = ["sheets", "functionGroups", "externalReferences"];
+    replaceChild(
+      "definedNames",
+      this.definedNames.length === 0
+        ? ""
+        : `<definedNames>${this.definedNames
+            .map(
+              (name) =>
+                `<definedName${attributeText(name.attributes)}>${escapeXml(name.text)}</definedName>`,
+            )
+            .join("")}</definedNames>`,
+      before,
+    );
+    if (this.valuesChanged) {
+      const root = rootElement(xml)!;
+      const calculation = findChild(root.inner ?? "", "calcPr");
+      const attributes = parseAttributes(calculation?.attributes ?? "");
+      // Makes a spreadsheet app work every formula out on opening, whatever results are stored.
+      attributes.set("fullCalcOnLoad", "1");
+      replaceChild("calcPr", `<calcPr${attributeText(attributes)}/>`, [...before, "definedNames"]);
+    }
+    this.workbookXml = xml;
+    return xml;
+  }
+}
+
+// @effect-diagnostics-next-line extendsNativeError:off - a local sentinel that never leaves `recalculate`.
+class RecalculationTooLarge extends Error {}
+
+async function readZipText(zip: JSZip, path: string, budget: number): Promise<string | null> {
+  const file = zip.file(path);
+  if (file === null) return null;
+  const chunks: Array<Uint8Array> = [];
+  let size = 0;
+  await new Promise<void>((resolve, reject) => {
+    const stream = file.nodeStream();
+    stream
+      .on("data", (chunk: Uint8Array) => {
+        size += chunk.length;
+        // Stops inflating at the limit, whatever size the archive claims for the part.
+        if (size > budget) {
+          stream.pause();
+          reject(tooLarge("unpacked-size"));
+        } else chunks.push(chunk);
+      })
+      .on("error", () => reject(unsupported("not-a-workbook")))
+      .on("end", () => resolve());
+  });
+  return new TextDecoder("utf-8").decode(Buffer.concat(chunks));
+}
+
+function readRelationships(xml: string, sourcePath: string) {
+  const relationships: Array<{ id: string; type: string; path: string }> = [];
+  for (const element of childElements(rootElement(xml)?.inner ?? "")) {
+    const attributes = parseAttributes(element.attributes);
+    if (attributes.get("TargetMode") === "External") continue;
+    relationships.push({
+      id: attributes.get("Id") ?? "",
+      type: attributes.get("Type") ?? "",
+      path: resolveTarget(sourcePath, attributes.get("Target") ?? ""),
+    });
+  }
+  return relationships;
+}
+
+/** Drops the root's children whose attributes match. */
+function removeElements(xml: string, matches: (attributes: Map<string, string>) => boolean) {
+  const root = rootElement(xml);
+  if (root === null) return xml;
+  let output = xml;
+  const doomed = [...childElements(xml, root.innerStart)].filter((element) =>
+    matches(parseAttributes(element.attributes)),
+  );
+  for (const element of doomed.toReversed()) {
+    output = output.slice(0, element.start) + output.slice(element.end);
+  }
+  return output;
+}
+
+function cachedValue(cell: Cell, strings: ReadonlyArray<string>): FormulaValue | undefined {
+  if (cell.type === "inlineStr") return richText(cell.inner);
+  const match = VALUE_PATTERN.exec(cell.inner);
+  const raw = match?.[1];
+  if (raw === undefined || raw === "") return undefined;
+  switch (cell.type) {
+    case "s":
+      return strings[Number(raw)] ?? "";
+    case "str":
+    case "d":
+      return unescapeXml(raw);
+    case "b":
+      return raw === "1";
+    case "e":
+      return new FormulaErrorValue(unescapeXml(raw));
+    default: {
+      const number = Number(raw);
+      return Number.isFinite(number) ? number : undefined;
+    }
+  }
+}
+
+function usedSize(contents: SheetContents) {
+  let rowCount = 0;
+  let columnCount = 0;
+  for (const row of contents.rows) {
+    const last = row.cells.at(-1);
+    if (last === undefined) continue;
+    rowCount = row.index + 1;
+    columnCount = Math.max(columnCount, last.column + 1);
+  }
+  return { rowCount, columnCount };
+}
+
+function serializeSheet(contents: SheetContents): string {
+  const size = usedSize(contents);
+  const dimension = areaName({
+    top: 0,
+    left: 0,
+    bottom: Math.max(0, size.rowCount - 1),
+    right: Math.max(0, size.columnCount - 1),
+  });
+  const pieces: Array<string> = [
+    contents.prefix.replace(/<dimension\b[^>]*\/>/, `<dimension ref="${dimension}"/>`),
+    `<sheetData${contents.sheetDataAttributes}>`,
+  ];
+  for (const row of contents.rows) {
+    if (row.cells.length === 0 && row.attributes === "") continue;
+    pieces.push(`<row r="${row.index + 1}"${row.attributes}>`);
+    for (const cell of row.cells) {
+      pieces.push(
+        `<c r="${cellName(row.index, cell.column)}"${cell.style === undefined ? "" : ` s="${cell.style}"`}${
+          cell.type === undefined ? "" : ` t="${cell.type}"`
+        }${cell.extra}${cell.inner === "" ? "/>" : `>${cell.inner}</c>`}`,
+      );
+    }
+    pieces.push("</row>");
+  }
+  pieces.push("</sheetData>", contents.suffix);
+  return pieces.join("");
+}
+
+type Shift = (reference: Pick<FormulaReference, "start" | "end">) => ReferenceRewrite;
+
+/** Moves the areas an element lists, such as merged cells, and drops the ones that were deleted. */
+function shiftAreaList(xml: string, container: string, item: string, shift: Shift): string {
+  const start = xml.indexOf(`<${container}`);
+  if (start === -1) return xml;
+  const element = childElements(xml, start).next().value;
+  if (element?.name !== container) return xml;
+  const items: Array<string> = [];
+  for (const child of childElements(element.inner ?? "")) {
+    const attributes = parseAttributes(child.attributes);
+    const area = parseArea(attributes.get("ref") ?? "");
+    if (child.name !== item || area === null) continue;
+    const moved = shift({
+      start: { row: area.top + 1, column: area.left + 1, rowFixed: false, columnFixed: false },
+      end: { row: area.bottom + 1, column: area.right + 1, rowFixed: false, columnFixed: false },
+    });
+    if (moved === REFERENCE_ERROR) continue;
+    if (moved !== null && moved.end !== null) {
+      const next = {
+        top: moved.start.row! - 1,
+        left: moved.start.column! - 1,
+        bottom: moved.end.row! - 1,
+        right: moved.end.column! - 1,
+      };
+      // A merge that shrank to one cell is no merge.
+      if (next.top === next.bottom && next.left === next.right) continue;
+      attributes.set("ref", areaName(next));
+    }
+    items.push(`<${item}${attributeText(attributes)}/>`);
+  }
+  const rebuilt =
+    items.length === 0
+      ? ""
+      : `<${container} count="${items.length}">${items.join("")}</${container}>`;
+  return xml.slice(0, element.start) + rebuilt + xml.slice(element.end);
+}
+
+/** Moves the column width records with their columns. */
+function shiftColumnWidths(xml: string, shift: Shift): string {
+  const start = xml.indexOf("<cols");
+  if (start === -1) return xml;
+  const element = childElements(xml, start).next().value;
+  if (element?.name !== "cols") return xml;
+  const items: Array<string> = [];
+  for (const child of childElements(element.inner ?? "")) {
+    const attributes = parseAttributes(child.attributes);
+    const min = Number(attributes.get("min"));
+    const max = Number(attributes.get("max"));
+    const point = (column: number) => ({ row: null, column, rowFixed: false, columnFixed: false });
+    const moved = shift({ start: point(min), end: point(max) });
+    if (moved === REFERENCE_ERROR) continue;
+    if (moved !== null && moved.end !== null) {
+      attributes.set("min", String(moved.start.column));
+      attributes.set("max", String(moved.end.column));
+    }
+    items.push(`<col${attributeText(attributes)}/>`);
+  }
+  const rebuilt = items.length === 0 ? "" : `<cols>${items.join("")}</cols>`;
+  return xml.slice(0, element.start) + rebuilt + xml.slice(element.end);
+}
+
+function formatOf(styles: Styles, style: string): SpreadsheetCellFormat | null {
+  const known = styles.formats.get(style);
+  if (known !== undefined) return known;
+  const record = styles.sections.get("cellXfs")!.children[Number(style)];
+  let format: SpreadsheetCellFormat | null = null;
+  if (record !== undefined) {
+    const attributes = parseAttributes(record.slice(0, record.indexOf(">")));
+    const numberFormatId = Number(attributes.get("numFmtId") ?? 0);
+    const numberFormat =
+      styles.customNumberFormats.get(numberFormatId) ?? BUILT_IN_NUMBER_FORMATS[numberFormatId];
+    const font =
+      styles.sections.get("fonts")!.children[Number(attributes.get("fontId") ?? 0)] ?? "";
+    const bold = /<b(?:\s+val="(?:1|true)")?\s*\/>/.test(font);
+    const fill =
+      styles.sections.get("fills")!.children[Number(attributes.get("fillId") ?? 0)] ?? "";
+    const colour = /patternType="solid"[\s\S]*?<fgColor\b[^>]*\brgb="([0-9A-Fa-f]{6,8})"/.exec(
+      fill,
+    )?.[1];
+    if (numberFormat !== undefined || bold || colour !== undefined) {
+      format = {
+        ...(numberFormat === undefined ? {} : { numberFormat }),
+        ...(bold ? { bold: true } : {}),
+        ...(colour === undefined ? {} : { fill: colour.slice(-6).toUpperCase() }),
+      };
+    }
+  }
+  styles.formats.set(style, format);
+  return format;
+}
+
+/** The style a cell gets when some of its format changes: an existing record, or a new one. */
+function styleWith(
+  styles: Styles,
+  base: string | undefined,
+  format: Extract<SpreadsheetOperation, { type: "setFormat" }>["format"],
+): string {
+  const key = `${base ?? ""}|${JSON.stringify(format)}`;
+  const known = styles.derived.get(key);
+  if (known !== undefined) return known;
+  const records = styles.sections.get("cellXfs")!.children;
+  const record = records[Number(base ?? 0)] ?? "<xf/>";
+  const openEnd = record.indexOf(">");
+  const selfClosing = record[openEnd - 1] === "/";
+  const attributes = parseAttributes(record.slice(3, selfClosing ? openEnd - 1 : openEnd));
+  const rest = selfClosing ? "/>" : record.slice(openEnd);
+  const intern = (section: string, child: string) => {
+    const children = styles.sections.get(section)!.children;
+    const found = children.indexOf(child);
+    return found === -1 ? children.push(child) - 1 : found;
+  };
+  if (format.numberFormat !== undefined) {
+    attributes.set("numFmtId", String(numberFormatId(styles, format.numberFormat)));
+    attributes.set("applyNumberFormat", "1");
+  }
+  if (format.bold !== undefined) {
+    const fonts = styles.sections.get("fonts")!.children;
+    const font = fonts[Number(attributes.get("fontId") ?? 0)] ?? "<font/>";
+    const plain = font.replace(/<b(?:\s[^>]*)?\/>/, "");
+    const bold = plain.endsWith("/>")
+      ? "<font><b/></font>"
+      : plain.replace(/^(<font\b[^>]*>)/, "$1<b/>");
+    attributes.set("fontId", String(intern("fonts", format.bold ? bold : plain)));
+    attributes.set("applyFont", "1");
+  }
+  if (format.fill !== undefined) {
+    attributes.set(
+      "fillId",
+      format.fill === null
+        ? "0"
+        : String(
+            intern(
+              "fills",
+              `<fill><patternFill patternType="solid"><fgColor rgb="FF${format.fill.toUpperCase()}"/><bgColor indexed="64"/></patternFill></fill>`,
+            ),
+          ),
+    );
+    attributes.set("applyFill", "1");
+  }
+  const style = String(intern("cellXfs", `<xf${attributeText(attributes)}${rest}`));
+  styles.derived.set(key, style);
+  styles.dirty = true;
+  return style;
+}
+
+function numberFormatId(styles: Styles, code: string): number {
+  if (code === "" || code === "General") return 0;
+  for (const [id, known] of Object.entries(BUILT_IN_NUMBER_FORMATS)) {
+    if (known === code) return Number(id);
+  }
+  for (const [id, known] of styles.customNumberFormats) if (known === code) return id;
+  const id = Math.max(163, ...styles.customNumberFormats.keys()) + 1;
+  styles.customNumberFormats.set(id, code);
+  let section = styles.sections.get("numFmts");
+  if (section === undefined) {
+    // The element does not exist yet; an empty one at the start of the sheet marks where it goes.
+    const at = styles.root.innerStart;
+    section = {
+      element: { name: "numFmts", attributes: "", inner: "", innerStart: at, start: at, end: at },
+      children: [],
+    };
+    styles.sections.set("numFmts", section);
+  }
+  section.children.push(`<numFmt numFmtId="${id}" formatCode="${escapeAttribute(code)}"/>`);
+  return id;
+}
+
+function serializeStyles(styles: Styles): string {
+  let xml = styles.xml;
+  const sections = [...styles.sections.entries()].toSorted(
+    ([, left], [, right]) => right.element.start - left.element.start,
+  );
+  for (const [name, section] of sections) {
+    const attributes = parseAttributes(section.element.attributes);
+    attributes.set("count", String(section.children.length));
+    xml = `${xml.slice(0, section.element.start)}<${name}${attributeText(attributes)}>${section.children.join("")}</${name}>${xml.slice(section.element.end)}`;
+  }
+  return xml;
+}

@@ -102,6 +102,19 @@ from it. A file is called created by a turn only when the walk before, in the sa
 process, would have seen it: one that walk could not read counts as an outside change.
 Otherwise a review's Discard could delete a file the agent did not make.
 
+Office documents are read and changed on the server by the
+[Documents service](../../apps/server/src/documents/Documents.ts), so a client sends operations
+and reads pages, never a whole file. Its writes go through the version store's save, which is
+what makes them undoable in a folder without Git; never write a document around it. A workbook
+is edited as its parts: only the parts an operation touches are rewritten, and the rest of the
+archive is carried over untouched. No permissively licensed library does that. The ones that
+exist rebuild the workbook from their own model and drop what the model lacks, such as charts
+and pivot tables. The price is that an operation must itself move every reference it
+invalidates, so one that would leave a part pointing at the wrong cells is refused with a typed
+error instead of applied. A formula result the built-in evaluator cannot produce is cleared,
+never left stale, and the workbook is marked for a full recalculation on its next open in a
+spreadsheet app. Parsing runs on the server's own thread, which is why the size limits are low.
+
 Thread settlement is server-owned. The
 [settlement service](../../apps/server/src/orchestration-v2/ThreadSettlementService.ts) evaluates PR
 and inactivity settings without a connected client. Merge notifications invalidate cached PR state

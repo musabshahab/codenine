@@ -584,6 +584,9 @@ export const ProjectReadFileBaselineResult = Schema.Struct({
   revision: Schema.optional(TrimmedNonEmptyString),
   // True when `revision` is the caller's `knownRevision`, so the contents were left out.
   unchanged: Schema.optional(Schema.Boolean),
+  // True when the earlier contents are kept but are not text, as for a workbook. The file can be
+  // put back whole with projects.revertFileChange, but not compared here.
+  wholeFileOnly: Schema.optional(Schema.Boolean),
 });
 export type ProjectReadFileBaselineResult = typeof ProjectReadFileBaselineResult.Type;
 

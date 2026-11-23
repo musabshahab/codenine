@@ -239,3 +239,20 @@ export function isWorkspacePreviewEntryPath(path: string): boolean {
     binaryPreviewKind({ name: path }) !== null
   );
 }
+
+/**
+ * How a path is edited as a spreadsheet: a workbook, or text split on a delimiter. Null for
+ * every other file, including spreadsheet formats that are only previewed.
+ */
+export function editableSpreadsheetKind(
+  path: string,
+):
+  | { readonly format: "xlsx" }
+  | { readonly format: "delimited"; readonly delimiter: string }
+  | null {
+  const name = path.toLowerCase();
+  if (name.endsWith(".xlsx")) return { format: "xlsx" };
+  if (name.endsWith(".csv")) return { format: "delimited", delimiter: "," };
+  if (name.endsWith(".tsv")) return { format: "delimited", delimiter: "\t" };
+  return null;
+}

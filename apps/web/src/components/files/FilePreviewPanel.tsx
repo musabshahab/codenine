@@ -16,6 +16,7 @@ import {
   isWorkspaceVideoPreviewPath,
   officePreviewKind,
   binaryPreviewKind,
+  editableSpreadsheetKind,
 } from "@codenine/shared/filePreview";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
@@ -163,6 +164,7 @@ interface FilePreviewPanelProps {
   workspaceMutationId: string | null;
 }
 
+const WorkspaceSpreadsheet = lazy(() => import("./spreadsheet/WorkspaceSpreadsheet"));
 const MermaidFilePreview = lazy(() =>
   import("./MermaidFilePreview").then((module) => ({ default: module.MermaidFilePreview })),
 );
@@ -1214,6 +1216,15 @@ export default function FilePreviewPanel({
       ? previewPath
       : null;
   const saveConflict = useProjectFileConflict(environmentId, cwd, editablePath);
+  // Older servers do not edit spreadsheets, so there the viewers stay as they were.
+  const spreadsheetKind =
+    previewPath !== null &&
+    attachment === undefined &&
+    !isHostFile &&
+    serverConfig?.environment.capabilities.spreadsheetEditing === true
+      ? editableSpreadsheetKind(previewPath)
+      : null;
+  const workbookPath = spreadsheetKind?.format === "xlsx" ? previewPath : null;
   const [versionsOpen, setVersionsOpen] = useState(false);
   const versionedPath =
     serverConfig?.environment.capabilities.fileVersions === true &&
@@ -1242,7 +1253,9 @@ export default function FilePreviewPanel({
     !file.isPending
       ? previewPath
       : null;
-  const reviewPath = editablePath ?? missingPath;
+  const reviewPath = editablePath ?? missingPath ?? workbookPath;
+  // What the user can keep as the agent left it: a file that is still there.
+  const keptPath = editablePath ?? workbookPath;
   const headBaseline = useFileBaseline(
     editablePath !== null && canWriteFiles
       ? { environmentId, cwd, relativePath: editablePath, source: HEAD_BASELINE_SOURCE }
@@ -1258,8 +1271,8 @@ export default function FilePreviewPanel({
   const reviewKept = useFileReviewStore(
     (state) =>
       reviewTurnCount !== null &&
-      editablePath !== null &&
-      isFileReviewKept(state, threadKey, reviewTurnCount, editablePath),
+      keptPath !== null &&
+      isFileReviewKept(state, threadKey, reviewTurnCount, keptPath),
   );
   const turnBaseline = useFileBaseline(
     reviewPath !== null && reviewTurnCount !== null && !reviewKept
@@ -1283,8 +1296,8 @@ export default function FilePreviewPanel({
     if (reviewTurnCount !== null) onReviewChange(open ? reviewTurnCount : null);
   };
   const keepReviewedFile = () => {
-    if (editablePath === null || reviewTurnCount === null) return;
-    useFileReviewStore.getState().keep(threadKey, reviewTurnCount, editablePath);
+    if (keptPath === null || reviewTurnCount === null) return;
+    useFileReviewStore.getState().keep(threadKey, reviewTurnCount, keptPath);
   };
   // Mounting the file read under the workspace mutation id refetches it after each mutation.
   useAtomMount(
@@ -1339,6 +1352,31 @@ export default function FilePreviewPanel({
       </div>
     );
   }
+
+  // A check after anything that may have replaced the file: a turn, a refresh, a restored version.
+  const spreadsheetRefreshKey = `${workspaceMutationId}:${fileRefreshRevision}:${versionsOpen}`;
+  const documentPreview =
+    relativePath && absolutePath && (isDocument || file.readError?.failure === "binary_file") ? (
+      <AttachmentFilePreview
+        key={`${environmentId}:${absolutePath}:${workspaceMutationId}:${fileRefreshRevision}`}
+        name={relativePath.split(/[\\/]/).at(-1) || relativePath}
+        mimeType="application/octet-stream"
+        sizeBytes={0}
+        asset={{
+          environmentId,
+          resource:
+            draft && isDocument
+              ? { _tag: "draft-workspace-file", cwd, path: absolutePath }
+              : {
+                  _tag: "media-file",
+                  threadId: threadRef.threadId,
+                  path: absolutePath,
+                  ...(isDocument ? {} : { disposition: "attachment" as const }),
+                },
+        }}
+        origin="File"
+      />
+    ) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
@@ -1595,28 +1633,32 @@ export default function FilePreviewPanel({
               revealRequestId={revealRequestId}
               wordWrap={wordWrap}
             />
-          ) : relativePath &&
-            absolutePath &&
-            (isDocument || file.readError?.failure === "binary_file") ? (
-            <AttachmentFilePreview
-              key={`${environmentId}:${absolutePath}:${workspaceMutationId}:${fileRefreshRevision}`}
-              name={relativePath.split(/[\\/]/).at(-1) || relativePath}
-              mimeType="application/octet-stream"
-              sizeBytes={0}
-              asset={{
-                environmentId,
-                resource:
-                  draft && isDocument
-                    ? { _tag: "draft-workspace-file", cwd, path: absolutePath }
-                    : {
-                        _tag: "media-file",
+          ) : relativePath && workbookPath !== null ? (
+            <Suspense fallback={<FileSurfaceLoading />}>
+              <WorkspaceSpreadsheet
+                key={`${environmentId}:${cwd}:${workbookPath}`}
+                environmentId={environmentId}
+                cwd={cwd}
+                relativePath={workbookPath}
+                readOnly={!canWriteFiles}
+                refreshKey={spreadsheetRefreshKey}
+                sharedWithTextEditor={false}
+                onPendingChange={onPendingChange}
+                fallback={documentPreview}
+                agentChange={
+                  reviewTurnCount !== null && turnBaseline?.wholeFileOnly === true && !reviewKept
+                    ? {
                         threadId: threadRef.threadId,
-                        path: absolutePath,
-                        ...(isDocument ? {} : { disposition: "attachment" as const }),
-                      },
-              }}
-              origin="File"
-            />
+                        turnCount: reviewTurnCount,
+                        canDiscard: canWriteFiles,
+                        onSettled: keepReviewedFile,
+                      }
+                    : null
+                }
+              />
+            </Suspense>
+          ) : documentPreview !== null ? (
+            documentPreview
           ) : relativePath && file.error && file.data === null ? (
             <div
               role="alert"
@@ -1685,12 +1727,35 @@ export default function FilePreviewPanel({
                 onPendingChange={onPendingChange}
               />
             ) : tableDelimiter && renderTable ? (
-              <DelimitedTablePreview
-                key={relativePath}
-                name={relativePath}
-                text={file.data.contents}
-                delimiter={tableDelimiter}
-              />
+              spreadsheetKind?.format === "delimited" && !file.data.truncated ? (
+                <Suspense fallback={<FileSurfaceLoading />}>
+                  <WorkspaceSpreadsheet
+                    key={`${environmentId}:${cwd}:${relativePath}`}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={relativePath}
+                    readOnly={!canWriteFiles}
+                    refreshKey={spreadsheetRefreshKey}
+                    sharedWithTextEditor
+                    onPendingChange={onPendingChange}
+                    fallback={
+                      <DelimitedTablePreview
+                        name={relativePath}
+                        text={file.data.contents}
+                        delimiter={tableDelimiter}
+                      />
+                    }
+                    agentChange={null}
+                  />
+                </Suspense>
+              ) : (
+                <DelimitedTablePreview
+                  key={relativePath}
+                  name={relativePath}
+                  text={file.data.contents}
+                  delimiter={tableDelimiter}
+                />
+              )
             ) : file.data.truncated || isHostFile || !canWriteFiles ? (
               <SourceFilePreview
                 name={relativePath}

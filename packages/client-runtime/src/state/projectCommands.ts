@@ -168,6 +168,39 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 60_000,
     }),
+    openSpreadsheet: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:documents:open-spreadsheet",
+      tag: WS_METHODS.documentsOpenSpreadsheet,
+      staleTimeMs: 0,
+      idleTtlMs: 30_000,
+    }),
+    readSpreadsheetRange: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:documents:read-spreadsheet-range",
+      tag: WS_METHODS.documentsReadSpreadsheetRange,
+      staleTimeMs: 0,
+      // The grid keeps the pages it shows, so a settled read is not held a second time.
+      idleTtlMs: 1_000,
+    }),
+    editSpreadsheet: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:documents:edit-spreadsheet",
+      tag: WS_METHODS.documentsEditSpreadsheet,
+      scheduler: fileScheduler,
+      // The key `writeFile` uses, so an edit and a restore of one file never interleave.
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.documentsEditSpreadsheet, input).pipe(
+          Effect.tap(() => Effect.forEach(writtenFilePaths(input, input), fileMetadata.invalidate)),
+        ),
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() => {
+          for (const path of writtenFilePaths(input, input))
+            fileMetadata.refreshPath(environmentId, path, registry);
+        }),
+    }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
     create: createEnvironmentCommand(runtime, {

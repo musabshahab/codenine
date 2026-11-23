@@ -51,6 +51,7 @@ import {
   type ProjectFileOperation,
   type ProjectMutation,
   ProjectFileVersionError,
+  SpreadsheetFileError,
   ProjectListEntriesError,
   ProjectReadFileBaselineError,
   ProjectReadFileError,
@@ -92,6 +93,7 @@ import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as FileBaselines from "./checkpointing/FileBaselines.ts";
+import * as Documents from "./documents/Documents.ts";
 import * as FileVersions from "./fileVersions/FileVersions.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
@@ -633,6 +635,23 @@ const projectWriteFileConflict = (
     relativePath: input.relativePath,
     ...(cause.currentVersion === undefined ? {} : { currentVersion: cause.currentVersion }),
   });
+
+type SpreadsheetServiceError = Exclude<
+  Effect.Error<ReturnType<Documents.Documents["Service"]["editSpreadsheet"]>>,
+  WorkspaceFileSystem.WorkspaceFileConflictError
+>;
+
+/** Spreadsheet refusals reach the client as they are; anything else becomes a file error. */
+const spreadsheetError = (cause: SpreadsheetServiceError) => {
+  switch (cause._tag) {
+    case "SpreadsheetTooLargeError":
+    case "SpreadsheetUnsupportedError":
+    case "SpreadsheetOperationError":
+      return cause;
+    default:
+      return new SpreadsheetFileError({ message: cause.message, cause });
+  }
+};
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
@@ -1370,6 +1389,7 @@ export const layerWsRpc = (
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const fileBaselines = yield* FileBaselines.FileBaselines;
       const fileVersions = yield* FileVersions.FileVersions;
+      const documents = yield* Documents.Documents;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -2435,6 +2455,20 @@ export const layerWsRpc = (
                 cause._tag === "WorkspaceFileConflictError"
                   ? projectWriteFileConflict(input, cause)
                   : new ProjectFileVersionError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.documentsOpenSpreadsheet]: (input) =>
+          documents.openSpreadsheet(input).pipe(Effect.mapError(spreadsheetError)),
+        [WS_METHODS.documentsReadSpreadsheetRange]: (input) =>
+          documents.readSpreadsheetRange(input).pipe(Effect.mapError(spreadsheetError)),
+        [WS_METHODS.documentsEditSpreadsheet]: (input) =>
+          documents
+            .editSpreadsheet(input)
+            .pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "WorkspaceFileConflictError"
+                  ? projectWriteFileConflict(input, cause)
+                  : spreadsheetError(cause),
               ),
             ),
         [WS_METHODS.projectsMutate]: (mutation) =>

@@ -17,6 +17,8 @@ export interface FileBaseline {
   /** Null when the file did not exist in the baseline. */
   readonly contents: string | null;
   readonly revision?: string | undefined;
+  /** The earlier contents are kept but are not text, so the file can only be put back whole. */
+  readonly wholeFileOnly?: boolean | undefined;
 }
 
 const UNAVAILABLE: FileBaseline = { available: false, contents: null };
@@ -57,6 +59,7 @@ async function fetchFileBaseline(key: string, target: FileBaselineTarget): Promi
     available: result.value.available,
     contents: result.value.contents,
     revision: result.value.revision,
+    wholeFileOnly: result.value.wholeFileOnly,
   };
   remember(key, baseline);
   return baseline;
