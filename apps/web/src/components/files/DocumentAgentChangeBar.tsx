@@ -1,18 +1,11 @@
 import type { EnvironmentId, ThreadId } from "@codenine/contracts";
-import { ProjectWriteFileConflictError } from "@codenine/contracts";
-import { executeAtomQuery, squashAtomCommandFailure } from "@codenine/client-runtime/state/runtime";
-import * as Schema from "effect/Schema";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
-import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { projectEnvironment } from "~/state/projects";
-import { useAtomCommand } from "~/state/use-atom-command";
 
+import { discardTurnFileChange } from "./discardTurnChange";
 import { FileSurfaceBar } from "./fileSurfaceChrome";
-
-const isWriteConflict = Schema.is(ProjectWriteFileConflictError);
 
 /**
  * Keep or Discard for a document the agent changed in its last turn and that is not text, such
@@ -30,45 +23,29 @@ export function DocumentAgentChangeBar(props: {
   readonly onDiscarded: () => void;
 }) {
   const { environmentId, cwd, relativePath, threadId, turnCount } = props;
-  const revertFileChange = useAtomCommand(projectEnvironment.revertFileChange, {
-    reportFailure: false,
-  });
   const [discarding, setDiscarding] = useState(false);
 
   const discard = async () => {
     setDiscarding(true);
-    // The file as it is now, so a write that lands while it is put back is refused, not lost.
-    const baseline = await executeAtomQuery(
-      appAtomRegistry,
-      projectEnvironment.readFileBaseline({
-        environmentId,
-        input: { cwd, relativePath, source: { kind: "turn", threadId, turnCount } },
-      }),
-      { refresh: true, reportFailure: false, reportDefect: false },
-    );
-    const expectedVersion = baseline._tag === "Success" ? baseline.value.currentVersion : undefined;
-    const result =
-      expectedVersion === undefined
-        ? null
-        : await revertFileChange({
-            environmentId,
-            input: { cwd, relativePath, threadId, turnCount, expectedVersion },
-          });
+    const result = await discardTurnFileChange({
+      environmentId,
+      cwd,
+      relativePath,
+      threadId,
+      turnCount,
+    });
     setDiscarding(false);
-    if (result?._tag === "Success") {
+    if (result.ok) {
       props.onDiscarded();
       props.onKeep();
       return;
     }
-    const failure = result === null ? null : squashAtomCommandFailure(result);
     toastManager.add({
       type: "error",
       title: "Could not discard the changes",
-      description: isWriteConflict(failure)
+      description: result.conflict
         ? "The file changed while it was being put back. Try again."
-        : failure instanceof Error
-          ? failure.message
-          : "The earlier contents of this file could not be read. Try again.",
+        : (result.message ?? "The earlier contents of this file could not be read. Try again."),
     });
   };
 

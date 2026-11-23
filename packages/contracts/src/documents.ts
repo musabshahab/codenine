@@ -679,6 +679,34 @@ export class DeckOperationError extends Schema.TaggedError<DeckOperationError>()
   }
 }
 
+/** The largest chat attachment copied into a workspace. */
+export const ATTACHMENT_COPY_MAX_BYTES = 50 * 1024 * 1024;
+
+export const AttachmentCopyInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  // The chat attachment to copy, by the id its message carries.
+  attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  // The name to save it under, at the top of the workspace. A taken name gets a number.
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+});
+export type AttachmentCopyInput = typeof AttachmentCopyInput.Type;
+
+export const AttachmentCopyResult = Schema.Struct({
+  // Where the copy went, which differs from `name` when that was taken.
+  relativePath: TrimmedNonEmptyString,
+  version: TrimmedNonEmptyString,
+});
+export type AttachmentCopyResult = typeof AttachmentCopyResult.Type;
+
+export class AttachmentCopyError extends Schema.TaggedError<AttachmentCopyError>()(
+  "AttachmentCopyError",
+  {
+    reason: Schema.Literals(["not-found", "too-large", "bad-name", "failed"]),
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 /** The largest reply saved as a file, as characters of Markdown. */
 export const REPLY_FILE_MAX_LENGTH = 2_000_000;
 

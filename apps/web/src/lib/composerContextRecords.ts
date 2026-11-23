@@ -252,6 +252,8 @@ export function buildMessageContext(input: {
   threadContexts?: ReadonlyArray<ThreadContextRecord>;
   environmentContexts?: ReadonlyArray<EnvironmentContextRecord>;
   attachments?: ReadonlyArray<BoundComposerAttachment>;
+  /** The document open beside the chat, as document view's chip sends it. */
+  documentContexts?: ReadonlyArray<ComposerContextRecord>;
   teamRequested?: boolean;
   workflowRequested?: boolean;
 }): OrchestrationMessageContext | undefined {
@@ -261,6 +263,7 @@ export function buildMessageContext(input: {
     ...(input.threadContexts ?? []),
     ...(input.environmentContexts ?? []),
     ...(input.attachments ?? []).map(attachmentContextRecord),
+    ...(input.documentContexts ?? []),
     ...(input.teamRequested === true ? [teamRequestContextRecord()] : []),
     ...(input.workflowRequested === true ? [workflowRequestContextRecord()] : []),
   ];

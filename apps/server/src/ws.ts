@@ -2460,6 +2460,7 @@ export const layerWsRpc = (
               ),
             ),
         [WS_METHODS.documentsSaveReplyFile]: (input) => documents.saveReplyFile(input),
+        [WS_METHODS.documentsCopyAttachment]: (input) => documents.copyAttachment(input),
         [WS_METHODS.projectsReadFileVersion]: (input) =>
           fileVersions
             .read(input)

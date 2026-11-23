@@ -21,11 +21,14 @@ import {
   MessageSquarePlusIcon,
   MousePointer2Icon,
   PrinterIcon,
+  Redo2Icon,
   SignatureIcon,
   TextCursorInputIcon,
   Undo2Icon,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+
+import { usePublishPdfSelection } from "../documentSelectionPublisher";
 
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
@@ -278,8 +281,30 @@ export default function PdfEditor(props: {
   const [failure, setFailure] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const viewer = useRef<PdfViewerHandle>(null);
+  usePublishPdfSelection(root);
 
   const dirty = edits.length > 0;
+  // What undo took off, newest last. It holds only for the list undo left: any other change to
+  // the edits is a new action, after which there is nothing to redo.
+  const [undone, setUndone] = useState<{
+    readonly after: PdfPendingEdits;
+    readonly edits: PdfPendingEdits;
+  }>({ after: edits, edits: [] });
+  const redoable = undone.after === edits ? undone.edits : [];
+  const undo = () => {
+    const last = edits.at(-1);
+    if (last === undefined) return;
+    const after = undoPdfEdit(edits);
+    setEdits(() => after);
+    setUndone({ after, edits: [...redoable, last] });
+  };
+  const redo = () => {
+    const next = redoable.at(-1);
+    if (next === undefined) return;
+    const after = [...edits, next];
+    setEdits(() => after);
+    setUndone({ after, edits: redoable.slice(0, -1) });
+  };
   const reportPending = useStableCallback(props.onPendingChange);
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Tell the tab strip, which lives outside this view, whether the file has unsaved edits.
   useEffect(() => {
@@ -437,14 +462,14 @@ export default function PdfEditor(props: {
           event.stopPropagation();
           void save();
         } else if (
-          event.key === "z" &&
-          !event.shiftKey &&
+          (event.key.toLowerCase() === "z" || event.key === "y") &&
           !saving &&
           !isEditableFocused(event.target)
         ) {
           event.preventDefault();
           event.stopPropagation();
-          setEdits(undoPdfEdit);
+          if (event.key === "y" || event.shiftKey) redo();
+          else undo();
         }
       }}
     >
@@ -463,6 +488,21 @@ export default function PdfEditor(props: {
         toolbarStart={
           canEdit || dirty ? (
             <>
+              <FileSurfaceAction
+                label="Undo the last unsaved change"
+                disabled={!dirty || saving}
+                onPress={undo}
+              >
+                <Undo2Icon className="size-3.5" />
+              </FileSurfaceAction>
+              <FileSurfaceAction
+                label="Redo"
+                disabled={redoable.length === 0 || saving}
+                onPress={redo}
+              >
+                <Redo2Icon className="size-3.5" />
+              </FileSurfaceAction>
+              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
               <FileSurfaceAction
                 label="Select"
                 pressed={activeTool === "select"}
@@ -503,13 +543,6 @@ export default function PdfEditor(props: {
                   <TextCursorInputIcon className="size-3.5" />
                 </FileSurfaceAction>
               ) : null}
-              <FileSurfaceAction
-                label="Undo the last unsaved change"
-                disabled={!dirty || saving}
-                onPress={() => setEdits(undoPdfEdit)}
-              >
-                <Undo2Icon className="size-3.5" />
-              </FileSurfaceAction>
               <span aria-hidden className="mx-1 h-4 w-px bg-border" />
             </>
           ) : null

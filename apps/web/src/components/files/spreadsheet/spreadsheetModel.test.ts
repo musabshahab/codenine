@@ -10,6 +10,10 @@ import {
   changeOperations,
   clipboardTextToRows,
   columnLabel,
+  columnLayout,
+  DEFAULT_COLUMN_WIDTH,
+  fittedColumnWidth,
+  MAX_FITTED_COLUMN_WIDTH,
   EMPTY_HISTORY,
   MAX_GRID_COLUMNS,
   MAX_GRID_ROWS,
@@ -19,6 +23,7 @@ import {
   recordChanges,
   redoChanges,
   selectionArea,
+  spreadsheetDocumentSelection,
   undoChanges,
 } from "./spreadsheetModel";
 
@@ -79,6 +84,22 @@ describe("selection", () => {
       bottom: 4,
       right: 3,
     });
+    // What the chat's context chip is told: the range, and the values of a small one.
+    const text = (row: number, column: number) => `${row}.${column}`;
+    expect(
+      spreadsheetDocumentSelection("Budget", { top: 1, left: 1, bottom: 2, right: 2 }, text),
+    ).toEqual({
+      kind: "spreadsheet",
+      sheet: "Budget",
+      range: "B2:C3",
+      values: "1.1\t1.2\n2.1\t2.2",
+    });
+    expect(
+      spreadsheetDocumentSelection("Budget", { top: 15, left: 1, bottom: 15, right: 1 }, () => ""),
+    ).toEqual({ kind: "spreadsheet", sheet: "Budget", range: "B16" });
+    expect(
+      spreadsheetDocumentSelection("Budget", { top: 0, left: 0, bottom: 99, right: 9 }, text),
+    ).toEqual({ kind: "spreadsheet", sheet: "Budget", range: "A1:J100" });
   });
 });
 
@@ -219,5 +240,37 @@ describe("clipboard", () => {
       ],
       dropped: 4,
     });
+  });
+});
+
+describe("column widths", () => {
+  it("places every column after the ones with a width of their own, and finds it again", () => {
+    const D = DEFAULT_COLUMN_WIDTH;
+    const layout = columnLayout(
+      new Map([
+        [1, 200],
+        [4, 40],
+      ]),
+    );
+    expect([0, 1, 2, 4, 5, 9].map(layout.offsetOf)).toEqual([
+      0,
+      D,
+      D + 200,
+      3 * D + 200,
+      3 * D + 240,
+      7 * D + 240,
+    ]);
+    for (const column of [0, 1, 2, 3, 4, 5, 9, 400]) {
+      const left = layout.offsetOf(column);
+      expect(layout.columnAt(left)).toBe(column);
+      expect(layout.columnAt(left + layout.widthOf(column) - 1)).toBe(column);
+    }
+    expect(columnLayout(new Map()).columnAt(D * 3 + 1)).toBe(3);
+  });
+
+  it("fits a column to its widest text, between the default and the most a fit gives", () => {
+    expect(fittedColumnWidth([30, 150, 80], 14)).toBe(164);
+    expect(fittedColumnWidth([10], 14)).toBe(DEFAULT_COLUMN_WIDTH);
+    expect(fittedColumnWidth([900], 14)).toBe(MAX_FITTED_COLUMN_WIDTH);
   });
 });

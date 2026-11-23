@@ -32,6 +32,7 @@ import {
   ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
   DatabaseBackupIcon,
+  Columns3Icon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
@@ -194,6 +195,7 @@ import { pickableProjectGroups } from "@codenine/client-runtime/state/project-gr
 import { buildSidebarProjectPickerEntries } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
+import { useFileViewSwitch } from "../hooks/useFileViewSwitch";
 import { threadRecentUse } from "@codenine/shared/paletteSearch";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
@@ -382,6 +384,7 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const paletteRouteTarget = useThreadRouteTarget();
+  const fileViewSwitch = useFileViewSwitch();
   const projects = useProjects();
   const referenceThreadRef = activeThread
     ? scopeThreadRef(activeThread.environmentId, activeThread.id)
@@ -944,6 +947,20 @@ function OpenCommandPaletteDialog(props: {
           },
         });
         if (refreshed._tag === "Failure") throw squashAtomCommandFailure(refreshed);
+      },
+    });
+  }
+
+  if (fileViewSwitch !== null) {
+    actionItems.push({
+      kind: "action",
+      value: "action:toggle-document-view",
+      searchTerms: ["document view", "chat view", "layout", "file beside chat", "stage"],
+      title: fileViewSwitch.view === "document" ? "Switch to chat view" : "Switch to document view",
+      icon: <Columns3Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "rightPanel.toggleDocumentView",
+      run: async () => {
+        fileViewSwitch.toggle();
       },
     });
   }

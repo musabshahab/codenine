@@ -20,6 +20,9 @@ describe("workspacePreset", () => {
     expect(preset.rightPanelTabs).toEqual(expect.arrayContaining(["files", "task", "workflow"]));
     expect(preset.rightPanelTabs.includes("diff")).toBe(preset.composerControls.checkout);
     expect(preset.suggestedConnectors.length).toBeGreaterThan(0);
+    // Documents open as the page with the chat beside them; code opens beside the chat.
+    expect(preset.fileView).toBe(kind === "code" ? "chat" : "document");
+    expect(workspacePreset(kind, "/repo-worktrees/a").fileView).toBe(preset.fileView);
   });
 
   it("suits a Work workspace to documents: its agents may edit, and the document skill leads", () => {

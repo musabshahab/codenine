@@ -43,7 +43,7 @@ import { mediaFileReference } from "@codenine/client-runtime/media-reference";
 import { FolderTree, HistoryIcon, WrapTextIcon } from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, use, useEffect, useRef, useState } from "react";
 
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
@@ -75,6 +75,15 @@ import { DelimitedTablePreview } from "./DelimitedTablePreview";
 import { PreviewImage } from "./PreviewImage";
 import FileBrowserPanel from "./FileBrowserPanel";
 import { FileExplorerPane } from "./FileExplorerPane";
+import { ExplorerInRailContext, FileStageContext, FileToolSlotContext } from "./explorerPlacement";
+import { AttachmentWorkspaceBar } from "./AttachmentWorkspaceBar";
+import { onTurnFileChangeDiscarded } from "./discardTurnChange";
+import {
+  DocumentSelectionKeyContext,
+  usePublishDocumentSelection,
+  usePublishDocumentText,
+} from "./documentSelectionPublisher";
+import { documentSelectionKey, textDocumentSelection } from "~/documentContext";
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { breadcrumbPathOf, retainedBreadcrumbTrail, trailChildOf } from "./filePath";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
@@ -736,6 +745,13 @@ function EditableFileSurface({
   const setSelectedRange = (range: SelectedLineRange | null) => {
     setSelectionOverride({ revealRequestId, range });
   };
+  // The lines alone: their text is cut out of the file when a message is sent, not as it is typed.
+  usePublishDocumentSelection(
+    selectedRange === null
+      ? null
+      : textDocumentSelection(null, selectedRange.start, selectedRange.end),
+  );
+  usePublishDocumentText(contents);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const selectionFrameRef = useRef<number | null>(null);
   const saveTarget = { environmentId, cwd, relativePath };
@@ -1095,6 +1111,20 @@ export default function FilePreviewPanel({
     attachment === undefined && relativePath !== null,
   );
   const [fileRefreshRevision, setFileRefreshRevision] = useState(0);
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- a reply's "Undo this change" puts files back from outside this panel, so the open file is read again
+  useEffect(
+    () =>
+      onTurnFileChangeDiscarded((discarded) => {
+        if (
+          discarded.environmentId === environmentId &&
+          discarded.cwd === cwd &&
+          discarded.relativePath === relativePath
+        ) {
+          setFileRefreshRevision((revision) => revision + 1);
+        }
+      }),
+    [environmentId, cwd, relativePath],
+  );
   const attemptedPath = file.readError?.resolvedPath ?? file.readError?.operationPath;
   // Folder links fail file reads; retain mutation refresh to detect conversion to files. Host folders own
   // roots; folderTrail keeps descendants.
@@ -1116,12 +1146,24 @@ export default function FilePreviewPanel({
     serverConfig?.shellRevealInFileManager === true;
   // Everything preview-related keys off previewPath; a folder has no preview.
   const previewPath = isFolder ? null : relativePath;
-  const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
-  const showExplorer = shouldShowFileExplorer({
-    relativePath: previewPath,
-    explorerOpen,
-    attachmentOpen: attachment !== undefined,
-  });
+  const [rememberedExplorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
+  const explorerInRail = use(ExplorerInRailContext);
+  // A stage without its rail, as on a narrow screen, has little room: the explorer beside the
+  // file starts closed there whatever was last chosen beside the chat, and is not remembered.
+  const stageWithoutRail = use(FileStageContext) && !explorerInRail;
+  const [stageExplorerOpen, setStageExplorerOpen] = useState(false);
+  const explorerOpen = stageWithoutRail ? stageExplorerOpen : rememberedExplorerOpen;
+  // On the stage an open file has one tool row: the editor's tools and the file's own actions.
+  const stageToolRow = use(FileStageContext) && previewPath !== null && attachment === undefined;
+  const [toolSlotElement, setToolSlotElement] = useState<HTMLElement | null>(null);
+  // The rail holds the explorer beside an open file; a folder tab is the explorer itself.
+  const showExplorer =
+    !(explorerInRail && previewPath !== null) &&
+    shouldShowFileExplorer({
+      relativePath: previewPath,
+      explorerOpen,
+      attachmentOpen: attachment !== undefined,
+    });
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
     RENDER_MARKDOWN_STORAGE_KEY,
     false,
@@ -1355,6 +1397,7 @@ export default function FilePreviewPanel({
   }, [breadcrumbPath, breadcrumbTrail]);
 
   const toggleExplorer = () => {
+    if (stageWithoutRail) return setStageExplorerOpen((current) => !current);
     setExplorerOpen((current) => {
       const next = !current;
       try {
@@ -1414,487 +1457,534 @@ export default function FilePreviewPanel({
     workbookPath !== null && (!canViewWorkbook || (canWriteFiles && editWorkbookPreferred));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {breadcrumbPath !== null && breadcrumbTrail !== null ? (
-        <div className={FILE_SURFACE_SUBHEADER_CLASS} data-surface-subheader>
-          <ScrollArea
-            radius="none"
-            ref={breadcrumbRef}
-            hideScrollbars
-            scrollFade
-            className="min-w-0 flex-1"
-            data-file-breadcrumbs
-          >
-            <div className="flex h-full w-max min-w-full items-center text-xs">
-              <FileBreadcrumbs
-                cwd={cwd}
-                environmentId={environmentId}
-                onNavigateFolder={navigateToFolder}
-                onOpenFile={onOpenFile}
-                projectName={projectName}
-                relativePath={breadcrumbPath}
-                trail={breadcrumbTrail}
-                workspaceMutationId={workspaceMutationId}
-              />
-            </div>
-          </ScrollArea>
-          {absolutePath &&
-          (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
-            <OpenInPicker
-              environmentId={environmentId}
-              keybindings={keybindings}
-              availableEditors={availableEditors}
-              enableShortcut={openInShortcutEnabled}
-              openInCwd={absolutePath}
-              openInCwdIsFile={file.isFile}
-              compact
-              revealFileManager={revealsInFileManager}
-            />
-          ) : null}
-          {canToggleRendered && renderedMode ? (
-            <FileSurfaceAction
-              label={renderedToggleLabel(renderedMode, rendered)}
-              pressed={rendered}
-              onPress={() => {
-                const pressed = !rendered;
-                setRenderedPreferred(pressed);
-                setHandledReveal(
-                  pressed && relativePath !== null
-                    ? { path: relativePath, requestId: revealRequestId }
-                    : null,
-                );
-              }}
-            >
-              <MorphIcon
-                className="size-3.5"
-                icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
-              />
-            </FileSurfaceAction>
-          ) : null}
-          {canViewWorkbook && canWriteFiles ? (
-            <FileSurfaceAction
-              label={editsWorkbook ? "Show as laid out" : "Edit cells"}
-              pressed={!editsWorkbook}
-              // Unsaved edits are saved first, so the view shows the file with them.
-              disabled={editsWorkbook && selectedFilePending}
-              onPress={() => setEditWorkbookPreferred(!editsWorkbook)}
-            >
-              <MorphIcon className="size-3.5" icon={editsWorkbook ? Eye : Table2} />
-            </FileSurfaceAction>
-          ) : null}
-          {showsRawText ? (
-            <FileSurfaceAction
-              label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
-              pressed={wordWrap}
-              onPress={() => setWordWrapOverride(!wordWrap)}
-            >
-              <WrapTextIcon className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-          {versionsPath !== null ? (
-            <FileSurfaceAction label="Versions" onPress={() => setVersionsOpen(true)}>
-              <HistoryIcon className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-          {!isHostFile && previewPath !== null ? (
-            <FileSurfaceAction
-              label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
-              pressed={explorerOpen}
-              onPress={toggleExplorer}
-            >
-              <FolderTree className="size-3.5" />
-            </FileSurfaceAction>
-          ) : null}
-        </div>
-      ) : null}
-      {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
-        <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
-          Read-only connection. Unsaved edits are kept until write access returns.
-        </div>
-      ) : null}
-      {versionsPath !== null && versionsOpen ? (
-        <FileVersionsDialog
-          key={versionsPath}
-          open
-          onOpenChange={setVersionsOpen}
-          environmentId={environmentId}
-          cwd={cwd}
-          relativePath={versionsPath}
-          currentVersion={
-            editablePath === null || selectedFilePending || saveConflict
-              ? undefined
-              : file.data?.version
-          }
-          editorHoldsFile={editablePath !== null}
-          canRestore={canWriteFiles}
-        />
-      ) : null}
-      {saveConflict && editablePath !== null ? (
-        <FileSurfaceBar
-          tone="warning"
-          actions={
-            <>
-              <Button
-                type="button"
-                size="micro"
-                variant="outline"
-                onClick={() => discardFileDraft({ environmentId, cwd, relativePath: editablePath })}
-              >
-                Reload from disk
-              </Button>
-              <Button
-                type="button"
-                size="micro"
-                variant="destructive-outline"
-                onClick={() =>
-                  overwriteFileSaveConflict({ environmentId, cwd, relativePath: editablePath })
-                }
-              >
-                Overwrite
-              </Button>
-            </>
-          }
-        >
-          This file changed on disk while you were editing, so your edits are not saved. Reloading
-          drops them.
-        </FileSurfaceBar>
-      ) : null}
-      {missingPath !== null &&
-      reviewTurnCount !== null &&
-      turnBaseline?.available === true &&
-      turnBaseline.contents !== null ? (
-        <DeletedFileReviewBar
-          environmentId={environmentId}
-          cwd={cwd}
-          relativePath={missingPath}
-          threadRef={threadRef}
-          turnCount={reviewTurnCount}
-          canRestore={canWriteFiles}
-        />
-      ) : null}
-      {reviewAvailable && !reviewOpen ? (
-        <FileSurfaceBar
-          actions={
-            <>
-              <Button
-                type="button"
-                size="micro"
-                variant="outline"
-                onClick={() => chooseReview(true)}
-              >
-                Review changes
-              </Button>
-              <Button type="button" size="micro" variant="ghost-muted" onClick={keepReviewedFile}>
-                Keep
-              </Button>
-            </>
-          }
-        >
-          The agent changed this file in its last turn.
-        </FileSurfaceBar>
-      ) : null}
-      {wholeFilePath !== null &&
-      // The grid has its own bar, which also knows about unsaved cells.
-      !(workbookPath !== null && editsWorkbook) &&
-      reviewTurnCount !== null &&
-      turnBaseline?.wholeFileOnly === true &&
-      !reviewKept ? (
-        <DocumentAgentChangeBar
-          key={`${wholeFilePath}:${reviewTurnCount}`}
-          environmentId={environmentId}
-          cwd={cwd}
-          relativePath={wholeFilePath}
-          threadId={threadRef.threadId}
-          turnCount={reviewTurnCount}
-          canDiscard={canWriteFiles}
-          onKeep={keepReviewedFile}
-          onDiscarded={() => setFileRefreshRevision((revision) => revision + 1)}
-        />
-      ) : null}
-      {previewPath &&
-      attachment === undefined &&
-      !isMedia &&
-      !renderBrowserFile &&
-      file.data?.truncated &&
-      (draft || isMarkdown || isMermaid || isHtml) ? (
-        <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground">
-          Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte file.
-        </div>
-      ) : null}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div
-          className={cn("min-w-0 flex-1 flex-col overflow-hidden", previewPath ? "flex" : "hidden")}
-        >
-          {isFolder ? null : relativePath && attachment ? (
-            <AttachmentFilePreview
-              key={`${environmentId}:${attachment.id}`}
-              name={attachment.name}
-              mimeType={attachment.mimeType}
-              sizeBytes={attachment.sizeBytes}
-              asset={{ environmentId, attachmentId: attachment.id }}
-            />
-          ) : relativePath && isVideo && absolutePath ? (
-            <WorkspaceVideoPreview
-              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              draft={draft}
-              absolutePath={absolutePath}
-              workspaceRoot={cwd}
-              name={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : relativePath && isAudio && absolutePath ? (
-            <WorkspaceAudioPreview
-              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              draft={draft}
-              absolutePath={absolutePath}
-              workspaceRoot={cwd}
-              name={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : relativePath && isImage && absolutePath ? (
-            <WorkspaceImagePreview
-              key={absolutePath}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              draft={draft}
-              absolutePath={absolutePath}
-              workspaceRoot={cwd}
-              alt={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : pdfEditPath !== null && absolutePath ? (
-            <Suspense fallback={<FileSurfaceLoading />}>
-              <WorkspacePdf
-                key={`${environmentId}:${cwd}:${pdfEditPath}`}
-                environmentId={environmentId}
-                threadRef={threadRef}
-                draft={draft}
-                absolutePath={absolutePath}
-                workspaceRoot={cwd}
-                cwd={cwd}
-                relativePath={pdfEditPath}
-                title={pdfEditPath}
-                refreshKey={spreadsheetRefreshKey}
-                readOnly={!canWriteFiles}
-                onPendingChange={onPendingChange}
-              />
-            </Suspense>
-          ) : relativePath && renderBrowserFile && absolutePath ? (
-            <WorkspaceBrowserPreview
-              key={absolutePath}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              draft={draft}
-              absolutePath={absolutePath}
-              workspaceRoot={cwd}
-              title={relativePath}
-              workspaceMutationId={workspaceMutationId}
-            />
-          ) : relativePath &&
-            absolutePath &&
-            file.data?.truncated &&
-            !isDocument &&
-            !draft &&
-            !isMarkdown &&
-            !isMermaid &&
-            !isHtml ? (
-            <WorkspaceLargeTextPreview
-              key={`${absolutePath}:${renderTable}:${fileRefreshRevision}`}
-              environmentId={environmentId}
-              threadRef={threadRef}
-              absolutePath={absolutePath}
-              name={relativePath}
-              delimiter={renderTable ? tableDelimiter : null}
-              workspaceMutationId={workspaceMutationId}
-              revealLine={revealLine}
-              revealRequestId={revealRequestId}
-              wordWrap={wordWrap}
-            />
-          ) : relativePath && workbookPath !== null && editsWorkbook ? (
-            <Suspense fallback={<FileSurfaceLoading />}>
-              <WorkspaceSpreadsheet
-                key={`${environmentId}:${cwd}:${workbookPath}`}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={workbookPath}
-                readOnly={!canWriteFiles}
-                refreshKey={spreadsheetRefreshKey}
-                sharedWithTextEditor={false}
-                onPendingChange={onPendingChange}
-                fallback={documentPreview}
-                agentChange={
-                  reviewTurnCount !== null && turnBaseline?.wholeFileOnly === true && !reviewKept
-                    ? {
-                        threadId: threadRef.threadId,
-                        turnCount: reviewTurnCount,
-                        canDiscard: canWriteFiles,
-                        onSettled: keepReviewedFile,
-                      }
-                    : null
-                }
-              />
-            </Suspense>
-          ) : documentPreview !== null ? (
-            documentPreview
-          ) : relativePath && file.error && file.data === null ? (
+    <DocumentSelectionKeyContext
+      value={
+        attachment === undefined && requestedPath !== null
+          ? documentSelectionKey(cwd, requestedPath)
+          : null
+      }
+    >
+      <FileToolSlotContext value={stageToolRow ? { element: toolSlotElement } : null}>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+          {breadcrumbPath !== null && breadcrumbTrail !== null ? (
             <div
-              role="alert"
-              className="scrollbar-gutter-both flex min-h-0 flex-1 flex-col overflow-auto"
+              className={
+                stageToolRow
+                  ? "flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 border-b border-border/60 bg-background px-2 text-xs"
+                  : FILE_SURFACE_SUBHEADER_CLASS
+              }
+              // The inline panel's subheader rule shortens the row; the stage's tool row keeps its own.
+              {...(stageToolRow ? { "data-stage-tool-row": "" } : { "data-surface-subheader": "" })}
             >
-              <div className="my-auto flex shrink-0 flex-col gap-3 px-6 py-6 text-center text-xs leading-relaxed">
-                <p className="text-destructive">
-                  {file.readError ? filePreviewReadErrorMessage(file.readError) : file.error}
-                </p>
-                {attemptedPath ? (
-                  <p className="text-muted-foreground">
-                    Attempted path
-                    <code className="block break-all font-mono text-foreground select-all">
-                      {attemptedPath}
-                    </code>
-                  </p>
-                ) : null}
-                {!isHostFile ? (
-                  <p className="text-muted-foreground">
-                    Workspace folder:{" "}
-                    <code className="break-all font-mono select-all">
-                      {file.readError?.cwd ?? cwd}
-                    </code>
-                    . Check the link's path or locate the file in Files.
-                  </p>
-                ) : null}
-              </div>
+              {stageToolRow ? (
+                <div
+                  ref={setToolSlotElement}
+                  className="flex min-h-9 min-w-0 flex-1 items-center"
+                />
+              ) : (
+                <ScrollArea
+                  radius="none"
+                  ref={breadcrumbRef}
+                  hideScrollbars
+                  scrollFade
+                  className="min-w-0 flex-1"
+                  data-file-breadcrumbs
+                >
+                  <div className="flex h-full w-max min-w-full items-center text-xs">
+                    <FileBreadcrumbs
+                      cwd={cwd}
+                      environmentId={environmentId}
+                      onNavigateFolder={navigateToFolder}
+                      onOpenFile={onOpenFile}
+                      projectName={projectName}
+                      relativePath={breadcrumbPath}
+                      trail={breadcrumbTrail}
+                      workspaceMutationId={workspaceMutationId}
+                    />
+                  </div>
+                </ScrollArea>
+              )}
+              {absolutePath &&
+              (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
+                <OpenInPicker
+                  environmentId={environmentId}
+                  keybindings={keybindings}
+                  availableEditors={availableEditors}
+                  enableShortcut={openInShortcutEnabled}
+                  openInCwd={absolutePath}
+                  openInCwdIsFile={file.isFile}
+                  compact
+                  revealFileManager={revealsInFileManager}
+                />
+              ) : null}
+              {canToggleRendered && renderedMode ? (
+                <FileSurfaceAction
+                  label={renderedToggleLabel(renderedMode, rendered)}
+                  pressed={rendered}
+                  onPress={() => {
+                    const pressed = !rendered;
+                    setRenderedPreferred(pressed);
+                    setHandledReveal(
+                      pressed && relativePath !== null
+                        ? { path: relativePath, requestId: revealRequestId }
+                        : null,
+                    );
+                  }}
+                >
+                  <MorphIcon
+                    className="size-3.5"
+                    icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
+                  />
+                </FileSurfaceAction>
+              ) : null}
+              {canViewWorkbook && canWriteFiles ? (
+                <FileSurfaceAction
+                  label={editsWorkbook ? "Show as laid out" : "Edit cells"}
+                  pressed={!editsWorkbook}
+                  // Unsaved edits are saved first, so the view shows the file with them.
+                  disabled={editsWorkbook && selectedFilePending}
+                  onPress={() => setEditWorkbookPreferred(!editsWorkbook)}
+                >
+                  <MorphIcon className="size-3.5" icon={editsWorkbook ? Eye : Table2} />
+                </FileSurfaceAction>
+              ) : null}
+              {showsRawText ? (
+                <FileSurfaceAction
+                  label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+                  pressed={wordWrap}
+                  onPress={() => setWordWrapOverride(!wordWrap)}
+                >
+                  <WrapTextIcon className="size-3.5" />
+                </FileSurfaceAction>
+              ) : null}
+              {versionsPath !== null ? (
+                <FileSurfaceAction label="Versions" onPress={() => setVersionsOpen(true)}>
+                  <HistoryIcon className="size-3.5" />
+                </FileSurfaceAction>
+              ) : null}
+              {!isHostFile && previewPath !== null && !explorerInRail ? (
+                <FileSurfaceAction
+                  label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
+                  pressed={explorerOpen}
+                  onPress={toggleExplorer}
+                >
+                  <FolderTree className="size-3.5" />
+                </FileSurfaceAction>
+              ) : null}
             </div>
-          ) : relativePath && file.data === null ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-              <Spinner size="lg" />
+          ) : null}
+          {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
+            <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
+              Read-only connection. Unsaved edits are kept until write access returns.
             </div>
-          ) : relativePath && file.data ? (
-            reviewOpen && turnBaseline && reviewTurnCount !== null ? (
-              <FileReviewSurface
-                key={`${relativePath}:${reviewTurnCount}`}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                threadRef={threadRef}
-                turnCount={reviewTurnCount}
-                baseline={turnBaseline.contents}
-                contents={file.data.contents}
-                version={selectedFilePending || saveConflict ? undefined : file.data.version}
-                canDiscard={canWriteFiles}
-                resolvedTheme={resolvedTheme}
-                wordWrap={wordWrap}
-                onKeep={keepReviewedFile}
-                onClose={() => chooseReview(false)}
-              />
-            ) : renderMermaid ? (
-              <Suspense fallback={<FileSurfaceLoading />}>
-                <MermaidFilePreview text={file.data.contents} />
-              </Suspense>
-            ) : isMarkdown && renderMarkdown ? (
-              <RenderedMarkdownSurface
-                key={relativePath}
-                environmentId={environmentId}
-                cwd={cwd}
-                relativePath={relativePath}
-                threadRef={threadRef}
-                contents={file.data.contents}
-                version={file.data.version}
-                workspaceMutationId={workspaceMutationId}
-                readOnly={file.data.truncated || isHostFile || !canWriteFiles}
-                onPendingChange={onPendingChange}
-              />
-            ) : tableDelimiter && renderTable ? (
-              spreadsheetKind?.format === "delimited" && !file.data.truncated ? (
+          ) : null}
+          {versionsPath !== null && versionsOpen ? (
+            <FileVersionsDialog
+              key={versionsPath}
+              open
+              onOpenChange={setVersionsOpen}
+              environmentId={environmentId}
+              cwd={cwd}
+              relativePath={versionsPath}
+              currentVersion={
+                editablePath === null || selectedFilePending || saveConflict
+                  ? undefined
+                  : file.data?.version
+              }
+              editorHoldsFile={editablePath !== null}
+              canRestore={canWriteFiles}
+            />
+          ) : null}
+          {saveConflict && editablePath !== null ? (
+            <FileSurfaceBar
+              tone="warning"
+              actions={
+                <>
+                  <Button
+                    type="button"
+                    size="micro"
+                    variant="outline"
+                    onClick={() =>
+                      discardFileDraft({ environmentId, cwd, relativePath: editablePath })
+                    }
+                  >
+                    Reload from disk
+                  </Button>
+                  <Button
+                    type="button"
+                    size="micro"
+                    variant="destructive-outline"
+                    onClick={() =>
+                      overwriteFileSaveConflict({ environmentId, cwd, relativePath: editablePath })
+                    }
+                  >
+                    Overwrite
+                  </Button>
+                </>
+              }
+            >
+              This file changed on disk while you were editing, so your edits are not saved.
+              Reloading drops them.
+            </FileSurfaceBar>
+          ) : null}
+          {attachment !== undefined ? (
+            <AttachmentWorkspaceBar
+              environmentId={environmentId}
+              cwd={cwd}
+              attachment={attachment}
+              onOpenFile={onOpenFile}
+            />
+          ) : null}
+          {missingPath !== null &&
+          reviewTurnCount !== null &&
+          turnBaseline?.available === true &&
+          turnBaseline.contents !== null ? (
+            <DeletedFileReviewBar
+              environmentId={environmentId}
+              cwd={cwd}
+              relativePath={missingPath}
+              threadRef={threadRef}
+              turnCount={reviewTurnCount}
+              canRestore={canWriteFiles}
+            />
+          ) : null}
+          {reviewAvailable && !reviewOpen ? (
+            <FileSurfaceBar
+              actions={
+                <>
+                  <Button
+                    type="button"
+                    size="micro"
+                    variant="outline"
+                    onClick={() => chooseReview(true)}
+                  >
+                    Review changes
+                  </Button>
+                  <Button
+                    type="button"
+                    size="micro"
+                    variant="ghost-muted"
+                    onClick={keepReviewedFile}
+                  >
+                    Keep
+                  </Button>
+                </>
+              }
+            >
+              The agent changed this file in its last turn.
+            </FileSurfaceBar>
+          ) : null}
+          {wholeFilePath !== null &&
+          // The grid has its own bar, which also knows about unsaved cells.
+          !(workbookPath !== null && editsWorkbook) &&
+          reviewTurnCount !== null &&
+          turnBaseline?.wholeFileOnly === true &&
+          !reviewKept ? (
+            <DocumentAgentChangeBar
+              key={`${wholeFilePath}:${reviewTurnCount}`}
+              environmentId={environmentId}
+              cwd={cwd}
+              relativePath={wholeFilePath}
+              threadId={threadRef.threadId}
+              turnCount={reviewTurnCount}
+              canDiscard={canWriteFiles}
+              onKeep={keepReviewedFile}
+              onDiscarded={() => setFileRefreshRevision((revision) => revision + 1)}
+            />
+          ) : null}
+          {previewPath &&
+          attachment === undefined &&
+          !isMedia &&
+          !renderBrowserFile &&
+          file.data?.truncated &&
+          (draft || isMarkdown || isMermaid || isHtml) ? (
+            <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground">
+              Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte
+              file.
+            </div>
+          ) : null}
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <div
+              className={cn(
+                "min-w-0 flex-1 flex-col overflow-hidden",
+                previewPath ? "flex" : "hidden",
+              )}
+            >
+              {isFolder ? null : relativePath && attachment ? (
+                <AttachmentFilePreview
+                  key={`${environmentId}:${attachment.id}`}
+                  name={attachment.name}
+                  mimeType={attachment.mimeType}
+                  sizeBytes={attachment.sizeBytes}
+                  asset={{ environmentId, attachmentId: attachment.id }}
+                  spreadsheetGrid
+                />
+              ) : relativePath && isVideo && absolutePath ? (
+                <WorkspaceVideoPreview
+                  key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
+                  environmentId={environmentId}
+                  threadRef={threadRef}
+                  draft={draft}
+                  absolutePath={absolutePath}
+                  workspaceRoot={cwd}
+                  name={relativePath}
+                  workspaceMutationId={workspaceMutationId}
+                />
+              ) : relativePath && isAudio && absolutePath ? (
+                <WorkspaceAudioPreview
+                  key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
+                  environmentId={environmentId}
+                  threadRef={threadRef}
+                  draft={draft}
+                  absolutePath={absolutePath}
+                  workspaceRoot={cwd}
+                  name={relativePath}
+                  workspaceMutationId={workspaceMutationId}
+                />
+              ) : relativePath && isImage && absolutePath ? (
+                <WorkspaceImagePreview
+                  key={absolutePath}
+                  environmentId={environmentId}
+                  threadRef={threadRef}
+                  draft={draft}
+                  absolutePath={absolutePath}
+                  workspaceRoot={cwd}
+                  alt={relativePath}
+                  workspaceMutationId={workspaceMutationId}
+                />
+              ) : pdfEditPath !== null && absolutePath ? (
+                <Suspense fallback={<FileSurfaceLoading />}>
+                  <WorkspacePdf
+                    key={`${environmentId}:${cwd}:${pdfEditPath}`}
+                    environmentId={environmentId}
+                    threadRef={threadRef}
+                    draft={draft}
+                    absolutePath={absolutePath}
+                    workspaceRoot={cwd}
+                    cwd={cwd}
+                    relativePath={pdfEditPath}
+                    title={pdfEditPath}
+                    refreshKey={spreadsheetRefreshKey}
+                    readOnly={!canWriteFiles}
+                    onPendingChange={onPendingChange}
+                  />
+                </Suspense>
+              ) : relativePath && renderBrowserFile && absolutePath ? (
+                <WorkspaceBrowserPreview
+                  key={absolutePath}
+                  environmentId={environmentId}
+                  threadRef={threadRef}
+                  draft={draft}
+                  absolutePath={absolutePath}
+                  workspaceRoot={cwd}
+                  title={relativePath}
+                  workspaceMutationId={workspaceMutationId}
+                />
+              ) : relativePath &&
+                absolutePath &&
+                file.data?.truncated &&
+                !isDocument &&
+                !draft &&
+                !isMarkdown &&
+                !isMermaid &&
+                !isHtml ? (
+                <WorkspaceLargeTextPreview
+                  key={`${absolutePath}:${renderTable}:${fileRefreshRevision}`}
+                  environmentId={environmentId}
+                  threadRef={threadRef}
+                  absolutePath={absolutePath}
+                  name={relativePath}
+                  delimiter={renderTable ? tableDelimiter : null}
+                  workspaceMutationId={workspaceMutationId}
+                  revealLine={revealLine}
+                  revealRequestId={revealRequestId}
+                  wordWrap={wordWrap}
+                />
+              ) : relativePath && workbookPath !== null && editsWorkbook ? (
                 <Suspense fallback={<FileSurfaceLoading />}>
                   <WorkspaceSpreadsheet
-                    key={`${environmentId}:${cwd}:${relativePath}`}
+                    key={`${environmentId}:${cwd}:${workbookPath}`}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={workbookPath}
+                    readOnly={!canWriteFiles}
+                    refreshKey={spreadsheetRefreshKey}
+                    sharedWithTextEditor={false}
+                    onPendingChange={onPendingChange}
+                    fallback={documentPreview}
+                    agentChange={
+                      reviewTurnCount !== null &&
+                      turnBaseline?.wholeFileOnly === true &&
+                      !reviewKept
+                        ? {
+                            threadId: threadRef.threadId,
+                            turnCount: reviewTurnCount,
+                            canDiscard: canWriteFiles,
+                            onSettled: keepReviewedFile,
+                          }
+                        : null
+                    }
+                  />
+                </Suspense>
+              ) : documentPreview !== null ? (
+                documentPreview
+              ) : relativePath && file.error && file.data === null ? (
+                <div
+                  role="alert"
+                  className="scrollbar-gutter-both flex min-h-0 flex-1 flex-col overflow-auto"
+                >
+                  <div className="my-auto flex shrink-0 flex-col gap-3 px-6 py-6 text-center text-xs leading-relaxed">
+                    <p className="text-destructive">
+                      {file.readError ? filePreviewReadErrorMessage(file.readError) : file.error}
+                    </p>
+                    {attemptedPath ? (
+                      <p className="text-muted-foreground">
+                        Attempted path
+                        <code className="block break-all font-mono text-foreground select-all">
+                          {attemptedPath}
+                        </code>
+                      </p>
+                    ) : null}
+                    {!isHostFile ? (
+                      <p className="text-muted-foreground">
+                        Workspace folder:{" "}
+                        <code className="break-all font-mono select-all">
+                          {file.readError?.cwd ?? cwd}
+                        </code>
+                        . Check the link's path or locate the file in Files.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : relativePath && file.data === null ? (
+                <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+                  <Spinner size="lg" />
+                </div>
+              ) : relativePath && file.data ? (
+                reviewOpen && turnBaseline && reviewTurnCount !== null ? (
+                  <FileReviewSurface
+                    key={`${relativePath}:${reviewTurnCount}`}
                     environmentId={environmentId}
                     cwd={cwd}
                     relativePath={relativePath}
-                    readOnly={!canWriteFiles}
-                    refreshKey={spreadsheetRefreshKey}
-                    sharedWithTextEditor
-                    onPendingChange={onPendingChange}
-                    fallback={
-                      <DelimitedTablePreview
-                        name={relativePath}
-                        text={file.data.contents}
-                        delimiter={tableDelimiter}
-                      />
-                    }
-                    agentChange={null}
+                    threadRef={threadRef}
+                    turnCount={reviewTurnCount}
+                    baseline={turnBaseline.contents}
+                    contents={file.data.contents}
+                    version={selectedFilePending || saveConflict ? undefined : file.data.version}
+                    canDiscard={canWriteFiles}
+                    resolvedTheme={resolvedTheme}
+                    wordWrap={wordWrap}
+                    onKeep={keepReviewedFile}
+                    onClose={() => chooseReview(false)}
                   />
-                </Suspense>
-              ) : (
-                <DelimitedTablePreview
-                  key={relativePath}
-                  name={relativePath}
-                  text={file.data.contents}
-                  delimiter={tableDelimiter}
-                />
-              )
-            ) : file.data.truncated || isHostFile || !canWriteFiles ? (
-              <SourceFilePreview
-                name={relativePath}
-                text={file.data.contents}
-                cacheKey={projectFileCacheKey(cwd, relativePath, file.data.contents)}
-                onPostRender={onFilePostRender}
-                wordWrap={wordWrap}
-              />
-            ) : (
-              <DiffWorkerPoolProvider>
-                <EditableFileSurface
-                  key={`${relativePath}:${resolvedTheme}`}
+                ) : renderMermaid ? (
+                  <Suspense fallback={<FileSurfaceLoading />}>
+                    <MermaidFilePreview text={file.data.contents} />
+                  </Suspense>
+                ) : isMarkdown && renderMarkdown ? (
+                  <RenderedMarkdownSurface
+                    key={relativePath}
+                    environmentId={environmentId}
+                    cwd={cwd}
+                    relativePath={relativePath}
+                    threadRef={threadRef}
+                    contents={file.data.contents}
+                    version={file.data.version}
+                    workspaceMutationId={workspaceMutationId}
+                    readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                    onPendingChange={onPendingChange}
+                  />
+                ) : tableDelimiter && renderTable ? (
+                  spreadsheetKind?.format === "delimited" && !file.data.truncated ? (
+                    <Suspense fallback={<FileSurfaceLoading />}>
+                      <WorkspaceSpreadsheet
+                        key={`${environmentId}:${cwd}:${relativePath}`}
+                        environmentId={environmentId}
+                        cwd={cwd}
+                        relativePath={relativePath}
+                        readOnly={!canWriteFiles}
+                        refreshKey={spreadsheetRefreshKey}
+                        sharedWithTextEditor
+                        onPendingChange={onPendingChange}
+                        fallback={
+                          <DelimitedTablePreview
+                            name={relativePath}
+                            text={file.data.contents}
+                            delimiter={tableDelimiter}
+                          />
+                        }
+                        agentChange={null}
+                      />
+                    </Suspense>
+                  ) : (
+                    <DelimitedTablePreview
+                      key={relativePath}
+                      name={relativePath}
+                      text={file.data.contents}
+                      delimiter={tableDelimiter}
+                    />
+                  )
+                ) : file.data.truncated || isHostFile || !canWriteFiles ? (
+                  <SourceFilePreview
+                    name={relativePath}
+                    text={file.data.contents}
+                    cacheKey={projectFileCacheKey(cwd, relativePath, file.data.contents)}
+                    onPostRender={onFilePostRender}
+                    wordWrap={wordWrap}
+                  />
+                ) : (
+                  <DiffWorkerPoolProvider>
+                    <EditableFileSurface
+                      key={`${relativePath}:${resolvedTheme}`}
+                      environmentId={environmentId}
+                      cwd={cwd}
+                      relativePath={relativePath}
+                      composerDraftTarget={composerDraftTarget}
+                      contents={file.data.contents}
+                      version={file.data.version}
+                      headBaseline={headBaseline}
+                      resolvedTheme={resolvedTheme}
+                      revealRequestId={revealRequestId}
+                      wordWrap={wordWrap}
+                      onPostRender={onFilePostRender}
+                      onPendingChange={onPendingChange}
+                    />
+                  </DiffWorkerPoolProvider>
+                )
+              ) : null}
+            </div>
+            {showExplorer ? (
+              <FileExplorerPane resizable={Boolean(previewPath)}>
+                <FileBrowserPanel
+                  key={`${environmentId}:${hostFolderPath ?? cwd}`}
                   environmentId={environmentId}
-                  cwd={cwd}
-                  relativePath={relativePath}
-                  composerDraftTarget={composerDraftTarget}
-                  contents={file.data.contents}
-                  version={file.data.version}
-                  headBaseline={headBaseline}
-                  resolvedTheme={resolvedTheme}
-                  revealRequestId={revealRequestId}
-                  wordWrap={wordWrap}
-                  onPostRender={onFilePostRender}
-                  onPendingChange={onPendingChange}
-                />
-              </DiffWorkerPoolProvider>
-            )
-          ) : null}
-        </div>
-        {showExplorer ? (
-          <FileExplorerPane resizable={Boolean(previewPath)}>
-            <FileBrowserPanel
-              key={`${environmentId}:${hostFolderPath ?? cwd}`}
-              environmentId={environmentId}
-              cwd={hostFolderPath ?? cwd}
-              projectName={hostFolderPath ?? projectName}
-              hostFolder={hostFolderPath !== null}
-              selectedPath={
-                hostFolderPath === null
-                  ? relativePath
-                  : trailChildOf(hostFolderPath, breadcrumbTrail ?? hostFolderPath)
-              }
-              selectedPathRevealId={revealRequestId}
-              onOpenFile={onOpenFile}
-              workspaceMutationId={workspaceMutationId}
-              {...(previewPath && !isMedia && !isPdf
-                ? {
-                    onRefreshSelectedFile: () => {
-                      if (!isDocument) file.refresh();
-                      setFileRefreshRevision((value) => value + 1);
-                    },
+                  cwd={hostFolderPath ?? cwd}
+                  projectName={hostFolderPath ?? projectName}
+                  hostFolder={hostFolderPath !== null}
+                  selectedPath={
+                    hostFolderPath === null
+                      ? relativePath
+                      : trailChildOf(hostFolderPath, breadcrumbTrail ?? hostFolderPath)
                   }
-                : {})}
-            />
-          </FileExplorerPane>
-        ) : null}
-      </div>
-    </div>
+                  selectedPathRevealId={revealRequestId}
+                  onOpenFile={onOpenFile}
+                  workspaceMutationId={workspaceMutationId}
+                  {...(previewPath && !isMedia && !isPdf
+                    ? {
+                        onRefreshSelectedFile: () => {
+                          if (!isDocument) file.refresh();
+                          setFileRefreshRevision((value) => value + 1);
+                        },
+                      }
+                    : {})}
+                />
+              </FileExplorerPane>
+            ) : null}
+          </div>
+        </div>
+      </FileToolSlotContext>
+    </DocumentSelectionKeyContext>
   );
 }
 

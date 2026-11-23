@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { type ReactNode, use } from "react";
+import { createPortal } from "react-dom";
 
 import { Spinner } from "~/components/ui/spinner";
 import { Button } from "~/components/ui/button";
@@ -6,6 +7,8 @@ import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { DIFF_SURFACE_THEME_UNSAFE_CSS } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
+
+import { FileToolSlotContext } from "./explorerPlacement";
 
 export const FILE_SURFACE_SUBHEADER_CLASS =
   "flex h-10 min-h-10 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent";
@@ -99,6 +102,51 @@ export function FileSurfaceAction(props: {
       />
       <TooltipPopup>{props.label}</TooltipPopup>
     </Tooltip>
+  );
+}
+
+/**
+ * An editor's tools. A row of its own beside the chat; on the stage of document view they join
+ * the stage's one tool row.
+ */
+export function FileToolRow(props: {
+  readonly label: string;
+  /** The tools wrap onto more lines instead of scrolling sideways. */
+  readonly wrap?: boolean;
+  /** Kept in view at the end of the row, such as the save state. */
+  readonly end?: ReactNode;
+  readonly children: ReactNode;
+}) {
+  const slot = use(FileToolSlotContext);
+  if (slot !== null && slot.element === null) return null;
+  const row = (
+    <>
+      <div
+        role="toolbar"
+        aria-label={props.label}
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-0.5",
+          // One line of tools scrolls sideways where there is no room for all of them.
+          props.wrap
+            ? "flex-wrap"
+            : "overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        )}
+      >
+        {props.children}
+      </div>
+      {props.end}
+    </>
+  );
+  if (slot !== null && slot.element !== null) return createPortal(row, slot.element);
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-1 border-b border-border/60 px-2 text-xs",
+        props.wrap ? "min-h-10 py-1" : "h-9",
+      )}
+    >
+      {row}
+    </div>
   );
 }
 

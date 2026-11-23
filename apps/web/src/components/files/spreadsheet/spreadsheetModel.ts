@@ -1,3 +1,4 @@
+import type { DocumentSelection } from "~/documentContext";
 import type {
   SpreadsheetCellFormat,
   SpreadsheetCellInput,
@@ -321,4 +322,92 @@ export function pasteTargets(
     }
   }
   return { targets, dropped };
+}
+
+/** The most selected cells whose values travel with a message; a larger selection sends its range only. */
+const SELECTION_VALUES_MAX_CELLS = 100;
+
+/** The selection as the chat's context chip reports it: the sheet, the range, and a small range's values. */
+export function spreadsheetDocumentSelection(
+  sheet: string,
+  area: GridArea,
+  text: (row: number, column: number) => string,
+): DocumentSelection {
+  const first = cellLabel({ row: area.top, column: area.left });
+  const last = cellLabel({ row: area.bottom, column: area.right });
+  const values =
+    areaCellCount(area) <= SELECTION_VALUES_MAX_CELLS ? areaToClipboardText(area, text) : "";
+  return {
+    kind: "spreadsheet",
+    sheet,
+    range: first === last ? first : `${first}:${last}`,
+    ...(values.trim() === "" ? {} : { values }),
+  };
+}
+
+export const DEFAULT_COLUMN_WIDTH = 96;
+const MIN_COLUMN_WIDTH = 40;
+/** The widest a column grows to fit its text; a longer value is cut off until the user widens it. */
+export const MAX_FITTED_COLUMN_WIDTH = 320;
+const MAX_COLUMN_WIDTH = 800;
+
+export function clampColumnWidth(width: number): number {
+  return Math.round(Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, width)));
+}
+
+/** Where each column sits when some have a width of their own. Lookups cost a search of those few. */
+export interface ColumnLayout {
+  readonly widthOf: (column: number) => number;
+  /** The left edge of a column, from the left edge of column A. */
+  readonly offsetOf: (column: number) => number;
+  /** The column under a distance from the left edge of column A. */
+  readonly columnAt: (offset: number) => number;
+}
+
+export function columnLayout(widths: ReadonlyMap<number, number>): ColumnLayout {
+  const columns = [...widths.keys()].sort((a, b) => a - b);
+  // lefts[i] is the left edge of the i-th sized column.
+  const lefts: Array<number> = [];
+  let extra = 0;
+  for (const column of columns) {
+    lefts.push(column * DEFAULT_COLUMN_WIDTH + extra);
+    extra += widths.get(column)! - DEFAULT_COLUMN_WIDTH;
+  }
+  /** How many sized columns satisfy `before`, which holds for a prefix of them. */
+  const count = (before: (index: number) => boolean) => {
+    let low = 0;
+    let high = columns.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (before(middle)) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const widthOf = (column: number) => widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
+  return {
+    widthOf,
+    offsetOf: (column) => {
+      const index = count((i) => columns[i]! < column);
+      if (index === 0) return column * DEFAULT_COLUMN_WIDTH;
+      const last = columns[index - 1]!;
+      return lefts[index - 1]! + widthOf(last) + (column - last - 1) * DEFAULT_COLUMN_WIDTH;
+    },
+    columnAt: (offset) => {
+      const index = count((i) => lefts[i]! <= offset);
+      if (index === 0) return Math.floor(offset / DEFAULT_COLUMN_WIDTH);
+      const last = columns[index - 1]!;
+      const past = offset - lefts[index - 1]! - widthOf(last);
+      return past < 0 ? last : last + 1 + Math.floor(past / DEFAULT_COLUMN_WIDTH);
+    },
+  };
+}
+
+/** The width that shows the widest of a column's texts, within the limits a fitted column keeps. */
+export function fittedColumnWidth(textWidths: Iterable<number>, padding: number): number {
+  let widest = 0;
+  for (const width of textWidths) widest = Math.max(widest, width);
+  return Math.round(
+    Math.max(DEFAULT_COLUMN_WIDTH, Math.min(MAX_FITTED_COLUMN_WIDTH, widest + padding)),
+  );
 }

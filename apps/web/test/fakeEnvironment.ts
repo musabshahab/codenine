@@ -59,7 +59,12 @@ const descriptor = {
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true, workspaceKinds: true },
+  capabilities: {
+    repositoryIdentity: true,
+    workspaceKinds: true,
+    spreadsheetEditing: true,
+    pdfEditing: true,
+  },
 };
 const auth = {
   policy: "loopback-browser",
@@ -486,6 +491,23 @@ export function installFakeEnvironment(
       threads = [];
       dispatched = [];
       acceptCommands = false;
+    },
+  };
+}
+
+/**
+ * Answers more of the environment's calls until disposed, by method name. A handler returns an
+ * Effect, or a Stream for a subscription.
+ */
+export function installFakeRpc(overrides: Record<string, (input: never) => unknown>): Disposable {
+  const previous = new Map(Object.keys(overrides).map((method) => [method, handlers[method]]));
+  Object.assign(handlers, overrides);
+  return {
+    [Symbol.dispose]: () => {
+      for (const [method, handler] of previous) {
+        if (handler === undefined) delete handlers[method];
+        else handlers[method] = handler;
+      }
     },
   };
 }

@@ -15,7 +15,12 @@ import { TextLayer, type PDFDocumentProxy } from "pdfjs-dist";
 import { ChevronDownIcon, ChevronUpIcon, MinusIcon, PlusIcon, ScanIcon } from "lucide-react";
 import { Input } from "~/components/ui/input";
 import { observeResize } from "~/lib/observeResize";
-import { FileSurfaceAction, FileSurfaceFailure, FileSurfaceLoading } from "./fileSurfaceChrome";
+import {
+  FileSurfaceAction,
+  FileSurfaceFailure,
+  FileSurfaceLoading,
+  FileToolRow,
+} from "./fileSurfaceChrome";
 import { DocumentTooLargeError, readBoundedDocument } from "./readBoundedDocument";
 import { openPdf } from "./pdfDocument";
 import {
@@ -516,7 +521,7 @@ export default function PdfViewer(props: {
   }, [pdf, query]);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-2 py-1 text-xs">
+      <FileToolRow label="PDF tools" wrap>
         {props.toolbarStart}
         <span className="mr-auto px-1 tabular-nums" aria-live="polite">
           {pdf ? `${current + 1} / ${pdf.numPages} pages` : "PDF"}
@@ -597,7 +602,7 @@ export default function PdfViewer(props: {
           </>
         ) : null}
         {props.toolbarEnd}
-      </div>
+      </FileToolRow>
       {props.header}
       <div className="flex min-h-0 min-w-0 flex-1">
         <div

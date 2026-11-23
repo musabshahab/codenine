@@ -65,6 +65,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+j", command: "terminal.toggle" },
   { key: "mod+alt+b", command: "rightPanel.toggle" },
   { key: "mod+shift+b", command: "threadPanel.toggle", when: "!terminalFocus" },
+  { key: "mod+alt+v", command: "rightPanel.toggleDocumentView", when: "!terminalFocus" },
   { key: "mod+t", command: "rightPanel.new", when: "rightPanelOpen && !terminalFocus" },
   // Off macOS, mod+d/n/w would be Ctrl+D/N/W, which the shell needs. Browsers there keep
   // Ctrl+Shift+N and Ctrl+Shift+W for their own windows, so those two are desktop-only.

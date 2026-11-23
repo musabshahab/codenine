@@ -950,5 +950,46 @@ describe("Documents reply files", () => {
         });
       }),
     );
+
+    it.effect("copies a chat attachment under a free name and keeps what is already there", () =>
+      Effect.gen(function* () {
+        const { cwd, documents, write, readBytes } = yield* makeWorkspace();
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const versions = yield* FileVersions.FileVersions;
+        const { attachmentsDir } = yield* ServerConfig.ServerConfig;
+        const attachmentId = "thread-1-00000000-0000-4000-8000-000000000001-xlsx";
+        yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(attachmentsDir, `${attachmentId}.xlsx`),
+          "attached",
+        );
+        const copy = (name: string, id = attachmentId) =>
+          documents.copyAttachment({ cwd, attachmentId: id, name });
+        const text = (name: string) =>
+          readBytes(name).pipe(Effect.map((bytes) => Buffer.from(bytes).toString()));
+
+        expect((yield* copy("budget.xlsx")).relativePath).toBe("budget.xlsx");
+        expect(yield* text("budget.xlsx")).toBe("attached");
+        // A taken name is never written over: the copy takes the next free number.
+        yield* write("budget (2).xlsx", "mine");
+        expect((yield* copy("budget.xlsx")).relativePath).toBe("budget (3).xlsx");
+        expect(yield* text("budget (2).xlsx")).toBe("mine");
+        // Only the name is kept of a path, so a copy cannot leave the workspace.
+        expect((yield* copy("../../outside/plan.xlsx")).relativePath).toBe("plan.xlsx");
+        // The folder has no Git, so the copy is a version Versions can list and restore.
+        const kept = (yield* versions.list({ cwd, relativePath: "budget.xlsx" })).versions;
+        expect(kept.map((version) => [version.origin, version.state])).toEqual([
+          ["user", "stored"],
+        ]);
+
+        expect(yield* copy("..").pipe(Effect.flip)).toMatchObject({ reason: "bad-name" });
+        expect(
+          yield* copy("budget.xlsx", "thread-1-00000000-0000-4000-8000-000000000002-xlsx").pipe(
+            Effect.flip,
+          ),
+        ).toMatchObject({ reason: "not-found" });
+      }),
+    );
   });
 });

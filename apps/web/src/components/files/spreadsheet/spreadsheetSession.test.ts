@@ -191,7 +191,27 @@ it("sends edits made during a save when its grid goes, and keeps failed ones for
   // Nothing is unsaved now, so the next grid starts from the file.
   const fresh = acquireSpreadsheetSession("book", input);
   expect(fresh).not.toBe(session);
+  // It still returns to the cell the user left, as when another document was shown meanwhile.
+  const place = { anchor: { row: 4, column: 2 }, focus: { row: 6, column: 3 } };
+  await new Promise<void>((resolve) => {
+    const stop = fresh.subscribe(() => {
+      if (fresh.getSnapshot().status !== "ready") return;
+      stop();
+      resolve();
+    });
+  });
+  fresh.select(place);
   fresh.release();
+  const back = acquireSpreadsheetSession("book", input);
+  await new Promise<void>((resolve) => {
+    const stop = back.subscribe(() => {
+      if (back.getSnapshot().status !== "ready") return;
+      stop();
+      resolve();
+    });
+  });
+  expect(back.getSnapshot().selection).toEqual(place);
+  back.release();
 });
 
 it("says so when a sheet cannot be read, and formats a whole column only where it is used", async () => {

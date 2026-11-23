@@ -254,6 +254,21 @@ export function createProjectEnvironmentAtoms<R, E>(
             fileMetadata.refreshPath(environmentId, path, registry);
         }),
     }),
+    copyAttachment: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:documents:copy-attachment",
+      tag: WS_METHODS.documentsCopyAttachment,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.documentsCopyAttachment, input).pipe(
+          Effect.tap((result) =>
+            fileMetadata.invalidate(resolveWorkspaceFilePath(result.relativePath, input.cwd)),
+          ),
+        ),
+    }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
     create: createEnvironmentCommand(runtime, {

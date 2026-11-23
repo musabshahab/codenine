@@ -10,6 +10,7 @@ import { OFFICE_PREVIEW_MAX_BYTES, type OfficeWorkerResult } from "./officePrevi
 const WordDocument = lazy(() => import("./office/WordDocument"));
 const Spreadsheet = lazy(() => import("./office/Spreadsheet"));
 const Presentation = lazy(() => import("./office/Presentation"));
+const AttachmentSpreadsheet = lazy(() => import("./spreadsheet/AttachmentSpreadsheet"));
 async function readOfficeFile(src: string, signal: AbortSignal) {
   const response = await fetch(src, { signal });
   if (!response.ok) throw new Error("The file could not be loaded. Close it and try again.");
@@ -38,6 +39,8 @@ export default function OfficeViewer(props: {
   readonly name: string;
   readonly kind: Extract<OfficePreviewKind, "docx" | "xlsx" | "pptx">;
   readonly sizeBytes?: number;
+  /** Shows a workbook in the editing grid, read only, instead of as it is laid out. */
+  readonly spreadsheetGrid?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<Extract<OfficeWorkerResult, { bytes: ArrayBuffer }>>();
@@ -104,6 +107,13 @@ export default function OfficeViewer(props: {
       </div>
     );
   if (!prepared) return <FileSurfaceLoading />;
+  if (props.kind === "xlsx" && props.spreadsheetGrid === true) {
+    return (
+      <Suspense fallback={<FileSurfaceLoading />}>
+        <AttachmentSpreadsheet bytes={prepared.bytes} name={props.name} sessionKey={props.src} />
+      </Suspense>
+    );
+  }
   const Viewer =
     props.kind === "docx" ? WordDocument : props.kind === "xlsx" ? Spreadsheet : Presentation;
   return (

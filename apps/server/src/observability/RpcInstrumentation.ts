@@ -149,6 +149,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.documentsOpenPdf]: "workspace",
   [WS_METHODS.documentsEditPdf]: "workspace",
   [WS_METHODS.documentsSaveReplyFile]: "workspace",
+  [WS_METHODS.documentsCopyAttachment]: "workspace",
   [WS_METHODS.projectsListFileActivity]: "workspace",
   [WS_METHODS.projectsEnsureScratch]: "orchestration",
   [WS_METHODS.projectsCreateNew]: "orchestration",

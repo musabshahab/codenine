@@ -37,6 +37,11 @@ export interface WorkspacePreset {
     readonly gitActions: boolean;
   };
   readonly rightPanelTabs: ReadonlyArray<WorkspacePanelTab>;
+  /**
+   * Where an opened file goes until the user chooses for the workspace: the main stage with the
+   * chat beside it, or the panel beside the chat.
+   */
+  readonly fileView: "document" | "chat";
   /** What a new agent made in the workspace starts able to do. */
   readonly agentAbilities: AgentAbilities;
   /** Connector catalog ids. */
@@ -48,6 +53,7 @@ export interface WorkspacePreset {
 const WITHOUT_GIT = {
   composerControls: { checkout: false, gitActions: false },
   rightPanelTabs: ["terminal", "files", "side-chat", "task", "workflow"],
+  fileView: "document",
 } as const satisfies Partial<WorkspacePreset>;
 
 export const WORKSPACE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>> = {
@@ -64,6 +70,7 @@ export const WORKSPACE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>>
     },
     composerControls: { checkout: true, gitActions: true },
     rightPanelTabs: ["terminal", "files", "diff", "side-chat", "task", "workflow"],
+    fileView: "chat",
     agentAbilities: { readFiles: false, editFiles: false, runCommands: false, searchWeb: false },
     suggestedConnectors: ["github", "linear", "sentry", "context7"],
     suggestedSkills: ["review-code", "write-release-notes", "plan-a-project"],
@@ -88,6 +95,7 @@ export const WORKSPACE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>>
     composerControls: WITHOUT_GIT.composerControls,
     // Listed first where tabs are offered: what the chat read, and what changed in the folder.
     rightPanelTabs: ["sources", "activity", ...WITHOUT_GIT.rightPanelTabs],
+    fileView: WITHOUT_GIT.fileView,
     // Editing is how an agent fills in a spreadsheet, a form or a deck when asked.
     agentAbilities: { readFiles: true, editFiles: true, runCommands: false, searchWeb: true },
     suggestedConnectors: ["gmail", "google-calendar", "google-drive", "slack", "notion"],

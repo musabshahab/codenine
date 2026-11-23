@@ -52,6 +52,7 @@ export default function OfficeViewer(props: {
   readonly name: string;
   readonly kind: OfficePreviewKind;
   readonly sizeBytes?: number;
+  readonly spreadsheetGrid?: boolean;
 }) {
   if (props.kind === "docx" || props.kind === "xlsx" || props.kind === "pptx")
     return (

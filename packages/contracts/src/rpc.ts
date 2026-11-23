@@ -143,6 +143,9 @@ import {
 } from "./orchestrationV2.ts";
 import {
   PdfEditInput,
+  AttachmentCopyError,
+  AttachmentCopyInput,
+  AttachmentCopyResult,
   ReplyFileError,
   ReplyFileExistsError,
   ReplyFileSaveInput,
@@ -372,6 +375,7 @@ export const WS_METHODS = {
   documentsOpenPdf: "documents.openPdf",
   documentsEditPdf: "documents.editPdf",
   documentsSaveReplyFile: "documents.saveReplyFile",
+  documentsCopyAttachment: "documents.copyAttachment",
   projectsListFileActivity: "projects.listFileActivity",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
@@ -1300,6 +1304,12 @@ const WsDocumentsSaveReplyFileRpc = Rpc.make(WS_METHODS.documentsSaveReplyFile, 
   error: Schema.Union([ReplyFileExistsError, ReplyFileError, EnvironmentAuthorizationError]),
 });
 
+const WsDocumentsCopyAttachmentRpc = Rpc.make(WS_METHODS.documentsCopyAttachment, {
+  payload: AttachmentCopyInput,
+  success: AttachmentCopyResult,
+  error: Schema.Union([AttachmentCopyError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsListFileActivityRpc = Rpc.make(WS_METHODS.projectsListFileActivity, {
   payload: ProjectListFileActivityInput,
   success: ProjectListFileActivityResult,
@@ -1869,6 +1879,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsDocumentsOpenPdfRpc,
   WsDocumentsEditPdfRpc,
   WsDocumentsSaveReplyFileRpc,
+  WsDocumentsCopyAttachmentRpc,
   WsProjectsListFileActivityRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

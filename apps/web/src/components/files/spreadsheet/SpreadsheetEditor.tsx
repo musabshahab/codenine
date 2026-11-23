@@ -1,5 +1,13 @@
 import type { SpreadsheetOperation } from "@codenine/contracts";
-import { BoldIcon, EllipsisIcon, HashIcon, PlusIcon, Rows3Icon } from "lucide-react";
+import {
+  BoldIcon,
+  EllipsisIcon,
+  HashIcon,
+  PaintBucketIcon,
+  PlusIcon,
+  Redo2Icon,
+  Undo2Icon,
+} from "lucide-react";
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -15,6 +23,7 @@ import {
 import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { KEYBOARD_GRID_PROPS } from "~/lib/editableFocus";
@@ -27,6 +36,7 @@ import {
   FileSurfaceFailure,
   FileSurfaceLoading,
   FileSurfaceNotice,
+  FileToolRow,
 } from "../fileSurfaceChrome";
 import {
   areaCellCount,
@@ -36,28 +46,84 @@ import {
   cellEditText,
   cellLabel,
   type CellPosition,
+  clampColumnWidth,
   clipboardTextToRows,
   columnLabel,
+  columnLayout,
+  DEFAULT_COLUMN_WIDTH,
+  fittedColumnWidth,
   type GridSelection,
   moveSelection,
   parseCellInput,
   pasteTargets,
   selectionArea,
+  spreadsheetDocumentSelection,
 } from "./spreadsheetModel";
+import { usePublishDocumentSelection } from "../documentSelectionPublisher";
 import {
   acquireSpreadsheetSession,
   type SpreadsheetSession,
   type SpreadsheetSnapshot,
   type SpreadsheetTransport,
 } from "./spreadsheetSession";
+import { rememberColumnWidths, rememberSheetScroll, sheetView } from "./spreadsheetViewMemory";
 
 const ROW_HEIGHT = 24;
-const COLUMN_WIDTH = 112;
+/** A cell's side padding and border, plus a little air, around its measured text. */
+const CELL_TEXT_PADDING = 20;
+/** The rows whose text decides a column's fitted width. */
+const FIT_ROWS = 200;
 const HEADER_HEIGHT = 24;
 const ROW_HEADER_WIDTH = 52;
 const OVERSCAN = 3;
 /** The most cells one copy, paste or clear handles, so a whole-sheet selection cannot stall the tab. */
 const MAX_BULK_CELLS = 10_000;
+
+/** Six hex digits, as a workbook stores a fill. Pale, so dark text stays readable on them. */
+const FILLS = [
+  { label: "Amber", colour: "FDEFC8" },
+  { label: "Green", colour: "DDF1E4" },
+  { label: "Red", colour: "FADADA" },
+] as const;
+
+let measuringContext: CanvasRenderingContext2D | null = null;
+
+/**
+ * Widths for the columns on screen that have text and were not measured before. Null when there
+ * are none, so a grid that is only scrolled or edited is never measured twice.
+ */
+function fitNewColumns(input: {
+  readonly fitted: ReadonlySet<number>;
+  readonly widths: ReadonlyMap<number, number>;
+  readonly fontFamily: string;
+  readonly firstColumn: number;
+  readonly lastColumn: number;
+  readonly rows: number;
+  readonly text: (row: number, column: number) => { text: string; bold: boolean } | null;
+}): { readonly widths: ReadonlyMap<number, number>; readonly columns: Array<number> } | null {
+  const columns: Array<number> = [];
+  let widths: Map<number, number> | null = null;
+  for (let column = input.firstColumn; column < input.lastColumn; column++) {
+    if (input.fitted.has(column)) continue;
+    const textWidths: Array<number> = [];
+    for (let row = 0; row < input.rows; row++) {
+      const cell = input.text(row, column);
+      if (cell === null) continue;
+      measuringContext ??= document.createElement("canvas").getContext("2d");
+      if (measuringContext === null) return null;
+      measuringContext.font = `${cell.bold ? "600 " : ""}12px ${input.fontFamily}`;
+      textWidths.push(measuringContext.measureText(cell.text).width);
+    }
+    // A column with nothing read yet is looked at again when its cells arrive.
+    if (textWidths.length === 0) continue;
+    columns.push(column);
+    const width = fittedColumnWidth(textWidths, CELL_TEXT_PADDING);
+    if (width !== DEFAULT_COLUMN_WIDTH && !input.widths.has(column)) {
+      (widths ??= new Map(input.widths)).set(column, width);
+    }
+  }
+  return columns.length === 0 ? null : { widths: widths ?? input.widths, columns };
+}
 
 const NUMBER_FORMATS = [
   { label: "Automatic", code: "" },
@@ -143,7 +209,7 @@ function SpreadsheetSurface(props: {
   }
   const saved = snapshot.saveState === "saved" && !snapshot.conflict;
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="@container flex min-h-0 flex-1 flex-col">
       {props.renderHeader?.({
         version: saved ? snapshot.version : undefined,
         reload: () => void session.reload(),
@@ -249,6 +315,10 @@ function SpreadsheetGrid(props: {
     !props.readOnly && !snapshot.busy && !snapshot.conflict && snapshot.sheetProblem === null;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ firstRow: 0, firstColumn: 0, rows: 40, columns: 12 });
+  const sheet = snapshot.activeSheet;
+  // The grid is keyed by its sheet, so this starts from the widths the sheet was left with.
+  const [widths, setWidths] = useState(() => sheetView(session.view, sheet).widths);
+  const layout = columnLayout(widths);
   const [editing, setEditingState] = useState<Editing | null>(null);
   // Handlers read the ref: a blur that follows Enter, Tab or Escape must not commit a second time.
   const editingRef = useRef<Editing | null>(null);
@@ -257,14 +327,22 @@ function SpreadsheetGrid(props: {
     setEditingState(next);
   };
 
-  const measure = () => {
+  // Stable for the scroll and resize listeners, which read the layout of the latest render.
+  const measure = useStableCallback(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
+    rememberSheetScroll(session.view, sheet, scroller.scrollTop, scroller.scrollLeft);
+    const columns = layout;
+    const firstVisible = columns.columnAt(scroller.scrollLeft);
     const next = {
       firstRow: Math.max(0, Math.floor(scroller.scrollTop / ROW_HEIGHT) - OVERSCAN),
-      firstColumn: Math.max(0, Math.floor(scroller.scrollLeft / COLUMN_WIDTH) - OVERSCAN),
+      firstColumn: Math.max(0, firstVisible - OVERSCAN),
       rows: Math.ceil(scroller.clientHeight / ROW_HEIGHT) + OVERSCAN * 2 + 1,
-      columns: Math.ceil(scroller.clientWidth / COLUMN_WIDTH) + OVERSCAN * 2 + 1,
+      columns:
+        columns.columnAt(scroller.scrollLeft + scroller.clientWidth) -
+        firstVisible +
+        OVERSCAN * 2 +
+        1,
     };
     setView((current) =>
       current.firstRow === next.firstRow &&
@@ -274,15 +352,18 @@ function SpreadsheetGrid(props: {
         ? current
         : next,
     );
-  };
+  });
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- reads the scroller's laid-out size before paint and follows its resizes, which decide the cells to render
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
+    // A grid that returns to a sheet shows the part of it the user left.
+    const left = sheetView(session.view, sheet);
+    scroller.scrollTop = left.scrollTop;
+    scroller.scrollLeft = left.scrollLeft;
     measure();
     return observeResize(scroller, measure);
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `measure` only reads the scroller, which is the same element for the life of the grid
-  }, []);
+  }, [session, sheet, measure]);
 
   const lastRow = Math.min(rowCount, view.firstRow + view.rows);
   const lastColumn = Math.min(columnCount, view.firstColumn + view.columns);
@@ -298,6 +379,54 @@ function SpreadsheetGrid(props: {
     }
   }, [session, view.firstRow, view.firstColumn, lastRow, lastColumn]);
 
+  // Changes only when cell contents may have, so moving the selection measures nothing.
+  const { cellAt } = snapshot;
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- measures cell text with a canvas once cells arrive, so a column opens wide enough for what it holds, before paint
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const fitted = fitNewColumns({
+      fitted: sheetView(session.view, sheet).fitted,
+      widths,
+      fontFamily: getComputedStyle(scroller).fontFamily,
+      firstColumn: view.firstColumn,
+      lastColumn,
+      rows: Math.min(rowCount, FIT_ROWS),
+      text: (row, column) => {
+        const cell = cellAt(row, column);
+        return cell === undefined
+          ? null
+          : { text: cellDisplayText(cell, date1904), bold: cell.format?.bold === true };
+      },
+    });
+    if (fitted === null) return;
+    rememberColumnWidths(session.view, sheet, fitted.widths, fitted.columns);
+    if (fitted.widths !== widths) setWidths(fitted.widths);
+  }, [session, sheet, cellAt, widths, view.firstColumn, lastColumn, rowCount, date1904]);
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- column widths decide which columns are on screen, so the scroller is measured again when they change
+  useLayoutEffect(() => {
+    measure();
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `measure` reads the layout built from `widths`, so it runs again when they change
+  }, [widths, measure]);
+
+  const setColumnWidth = (column: number, width: number) => {
+    const next = new Map(widths).set(column, clampColumnWidth(width));
+    rememberColumnWidths(session.view, sheet, next, [column]);
+    setWidths(next);
+  };
+  /** Sizes columns to their text again, as a double click on a column's edge does. */
+  const fitColumns = (first: number, last: number) => {
+    const next = new Map(widths);
+    const columns: Array<number> = [];
+    for (let column = first; column <= Math.min(last, columnCount - 1); column++) {
+      next.delete(column);
+      columns.push(column);
+    }
+    rememberColumnWidths(session.view, sheet, next, columns, false);
+    setWidths(next);
+  };
+  const resizing = useRef<{ column: number; startX: number; startWidth: number } | null>(null);
+
   const active = selection.anchor;
   const area = selectionArea(selection);
   const activeCell = snapshot.cellAt(active.row, active.column);
@@ -307,7 +436,8 @@ function SpreadsheetGrid(props: {
     const scroller = scrollerRef.current;
     if (!scroller) return;
     const top = row * ROW_HEIGHT;
-    const left = column * COLUMN_WIDTH;
+    const left = layout.offsetOf(column);
+    const columnWidth = layout.widthOf(column);
     const height = scroller.clientHeight - HEADER_HEIGHT;
     const width = scroller.clientWidth - ROW_HEADER_WIDTH;
     if (top < scroller.scrollTop) scroller.scrollTop = top;
@@ -315,8 +445,8 @@ function SpreadsheetGrid(props: {
       scroller.scrollTop = top + ROW_HEIGHT - height;
     }
     if (left < scroller.scrollLeft) scroller.scrollLeft = left;
-    else if (left + COLUMN_WIDTH > scroller.scrollLeft + width) {
-      scroller.scrollLeft = left + COLUMN_WIDTH - width;
+    else if (left + columnWidth > scroller.scrollLeft + width) {
+      scroller.scrollLeft = left + columnWidth - width;
     }
   };
   const select = (next: GridSelection) => {
@@ -499,7 +629,7 @@ function SpreadsheetGrid(props: {
 
   const positionAt = (event: PointerEvent<HTMLDivElement>): GridSelection | null => {
     const target = event.target as HTMLElement;
-    if (target.closest("input")) return null;
+    if (target.closest("input,[data-column-resize]")) return null;
     const columnHeader = target.closest<HTMLElement>("[data-column-header]");
     if (columnHeader) {
       const column = Number(columnHeader.dataset.columnHeader);
@@ -512,7 +642,8 @@ function SpreadsheetGrid(props: {
     }
     if (target.closest("[data-grid-corner]")) return null;
     const rect = event.currentTarget.getBoundingClientRect();
-    const column = Math.floor((event.clientX - rect.left - ROW_HEADER_WIDTH) / COLUMN_WIDTH);
+    const across = event.clientX - rect.left - ROW_HEADER_WIDTH;
+    const column = across < 0 ? -1 : layout.columnAt(across);
     const row = Math.floor((event.clientY - rect.top - HEADER_HEIGHT) / ROW_HEIGHT);
     if (row < 0 || column < 0 || row >= rowCount || column >= columnCount) return null;
     return { anchor: { row, column }, focus: { row, column } };
@@ -543,7 +674,11 @@ function SpreadsheetGrid(props: {
   };
   const rows = area.bottom - area.top + 1;
   const columns = area.right - area.left + 1;
-  const sheet = snapshot.activeSheet;
+  usePublishDocumentSelection(
+    spreadsheetDocumentSelection(sheet, area, (row, column) =>
+      cellCopyText(snapshot.cellAt(row, column)),
+    ),
+  );
   const plural = (count: number, noun: string) => (count === 1 ? noun : `${count} ${noun}s`);
 
   const cells: Array<ReactNode> = [];
@@ -568,8 +703,8 @@ function SpreadsheetGrid(props: {
           )}
           style={{
             top: HEADER_HEIGHT + row * ROW_HEIGHT,
-            left: ROW_HEADER_WIDTH + column * COLUMN_WIDTH,
-            width: COLUMN_WIDTH - 1,
+            left: ROW_HEADER_WIDTH + layout.offsetOf(column),
+            width: layout.widthOf(column) - 1,
             height: ROW_HEIGHT - 1,
             // A fill is a fixed colour, so its text stays dark in both themes.
             ...(cell.format?.fill === undefined
@@ -584,7 +719,20 @@ function SpreadsheetGrid(props: {
   }
 
   const columnHeaders: Array<ReactNode> = [];
-  for (let column = view.firstColumn; column < lastColumn; column++) {
+  const columnLines: Array<ReactNode> = [];
+  for (let index = view.firstColumn; index < lastColumn; index++) {
+    // The handlers below close over this, not the loop's counter.
+    const column = index;
+    const left = ROW_HEADER_WIDTH + layout.offsetOf(column);
+    const width = layout.widthOf(column);
+    columnLines.push(
+      <div
+        key={column}
+        aria-hidden
+        className="pointer-events-none absolute w-px bg-border"
+        style={{ left: left + width - 1, top: HEADER_HEIGHT, height: rowCount * ROW_HEIGHT }}
+      />,
+    );
     columnHeaders.push(
       <div
         key={column}
@@ -594,9 +742,36 @@ function SpreadsheetGrid(props: {
           "absolute top-0 flex h-full items-center justify-center border-r border-border/60 text-2xs text-muted-foreground select-none",
           column >= area.left && column <= area.right && "bg-accent text-foreground",
         )}
-        style={{ left: ROW_HEADER_WIDTH + column * COLUMN_WIDTH, width: COLUMN_WIDTH }}
+        style={{ left, width }}
       >
         {columnLabel(column)}
+        <div
+          data-column-resize={column}
+          aria-hidden
+          className="absolute top-0 -right-1 z-10 h-full w-2 cursor-col-resize touch-none hover:bg-primary/40"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            resizing.current = { column, startX: event.clientX, startWidth: width };
+          }}
+          onPointerMove={(event) => {
+            const drag = resizing.current;
+            if (drag === null || drag.column !== column) return;
+            setColumnWidth(column, drag.startWidth + event.clientX - drag.startX);
+          }}
+          onPointerUp={() => {
+            resizing.current = null;
+          }}
+          onPointerCancel={() => {
+            resizing.current = null;
+          }}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            fitColumns(column, column);
+          }}
+        />
       </div>,
     );
   }
@@ -620,30 +795,33 @@ function SpreadsheetGrid(props: {
 
   return (
     <>
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-xs">
-        <span
-          className="w-12 shrink-0 text-center font-mono text-2xs text-muted-foreground"
-          aria-label="Selected cell"
+      <FileToolRow
+        label="Spreadsheet tools"
+        end={
+          <span
+            className="shrink-0 pr-1 text-2xs whitespace-nowrap text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            {props.readOnly ? "Read only" : SAVE_STATE_LABELS[snapshot.saveState]}
+          </span>
+        }
+      >
+        <FileSurfaceAction
+          label="Undo"
+          disabled={!editable || !snapshot.canUndo}
+          onPress={() => session.undo()}
         >
-          {cellLabel(active)}
-        </span>
-        <input
-          aria-label="Cell contents"
-          className="h-6.5 min-w-0 flex-1 rounded-sm border border-input bg-transparent px-2 font-mono text-xs outline-none focus-visible:border-ring disabled:opacity-60"
-          spellCheck={false}
-          disabled={!editable}
-          value={editing?.text ?? cellEditText(activeCell, format)}
-          onFocus={() => {
-            if (editingRef.current === null) startEditing(null, "bar");
-          }}
-          onChange={(event) =>
-            setEditing({ ...active, surface: editing?.surface ?? "bar", text: event.target.value })
-          }
-          onKeyDown={editorKeyDown}
-          onBlur={() => {
-            if (editingRef.current?.surface === "bar") finishEditing(true);
-          }}
-        />
+          <Undo2Icon className="size-3.5" />
+        </FileSurfaceAction>
+        <FileSurfaceAction
+          label="Redo"
+          disabled={!editable || !snapshot.canRedo}
+          onPress={() => session.redo()}
+        >
+          <Redo2Icon className="size-3.5" />
+        </FileSurfaceAction>
+        <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
         {format === "xlsx" ? (
           <>
             <FileSurfaceAction
@@ -680,8 +858,54 @@ function SpreadsheetGrid(props: {
                 ))}
               </MenuPopup>
             </Menu>
+            <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+            <div role="group" aria-label="Fill" className="flex shrink-0 items-center gap-1 px-1">
+              <PaintBucketIcon aria-hidden className="size-3.5 text-muted-foreground" />
+              <FillSwatch
+                label="No fill"
+                colour={null}
+                selected={activeCell?.format?.fill === undefined}
+                disabled={!editable}
+                onPick={() => session.setFormat({ fill: null })}
+              />
+              {FILLS.map((fill) => (
+                <FillSwatch
+                  key={fill.colour}
+                  label={`${fill.label} fill`}
+                  colour={fill.colour}
+                  selected={activeCell?.format?.fill?.toUpperCase() === fill.colour}
+                  disabled={!editable}
+                  onPick={() => session.setFormat({ fill: fill.colour })}
+                />
+              ))}
+            </div>
+            <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
           </>
         ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          disabled={!editable}
+          onClick={() =>
+            restructure({ type: "insertRows", sheet, index: area.bottom + 1, count: 1 })
+          }
+        >
+          <PlusIcon />
+          Row
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          disabled={!editable}
+          onClick={() =>
+            restructure({ type: "insertColumns", sheet, index: area.right + 1, count: 1 })
+          }
+        >
+          <PlusIcon />
+          Column
+        </Button>
         <Menu>
           <MenuTrigger
             render={
@@ -689,13 +913,12 @@ function SpreadsheetGrid(props: {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Rows and columns"
-                title="Rows and columns"
+                aria-label="More for rows and columns"
                 disabled={!editable}
               />
             }
           >
-            <Rows3Icon className="size-3.5" />
+            <EllipsisIcon className="size-3.5" />
           </MenuTrigger>
           <MenuPopup align="end">
             <MenuItem
@@ -727,6 +950,10 @@ function SpreadsheetGrid(props: {
               Insert {plural(columns, "column")} right
             </MenuItem>
             <MenuSeparator />
+            <MenuItem onClick={() => fitColumns(area.left, area.right)}>
+              Fit {plural(columns, "column")} to the text
+            </MenuItem>
+            <MenuSeparator />
             <MenuItem
               variant="destructive"
               onClick={() =>
@@ -745,13 +972,31 @@ function SpreadsheetGrid(props: {
             </MenuItem>
           </MenuPopup>
         </Menu>
+      </FileToolRow>
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-xs">
         <span
-          className="shrink-0 pr-1 text-2xs whitespace-nowrap text-muted-foreground"
-          role="status"
-          aria-live="polite"
+          className="flex h-6.5 w-14 shrink-0 items-center justify-center rounded-sm border border-input font-mono text-2xs text-muted-foreground"
+          aria-label="Selected cell"
         >
-          {props.readOnly ? "Read only" : SAVE_STATE_LABELS[snapshot.saveState]}
+          {cellLabel(active)}
         </span>
+        <input
+          aria-label="Cell contents"
+          className="h-6.5 min-w-0 flex-1 rounded-sm border border-input bg-transparent px-2 font-mono text-xs outline-none focus-visible:border-ring disabled:opacity-60"
+          spellCheck={false}
+          disabled={!editable}
+          value={editing?.text ?? cellEditText(activeCell, format)}
+          onFocus={() => {
+            if (editingRef.current === null) startEditing(null, "bar");
+          }}
+          onChange={(event) =>
+            setEditing({ ...active, surface: editing?.surface ?? "bar", text: event.target.value })
+          }
+          onKeyDown={editorKeyDown}
+          onBlur={() => {
+            if (editingRef.current?.surface === "bar") finishEditing(true);
+          }}
+        />
       </div>
       <div
         ref={scrollerRef}
@@ -775,12 +1020,11 @@ function SpreadsheetGrid(props: {
         <div
           className="relative"
           style={{
-            width: ROW_HEADER_WIDTH + columnCount * COLUMN_WIDTH,
+            width: ROW_HEADER_WIDTH + layout.offsetOf(columnCount),
             height: HEADER_HEIGHT + rowCount * ROW_HEIGHT,
-            backgroundImage:
-              "linear-gradient(to right, var(--border) 1px, transparent 1px), linear-gradient(to bottom, var(--border) 1px, transparent 1px)",
-            backgroundSize: `${COLUMN_WIDTH}px ${ROW_HEIGHT}px`,
-            backgroundPosition: `${ROW_HEADER_WIDTH - 1}px ${HEADER_HEIGHT - 1}px`,
+            backgroundImage: "linear-gradient(to bottom, var(--border) 1px, transparent 1px)",
+            backgroundSize: `100% ${ROW_HEIGHT}px`,
+            backgroundPosition: `0 ${HEADER_HEIGHT - 1}px`,
           }}
           onPointerDown={pointerDown}
           onPointerMove={pointerMove}
@@ -807,13 +1051,14 @@ function SpreadsheetGrid(props: {
             {rowHeaders}
           </div>
           {cells}
+          {columnLines}
           <div
             aria-hidden
             className="pointer-events-none absolute bg-primary/8"
             style={{
               top: HEADER_HEIGHT + area.top * ROW_HEIGHT,
-              left: ROW_HEADER_WIDTH + area.left * COLUMN_WIDTH,
-              width: columns * COLUMN_WIDTH - 1,
+              left: ROW_HEADER_WIDTH + layout.offsetOf(area.left),
+              width: layout.offsetOf(area.right + 1) - layout.offsetOf(area.left) - 1,
               height: rows * ROW_HEIGHT - 1,
             }}
           />
@@ -823,8 +1068,8 @@ function SpreadsheetGrid(props: {
             className="pointer-events-none absolute border-2 border-primary"
             style={{
               top: HEADER_HEIGHT + active.row * ROW_HEIGHT - 1,
-              left: ROW_HEADER_WIDTH + active.column * COLUMN_WIDTH - 1,
-              width: COLUMN_WIDTH + 1,
+              left: ROW_HEADER_WIDTH + layout.offsetOf(active.column) - 1,
+              width: layout.widthOf(active.column) + 1,
               height: ROW_HEIGHT + 1,
             }}
           />
@@ -836,8 +1081,8 @@ function SpreadsheetGrid(props: {
               spellCheck={false}
               style={{
                 top: HEADER_HEIGHT + editing.row * ROW_HEIGHT - 1,
-                left: ROW_HEADER_WIDTH + editing.column * COLUMN_WIDTH - 1,
-                minWidth: COLUMN_WIDTH + 1,
+                left: ROW_HEADER_WIDTH + layout.offsetOf(editing.column) - 1,
+                minWidth: layout.widthOf(editing.column) + 1,
                 width: `${Math.max(12, editing.text.length + 2)}ch`,
                 height: ROW_HEIGHT + 1,
               }}
@@ -850,6 +1095,37 @@ function SpreadsheetGrid(props: {
         </div>
       </div>
     </>
+  );
+}
+
+function FillSwatch(props: {
+  readonly label: string;
+  /** Six hex digits, or null for no fill. */
+  readonly colour: string | null;
+  readonly selected: boolean;
+  readonly disabled: boolean;
+  readonly onPick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={props.label}
+            aria-pressed={props.selected}
+            disabled={props.disabled}
+            className={cn(
+              "size-4.5 shrink-0 rounded-full border border-border bg-background outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-50",
+              props.selected && "border-primary",
+            )}
+            style={props.colour === null ? undefined : { backgroundColor: `#${props.colour}` }}
+            onClick={props.onPick}
+          />
+        }
+      />
+      <TooltipPopup>{props.label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -956,6 +1232,11 @@ function SheetTabs(props: {
             </MenuPopup>
           </Menu>
         </>
+      ) : null}
+      {editable ? (
+        <span className="ml-auto truncate pl-3 text-2xs text-muted-foreground hidden @2xl:inline">
+          Type a value, or a formula such as =SUM(C2:C9)
+        </span>
       ) : null}
     </div>
   );

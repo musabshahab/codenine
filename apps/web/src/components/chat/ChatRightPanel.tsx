@@ -34,6 +34,7 @@ export function ChatRightPanel(props: ChatRightPanelProps) {
   if (!sheet) {
     return <RightPanelTabs {...tabs} mode="inline" maximized={maximized} inlineSize={inlineSize} />;
   }
+  const { stage: _stage, leadingControls: _leadingControls, ...sheetTabs } = tabs;
   return (
     <RightPanelSheet
       animationDurationMs={sheetAnimationDurationMs}
@@ -41,7 +42,7 @@ export function ChatRightPanel(props: ChatRightPanelProps) {
       onClose={onCloseSheet}
     >
       <RightPanelTabs
-        {...tabs}
+        {...sheetTabs}
         mode="sheet"
         inlineSize={inlineSize}
         layoutControls={layoutControls}

@@ -273,6 +273,7 @@ export const make = Effect.gen(function* () {
       spreadsheetEditing: true,
       pdfEditing: true,
       replyFiles: true,
+      attachmentCopies: true,
       fileActivity: true,
       projectFolderDeletion: true,
       ignoredFileListing: true,

@@ -29,6 +29,12 @@ import {
   selectionArea,
   undoChanges,
 } from "./spreadsheetModel";
+import {
+  newWorkbookView,
+  sheetView,
+  type WorkbookView,
+  workbookView,
+} from "./spreadsheetViewMemory";
 
 export type SpreadsheetFailure =
   /** The file changed on disk since it was opened. */
@@ -161,6 +167,8 @@ export class SpreadsheetSession {
   private readonly transport: SpreadsheetTransport;
   private readonly saveDelayMs: number;
   private readonly key: string | null;
+  /** Where the user was in this file, kept after the session ends when the file has a key. */
+  readonly view: WorkbookView;
   private onPendingChange: (pending: boolean) => void;
   private readonly listeners = new Set<() => void>();
   private snapshot: SpreadsheetSnapshot = {
@@ -209,6 +217,7 @@ export class SpreadsheetSession {
     this.saveDelayMs = input.saveDelayMs;
     this.onPendingChange = input.onPendingChange;
     this.key = input.key ?? null;
+    this.view = this.key === null ? newWorkbookView() : workbookView(this.key);
   }
 
   readonly subscribe = (listener: () => void) => {
@@ -291,14 +300,16 @@ export class SpreadsheetSession {
   }
 
   select(selection: GridSelection): void {
+    sheetView(this.view, this.snapshot.activeSheet).selection = selection;
     this.update({ selection });
   }
 
   selectSheet(name: string): void {
     if (name === this.snapshot.activeSheet) return;
+    this.view.activeSheet = name;
     this.update({
       activeSheet: name,
-      selection: ORIGIN,
+      selection: sheetView(this.view, name).selection ?? ORIGIN,
       sheetProblem: this.unreadable.get(name) ?? null,
       ...this.gridSize(name),
     });
@@ -492,8 +503,10 @@ export class SpreadsheetSession {
     this.history = EMPTY_HISTORY;
     this.savedSequence = this.sequence;
     const visibleSheets = opened.sheets.filter((sheet) => sheet.hidden !== true);
-    const kept = opened.sheets.find((sheet) => sheet.name === this.snapshot.activeSheet);
+    const wanted = resetView ? this.view.activeSheet : this.snapshot.activeSheet;
+    const kept = opened.sheets.find((sheet) => sheet.name === wanted);
     const activeSheet = (kept ?? visibleSheets[0] ?? opened.sheets[0])?.name ?? "";
+    const remembered = sheetView(this.view, activeSheet).selection;
     this.update({
       status: "ready",
       unavailable: null,
@@ -503,7 +516,12 @@ export class SpreadsheetSession {
       sheets: opened.sheets,
       activeSheet,
       sheetProblem: null,
-      selection: resetView || kept === undefined ? ORIGIN : this.snapshot.selection,
+      // A file opened again returns to the sheet and cell the user left it on.
+      selection: resetView
+        ? (remembered ?? ORIGIN)
+        : kept === undefined
+          ? ORIGIN
+          : this.snapshot.selection,
       ...this.gridSize(activeSheet),
     });
     this.bump();
