@@ -26,6 +26,7 @@ const machine = (overrides: Partial<NewProjectMachine> = {}): NewProjectMachine 
   platform: "Linux",
   homeDirectory: "/home/me",
   newProjectsRoot: "/home/me/.codenine/projects",
+  workspaceKinds: true,
   addProjectBaseDirectory: "",
   ghqCloneLayout: false,
   ...overrides,
@@ -54,7 +55,7 @@ describe("newProjectMachines", () => {
     entry: { target: { _tag: "BearerConnectionTarget" } },
     connection: { phase: "connected" },
     serverConfig: {
-      environment: { platform: { os: "windows", arch: "x64" } },
+      environment: { platform: { os: "windows", arch: "x64" }, capabilities: {} },
       settings: {
         addProjectBaseDirectory: "D:\\code",
         ghqCloneLayout: true,
@@ -81,6 +82,7 @@ describe("newProjectMachines", () => {
       platform: "Win32",
       homeDirectory: "C:\\Users\\me",
       newProjectsRoot: null,
+      workspaceKinds: false,
       addProjectBaseDirectory: "D:\\code",
       ghqCloneLayout: true,
     });
@@ -143,6 +145,15 @@ describe("planNewProject", () => {
         defaultModelSelection: modelSelection,
       },
     });
+  });
+
+  it("keeps a workspace on a server without workspace types a code workspace", () => {
+    expect(
+      planNewProject(
+        form({ name: "Notes", workspaceKind: "work" }),
+        machine({ workspaceKinds: false }),
+      ),
+    ).toMatchObject({ ok: true, plan: { workspaceKind: "code" } });
   });
 
   it("adds a folder by its full path on the machine", () => {

@@ -266,7 +266,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
               <FieldError id={`${id}-name-error`} message={errors.name} />
             </div>
 
-            {request.relinkProjectId === undefined ? (
+            {request.relinkProjectId === undefined && machine?.workspaceKinds === true ? (
               <div className="flex flex-col gap-1.5">
                 <Label id={`${id}-type`} render={<div />}>
                   Type

@@ -53,7 +53,10 @@ export interface NewProjectMachineSource {
   readonly entry: { readonly target: { readonly _tag: string } };
   readonly connection: { readonly phase: EnvironmentConnectionPhase };
   readonly serverConfig: {
-    readonly environment: { readonly platform: ExecutionEnvironmentPlatform };
+    readonly environment: {
+      readonly platform: ExecutionEnvironmentPlatform;
+      readonly capabilities: { readonly workspaceKinds?: boolean };
+    };
     readonly settings: Pick<
       ServerSettings,
       "addProjectBaseDirectory" | "ghqCloneLayout" | "environmentIcon"
@@ -73,6 +76,8 @@ export interface NewProjectMachine {
   readonly homeDirectory: string | null;
   /** Where empty projects go. Older servers cannot create them and leave it out. */
   readonly newProjectsRoot: string | null;
+  /** Older servers drop a workspace's type, so their workspaces are not offered one. */
+  readonly workspaceKinds: boolean;
   readonly addProjectBaseDirectory: string;
   readonly ghqCloneLayout: boolean;
 }
@@ -139,6 +144,7 @@ export function newProjectMachines(
           platform: getEnvironmentBrowsePlatform(config.environment.platform.os),
           homeDirectory: config.homeDirectory ?? null,
           newProjectsRoot: config.newProjectsRoot ?? null,
+          workspaceKinds: config.environment.capabilities.workspaceKinds === true,
           addProjectBaseDirectory: config.settings.addProjectBaseDirectory,
           ghqCloneLayout: config.settings.ghqCloneLayout,
         },
@@ -330,7 +336,7 @@ export function planNewProject(
     plan: {
       environmentId: machine.environmentId,
       title,
-      workspaceKind: form.workspaceKind,
+      workspaceKind: machine.workspaceKinds ? form.workspaceKind : "code",
       projectIcon: form.projectIcon,
       defaultModelSelection: form.modelSelection,
       ...planned.source,

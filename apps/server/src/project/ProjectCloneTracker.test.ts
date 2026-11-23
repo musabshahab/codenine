@@ -5,6 +5,7 @@ import {
   ProjectId,
   projectCloneProgressSummary,
   type SourceControlCloneProtocol,
+  type WorkspaceKind,
   SourceControlRepositoryError,
 } from "@codenine/contracts";
 import * as Deferred from "effect/Deferred";
@@ -30,14 +31,18 @@ const startInput = {
 function makeHarness(options?: {
   readonly clone?: SourceControlRepositoryService.SourceControlRepositoryService["Service"]["cloneRepository"];
 }) {
-  const created: Array<{ projectId: ProjectId; workspaceRoot: string }> = [];
+  const created: Array<{ projectId: ProjectId; workspaceRoot: string; kind?: WorkspaceKind }> = [];
   const repointed: Array<{ projectId: ProjectId; workspaceRoot: string }> = [];
   const cloned: Array<ProjectId> = [];
   const discarded: Array<string> = [];
   const hooks: ProjectCloneTracker.ProjectCloneHooks = {
     createProject: (input) =>
       Effect.sync(() => {
-        created.push({ projectId: input.projectId, workspaceRoot: input.workspaceRoot });
+        created.push({
+          projectId: input.projectId,
+          workspaceRoot: input.workspaceRoot,
+          ...(input.kind === undefined ? {} : { kind: input.kind }),
+        });
       }),
     repointProject: (input) =>
       Effect.sync(() => {
@@ -93,9 +98,11 @@ describe("ProjectCloneTracker", () => {
       );
       yield* Effect.yieldNow;
 
-      const result = yield* tracker.start(startInput, harness.hooks);
+      const result = yield* tracker.start({ ...startInput, kind: "create" }, harness.hooks);
       expect(result.cwd).toBe("/workspace/codenine");
-      expect(harness.created).toEqual([{ projectId, workspaceRoot: "/workspace/codenine" }]);
+      expect(harness.created).toEqual([
+        { projectId, workspaceRoot: "/workspace/codenine", kind: "create" },
+      ]);
 
       yield* Effect.yieldNow;
       const running = yield* tracker.get(projectId);

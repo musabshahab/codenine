@@ -152,7 +152,10 @@ const environments = [primaryId, remoteId].map((environmentId) => ({
   serverConfig: {
     keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
     settings: DEFAULT_SERVER_SETTINGS,
-    environment: { platform: { machine: "server" }, capabilities: { projectOrganization: true } },
+    environment: {
+      platform: { machine: "server" },
+      capabilities: { projectOrganization: true, workspaceKinds: true },
+    },
   },
 }));
 const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState => ({

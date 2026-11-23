@@ -2164,6 +2164,7 @@ export const layerWsRpc = (
                   commandId: CommandId.make(`project-clone-create:${project.projectId}`),
                   projectId: project.projectId,
                   title: project.title,
+                  ...(project.kind === undefined ? {} : { kind: project.kind }),
                   workspaceRoot: project.workspaceRoot,
                   createWorkspaceRootIfMissing: true,
                 })

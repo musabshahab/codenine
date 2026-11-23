@@ -350,7 +350,7 @@ export function useNewProject() {
         createdAt: new Date().toISOString(),
         remoteUrl: plan.remoteUrl,
         destinationPath: plan.destinationPath,
-        ...(lost === undefined ? {} : { repointExisting: true }),
+        ...(lost === undefined ? { kind: plan.workspaceKind } : { repointExisting: true }),
       },
     });
     if (result._tag === "Failure") return failure(result);
@@ -358,13 +358,6 @@ export function useNewProject() {
     void suggestAppAccessForRemote(plan.environmentId, plan.remoteUrl);
     if (lost !== undefined) return openExisting(lost, onCreated);
     onCreated?.();
-    // A clone registers its project on the server, which starts every project as Code.
-    if (plan.workspaceKind !== "code") {
-      void updateProject({
-        environmentId: plan.environmentId,
-        input: { projectId, kind: plan.workspaceKind },
-      }).then((saved) => reportProjectFailure("Workspace type not saved", saved));
-    }
     applyChoices(projectRef, plan);
     // The project opens while it clones; its composer holds sends until the files are in place.
     await waitForProject(projectRef, 3_000).catch(() => null);

@@ -73,7 +73,7 @@ function SidebarFolderHeaderRow(props: {
       >
         {props.label}
       </span>
-      {props.badge ? <span className="flex min-w-0 flex-1 items-center">{props.badge}</span> : null}
+      {props.badge ? <span className="flex flex-1 items-center">{props.badge}</span> : null}
       {dot ? <SidebarAttentionDot attention={dot} /> : null}
       {collapsed && hiddenThreads.length > 0 ? (
         <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground group-hover/project-folder:invisible pointer-coarse:invisible">

@@ -40,6 +40,7 @@ import {
   defaultProjectIcon,
   hasDefaultProjectIcon,
   isPersonalWorkspace,
+  projectGroupKind,
   projectGroupTitleNeedsUpdate,
 } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
@@ -286,7 +287,9 @@ function ProjectDetail({
       ? window.desktopBridge?.pickProjectFavicon
       : undefined;
 
-  const { updateProjectGroup, canOrganizeProjectGroup } = useProjectGroupUpdate();
+  const { updateProjectGroup, canOrganizeProjectGroup, canSetProjectGroupKind } =
+    useProjectGroupUpdate();
+  const sharedKind = projectGroupKind(allMembers.map((member) => member.kind));
   const updateAllMembers = (
     input: ProjectGroupUpdate | ((member: SidebarProjectGroupMember) => ProjectGroupUpdate),
     failureTitle: string,
@@ -517,21 +520,27 @@ function ProjectDetail({
               )
             }
           />
-          {isPersonal ? null : (
+          {isPersonal || !canSetProjectGroupKind(allMembers) ? null : (
             <SettingsRow
               title="Type"
-              description={workspaceKindOption(representative.kind).description}
+              description={
+                sharedKind === null
+                  ? "This workspace's checkouts have different types. Pick one for all of them."
+                  : workspaceKindOption(sharedKind).description
+              }
               control={
                 <Select
-                  value={representative.kind}
+                  value={sharedKind}
                   disabled={!canEditShared}
                   onValueChange={(kind) => {
-                    if (!isWorkspaceKind(kind) || kind === representative.kind) return;
+                    if (!isWorkspaceKind(kind) || kind === sharedKind) return;
                     void updateAllMembers({ kind }, "Failed to change workspace type");
                   }}
                 >
                   <SelectTrigger size="sm" aria-label="Workspace type">
-                    <SelectValue>{workspaceKindOption(representative.kind).label}</SelectValue>
+                    <SelectValue>
+                      {sharedKind === null ? "Mixed" : workspaceKindOption(sharedKind).label}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectPopup align="end" alignItemWithTrigger={false}>
                     {WORKSPACE_KIND_OPTIONS.map((option) => (

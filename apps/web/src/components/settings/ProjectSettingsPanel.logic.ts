@@ -1,4 +1,4 @@
-import type { ProjectIconOverride } from "@codenine/contracts";
+import type { ProjectIconOverride, WorkspaceKind } from "@codenine/contracts";
 
 import type { Project } from "../../types";
 
@@ -14,6 +14,12 @@ export function projectGroupTitleNeedsUpdate(
   wasEdited: boolean,
 ): boolean {
   return wasEdited && memberTitles.some((title) => title !== nextTitle);
+}
+
+/** The type every checkout has, or null when they disagree. */
+export function projectGroupKind(memberKinds: ReadonlyArray<WorkspaceKind>): WorkspaceKind | null {
+  const [first = null, ...rest] = memberKinds;
+  return rest.every((kind) => kind === first) ? first : null;
 }
 
 export function isPersonalWorkspace(members: ReadonlyArray<Pick<Project, "isScratch">>): boolean {

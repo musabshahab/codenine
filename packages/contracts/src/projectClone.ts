@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import { IsoDateTime, NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { WorkspaceKind } from "./project.ts";
 import {
   SourceControlCloneProtocol,
   SourceControlProviderKind,
@@ -49,6 +50,8 @@ export type ProjectCloneListEvent = typeof ProjectCloneListEvent.Type;
 export const ProjectCloneStartInput = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
+  /** Ignored with `repointExisting`: that project keeps its kind. */
+  kind: Schema.optional(WorkspaceKind),
   createdAt: IsoDateTime,
   provider: Schema.optional(SourceControlProviderKind),
   repository: Schema.optional(TrimmedNonEmptyString),

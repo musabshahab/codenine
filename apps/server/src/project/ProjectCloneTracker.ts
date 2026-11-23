@@ -7,6 +7,7 @@ import type {
   ProjectId,
   SourceControlCloneProtocol,
   SourceControlRepositoryInfo,
+  WorkspaceKind,
 } from "@codenine/contracts";
 import {
   OrchestrationDispatchCommandError,
@@ -56,6 +57,7 @@ export interface ProjectCloneHooks {
   readonly createProject: (input: {
     readonly projectId: ProjectId;
     readonly title: string;
+    readonly kind?: WorkspaceKind | undefined;
     readonly workspaceRoot: string;
     readonly createdAt: string;
   }) => Effect.Effect<void, OrchestrationDispatchCommandError>;
@@ -323,6 +325,7 @@ export const make = Effect.gen(function* () {
           yield* (input.repointExisting ? hooks.repointProject : hooks.createProject)({
             projectId: input.projectId,
             title: input.title,
+            ...(input.kind === undefined ? {} : { kind: input.kind }),
             workspaceRoot: prepared.destinationPath,
             createdAt: input.createdAt,
           });

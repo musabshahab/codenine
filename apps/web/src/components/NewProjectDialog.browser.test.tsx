@@ -30,7 +30,10 @@ vi.mock(import("../state/environments"), async (original) => ({
         connection: { phase: "connected" },
         entry: { target: { _tag: "PrimaryConnectionTarget" } },
         serverConfig: {
-          environment: { platform: { os: "linux", arch: "x64" } },
+          environment: {
+            platform: { os: "linux", arch: "x64" },
+            capabilities: { workspaceKinds: true },
+          },
           settings: { addProjectBaseDirectory: "", ghqCloneLayout: false, environmentIcon: null },
           homeDirectory: "/home/me",
           newProjectsRoot: "/home/me/.codenine/projects",

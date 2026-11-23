@@ -2,7 +2,16 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ThreadId } from "@codenine/contracts";
 import { planProjectRemoval } from "@codenine/client-runtime/state/projects";
 
-import { isPersonalWorkspace } from "./ProjectSettingsPanel.logic";
+import { isPersonalWorkspace, projectGroupKind } from "./ProjectSettingsPanel.logic";
+
+it.each([
+  [["work"], "work"],
+  [["work", "work"], "work"],
+  [["work", "code"], null],
+  [["code", "code", "create"], null],
+] as const)("reads the shared type of checkouts %j as %s", (kinds, expected) => {
+  expect(projectGroupKind(kinds)).toBe(expected);
+});
 
 it.each([
   [[], false],

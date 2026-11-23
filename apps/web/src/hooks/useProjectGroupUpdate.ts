@@ -88,15 +88,22 @@ export function useProjectGroupUpdate() {
     return AsyncResult.success(undefined);
   };
 
-  /** Older servers drop pin and archive, so their projects do not offer them. */
-  const canOrganizeProjectGroup = (members: ReadonlyArray<ProjectGroupMember>) =>
+  const everyMemberCan = (
+    members: ReadonlyArray<ProjectGroupMember>,
+    capability: "projectOrganization" | "workspaceKinds",
+  ) =>
     members.every(
       (member) =>
-        serverConfigs.get(member.environmentId)?.environment.capabilities.projectOrganization ===
-        true,
+        serverConfigs.get(member.environmentId)?.environment.capabilities[capability] === true,
     );
+  /** Older servers drop pin and archive, so their projects do not offer them. */
+  const canOrganizeProjectGroup = (members: ReadonlyArray<ProjectGroupMember>) =>
+    everyMemberCan(members, "projectOrganization");
+  /** Older servers drop the type, so a workspace with a checkout on one does not offer it. */
+  const canSetProjectGroupKind = (members: ReadonlyArray<ProjectGroupMember>) =>
+    everyMemberCan(members, "workspaceKinds");
 
-  return { updateProjectGroup, canOrganizeProjectGroup };
+  return { updateProjectGroup, canOrganizeProjectGroup, canSetProjectGroupKind };
 }
 
 /** Pin state for a project group, shared by every list that can pin or unpin a project. */
