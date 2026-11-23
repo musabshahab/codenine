@@ -12,6 +12,7 @@ const deletedProject: Project = {
   id: projectId,
   title: "kh-frontend",
   workspaceRoot: "/workspace/kh-frontend",
+  kind: "code",
   repositoryIdentity: null,
   faviconPath: null,
   defaultModelSelection: null,

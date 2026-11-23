@@ -298,6 +298,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
     id: PROJECT_ID,
     title: "Project",
     workspaceRoot: "/workspace",
+    kind: "code" as const,
     defaultModelSelection: null,
     scripts: [],
     createdAt: NOW,

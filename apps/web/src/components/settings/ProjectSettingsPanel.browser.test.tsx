@@ -185,6 +185,7 @@ function setup() {
     id: ProjectId.make(`project-${environmentId}`),
     environmentId,
     title: "Shared repo",
+    kind: "code",
     workspaceRoot: `/work/${environmentId}`,
     repositoryIdentity: {
       canonicalKey: "github.com/example/shared-repo",
@@ -536,6 +537,7 @@ describe("project identity reset", () => {
     expect(text).toContain("Personal");
     expect(text).not.toContain("Notes");
     expect(text).toContain("/codenine/scratch");
+    expect(screen.container.querySelector('[aria-label="Workspace type"]')).toBeNull();
     expect(screen.container.querySelector('[aria-label="Pin workspace"]')).not.toBeNull();
     expect(screen.container.querySelector('[aria-label^="Grouping rule for"]')).toBeNull();
     const buttons = [...screen.container.querySelectorAll("button")].map(

@@ -52,7 +52,7 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
       }),
     );
 
-    it.effect("keeps pin and archive times across later updates", () =>
+    it.effect("keeps the kind and the pin and archive times across later updates", () =>
       Effect.gen(function* () {
         const projects = yield* ProjectStore.ProjectStoreV2;
         const projectId = ProjectId.make("project-organized");
@@ -75,13 +75,15 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
             updatedAt: at,
           },
         });
+        // Events from before workspace kinds carry none.
+        assert.strictEqual(Option.getOrNull(yield* projects.get(projectId))?.kind, "code");
         yield* projects.apply({
           ...event,
           ...meta,
           sequence: 2,
           eventId: EventId.make("event-organized-pinned"),
           type: "project.meta-updated",
-          payload: { projectId, pinnedAt: at, archivedAt: at, updatedAt: at },
+          payload: { projectId, kind: "work", pinnedAt: at, archivedAt: at, updatedAt: at },
         });
         yield* projects.apply({
           ...event,
@@ -92,6 +94,8 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
           payload: { projectId, title: "Renamed", updatedAt: at },
         });
         const project = Option.getOrNull(yield* projects.get(projectId));
+        assert.strictEqual(project?.kind, "work");
+        assert.strictEqual(Option.getOrNull(yield* projects.getShell(projectId))?.kind, "work");
         assert.strictEqual(project?.pinnedAt, at);
         assert.strictEqual(project?.archivedAt, at);
       }),

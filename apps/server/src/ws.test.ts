@@ -251,6 +251,7 @@ it.live.each(["thread", "shell"] as const)(
       const project = {
         id: projectId,
         title: "Replay",
+        kind: "code",
         workspaceRoot: "/tmp/replay",
         defaultModelSelection: null,
         scripts: [],

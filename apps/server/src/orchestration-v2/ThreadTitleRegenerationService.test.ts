@@ -77,6 +77,7 @@ function makeHarness(
           ? Option.some({
               projectId,
               title: "Project",
+              kind: "code",
               workspaceRoot: "/repo",
               defaultModelSelection: modelSelection,
               defaultThreadEnvMode: null,

@@ -16,6 +16,7 @@ const projectId = ProjectId.make("project-scripts");
 const row = (overrides: Partial<ProjectRow> = {}): ProjectRow => ({
   projectId,
   title: "Scripts",
+  kind: "code",
   workspaceRoot: "/tmp/scripts",
   defaultModelSelection: null,
   defaultThreadEnvMode: null,

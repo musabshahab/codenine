@@ -81,6 +81,7 @@ const makeProjection = (overrides: ThreadFixture = {}): OrchestrationV2ThreadPro
 const project: Project = {
   id: projectId,
   title: "Worktree test project",
+  kind: "code",
   workspaceRoot,
   defaultModelSelection: null,
   scripts: [],

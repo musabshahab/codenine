@@ -58,6 +58,7 @@ function makeProject(id: ProjectId = PROJECT_ID): OrchestrationProjectShell {
   return {
     id,
     title: `Project ${id}`,
+    kind: "code",
     workspaceRoot: "/workspace/project",
     defaultModelSelection: null,
     scripts: [],

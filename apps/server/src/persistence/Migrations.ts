@@ -86,6 +86,7 @@ import Migration0080 from "./Migrations/080_ScheduledTaskThreadMode.ts";
 import Migration0081 from "./Migrations/081_DropScheduledTaskCleanupEffects.ts";
 import Migration0082 from "./Migrations/082_RetireGuestShareEvents.ts";
 import Migration0083 from "./Migrations/083_DropPreviewCleanupEffects.ts";
+import Migration0084 from "./Migrations/084_ProjectionProjectsKind.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -172,6 +173,7 @@ const migrationEntries = [
   [81, "DropScheduledTaskCleanupEffects", Migration0081],
   [82, "RetireGuestShareEvents", Migration0082],
   [83, "DropPreviewCleanupEffects", Migration0083],
+  [84, "ProjectionProjectsKind", Migration0084],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -1,4 +1,8 @@
-import { AuthOrchestrationOperateScope, type ProjectIconOverride } from "@codenine/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  type ProjectIconOverride,
+  type WorkspaceKind,
+} from "@codenine/contracts";
 import {
   isAtomCommandInterrupted,
   mapAtomCommandResult,
@@ -18,6 +22,7 @@ import { useOrchestrationCommand } from "../state/use-orchestration-command";
 
 export type ProjectGroupUpdate = Partial<{
   title: string;
+  kind: WorkspaceKind;
   faviconPath: string | null;
   projectIcon: ProjectIconOverride | null;
   pinned: boolean;

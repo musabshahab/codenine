@@ -598,6 +598,7 @@ it.effect("deleting a project through MCP also discards its clone record", () =>
             Effect.succeed({
               id: input.projectId,
               title: "client-target",
+              kind: "code",
               workspaceRoot: "/projects/client-target",
               repositoryIdentity: null,
               faviconPath: null,

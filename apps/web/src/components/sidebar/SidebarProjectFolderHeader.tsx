@@ -11,6 +11,7 @@ import { resolveSidebarFolderDot, resolveThreadLastVisitedAt } from "../Sidebar.
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { WorkspaceKindBadge } from "../WorkspaceKindBadge";
 import { SidebarAttentionDot } from "./SidebarTeamTasks";
 
 /** The folder's sidebar tree row; its thread rows name it as their parent. */
@@ -28,6 +29,8 @@ function SidebarFolderHeaderRow(props: {
   rowId: string;
   icon: ReactNode;
   label: string;
+  /** Sits right after the label. */
+  badge: ReactNode;
   newChatLabel: string;
   collapsed: boolean;
   /** Nothing to show when open, such as a folder whose chats are all pinned. */
@@ -62,9 +65,15 @@ function SidebarFolderHeaderRow(props: {
   const name = (
     <>
       {props.icon}
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
+      <span
+        className={cn(
+          "min-w-0 truncate text-sm font-medium text-sidebar-foreground/90",
+          props.badge ? null : "flex-1",
+        )}
+      >
         {props.label}
       </span>
+      {props.badge ? <span className="flex min-w-0 flex-1 items-center">{props.badge}</span> : null}
       {dot ? <SidebarAttentionDot attention={dot} /> : null}
       {collapsed && hiddenThreads.length > 0 ? (
         <span className="shrink-0 text-xs tabular-nums text-sidebar-muted-foreground group-hover/project-folder:invisible pointer-coarse:invisible">
@@ -159,6 +168,9 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
       rowId={sidebarFolderRowId(group.projectKey)}
       icon={<ProjectFavicon project={group} className="size-4 shrink-0" />}
       label={group.isScratch ? PERSONAL_WORKSPACE_NAME : group.displayName}
+      badge={
+        group.isScratch || group.kind === "code" ? null : <WorkspaceKindBadge kind={group.kind} />
+      }
       newChatLabel={`New chat in ${group.isScratch ? PERSONAL_WORKSPACE_NAME : group.displayName}`}
       collapsed={props.collapsed}
       empty={props.empty}

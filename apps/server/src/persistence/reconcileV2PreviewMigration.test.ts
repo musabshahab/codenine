@@ -63,6 +63,7 @@ describe("V2 preview upgrade", () => {
         [81, "DropScheduledTaskCleanupEffects"],
         [82, "RetireGuestShareEvents"],
         [83, "DropPreviewCleanupEffects"],
+        [84, "ProjectionProjectsKind"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -169,6 +170,7 @@ describe("V2 preview upgrade", () => {
         [81, "DropScheduledTaskCleanupEffects"],
         [82, "RetireGuestShareEvents"],
         [83, "DropPreviewCleanupEffects"],
+        [84, "ProjectionProjectsKind"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

@@ -43,6 +43,7 @@ import {
   projectGroupTitleNeedsUpdate,
 } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
+import { isWorkspaceKind, WORKSPACE_KIND_OPTIONS, workspaceKindOption } from "../../workspaceKind";
 import {
   SETTINGS_NAV_GROUPS,
   SETTINGS_SECTION_LABELS,
@@ -516,6 +517,38 @@ function ProjectDetail({
               )
             }
           />
+          {isPersonal ? null : (
+            <SettingsRow
+              title="Type"
+              description={workspaceKindOption(representative.kind).description}
+              control={
+                <Select
+                  value={representative.kind}
+                  disabled={!canEditShared}
+                  onValueChange={(kind) => {
+                    if (!isWorkspaceKind(kind) || kind === representative.kind) return;
+                    void updateAllMembers({ kind }, "Failed to change workspace type");
+                  }}
+                >
+                  <SelectTrigger size="sm" aria-label="Workspace type">
+                    <SelectValue>{workspaceKindOption(representative.kind).label}</SelectValue>
+                  </SelectTrigger>
+                  <SelectPopup align="end" alignItemWithTrigger={false}>
+                    {WORKSPACE_KIND_OPTIONS.map((option) => (
+                      <SelectItem key={option.kind} hideIndicator value={option.kind}>
+                        <span className="flex flex-col">
+                          <span>{option.label}</span>
+                          <span className="text-muted-foreground text-xs">
+                            {option.description}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              }
+            />
+          )}
           <SettingsRow
             title="Workspace icon"
             description={

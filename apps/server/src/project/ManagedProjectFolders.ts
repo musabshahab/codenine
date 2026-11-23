@@ -4,6 +4,7 @@ import {
   type GitManagerServiceError,
   ProjectId,
   type ThreadId,
+  type WorkspaceKind,
   VcsProcessSpawnError,
 } from "@codenine/contracts";
 import { newProjectFolderName } from "@codenine/shared/path";
@@ -104,7 +105,10 @@ export class ManagedProjectFolders extends Context.Service<
     }) => Effect.Effect<Option.Option<string>, ScratchFolderError>;
     readonly namedProjectsRoot: string;
     /** Removes failed/cancelled creations' folders only while no project owns them. */
-    readonly createNamedProject: (input: { readonly name: string }) => Effect.Effect<
+    readonly createNamedProject: (input: {
+      readonly name: string;
+      readonly kind?: WorkspaceKind | undefined;
+    }) => Effect.Effect<
       {
         readonly projectId: ProjectId;
         readonly workspaceRoot: string;
@@ -469,6 +473,7 @@ const make = Effect.gen(function* () {
         commandId: CommandId.make(`named-project:${id}`),
         projectId: ProjectId.make(id),
         title: input.name,
+        ...(input.kind === undefined ? {} : { kind: input.kind }),
         workspaceRoot,
       })
       .pipe(

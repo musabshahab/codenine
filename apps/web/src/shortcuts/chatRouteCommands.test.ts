@@ -15,6 +15,7 @@ function project(id: string): Project {
     id: ProjectId.make(id),
     environmentId: EnvironmentId.make("local"),
     title: id,
+    kind: "code",
     workspaceRoot: `/projects/${id}`,
     repositoryIdentity: null,
     defaultModelSelection: null,

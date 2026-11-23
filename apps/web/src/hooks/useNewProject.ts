@@ -233,7 +233,7 @@ export function useNewProject() {
   ): Promise<NewProjectResult> => {
     const result = await createNew({
       environmentId: plan.environmentId,
-      input: { name: plan.title },
+      input: { name: plan.title, kind: plan.workspaceKind },
     });
     if (result._tag === "Failure") return failure(result);
     const { projectId, workspaceRoot, commitError } = result.value;
@@ -310,6 +310,7 @@ export function useNewProject() {
       input: {
         projectId,
         title: plan.title,
+        kind: plan.workspaceKind,
         workspaceRoot: plan.workspaceRoot,
         // "Use a folder" is for files already there; a mistyped path must not become a new folder.
         createWorkspaceRootIfMissing: !folderMustExist,
@@ -357,6 +358,13 @@ export function useNewProject() {
     void suggestAppAccessForRemote(plan.environmentId, plan.remoteUrl);
     if (lost !== undefined) return openExisting(lost, onCreated);
     onCreated?.();
+    // A clone registers its project on the server, which starts every project as Code.
+    if (plan.workspaceKind !== "code") {
+      void updateProject({
+        environmentId: plan.environmentId,
+        input: { projectId, kind: plan.workspaceKind },
+      }).then((saved) => reportProjectFailure("Workspace type not saved", saved));
+    }
     applyChoices(projectRef, plan);
     // The project opens while it clones; its composer holds sends until the files are in place.
     await waitForProject(projectRef, 3_000).catch(() => null);

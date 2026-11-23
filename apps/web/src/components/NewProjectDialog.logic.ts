@@ -24,6 +24,7 @@ import {
   resolveEnvironmentMachineKind,
   type ServerSettings,
   SourceControlProviderKind,
+  type WorkspaceKind,
 } from "@codenine/contracts";
 import { isAbsolutePath, normalizeProjectPathForDispatch } from "@codenine/shared/path";
 
@@ -83,6 +84,7 @@ export interface NewProjectForm {
   readonly repository: string;
   /** The host an empty project is also published to, or null to keep it on the machine. */
   readonly publishTo: NewProjectPublishTarget | null;
+  readonly workspaceKind: WorkspaceKind;
   readonly projectIcon: ProjectIconOverride | null;
   /** The account and model picked for new chats; null keeps following the machine's default. */
   readonly modelSelection: ModelSelection | null;
@@ -96,6 +98,7 @@ type NewProjectSourcePlan =
 export type NewProjectPlan = {
   readonly environmentId: EnvironmentId;
   readonly title: string;
+  readonly workspaceKind: WorkspaceKind;
   readonly projectIcon: ProjectIconOverride | null;
   /** Saved as the project's default; null leaves the machine's default in charge. */
   readonly defaultModelSelection: ModelSelection | null;
@@ -327,6 +330,7 @@ export function planNewProject(
     plan: {
       environmentId: machine.environmentId,
       title,
+      workspaceKind: form.workspaceKind,
       projectIcon: form.projectIcon,
       defaultModelSelection: form.modelSelection,
       ...planned.source,

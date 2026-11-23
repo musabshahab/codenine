@@ -64,6 +64,7 @@ const member = {
   environmentId: server.environmentId,
   title: "Project",
   workspaceRoot: "/repo",
+  kind: "code" as const,
   physicalProjectKey: `${server.environmentId}:/repo`,
   environmentLabel: server.label,
   defaultModelSelection: null,

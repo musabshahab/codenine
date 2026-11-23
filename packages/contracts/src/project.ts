@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
@@ -148,9 +149,20 @@ export const ReceivedProjectIcon = ForwardCompatibleUnion(projectIconMembers, "k
   ),
 );
 
+export const WorkspaceKind = Schema.Literals(["code", "work", "create"]).annotate({
+  description: "Workspace type.",
+});
+export type WorkspaceKind = typeof WorkspaceKind.Type;
+
+/** Projects from before workspace kinds, and from older servers, are code workspaces. */
+export const WorkspaceKindWithDefault = WorkspaceKind.pipe(
+  Schema.withDecodingDefault(Effect.succeed("code" as const)),
+);
+
 export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
+  kind: WorkspaceKindWithDefault,
   workspaceRoot: TrimmedNonEmptyString,
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -177,6 +189,7 @@ export type ProjectSnapshot = typeof ProjectSnapshot.Type;
 export const ProjectCreatePayload = Schema.Struct({
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  kind: Schema.optional(WorkspaceKind),
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
@@ -185,6 +198,7 @@ export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 
 export const ProjectUpdatePayload = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
+  kind: Schema.optional(WorkspaceKind),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   autoPull: Schema.optional(Schema.Boolean),
@@ -526,6 +540,7 @@ export type ProjectEnsureScratchResult = typeof ProjectEnsureScratchResult.Type;
 
 export const ProjectCreateNewInput = Schema.Struct({
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  kind: Schema.optional(WorkspaceKind),
 });
 export type ProjectCreateNewInput = typeof ProjectCreateNewInput.Type;
 

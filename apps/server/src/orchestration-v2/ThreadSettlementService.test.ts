@@ -484,6 +484,7 @@ function makeProject(
   return {
     id,
     title: `Project ${id}`,
+    kind: "code",
     workspaceRoot,
     defaultModelSelection: null,
     scripts: [],

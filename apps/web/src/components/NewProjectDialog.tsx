@@ -9,6 +9,7 @@ import type {
   ModelSelection,
   ProjectIconOverride,
   SourceControlProviderKind,
+  WorkspaceKind,
 } from "@codenine/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { FolderIcon } from "lucide-react";
@@ -32,6 +33,7 @@ import { useEnvironmentProviders, useEnvironments } from "../state/environments"
 import { useEnvironmentQuery } from "../state/query";
 import { EMPTY_SERVER_PROVIDERS } from "../state/server";
 import { sourceControlEnvironment } from "../state/sourceControl";
+import { isWorkspaceKind, WORKSPACE_KIND_OPTIONS } from "../workspaceKind";
 import { TeamModelPicker, teamModelText, useTeamModelCatalog } from "./chat/TeamAgentModel";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import {
@@ -106,6 +108,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
   const [repository, setRepository] = useState(request.repository ?? "");
   const [publishes, setPublishes] = useState(false);
   const [publishKind, setPublishKind] = useState<SourceControlProviderKind | null>(null);
+  const [workspaceKind, setWorkspaceKind] = useState<WorkspaceKind>("code");
   const [projectIcon, setProjectIcon] = useState<ProjectIconOverride | null>(null);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   // Account ids belong to one machine, so a pick only holds on the machine it was made on.
@@ -153,6 +156,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
         folderPath,
         repository,
         publishTo: publishes ? publishTarget : null,
+        workspaceKind,
         projectIcon,
         modelSelection,
       },
@@ -261,6 +265,32 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
               </div>
               <FieldError id={`${id}-name-error`} message={errors.name} />
             </div>
+
+            {request.relinkProjectId === undefined ? (
+              <div className="flex flex-col gap-1.5">
+                <Label id={`${id}-type`} render={<div />}>
+                  Type
+                </Label>
+                <RadioGroup
+                  className="grid sm:grid-cols-3"
+                  aria-labelledby={`${id}-type`}
+                  value={workspaceKind}
+                  onValueChange={(value) => {
+                    if (isWorkspaceKind(value)) setWorkspaceKind(value);
+                  }}
+                >
+                  {WORKSPACE_KIND_OPTIONS.map((option) => (
+                    <RadioCard
+                      key={option.kind}
+                      value={option.kind}
+                      title={option.label}
+                      description={option.description}
+                      selected={workspaceKind === option.kind}
+                    />
+                  ))}
+                </RadioGroup>
+              </div>
+            ) : null}
 
             <div className="flex flex-col gap-1.5">
               <Label id={`${id}-files`} render={<div />}>

@@ -92,6 +92,7 @@ it.effect("coalesces a slow shell subscriber by identity and location in sequenc
       const project = {
         id: ProjectId.make("same"),
         title: "Before",
+        kind: "code" as const,
         workspaceRoot: "/workspace/same",
         repositoryIdentity: null,
         defaultModelSelection: null,
@@ -509,6 +510,7 @@ describe("dedupeShellEnrichment", () => {
   const project = {
     id: ProjectId.make("project-a"),
     title: "A project",
+    kind: "code" as const,
     workspaceRoot: "/workspace/a",
     repositoryIdentity: null,
     defaultModelSelection: null,

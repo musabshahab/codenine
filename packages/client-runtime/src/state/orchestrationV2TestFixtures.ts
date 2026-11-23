@@ -17,6 +17,7 @@ const v2ProviderInstanceId = ProviderInstanceId.make("codex");
 export const v2Project: OrchestrationProjectShell = {
   id: v2ProjectId,
   title: "Project",
+  kind: "code",
   workspaceRoot: "/workspace/project",
   repositoryIdentity: null,
   defaultModelSelection: null,

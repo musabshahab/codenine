@@ -37,6 +37,7 @@ const form = (overrides: Partial<NewProjectForm> = {}): NewProjectForm => ({
   folderPath: "",
   repository: "",
   publishTo: null,
+  workspaceKind: "code",
   projectIcon: null,
   modelSelection: null,
   ...overrides,
@@ -115,13 +116,19 @@ describe("defaultNewProjectMachine", () => {
 describe("planNewProject", () => {
   const github = sourceControlClients.get(undefined);
 
-  it("creates an empty project with its name, publish target, icon and model", () => {
+  it("creates an empty project with its name, type, publish target, icon and model", () => {
     const publishTo = { definition: github, owner: "octocat" };
     const projectIcon = { kind: "emoji", emoji: "🎯" } as const;
     const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" };
     expect(
       planNewProject(
-        form({ name: "  Pinball Stats  ", publishTo, projectIcon, modelSelection }),
+        form({
+          name: "  Pinball Stats  ",
+          workspaceKind: "work",
+          publishTo,
+          projectIcon,
+          modelSelection,
+        }),
         machine(),
       ),
     ).toEqual({
@@ -130,6 +137,7 @@ describe("planNewProject", () => {
         kind: "empty",
         environmentId: LOCAL,
         title: "Pinball Stats",
+        workspaceKind: "work",
         publishTo,
         projectIcon,
         defaultModelSelection: modelSelection,

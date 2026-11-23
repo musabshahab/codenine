@@ -68,6 +68,7 @@ const project = {
   id: projectId,
   title: "Project",
   workspaceRoot: "/repo",
+  kind: "code" as const,
   repositoryIdentity: null,
   faviconPath: null,
   defaultModelSelection: modelSelection,
@@ -85,6 +86,7 @@ const otherProject = {
   id: otherProjectId,
   title: "Other",
   workspaceRoot: "/other-repo",
+  kind: "code" as const,
 } as const;
 
 const adapter = {
@@ -226,6 +228,7 @@ function makeHarness(options: HarnessOptions = {}) {
           ? Option.some({
               projectId,
               title: project.title,
+              kind: "code",
               workspaceRoot: project.workspaceRoot,
               defaultModelSelection: project.defaultModelSelection,
               defaultThreadEnvMode: null,

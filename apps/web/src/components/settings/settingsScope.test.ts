@@ -23,6 +23,7 @@ function member(id: string, environmentId: EnvironmentId): SidebarProjectGroupMe
     id: ProjectId.make(id),
     environmentId,
     title: "Codenine",
+    kind: "code",
     workspaceRoot: `/repos/${id}`,
     physicalProjectKey: `${environmentId}:/repos/${id}`,
     environmentLabel:

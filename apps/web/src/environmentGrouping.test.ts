@@ -33,6 +33,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     id: ProjectId.make("project-1"),
     environmentId: primaryEnvironmentId,
     title: "shared-repo",
+    kind: "code",
     workspaceRoot: "/tmp/shared-repo",
     repositoryIdentity: null,
     defaultModelSelection: {

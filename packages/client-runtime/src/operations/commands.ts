@@ -28,6 +28,7 @@ import {
   type SkillName,
   type ThreadId,
   type ThreadEnvMode,
+  type WorkspaceKind,
   type UploadChatAttachment,
 } from "@codenine/contracts";
 import { derivePendingBackgroundWork } from "@codenine/shared/orchestrationV2PendingBackgroundWork";
@@ -46,6 +47,7 @@ interface CommandMetadata {
 export interface CreateProjectInput extends CommandMetadata {
   readonly projectId: ProjectId;
   readonly title: string;
+  readonly kind?: WorkspaceKind;
   readonly workspaceRoot: string;
   readonly createWorkspaceRootIfMissing?: boolean;
   readonly defaultModelSelection?: ModelSelection | null;
@@ -55,6 +57,7 @@ export interface CreateProjectInput extends CommandMetadata {
 export interface UpdateProjectInput extends CommandMetadata {
   readonly projectId: ProjectId;
   readonly title?: string;
+  readonly kind?: WorkspaceKind;
   readonly workspaceRoot?: string;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly autoPull?: boolean;
@@ -335,6 +338,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly commandId: CommandId;
         readonly projectId: ProjectId;
         readonly title: string;
+        readonly kind?: WorkspaceKind;
         readonly workspaceRoot: string;
         readonly createWorkspaceRootIfMissing?: boolean;
         readonly defaultModelSelection?: ModelSelection | null;
@@ -345,6 +349,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly commandId: CommandId;
         readonly projectId: ProjectId;
         readonly title?: string;
+        readonly kind?: WorkspaceKind;
         readonly workspaceRoot?: string;
         readonly defaultModelSelection?: ModelSelection | null;
         readonly scripts?: ReadonlyArray<ProjectScript>;
@@ -369,6 +374,7 @@ export const createProject = Effect.fn("EnvironmentCommands.createProject")(func
     projectId: input.projectId,
     title: input.title,
     workspaceRoot: input.workspaceRoot,
+    ...(input.kind === undefined ? {} : { kind: input.kind }),
     ...(input.createWorkspaceRootIfMissing === undefined
       ? {}
       : { createWorkspaceRootIfMissing: input.createWorkspaceRootIfMissing }),
@@ -387,6 +393,7 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
     commandId: yield* allocateCommandId(input),
     projectId: input.projectId,
     ...(input.title === undefined ? {} : { title: input.title }),
+    ...(input.kind === undefined ? {} : { kind: input.kind }),
     ...(input.workspaceRoot === undefined ? {} : { workspaceRoot: input.workspaceRoot }),
     ...(input.defaultModelSelection === undefined
       ? {}

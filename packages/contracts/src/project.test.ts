@@ -6,6 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 
 import {
+  Project,
   ProjectFaviconPath,
   ReceivedProjectIcon,
   StoredProjectIcon,
@@ -21,6 +22,8 @@ import {
 const decodeProjectCreatePayload = Schema.decodeUnknownSync(ProjectCreatePayload);
 const decodeProjectUpdatePayload = Schema.decodeUnknownSync(ProjectUpdatePayload);
 const decodeProjectMutation = Schema.decodeUnknownSync(ProjectMutation);
+const decodeProject = Schema.decodeUnknownSync(Project);
+const decodeProjectShellSync = Schema.decodeUnknownSync(OrchestrationProjectShell);
 
 describe("project RPC errors", () => {
   it("derives stable messages from structured request context while retaining causes", () => {
@@ -94,6 +97,29 @@ describe("project RPC errors", () => {
 });
 
 describe("shared project payloads", () => {
+  it("reads a project without a kind as a code workspace and keeps a stored kind", () => {
+    const stored = {
+      id: "project",
+      title: "Example",
+      workspaceRoot: "/workspace",
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    for (const decode of [
+      decodeProjectShellSync,
+      (input: object) => decodeProject({ ...input, deletedAt: null }),
+    ]) {
+      expect(decode(stored).kind).toBe("code");
+      expect(decode({ ...stored, kind: "work" }).kind).toBe("work");
+    }
+    const payload = { title: "Example", workspaceRoot: "/workspace" };
+    expect(Object.hasOwn(decodeProjectCreatePayload(payload), "kind")).toBe(false);
+    expect(decodeProjectUpdatePayload({ kind: "create" })).toEqual({ kind: "create" });
+    expect(() => decodeProjectCreatePayload({ ...payload, kind: "play" })).toThrow();
+  });
+
   it("preserves omitted, false, and null values through RPC envelopes", () => {
     const create = decodeProjectCreatePayload({
       title: " Example ",

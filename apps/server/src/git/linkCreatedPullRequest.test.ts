@@ -31,6 +31,7 @@ const commandId = Effect.succeed(CommandId.make("server:pr-created-link:test"));
 const project: OrchestrationProjectShell = {
   id: PROJECT_ID,
   title: "Project",
+  kind: "code",
   workspaceRoot: "/workspace/project",
   defaultModelSelection: null,
   scripts: [],

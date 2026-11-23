@@ -96,6 +96,7 @@ describe("ThreadPullRequestServiceV2 reads", () => {
         const project: OrchestrationProjectShell = {
           id: thread.projectId,
           title: "Project",
+          kind: "code",
           workspaceRoot: "/workspace/project",
           defaultModelSelection: null,
           scripts: [],
@@ -222,6 +223,7 @@ describe("ThreadPullRequestServiceV2 reads", () => {
           const project: OrchestrationProjectShell = {
             id: thread.projectId,
             title: "Project",
+            kind: "code",
             workspaceRoot: "/workspace/project",
             defaultModelSelection: null,
             scripts: [],
@@ -325,6 +327,7 @@ describe("ThreadPullRequestServiceV2 reads", () => {
         const project: OrchestrationProjectShell = {
           id: parent.projectId,
           title: "Project",
+          kind: "code",
           workspaceRoot: "/workspace/project",
           defaultModelSelection: null,
           scripts: [],
@@ -448,6 +451,7 @@ describe("ThreadPullRequestServiceV2 reads", () => {
           const project: OrchestrationProjectShell = {
             id: thread.projectId,
             title: "Project",
+            kind: "code",
             workspaceRoot: "/workspace/project",
             defaultModelSelection: null,
             scripts: [],

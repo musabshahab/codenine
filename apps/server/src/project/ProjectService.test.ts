@@ -249,6 +249,7 @@ it.layer(layerTest)("ProjectService", (it) => {
         commandId: CommandId.make("command:project:create"),
         projectId,
         title: "Project",
+        kind: "work",
         workspaceRoot: "/work/project/",
         defaultModelSelection: modelSelection,
         scripts: [
@@ -262,6 +263,7 @@ it.layer(layerTest)("ProjectService", (it) => {
         ],
       });
       assert.equal(created.workspaceRoot, "/work/project");
+      assert.equal(created.kind, "work");
       assert.isNull(created.repositoryIdentity);
       assert.isNull(created.faviconPath);
 
@@ -280,12 +282,14 @@ it.layer(layerTest)("ProjectService", (it) => {
         commandId: CommandId.make("command:project:update"),
         projectId,
         title: "Renamed",
+        kind: "create",
         autoPull: true,
         projectIcon: { kind: "emoji", emoji: "🦊" },
         faviconPath: "/work/project/custom.svg",
         defaultThreadEnvMode: "worktree",
       });
       assert.equal(updated.title, "Renamed");
+      assert.equal(updated.kind, "create");
       assert.equal(updated.createdAt, created.createdAt);
       assert.isTrue(updated.autoPull);
       assert.deepEqual(updated.projectIcon, { kind: "emoji", emoji: "🦊" });
@@ -310,6 +314,7 @@ it.layer(layerTest)("ProjectService", (it) => {
         defaultThreadEnvMode: null,
       });
       assert.isFalse(reset.autoPull);
+      assert.equal(reset.kind, "create");
       assert.isNull(reset.projectIcon);
       assert.equal(reset.faviconPath, hydratedCreated.faviconPath);
       assert.isNull(reset.defaultThreadEnvMode);
@@ -404,6 +409,7 @@ it.layer(layerTest)("ProjectService", (it) => {
       const first = yield* service.create(input);
       const retried = yield* service.create(input);
       assert.deepEqual(retried, first);
+      assert.equal(first.kind, "code");
       const updateInput = {
         commandId: CommandId.make("command:retry:update"),
         projectId,

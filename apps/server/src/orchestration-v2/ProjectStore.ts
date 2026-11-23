@@ -7,6 +7,7 @@ import {
   ProjectId,
   ProjectScript,
   ThreadEnvMode,
+  WorkspaceKind,
 } from "@codenine/contracts";
 import * as Context from "effect/Context";
 import * as NodeSqliteClient from "@codenine/shared/nodeSqliteClient";
@@ -32,6 +33,7 @@ export class ProjectStoreV2Error extends Schema.TaggedError<ProjectStoreV2Error>
 export const ProjectRow = Schema.Struct({
   projectId: ProjectId,
   title: Schema.String,
+  kind: WorkspaceKind,
   workspaceRoot: Schema.String,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   defaultThreadEnvMode: Schema.NullOr(ThreadEnvMode),
@@ -59,6 +61,7 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
   return {
     id: row.projectId,
     title: row.title,
+    kind: row.kind,
     workspaceRoot: row.workspaceRoot,
     repositoryIdentity: null,
     defaultModelSelection: row.defaultModelSelection,
@@ -117,6 +120,7 @@ export const make = Effect.gen(function* () {
       SELECT
         project_id AS "projectId",
         title,
+        kind,
         workspace_root AS "workspaceRoot",
         default_model_selection_json AS "defaultModelSelection",
         default_thread_env_mode AS "defaultThreadEnvMode",
@@ -149,6 +153,7 @@ export const make = Effect.gen(function* () {
           INSERT INTO projection_projects (
             project_id,
             title,
+            kind,
             workspace_root,
             default_model_selection_json,
             default_thread_env_mode,
@@ -165,6 +170,7 @@ export const make = Effect.gen(function* () {
           VALUES (
             ${encoded.projectId},
             ${encoded.title},
+            ${encoded.kind},
             ${encoded.workspaceRoot},
             ${encoded.defaultModelSelection},
             ${encoded.defaultThreadEnvMode},
@@ -181,6 +187,7 @@ export const make = Effect.gen(function* () {
           ON CONFLICT (project_id)
           DO UPDATE SET
             title = excluded.title,
+            kind = excluded.kind,
             workspace_root = excluded.workspace_root,
             default_model_selection_json = excluded.default_model_selection_json,
             default_thread_env_mode = excluded.default_thread_env_mode,
@@ -231,6 +238,7 @@ export const make = Effect.gen(function* () {
         return yield* upsertRow({
           projectId: payload.projectId,
           title: payload.title,
+          kind: payload.kind ?? "code",
           workspaceRoot: payload.workspaceRoot,
           defaultModelSelection: payload.defaultModelSelection,
           defaultThreadEnvMode: payload.defaultThreadEnvMode ?? null,
@@ -259,6 +267,7 @@ export const make = Effect.gen(function* () {
       yield* upsertRow({
         ...row,
         ...(payload.title === undefined ? {} : { title: payload.title }),
+        ...(payload.kind === undefined ? {} : { kind: payload.kind }),
         ...(payload.workspaceRoot === undefined ? {} : { workspaceRoot: payload.workspaceRoot }),
         ...(payload.defaultModelSelection === undefined
           ? {}

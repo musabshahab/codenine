@@ -1374,6 +1374,7 @@ function OpenCommandPaletteDialog(props: {
       environmentId: input.environmentId,
       title: inferProjectTitleFromPath(cwd),
       workspaceRoot: cwd,
+      workspaceKind: "code",
       projectIcon: null,
       defaultModelSelection: null,
     });

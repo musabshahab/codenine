@@ -110,6 +110,7 @@ const serverConfig: ServerConfig = {
 const project: OrchestrationProjectShell = {
   id: PROJECT_ID,
   title: "render",
+  kind: "code",
   workspaceRoot: "/workspace/render",
   repositoryIdentity: null,
   defaultModelSelection: null,

@@ -29,6 +29,7 @@ const SHELL_SNAPSHOT: OrchestrationV2ShellSnapshot = {
     {
       id: PROJECT_ID,
       title: "Project",
+      kind: "code",
       workspaceRoot: "/repo",
       repositoryIdentity: null,
       defaultModelSelection: null,

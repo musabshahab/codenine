@@ -161,6 +161,7 @@ it.effect.each([
                   project: {
                     id: projectId,
                     title: "Project",
+                    kind: "code" as const,
                     workspaceRoot: "/bootstrap-project",
                     repositoryIdentity: null,
                     faviconPath: null,

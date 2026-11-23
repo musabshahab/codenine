@@ -8,6 +8,7 @@ import {
   type ProjectScript,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
+  type WorkspaceKind,
 } from "@codenine/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Result from "effect/Result";
@@ -22,6 +23,7 @@ export interface ProjectCreateCommand {
   readonly projectId: ProjectId;
   readonly title: string;
   readonly workspaceRoot: string;
+  readonly kind?: WorkspaceKind;
   readonly scripts?: ReadonlyArray<ProjectScript>;
 }
 
@@ -30,6 +32,7 @@ export interface ProjectMetaUpdateCommand {
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
   readonly title?: string;
+  readonly kind?: WorkspaceKind;
   readonly workspaceRoot?: string;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
@@ -158,6 +161,7 @@ export function planProjectCommand(input: {
         payload: {
           projectId: command.projectId,
           title: command.title,
+          kind: command.kind ?? "code",
           workspaceRoot: command.workspaceRoot,
           defaultModelSelection: null,
           faviconPath: null,
@@ -199,6 +203,7 @@ export function planProjectCommand(input: {
         payload: {
           projectId: command.projectId,
           ...(command.title === undefined ? {} : { title: command.title }),
+          ...(command.kind === undefined ? {} : { kind: command.kind }),
           ...(command.workspaceRoot === undefined ? {} : { workspaceRoot: command.workspaceRoot }),
           ...(command.defaultModelSelection === undefined
             ? {}

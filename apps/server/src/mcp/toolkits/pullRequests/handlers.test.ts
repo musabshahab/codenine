@@ -67,6 +67,7 @@ function makeProject(
   return {
     id: PROJECT_ID,
     title: "Project",
+    kind: "code",
     workspaceRoot: "/workspace/project",
     defaultModelSelection: null,
     scripts: [],

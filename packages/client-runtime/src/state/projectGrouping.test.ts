@@ -100,6 +100,7 @@ function makeProject(
     environmentId,
     id: ProjectId.make(id),
     title: id,
+    kind: "code",
     workspaceRoot,
     repositoryIdentity,
     defaultModelSelection: null,

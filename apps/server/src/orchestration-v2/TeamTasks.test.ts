@@ -83,6 +83,7 @@ const project = {
   id: projectId,
   title: "Team",
   workspaceRoot: "/repo",
+  kind: "code" as const,
   repositoryIdentity: null,
   faviconPath: null,
   defaultModelSelection: fast,
