@@ -10,12 +10,13 @@ import {
   type Ref,
 } from "react";
 import { type PdfPageGeometry, pdfPageViewSize } from "@codenine/shared/pdfGeometry";
+import * as Schema from "effect/Schema";
 import { TextLayer, type PDFDocumentProxy } from "pdfjs-dist";
 import { ChevronDownIcon, ChevronUpIcon, MinusIcon, PlusIcon, ScanIcon } from "lucide-react";
 import { Input } from "~/components/ui/input";
 import { observeResize } from "~/lib/observeResize";
 import { FileSurfaceAction, FileSurfaceFailure, FileSurfaceLoading } from "./fileSurfaceChrome";
-import { readBoundedDocument } from "./readBoundedDocument";
+import { DocumentTooLargeError, readBoundedDocument } from "./readBoundedDocument";
 import { openPdf } from "./pdfDocument";
 import {
   currentPdfPage,
@@ -34,6 +35,7 @@ import {
 import "./pdfViewer.css";
 
 const MAX_PAGES = 2000;
+const isTooLarge = Schema.is(DocumentTooLargeError);
 const MAX_FIND_TEXT = 4 * 1024 * 1024;
 
 const MAX_POSITIONS = 50;
@@ -61,6 +63,47 @@ export interface PdfViewerHandle {
   readonly showPage: (index: number) => void;
 }
 
+/** A link on a page, in CSS pixels from the page's upper left corner. */
+interface PdfPageLink {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+  /** Where an outside link goes, as pdf.js made it safe to follow. */
+  readonly url: string | null;
+  /** Where a link inside the document goes. */
+  readonly dest: unknown;
+}
+
+type PdfViewport = ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["getViewport"]>;
+
+function pageLinks(annotations: ReadonlyArray<unknown>, viewport: PdfViewport) {
+  const links: PdfPageLink[] = [];
+  for (const annotation of annotations as ReadonlyArray<{
+    subtype?: string;
+    rect?: number[];
+    url?: string;
+    dest?: unknown;
+  }>) {
+    if (annotation.subtype !== "Link" || annotation.rect?.length !== 4) continue;
+    const url = typeof annotation.url === "string" ? annotation.url : null;
+    const dest = annotation.dest ?? null;
+    if (url === null && dest === null) continue;
+    const [left = 0, bottom = 0, right = 0, top = 0] = annotation.rect;
+    const [x1 = 0, y1 = 0] = viewport.convertToViewportPoint(left, bottom) as number[];
+    const [x2 = 0, y2 = 0] = viewport.convertToViewportPoint(right, top) as number[];
+    links.push({
+      left: Math.min(x1, x2),
+      top: Math.min(y1, y2),
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+      url,
+      dest,
+    });
+  }
+  return links;
+}
+
 function PdfPage(props: {
   document: PDFDocumentProxy;
   index: number;
@@ -68,6 +111,8 @@ function PdfPage(props: {
   query: string;
   onSize: (index: number, ratio: number) => void;
   onError: (error: string) => void;
+  /** Follows a link to another place in the document; links are off when it is absent. */
+  onFollow: ((dest: unknown) => void) | undefined;
   renderOverlay: ((surface: PdfPageSurface) => ReactNode) | undefined;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -75,6 +120,7 @@ function PdfPage(props: {
   const { document: pdf, index, width, onSize, onError } = props;
   // The page's stored box and rotation, known once pdf.js has read the page.
   const [frame, setFrame] = useState<Pick<PdfPageGeometry, "box" | "rotation"> | null>(null);
+  const [links, setLinks] = useState<ReadonlyArray<PdfPageLink>>([]);
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Render the PDF page canvas and text layer, cancelling tasks and releasing pdf.js page resources on cleanup.
   useEffect(() => {
     let cancelled = false;
@@ -113,7 +159,12 @@ function PdfPage(props: {
         viewport,
         textContentSource: page.streamTextContent(),
       });
-      await Promise.all([paint.promise, layer.render()]);
+      const [annotations] = await Promise.all([
+        page.getAnnotations(),
+        paint.promise,
+        layer.render(),
+      ]);
+      if (!cancelled) setLinks(pageLinks(annotations, viewport));
     })().catch((cause: unknown) => {
       if (!cancelled)
         onError(cause instanceof Error ? cause.message : "This PDF page could not render.");
@@ -153,6 +204,37 @@ function PdfPage(props: {
     <>
       <canvas ref={canvas} aria-label={`Page ${index + 1}`} className="block h-full w-full" />
       <div ref={text} data-pdf-text-layer />
+      {props.onFollow === undefined
+        ? null
+        : links.map((link) => {
+            const style = {
+              left: link.left,
+              top: link.top,
+              width: link.width,
+              height: link.height,
+            };
+            const key = `${link.left}:${link.top}:${link.url ?? "inside"}`;
+            return link.url !== null ? (
+              <a
+                key={key}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={link.url}
+                className="absolute"
+                style={style}
+              />
+            ) : (
+              <button
+                key={key}
+                type="button"
+                aria-label="Go to the linked page"
+                className="absolute cursor-pointer"
+                style={style}
+                onClick={() => props.onFollow?.(link.dest)}
+              />
+            );
+          })}
       {overlay === null ? null : (
         // Clicks fall through to the text under it, except on what the overlay itself offers.
         <div
@@ -183,6 +265,10 @@ export default function PdfViewer(props: {
   side?: ReactNode;
   /** What to lay over each shown page, such as highlights and form inputs. */
   renderPageOverlay?: (surface: PdfPageSurface) => ReactNode;
+  /** False while clicks on the page mean something else, as with a tool in hand. */
+  links?: boolean;
+  /** The document is beyond what this viewer loads: too large, too many pages or too slow. */
+  onUnavailable?: () => void;
 }) {
   const [savedPosition] = useState(() =>
     props.positionKey === undefined ? undefined : positions.get(props.positionKey),
@@ -207,13 +293,18 @@ export default function PdfViewer(props: {
   const find = useRef<HTMLInputElement>(null);
   const zoomAnchor = useRef<{ page: number; offset: number; width: number } | null>(null);
   const initialPage = initialView.page;
+  const restored = useRef(false);
+  const reportUnavailable = useEffectEvent(() => props.onUnavailable?.());
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Own the PDF fetch, load timeout, and pdf.js document task across source changes, retries, and unmounts.
   useEffect(() => {
     const controller = new AbortController();
     let disposed = false;
     let task: ReturnType<typeof openPdf> | undefined;
+    // A document that is shown is released when another replaces it, not when this load ends.
+    let shown = false;
     const timeout = setTimeout(() => {
       setError("This PDF took too long to load. Try again.");
+      reportUnavailable();
       controller.abort();
       void task?.destroy();
     }, 30_000);
@@ -227,8 +318,10 @@ export default function PdfViewer(props: {
         controller.signal.throwIfAborted();
         task = openPdf(bytes);
         const document = await task.promise;
-        if (document.numPages > MAX_PAGES)
+        if (document.numPages > MAX_PAGES) {
+          reportUnavailable();
           throw new Error("Preview limited to 2,000 pages. Save this PDF to read it in full.");
+        }
         const first = (await document.getPage(1)).getViewport({ scale: 1 });
         const sizes = await Promise.all(
           Array.from({ length: Math.min(initialPage + 1, document.numPages) }, async (_, index) => {
@@ -238,28 +331,39 @@ export default function PdfViewer(props: {
         );
         if (controller.signal.aborted) return;
         setPageWidth(first.width);
-        setRatios(
-          savedPosition?.ratios.length === document.numPages
-            ? savedPosition.ratios
-            : Array.from(
-                { length: document.numPages },
-                (_, index) => sizes[index] ?? first.height / first.width,
-              ),
+        // A new revision of the document on screen keeps the layout it is read in.
+        setRatios((old) =>
+          old.length === document.numPages
+            ? old
+            : savedPosition?.ratios.length === document.numPages
+              ? savedPosition.ratios
+              : Array.from(
+                  { length: document.numPages },
+                  (_, index) => sizes[index] ?? first.height / first.width,
+                ),
         );
+        shown = true;
+        setError(null);
         setPdf(document);
       })
       .catch((cause: unknown) => {
-        if (!disposed && !controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : "Unable to open PDF.");
+        if (disposed || controller.signal.aborted) return;
+        if (isTooLarge(cause)) reportUnavailable();
+        setError(cause instanceof Error ? cause.message : "Unable to open PDF.");
       })
       .finally(() => clearTimeout(timeout));
     return () => {
       disposed = true;
       controller.abort();
       clearTimeout(timeout);
-      void task?.destroy();
+      if (!shown) void task?.destroy();
     };
   }, [props.src, revision, initialPage, savedPosition]);
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Release a pdf.js document once another has replaced it on screen or the viewer has gone, so the pages stay up while a new revision loads.
+  useEffect(() => {
+    if (!pdf) return;
+    return () => void pdf.loadingTask.destroy();
+  }, [pdf]);
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Measure the PDF viewport before paint and observe resizes for fit-width sizing and visible-page selection.
   useLayoutEffect(() => {
     const node = scroll.current;
@@ -311,13 +415,32 @@ export default function PdfViewer(props: {
   });
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Restore the saved PDF scroll position after the loaded document's page layout commits.
   useLayoutEffect(() => {
-    if (pdf) restoreView();
+    // Only the first document of a mount: a later revision is read where the reader already is.
+    if (!pdf || restored.current) return;
+    restored.current = true;
+    restoreView();
   }, [pdf]);
   const showPage = (index: number) => {
     scroll.current?.scrollTo({ top: pdfPageScrollTop(offsets, index) });
   };
   // Rebuilt each render so that it scrolls by the page offsets now on screen.
   useImperativeHandle(props.handle, () => ({ showPage }));
+  const follow = (dest: unknown) => {
+    if (!pdf) return;
+    void (async () => {
+      const explicit: unknown = typeof dest === "string" ? await pdf.getDestination(dest) : dest;
+      const target: unknown = Array.isArray(explicit) ? explicit[0] : null;
+      if (typeof target === "number") return target;
+      if (typeof target !== "object" || target === null) return null;
+      return pdf.getPageIndex(target as Parameters<typeof pdf.getPageIndex>[0]);
+    })().then(
+      (index) => {
+        if (index !== null) showPage(index);
+      },
+      // A link to a page the document does not have goes nowhere.
+      () => {},
+    );
+  };
   const changeZoom = (value: number | null) => {
     zoomAnchor.current = {
       page: current,
@@ -502,6 +625,7 @@ export default function PdfViewer(props: {
               onRetry={() => {
                 setError(null);
                 setPdf(null);
+                restored.current = false;
                 setRevision((value) => value + 1);
               }}
             />
@@ -537,6 +661,7 @@ export default function PdfViewer(props: {
                     query={query}
                     onSize={onSize}
                     onError={setError}
+                    onFollow={props.links === false ? undefined : follow}
                     renderOverlay={props.renderPageOverlay}
                   />
                 </div>

@@ -1,17 +1,21 @@
-// @effect-diagnostics nodeBuiltinImport:off - annotation ids are random and images arrive as base64.
+// @effect-diagnostics nodeBuiltinImport:off - annotation ids are random, images arrive as base64, and a parse carries its own budget.
+import * as NodeAsyncHooks from "node:async_hooks";
 import * as NodeCrypto from "node:crypto";
 
 import {
+  decodePDFRawStream,
   degrees,
   EncryptedPDFError,
   PDFArray,
   PDFBool,
   PDFCheckBox,
+  PDFContext,
   PDFDict,
   PDFDocument,
   PDFDropdown,
   type PDFField,
   type PDFFont,
+  type PDFForm,
   PDFHexString,
   type PDFImage,
   PDFName,
@@ -19,7 +23,9 @@ import {
   PDFOptionList,
   type PDFPage,
   PDFRadioGroup,
+  PDFRawStream,
   PDFRef,
+  PDFStream,
   PDFString,
   PDFTextField,
   rgb,
@@ -130,24 +136,95 @@ const channelsOf = (colour: string): readonly [number, number, number] => [
 
 const number = (value: number) => String(Math.round(value * 1000) / 1000);
 
+/** How much a PDF's packed streams may unpack to while it is read and changed. */
+export interface PdfUnpackLimits {
+  readonly maxUnpackedBytes: number;
+}
+
+export const DEFAULT_PDF_UNPACK_LIMITS: PdfUnpackLimits = { maxUnpackedBytes: 64 * 1024 * 1024 };
+
+interface UnpackBudget {
+  remaining: number;
+  exceeded: boolean;
+}
+
+const unpackBudget = new NodeAsyncHooks.AsyncLocalStorage<UnpackBudget>();
+
+interface GrowingStream {
+  readonly buffer: Uint8Array;
+  readonly minBufferLength: number;
+  ensureBuffer(requested: number): Uint8Array;
+}
+
+/**
+ * pdf-lib unpacks object streams whole as it loads and has no limit of its own, so a small file
+ * could ask for gigabytes. Its decoders all grow their output through one method, which is made
+ * to count that growth against the budget of the parse it runs in.
+ */
+const unpackLimitInstalled = (() => {
+  let prototype: unknown = decodePDFRawStream(
+    PDFRawStream.of(PDFContext.create().obj({ Filter: "FlateDecode" }), Uint8Array.of(0x78, 0x9c)),
+  );
+  while (prototype !== null && !Object.hasOwn(prototype as object, "ensureBuffer")) {
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  if (prototype === null) return false;
+  const decoder = prototype as GrowingStream;
+  const grow = decoder.ensureBuffer;
+  decoder.ensureBuffer = function (this: GrowingStream, requested: number) {
+    const budget = unpackBudget.getStore();
+    const held = this.buffer.byteLength;
+    if (budget !== undefined && requested > held) {
+      let size = this.minBufferLength;
+      while (size < requested) size *= 2;
+      budget.remaining -= size - held;
+      if (budget.remaining < 0) budget.exceeded = true;
+      // The parser skips an object it cannot read, so every later stream is refused as well.
+      if (budget.exceeded) throw refused("too-large");
+    }
+    return grow.call(this, requested);
+  };
+  return true;
+})();
+
+/** Runs PDF work with a budget for what its streams unpack to. */
+async function bounded<A>(limits: PdfUnpackLimits, run: (budget: UnpackBudget) => Promise<A>) {
+  // Without the counter a file's unpacked size is unknown, so nothing is read.
+  if (!unpackLimitInstalled) throw refused("damaged");
+  const budget = { remaining: limits.maxUnpackedBytes, exceeded: false };
+  return unpackBudget.run(budget, () => run(budget));
+}
+
+const signatureKeys = [name("ByteRange")] as const;
+
+/** True when the object, or anything stored directly inside it, is a signature dictionary. */
+function holdsSignature(object: unknown): boolean {
+  if (object instanceof PDFStream) return holdsSignature(object.dict);
+  if (object instanceof PDFArray) return object.asArray().some(holdsSignature);
+  if (!(object instanceof PDFDict)) return false;
+  if (signatureKeys.some((key) => object.has(key))) return true;
+  return object.values().some(holdsSignature);
+}
+
 /** A signature dictionary anywhere in the file: its byte range covers the bytes a save rewrites. */
 function hasCertificateSignature(document: PDFDocument): boolean {
-  const byteRange = name("ByteRange");
   for (const [, object] of document.context.enumerateIndirectObjects()) {
-    if (object instanceof PDFDict && object.has(byteRange)) return true;
+    if (holdsSignature(object)) return true;
   }
   const perms = document.catalog.lookup(name("Perms"));
   return perms instanceof PDFDict && perms.keys().length > 0;
 }
 
-async function load(bytes: Uint8Array): Promise<PDFDocument> {
+async function load(bytes: Uint8Array, budget: UnpackBudget): Promise<PDFDocument> {
   let document: PDFDocument;
   try {
     // The file's own dates and producer are kept: this is the user's document, not a new one.
     document = await PDFDocument.load(bytes, { updateMetadata: false });
   } catch (cause) {
+    if (budget.exceeded) throw refused("too-large");
     throw refused(cause instanceof EncryptedPDFError ? "encrypted" : "damaged");
   }
+  if (budget.exceeded) throw refused("too-large");
   if (document.isEncrypted) throw refused("encrypted");
   let signed: boolean;
   try {
@@ -291,9 +368,10 @@ function contentsOf(document: PDFDocument): PdfContents {
 /** What a PDF holds that can be changed here, or why it cannot be changed. */
 export async function inspectPdf(
   bytes: Uint8Array,
+  limits: PdfUnpackLimits = DEFAULT_PDF_UNPACK_LIMITS,
 ): Promise<PdfContents & { readonly refusal?: PdfRefusalReason }> {
   try {
-    return contentsOf(await load(bytes));
+    return await bounded(limits, async (budget) => contentsOf(await load(bytes, budget)));
   } catch (cause) {
     const reason =
       cause instanceof PdfProblem && cause.detail.kind === "refused"
@@ -436,6 +514,13 @@ const printable = (font: PDFFont, value: string) => {
   return true;
 };
 
+/** The built-in font cannot draw the field's value, so each reader draws it with its own. */
+function leaveAppearanceToReaders(form: PDFForm, field: PDFField) {
+  for (const widget of field.acroField.getWidgets()) widget.dict.delete(name("AP"));
+  form.markFieldAsClean(field.ref);
+  form.acroForm.dict.set(name("NeedAppearances"), PDFBool.True);
+}
+
 function setField(
   document: PDFDocument,
   operation: Extract<PdfOperation, { type: "setField" }>,
@@ -456,11 +541,8 @@ function setField(
         field.setText(value.text === "" ? undefined : value.text);
         return;
       }
-      // The built-in font cannot draw this text, so each reader draws the value with its own.
       field.acroField.setValue(PDFHexString.fromText(value.text));
-      for (const widget of field.acroField.getWidgets()) widget.dict.delete(name("AP"));
-      form.markFieldAsClean(field.ref);
-      form.acroForm.dict.set(name("NeedAppearances"), PDFBool.True);
+      leaveAppearanceToReaders(form, field);
       return;
     }
     if (field instanceof PDFCheckBox && value.kind === "checkbox") {
@@ -487,6 +569,10 @@ function setField(
       if (value.options.length > 1 && !field.isMultiselect()) throw invalid("field-value-invalid");
       if (value.options.length === 0) field.clear();
       else field.select([...value.options]);
+      // A list draws every option and a drop-down the chosen one.
+      const shown = field instanceof PDFOptionList ? field.getOptions() : value.options;
+      if (shown.every((option) => printable(helvetica(), option))) return;
+      leaveAppearanceToReaders(form, field);
       return;
     }
   } catch (cause) {
@@ -591,23 +677,32 @@ async function placeSignature(
   });
 }
 
+interface PdfEdit {
+  readonly operations: ReadonlyArray<PdfOperation>;
+  readonly signatures: ReadonlyArray<PdfSignaturePlacement>;
+  readonly now: Date;
+  readonly limits?: PdfUnpackLimits;
+}
+
 /**
- * The PDF with the operations and then the signatures applied, or a `PdfProblem` with nothing
- * changed. Highlights, notes and form values stay standard annotations and fields; a signature
- * is drawn into its page.
+ * The PDF with the operations and then the signatures applied, and what it then holds, or a
+ * `PdfProblem` with nothing changed. Highlights, notes and form values stay standard annotations
+ * and fields; a signature is drawn into its page.
  */
 export async function editPdf(
   bytes: Uint8Array,
-  edit: {
-    readonly operations: ReadonlyArray<PdfOperation>;
-    readonly signatures: ReadonlyArray<PdfSignaturePlacement>;
-    readonly now: Date;
-  },
-): Promise<Uint8Array> {
+  edit: PdfEdit,
+): Promise<PdfContents & { readonly bytes: Uint8Array }> {
   if (edit.operations.length === 0 && edit.signatures.length === 0) {
     throw invalid("nothing-to-save");
   }
-  const document = await load(bytes);
+  return bounded(edit.limits ?? DEFAULT_PDF_UNPACK_LIMITS, (budget) =>
+    applyEdit(bytes, edit, budget),
+  );
+}
+
+async function applyEdit(bytes: Uint8Array, edit: PdfEdit, budget: UnpackBudget) {
+  const document = await load(bytes, budget);
   let font: PDFFont | undefined;
   // Embedded only when something is printed with it, so other edits add no font to the file.
   const helvetica = () => (font ??= document.embedStandardFont(StandardFonts.Helvetica));
@@ -634,5 +729,15 @@ export async function editPdf(
     }
   });
   await each(edit.signatures, (signature) => placeSignature(document, signature, helvetica));
-  return document.save();
+  // Only the fields changed here are redrawn. The library would also redraw every field that
+  // has no appearance, with "?" for each character its built-in font lacks.
+  if (edit.operations.some((operation) => operation.type === "setField")) {
+    const form = document.getForm();
+    for (const field of form.getFields()) {
+      if (form.fieldIsDirty(field.ref)) field.defaultUpdateAppearances(helvetica());
+    }
+  }
+  const saved = await document.save({ updateFieldAppearances: false });
+  // Read from the document just written, which spares parsing the result a second time.
+  return { bytes: saved, ...contentsOf(document) };
 }

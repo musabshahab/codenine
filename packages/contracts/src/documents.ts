@@ -385,6 +385,8 @@ export const PdfOpenResult = Schema.Struct({
   version: TrimmedNonEmptyString,
   // Present when the PDF cannot be changed here.
   refusal: Schema.optionalKey(PdfRefusalReason),
+  // Whether a save here records the file it replaces, so that it can be put back.
+  versionsKept: Schema.optionalKey(Schema.Boolean),
   ...PdfContents,
 });
 export type PdfOpenResult = typeof PdfOpenResult.Type;

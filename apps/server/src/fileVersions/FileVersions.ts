@@ -91,6 +91,8 @@ type WriteError = SaveError | FileVersionNotKeptError;
 export class FileVersions extends Context.Service<
   FileVersions,
   {
+    /** Whether saves in this folder record what they replace: true in a folder without Git. */
+    readonly keepsVersions: (cwd: string) => Effect.Effect<boolean>;
     /**
      * An editor save, which first records what it replaces and goes ahead when that fails. In a
      * Git checkout it only saves.
@@ -737,6 +739,7 @@ const make = Effect.gen(function* () {
   });
 
   return FileVersions.of({
+    keepsVersions: isTracked,
     writeFile,
     writeFileBytes,
     overwriteFile,

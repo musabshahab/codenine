@@ -464,10 +464,12 @@ your latest change.
 
 Highlights, notes and form values are saved in the PDF itself as standard annotations and
 fields, so other PDF readers show them and can change them. A signature is different: saving
-draws it into the page, so it cannot be moved or removed afterwards. To take one back, restore an
-earlier version of the file ([file versions](#file-versions) in a folder without Git, where the
-save is listed as signed by you, or Git otherwise). It is a picture of your signature, not a
-certificate-based digital signature. Only you can sign: agents have no way to place a signature.
+draws it into the page, so it cannot be moved or removed afterwards. In a folder without Git you
+can take one back by restoring an earlier version of the file ([file versions](#file-versions)),
+where the save is listed as signed by you. In a Git checkout no earlier version is kept, so
+commit the unsigned file or keep a copy of it before you sign. It is a picture of your signature,
+not a certificate-based digital signature. Only you can sign: agents have no way to place a
+signature.
 
 Tick **Keep this signature on this device** to reuse a signature. It is stored in this browser
 only, and **Delete from this device** in the same dialog removes it.
@@ -476,7 +478,14 @@ Some PDFs open for reading only, with the reason shown: ones protected with a pa
 permissions, ones that carry a certificate signature (any change would invalidate it), and ones
 over 32 MB. Highlights and notes made in another app are listed but can only be removed there.
 If the file changed on disk while you were working, the save is held back and you choose
-whether to load the new file and keep your changes, or discard them.
+whether to load the new file and keep your changes, or discard them. Closing the tab, or leaving
+the page in a browser, asks first when a PDF has unsaved changes. The desktop app does not ask
+when it quits, so save before you close it.
+
+The toolbar's **Download** button saves the PDF, as last saved, to your device. In a browser,
+**Open in a new tab to print** shows it in the browser's own viewer, which prints it and lists
+its outline. A PDF over 50 MB or 2,000 pages, or one that takes too long to load, opens in the
+browser's own viewer for reading only.
 
 ## HTML and PDF files in the file viewer
 

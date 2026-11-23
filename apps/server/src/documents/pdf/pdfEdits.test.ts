@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off - the test packs an object stream by hand.
+import * as NodeZlib from "node:zlib";
+
 import { describe, expect, it } from "@effect/vitest";
 import {
   degrees,
@@ -90,7 +93,26 @@ const edit = (
   bytes: Uint8Array,
   operations: ReadonlyArray<PdfOperation>,
   signatures: ReadonlyArray<PdfSignaturePlacement> = [],
-) => editPdf(bytes, { operations, signatures, now: NOW });
+) => editPdf(bytes, { operations, signatures, now: NOW }).then((edited) => edited.bytes);
+
+/** A one-page PDF whose only object stream unpacks to `unpackedBytes` of spaces. */
+function packedPdf(unpackedBytes: number): Uint8Array {
+  const packed = NodeZlib.deflateSync(Buffer.alloc(unpackedBytes, 0x20));
+  return Buffer.concat([
+    Buffer.from(
+      [
+        "%PDF-1.5",
+        "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+        "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+        "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >> endobj",
+        `4 0 obj << /Type /ObjStm /N 0 /First 0 /Filter /FlateDecode /Length ${packed.byteLength} >> stream\n`,
+      ].join("\n"),
+      "latin1",
+    ),
+    packed,
+    Buffer.from("\nendstream endobj\ntrailer << /Root 1 0 R /Size 5 >>\n%%EOF\n", "latin1"),
+  ]);
+}
 
 const refusal = async (attempt: Promise<unknown>) => {
   const cause = await attempt.then(
@@ -287,10 +309,37 @@ describe("pdfEdits", () => {
       kind: "text",
       text: "山田 太郎",
     });
-    const needs = (await PDFDocument.load(japanese)).catalog
-      .getAcroForm()!
-      .dict.lookup(PDFName.of("NeedAppearances"));
+    const unprintable = await PDFDocument.load(japanese);
+    const needs = unprintable.catalog.getAcroForm()!.dict.lookup(PDFName.of("NeedAppearances"));
     expect(String(needs)).toBe("true");
+    expect(
+      unprintable.getForm().getTextField("tenant").acroField.getWidgets()[0]!.getAppearances(),
+    ).toBeUndefined();
+
+    // The same goes for a choice: its appearance is not redrawn with characters it cannot draw.
+    const cities = await fixture((document) => {
+      const page = document.getPage(0);
+      const city = document.getForm().createDropdown("city");
+      city.addOptions(["London", "東京"]);
+      city.addToPage(page, { x: 240, y: 320, width: 120, height: 20 });
+      const venue = document.getForm().createOptionList("venue");
+      venue.addOptions(["Hall", "Łódź"]);
+      venue.addToPage(page, { x: 240, y: 250, width: 120, height: 40 });
+    });
+    const chosen = await PDFDocument.load(
+      await edit(cities, [
+        { type: "setField", name: "city", value: { kind: "choice", options: ["東京"] } },
+        { type: "setField", name: "venue", value: { kind: "choice", options: ["Hall"] } },
+        { type: "setField", name: "country", value: { kind: "choice", options: ["France"] } },
+      ]),
+    );
+    const chosenForm = chosen.getForm();
+    expect(chosenForm.getDropdown("city").getSelected()).toEqual(["東京"]);
+    expect(chosenForm.getOptionList("venue").getSelected()).toEqual(["Hall"]);
+    expect(String(chosenForm.acroForm.dict.lookup(PDFName.of("NeedAppearances")))).toBe("true");
+    const drawn = (fieldName: string) =>
+      chosenForm.getField(fieldName).acroField.getWidgets()[0]!.dict.has(PDFName.of("AP"));
+    expect([drawn("city"), drawn("venue"), drawn("country")]).toEqual([false, false, true]);
 
     const refusals: ReadonlyArray<readonly [PdfOperation, string]> = [
       [{ type: "setField", name: "missing", value: { kind: "text", text: "x" } }, "unknown-field"],
@@ -436,16 +485,43 @@ describe("pdfEdits", () => {
       );
       document.getForm().acroForm.addField(field);
     });
+    // The signature dictionary written inside its field, which the format also allows.
+    const signedInline = await fixture((document) => {
+      const field = document.context.register(
+        document.context.obj({
+          FT: "Sig",
+          T: PDFString.of("approval"),
+          V: { Type: "Sig", ByteRange: [0, 100, 200, 300], Contents: PDFString.of("00") },
+        }),
+      );
+      document.getForm().acroForm.addField(field);
+    });
+    const limits = { maxUnpackedBytes: 1024 * 1024 };
     const cases = [
       [await encrypted.save(), "encrypted"],
       [signed, "certificate-signed"],
+      [signedInline, "certificate-signed"],
       [new TextEncoder().encode("not a pdf"), "damaged"],
+      // A small file that unpacks to far more than it may hold in memory.
+      [packedPdf(8 * 1024 * 1024), "too-large"],
     ] as const;
     for (const [bytes, reason] of cases) {
-      expect(await inspectPdf(bytes)).toEqual({ refusal: reason, annotations: [], fields: [] });
+      expect(await inspectPdf(bytes, limits)).toEqual({
+        refusal: reason,
+        annotations: [],
+        fields: [],
+      });
       expect(
-        await refusal(edit(bytes, [{ type: "addNote", page: 0, x: 10, y: 10, contents: "x" }])),
+        await refusal(
+          editPdf(bytes, {
+            operations: [{ type: "addNote", page: 0, x: 10, y: 10, contents: "x" }],
+            signatures: [],
+            now: NOW,
+            limits,
+          }),
+        ),
       ).toEqual({ kind: "refused", reason, index: undefined });
     }
+    expect((await inspectPdf(packedPdf(64 * 1024), limits)).refusal).toBeUndefined();
   });
 });

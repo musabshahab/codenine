@@ -29,7 +29,12 @@ import * as FileVersions from "../fileVersions/FileVersions.ts";
 import type * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "../workspace/WorkspaceFileSystem.ts";
 import type * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { editPdf as editPdfBytes, inspectPdf, PdfProblem } from "./pdf/pdfEdits.ts";
+import {
+  DEFAULT_PDF_UNPACK_LIMITS,
+  editPdf as editPdfBytes,
+  inspectPdf,
+  PdfProblem,
+} from "./pdf/pdfEdits.ts";
 import { DelimitedTable } from "./spreadsheet/delimitedTable.ts";
 import {
   type SpreadsheetLimits,
@@ -61,12 +66,15 @@ export const DocumentLimits = Context.Reference<SpreadsheetLimits>(
 
 /**
  * The largest PDF changed here. It is parsed and written whole on the server's own thread, and
- * the version store keeps no copy of a larger file.
+ * the version store keeps no copy of a larger file. The unpacked limit bounds what a small file
+ * with tightly packed streams can make that parse hold.
  */
-export const PdfLimits = Context.Reference<{ readonly maxFileBytes: number }>(
-  "codenine/documents/PdfLimits",
-  { defaultValue: () => ({ maxFileBytes: 32 * MEBIBYTE }) },
-);
+export const PdfLimits = Context.Reference<{
+  readonly maxFileBytes: number;
+  readonly maxUnpackedBytes: number;
+}>("codenine/documents/PdfLimits", {
+  defaultValue: () => ({ maxFileBytes: 32 * MEBIBYTE, ...DEFAULT_PDF_UNPACK_LIMITS }),
+});
 
 export class DocumentMissingError extends Schema.TaggedError<DocumentMissingError>()(
   "DocumentMissingError",
@@ -337,8 +345,9 @@ const make = Effect.gen(function* () {
     function* (input) {
       const { bytes, version } = yield* readPdf(input);
       // An inspection answers a refusal instead of failing.
-      const contents = yield* Effect.promise(() => inspectPdf(bytes));
-      return { version, ...contents };
+      const contents = yield* Effect.promise(() => inspectPdf(bytes, pdfLimits));
+      const versionsKept = yield* fileVersions.keepsVersions(input.cwd);
+      return { version, versionsKept, ...contents };
     },
   );
 
@@ -360,24 +369,28 @@ const make = Effect.gen(function* () {
         }
         const now = DateTime.toDateUtc(yield* DateTime.now);
         const edited = yield* attemptPdfEdit(relativePath, () =>
-          editPdfBytes(bytes, { operations: input.operations, signatures, now }),
+          editPdfBytes(bytes, {
+            operations: input.operations,
+            signatures,
+            now,
+            limits: pdfLimits,
+          }),
         );
-        if (edited.byteLength > pdfLimits.maxFileBytes) {
+        if (edited.bytes.byteLength > pdfLimits.maxFileBytes) {
           return yield* new PdfRefusedError({ relativePath, reason: "too-large" });
         }
         // The write checks the version again, so a change since the read above is still refused.
         const written = yield* fileVersions.writeFileBytes({
           cwd,
           relativePath,
-          bytes: edited,
+          bytes: edited.bytes,
           expectedVersion: version,
           ...(signatures.length > 0 ? { action: "signed" as const } : {}),
         });
-        const contents = yield* Effect.promise(() => inspectPdf(edited));
         return {
-          version: written.version ?? WorkspaceFileSystem.fileVersion(edited),
-          annotations: contents.annotations,
-          fields: contents.fields,
+          version: written.version ?? WorkspaceFileSystem.fileVersion(edited.bytes),
+          annotations: edited.annotations,
+          fields: edited.fields,
         };
       }),
     );

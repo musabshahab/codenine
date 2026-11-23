@@ -75,7 +75,8 @@ function PdfSignatureBox(props: {
   };
   const move = (event: PointerEvent<HTMLElement>) => {
     const start = drag.current;
-    if (start === null) return;
+    // A save in progress has already sent this signature where it was.
+    if (start === null || props.readOnly) return;
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
     const next = start.resize

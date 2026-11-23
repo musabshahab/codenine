@@ -734,7 +734,7 @@ describe("Documents PDFs", () => {
         const file = { cwd, relativePath: "lease.pdf" };
         yield* write("lease.pdf", yield* Effect.promise(() => pdf()));
         const opened = yield* documents.openPdf(file);
-        expect(opened).toMatchObject({ annotations: [], fields: [] });
+        expect(opened).toMatchObject({ annotations: [], fields: [], versionsKept: true });
         expect(opened.refusal).toBeUndefined();
 
         const note = { type: "addNote", page: 0, x: 40, y: 300, contents: "Check" } as const;
@@ -794,7 +794,11 @@ describe("Documents PDFs", () => {
   });
 
   it.layer(
-    layerWith().pipe(Layer.provide(Layer.succeed(Documents.PdfLimits, { maxFileBytes: 200 }))),
+    layerWith().pipe(
+      Layer.provide(
+        Layer.succeed(Documents.PdfLimits, { maxFileBytes: 200, maxUnpackedBytes: 1024 * 1024 }),
+      ),
+    ),
   )("limits", (it) => {
     it.effect("refuses a PDF over the size limit", () =>
       Effect.gen(function* () {

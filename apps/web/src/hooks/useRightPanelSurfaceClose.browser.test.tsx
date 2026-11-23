@@ -2,6 +2,11 @@ import { EnvironmentId, ThreadId, type ScopedThreadRef } from "@codenine/contrac
 import { scopedThreadKey } from "@codenine/client-runtime/environment";
 import { expect, it, vi } from "vite-plus/test";
 import { act, render } from "../../test/render";
+import {
+  hasUnsavedPdfEdits,
+  pdfSessionKey,
+  rememberPdfEdits,
+} from "../components/files/pdf/pdfUnsavedEdits";
 import { selectThreadRightPanelState, useRightPanelStore } from "../rightPanelStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useRightPanelSurfaceClose } from "./useRightPanelSurfaceClose";
@@ -157,13 +162,25 @@ it.each(["cancel", "revoked"])(
 );
 
 it.each([
-  { confirmed: true, discarded: ["notes.md"], openFiles: 0 },
-  { confirmed: false, discarded: [], openFiles: 1 },
+  { pdf: false, confirmed: true, discarded: ["notes.md"], openFiles: 0 },
+  { pdf: false, confirmed: false, discarded: [], openFiles: 1 },
+  { pdf: true, confirmed: true, discarded: [], openFiles: 0 },
+  { pdf: true, confirmed: false, discarded: [], openFiles: 1 },
 ])(
-  "asks before closing a file whose edits a save conflict left unsaved, confirmed=$confirmed",
-  async ({ confirmed, discarded, openFiles }) => {
+  "asks before closing a file with unsaved edits, pdf=$pdf confirmed=$confirmed",
+  async ({ pdf, confirmed, discarded, openFiles }) => {
     const { original } = setup();
-    fixture.conflictedFiles = new Set(["notes.md"]);
+    const unsavedPdf = {
+      environmentId: original.environmentId,
+      cwd: "/workspace",
+      relativePath: "notes.md",
+    };
+    // A PDF's unsaved changes, where the other rows are a text file left unsaved by a conflict.
+    rememberPdfEdits(
+      pdfSessionKey(unsavedPdf),
+      pdf ? [{ kind: "note", key: "n1", page: 0, x: 1, y: 1, contents: "Check" }] : [],
+    );
+    fixture.conflictedFiles = new Set(pdf ? [] : ["notes.md"]);
     const asked: string[] = [];
     fixture.confirmDiscard = (message) => {
       asked.push(message);
@@ -201,5 +218,7 @@ it.each([
     await act(async () => {});
     expect(fileSurfaces()).toHaveLength(openFiles);
     expect(fixture.discardedFiles).toEqual(discarded);
+    expect(hasUnsavedPdfEdits(unsavedPdf)).toBe(pdf && !confirmed);
+    rememberPdfEdits(pdfSessionKey(unsavedPdf), []);
   },
 );

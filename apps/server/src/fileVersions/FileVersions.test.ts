@@ -489,6 +489,7 @@ describe("FileVersions", () => {
         versions: [],
       });
       expect(yield* list("notes.md")).toEqual([]);
+      expect(yield* versions.keepsVersions(cwd)).toBe(false);
     }).pipe(Effect.provide(layerWith())),
   );
 });

@@ -11,6 +11,16 @@ export const isHtmlPreviewFile = (path: string): boolean =>
 
 const PdfViewer = lazy(() => import("./PdfViewer"));
 
+/**
+ * Whether the browser shows PDFs itself. The Electron shell does not enable PDF plugins, and
+ * WebKit embeds on iOS expose only the first page, even when pdfViewerEnabled reports support.
+ */
+export const nativePdfViewerAvailable = (): boolean =>
+  !isElectron &&
+  navigator.pdfViewerEnabled &&
+  !/iPad|iPhone|iPod/.test(navigator.userAgent) &&
+  !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
 // The document stays mounted while each revision gets a fresh PDF.js document.
 function PdfDocument(props: { src: string; title: string; documentKey: string }) {
   const [view, setView] = useState<PdfViewState>({ page: 0, offset: 0, zoom: null, left: 0 });
@@ -35,14 +45,7 @@ function PdfDocumentRevision(props: {
   onViewChange: (view: PdfViewState) => void;
 }) {
   const [src] = useState(props.src);
-  // The Electron shell does not enable PDF plugins. WebKit embeds on iOS
-  // expose only the first page, even when pdfViewerEnabled reports support.
-  const native =
-    !isElectron &&
-    navigator.pdfViewerEnabled &&
-    !/iPad|iPhone|iPod/.test(navigator.userAgent) &&
-    !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  return native ? (
+  return nativePdfViewerAvailable() ? (
     // oxlint-disable-next-line react/iframe-missing-sandbox -- Chromium's PDF plugin requires an unsandboxed frame; src is an exact-file asset grant.
     <iframe
       src={`${src.split("#", 1)[0]}#navpanes=0&view=FitH`}

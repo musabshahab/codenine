@@ -68,6 +68,15 @@ export function dropPdfEdit(edits: PdfPendingEdits, key: string): PdfPendingEdit
   return edits.filter((edit) => edit.key !== key);
 }
 
+/**
+ * The edits left after a save sent `sent`. An edit is dropped by its key, so one that was
+ * changed while the save was on its way is not sent a second time.
+ */
+export function dropSavedPdfEdits(edits: PdfPendingEdits, sent: PdfPendingEdits): PdfPendingEdits {
+  const saved = new Set(sent.map((edit) => edit.key));
+  return edits.filter((edit) => !saved.has(edit.key));
+}
+
 export function undoPdfEdit(edits: PdfPendingEdits): PdfPendingEdits {
   return edits.slice(0, -1);
 }

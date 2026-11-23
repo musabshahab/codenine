@@ -7,6 +7,10 @@ import { scopeThreadRef } from "@codenine/client-runtime/environment";
 import { getTerminalLabel } from "@codenine/shared/terminalLabels";
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
 import { discardFileDraft } from "../components/files/fileSaveSessions";
+import {
+  discardUnsavedPdfEdits,
+  hasUnsavedPdfEdits,
+} from "../components/files/pdf/pdfUnsavedEdits";
 import { hasProjectFileConflict } from "../components/files/projectFilesQueryState";
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
 import { readLocalApi } from "../localApi";
@@ -25,18 +29,25 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useStableCallback } from "./useStableCallback";
 
-async function confirmDiscardFileEdits(paths: ReadonlyArray<string>): Promise<boolean> {
+async function confirmDiscardFileEdits(
+  paths: ReadonlyArray<string>,
+  /** False when some of the files simply have changes the user has not saved yet. */
+  allConflicts: boolean,
+): Promise<boolean> {
   const localApi = readLocalApi();
   if (!localApi) return true;
   const names = paths.map((path) => `"${path.split(/[\\/]/).at(-1) ?? path}"`).join(", ");
+  const one = paths.length === 1;
+  const detail = allConflicts
+    ? one
+      ? "Your edits were not saved because the file changed on disk. Closing discards them."
+      : `Your edits to ${names} were not saved because the files changed on disk. Closing discards them.`
+    : one
+      ? "Your changes to it are not saved. Closing discards them."
+      : `Your changes to ${names} are not saved. Closing discards them.`;
   try {
     return await localApi.dialogs.confirm(
-      [
-        paths.length === 1 ? `Close ${names} without saving?` : "Close without saving?",
-        paths.length === 1
-          ? "Your edits were not saved because the file changed on disk. Closing discards them."
-          : `Your edits to ${names} were not saved because the files changed on disk. Closing discards them.`,
-      ].join("\n"),
+      [one ? `Close ${names} without saving?` : "Close without saving?", detail].join("\n"),
       { variant: "destructive" },
     );
   } catch {
@@ -46,7 +57,8 @@ async function confirmDiscardFileEdits(paths: ReadonlyArray<string>): Promise<bo
 
 /**
  * Closing releases terminal sessions and deletes a side chat that never ran. Terminal tabs
- * require confirmation, and so does a file whose edits a save conflict left unsaved.
+ * require confirmation, and so does a file whose edits a save conflict left unsaved or a PDF
+ * with changes that were not saved.
  */
 export function useRightPanelSurfaceClose(input: {
   readonly threadRef: ScopedThreadRef | null;
@@ -106,26 +118,34 @@ export function useRightPanelSurfaceClose(input: {
     terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId);
   const closeSurfaces = (toClose: readonly RightPanelSurface[]) => {
     if (!threadRef) return;
-    const unsavedPaths = toClose.flatMap((surface) =>
-      surface.kind === "file" &&
-      surface.attachment === undefined &&
-      fileWorkspaceRoot !== undefined &&
-      hasProjectFileConflict(threadRef.environmentId, fileWorkspaceRoot, surface.relativePath)
-        ? [surface.relativePath]
-        : [],
-    );
-    if (unsavedPaths.length === 0 || fileWorkspaceRoot === undefined) {
+    const { environmentId } = threadRef;
+    const unsaved =
+      fileWorkspaceRoot === undefined
+        ? []
+        : toClose.flatMap((surface) => {
+            if (surface.kind !== "file" || surface.attachment !== undefined) return [];
+            const file = {
+              environmentId,
+              cwd: fileWorkspaceRoot,
+              relativePath: surface.relativePath,
+            };
+            if (hasProjectFileConflict(environmentId, file.cwd, file.relativePath)) {
+              return [{ file, pdf: false }];
+            }
+            return hasUnsavedPdfEdits(file) ? [{ file, pdf: true }] : [];
+          });
+    if (unsaved.length === 0) {
       finishClose(toClose);
       return;
     }
-    void confirmDiscardFileEdits(unsavedPaths).then((confirmed) => {
+    void confirmDiscardFileEdits(
+      unsaved.map(({ file }) => file.relativePath),
+      unsaved.every(({ pdf }) => !pdf),
+    ).then((confirmed) => {
       if (!confirmed) return;
-      for (const relativePath of unsavedPaths) {
-        discardFileDraft({
-          environmentId: threadRef.environmentId,
-          cwd: fileWorkspaceRoot,
-          relativePath,
-        });
+      for (const { file, pdf } of unsaved) {
+        if (pdf) discardUnsavedPdfEdits(file);
+        else discardFileDraft(file);
       }
       finishClose(toClose);
     });

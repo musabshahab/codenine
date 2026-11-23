@@ -180,6 +180,26 @@ export function captionImageBase64(name: string, date: string): string | undefin
   return textImage([name, date], "system-ui, sans-serif", 40)?.dataBase64;
 }
 
+/**
+ * A photo as a JPEG whose pixels are the way up it is shown. A camera stores the turn in the
+ * file's EXIF data, which a browser applies and a PDF does not, so the turn is drawn in.
+ */
+function uprightJpeg(image: HTMLImageElement): SignatureImage | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d");
+  if (context === null) return null;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0);
+  for (const quality of [0.92, 0.8, 0.6]) {
+    const encoded = signatureImageOfDataUrl(canvas.toDataURL("image/jpeg", quality), canvas);
+    if (encoded !== null) return encoded;
+  }
+  return null;
+}
+
 /** Reads an uploaded image, with its size, as a signature. */
 export async function uploadedSignatureImage(file: File): Promise<SignatureImage | string> {
   const problem = signatureUploadProblem(file);
@@ -194,17 +214,19 @@ export async function uploadedSignatureImage(file: File): Promise<SignatureImage
   });
   const unreadable = "That image could not be read.";
   if (dataUrl === null) return unreadable;
-  const size = await new Promise<{ width: number; height: number } | null>((resolve) => {
+  const loaded = await new Promise<HTMLImageElement | null>((resolve) => {
     const image = new Image();
-    image.addEventListener("load", () =>
-      resolve({ width: image.naturalWidth, height: image.naturalHeight }),
-    );
+    image.addEventListener("load", () => resolve(image));
     image.addEventListener("error", () => resolve(null));
     image.src = dataUrl;
   });
-  if (size === null) return unreadable;
+  if (loaded === null) return unreadable;
+  const size = { width: loaded.naturalWidth, height: loaded.naturalHeight };
   if (size.width * size.height > PDF_SIGNATURE_IMAGE_MAX_PIXELS) {
     return "That image has too many pixels. Use a smaller one.";
+  }
+  if (file.type === "image/jpeg") {
+    return uprightJpeg(loaded) ?? "That image is too large. Use a smaller one.";
   }
   return signatureImageOfDataUrl(dataUrl, size) ?? unreadable;
 }

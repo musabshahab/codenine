@@ -49,6 +49,24 @@ export function mergeLineBoxes(boxes: ReadonlyArray<ViewBox>): ReadonlyArray<Vie
   }));
 }
 
+/**
+ * The boxes of the text a range covers inside `layer`. A range's own boxes also include every
+ * element it wholly contains, such as the canvas of the next page, so only text is measured.
+ */
+export function textBoxesInRange(range: Range, layer: Element): ReadonlyArray<DOMRect> {
+  const boxes: DOMRect[] = [];
+  const walker = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if (!range.intersectsNode(node)) continue;
+    const part = document.createRange();
+    part.selectNodeContents(node);
+    if (node === range.startContainer) part.setStart(node, range.startOffset);
+    if (node === range.endContainer) part.setEnd(node, range.endOffset);
+    boxes.push(...part.getClientRects());
+  }
+  return boxes;
+}
+
 /** The part of a box that lies on the page, or null when none of it does. */
 export function clipViewBox(box: ViewBox, page: ViewSize): ViewBox | null {
   const x = Math.max(0, box.x);

@@ -15,10 +15,12 @@ import {
   viewToPdfRect,
 } from "@codenine/shared/pdfGeometry";
 import {
+  DownloadIcon,
   HighlighterIcon,
   ListIcon,
   MessageSquarePlusIcon,
   MousePointer2Icon,
+  PrinterIcon,
   SignatureIcon,
   TextCursorInputIcon,
   Undo2Icon,
@@ -31,12 +33,14 @@ import { useStableCallback } from "~/hooks/useStableCallback";
 import { isEditableFocused } from "~/lib/editableFocus";
 import { cn } from "~/lib/utils";
 
+import { nativePdfViewerAvailable } from "../BrowserDocumentFrame";
 import { FileSurfaceAction, FileSurfaceBar, FileSurfaceNotice } from "../fileSurfaceChrome";
 import PdfViewer, { type PdfPageSurface, type PdfViewerHandle } from "../PdfViewer";
 import {
   addPdfEdit,
   changePdfEdit,
   dropPdfEdit,
+  dropSavedPdfEdits,
   listPdfAnnotations,
   PDF_HIGHLIGHT_COLOUR,
   pdfEditRequest,
@@ -48,8 +52,9 @@ import {
   undoPdfEdit,
 } from "./pdfEditSession";
 import { PdfPageOverlay, type PdfTool } from "./PdfPageOverlay";
-import { clipViewBox, mergeLineBoxes, signatureBoxAt } from "./pdfPlacement";
+import { clipViewBox, mergeLineBoxes, signatureBoxAt, textBoxesInRange } from "./pdfPlacement";
 import type { ChosenSignature } from "./PdfSignatureDialog";
+import { rememberPdfEdits, unsavedPdfEdits } from "./pdfUnsavedEdits";
 import { captionImageBase64, needsCaptionImage } from "./signatureImage";
 
 const PdfSignatureDialog = lazy(() => import("./PdfSignatureDialog"));
@@ -72,19 +77,14 @@ export interface PdfTransport {
   ) => Promise<PdfResult<PdfEditResult>>;
 }
 
-// Unsaved edits outlive the tab's view, which is unmounted when the user looks at another thread.
-const unsavedEdits = new Map<string, PdfPendingEdits>();
-
 type Opened =
   | { readonly status: "loading" }
   | { readonly status: "failed"; readonly message: string }
-  | ({ readonly status: "ready"; readonly refusal?: PdfRefusalReason } & PdfEditResult);
-
-const remember = (sessionKey: string, edits: PdfPendingEdits) => {
-  if (edits.length === 0) unsavedEdits.delete(sessionKey);
-  else unsavedEdits.set(sessionKey, edits);
-  return edits;
-};
+  | ({
+      readonly status: "ready";
+      readonly refusal?: PdfRefusalReason;
+      readonly versionsKept?: boolean;
+    } & PdfEditResult);
 
 let nextEditKey = 0;
 const editKey = () => `edit-${++nextEditKey}`;
@@ -112,14 +112,14 @@ function selectedTextRects(root: HTMLElement): ReadonlyArray<{
   if (selection === null || selection.isCollapsed || selection.rangeCount === 0) return [];
   const range = selection.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return [];
-  const boxes = Array.from(range.getClientRects());
   const found: Array<{ page: number; rects: ReadonlyArray<PdfRect> }> = [];
   for (const page of root.querySelectorAll("[data-pdf-page]")) {
     const geometry = shownPageGeometry(page);
-    if (geometry === null) continue;
+    const layer = page.querySelector("[data-pdf-text-layer]");
+    if (geometry === null || layer === null) continue;
     const bounds = page.getBoundingClientRect();
     const size = { width: bounds.width, height: bounds.height };
-    const onPage = boxes.flatMap((box) => {
+    const onPage = textBoxesInRange(range, layer).flatMap((box) => {
       const clipped = clipViewBox(
         {
           x: box.left - bounds.left,
@@ -135,6 +135,24 @@ function selectedTextRects(root: HTMLElement): ReadonlyArray<{
     if (rects.length > 0) found.push({ page: Number(page.getAttribute("data-pdf-page")), rects });
   }
   return found;
+}
+
+/** Saves the file to the user's device. False when it could not be fetched. */
+async function downloadPdf(src: string, title: string): Promise<boolean> {
+  try {
+    const response = await fetch(src);
+    if (!response.ok) return false;
+    // A blob keeps the desktop app's own scheme from opening an outside browser.
+    const url = URL.createObjectURL(await response.blob());
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = title.split(/[\\/]/).at(-1) ?? title;
+    anchor.click();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function AnnotationList(props: {
@@ -223,6 +241,8 @@ export default function PdfEditor(props: {
   /** Names the file, so its unsaved edits are found again after the view was unmounted. */
   readonly sessionKey: string;
   readonly src: string;
+  /** The newest address of the file, which `src` is not once its grant was renewed. */
+  readonly freshSrc: string;
   /** Changes when the file on disk does, which loads the document and its contents again. */
   readonly revision: string;
   readonly title: string;
@@ -230,13 +250,19 @@ export default function PdfEditor(props: {
   readonly onPendingChange: (pending: boolean) => void;
   /** Asks for the file as it now is: after a save, or when a save found it changed. */
   readonly onReload: () => void;
+  /** The document is beyond what the viewer here loads. */
+  readonly onUnavailable?: () => void;
 }) {
   const { transport, sessionKey, revision } = props;
-  const [edits, setEditsState] = useState<PdfPendingEdits>(
-    () => unsavedEdits.get(sessionKey) ?? [],
-  );
+  const [edits, setEditsState] = useState<PdfPendingEdits>(() => unsavedPdfEdits(sessionKey));
   const setEdits = (change: (edits: PdfPendingEdits) => PdfPendingEdits) =>
-    setEditsState((current) => remember(sessionKey, change(current)));
+    setEditsState((current) => rememberPdfEdits(sessionKey, change(current)));
+  // The revision whose contents were read. A save here answers with the saved file's contents,
+  // so the revision it brings is not read from the server again.
+  const [contents, setContents] = useState({ revision, read: revision, saved: false });
+  if (contents.revision !== revision) {
+    setContents({ revision, read: contents.saved ? contents.read : revision, saved: false });
+  }
   const [opened, setOpened] = useState<Opened>({ status: "loading" });
   // Bumped to read the file again when a save found it changed.
   const [reopens, setReopens] = useState(0);
@@ -247,6 +273,7 @@ export default function PdfEditor(props: {
   const [signature, setSignature] = useState<ChosenSignature | null>(null);
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -257,7 +284,11 @@ export default function PdfEditor(props: {
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Tell the tab strip, which lives outside this view, whether the file has unsaved edits.
   useEffect(() => {
     reportPending(dirty);
-  }, [dirty, reportPending]);
+    // Edits kept for a later view of the file are still pending; ones discarded on close are not.
+    return () => {
+      if (unsavedPdfEdits(sessionKey).length === 0) reportPending(false);
+    };
+  }, [dirty, reportPending, sessionKey]);
 
   const onOpened = useStableCallback((result: PdfResult<PdfOpenResult>) => {
     if (!result.ok) {
@@ -282,11 +313,13 @@ export default function PdfEditor(props: {
         ? pdfRefusalMessage(ready.refusal)
         : null;
   const canEdit = !props.readOnly && ready !== null && ready.refusal === undefined && !conflict;
+  // What a save has sent is already in the file, so nothing changes until it has answered.
+  const editable = canEdit && !saving;
   const annotations = listPdfAnnotations(ready?.annotations ?? [], edits);
   const fields = ready?.fields ?? [];
   const fieldValues = pdfFieldValues(fields, edits);
   const signatures = edits.filter((edit) => edit.kind === "signature");
-  const activeTool: PdfTool = canEdit ? tool : "select";
+  const activeTool: PdfTool = editable ? tool : "select";
 
   const add = (edit: PdfPendingEdit) => setEdits((current) => addPdfEdit(current, edit));
 
@@ -298,15 +331,28 @@ export default function PdfEditor(props: {
     const result = await transport.save(pdfEditRequest(sent), ready.version);
     setSaving(false);
     if (result.ok) {
-      setOpened({ status: "ready", ...result.value });
-      // Anything done while the save was on its way stays unsaved.
-      setEdits((current) => current.filter((edit) => !sent.includes(edit)));
+      setOpened({
+        status: "ready",
+        ...result.value,
+        ...(ready.versionsKept === undefined ? {} : { versionsKept: ready.versionsKept }),
+      });
+      setEdits((current) => dropSavedPdfEdits(current, sent));
+      setContents((current) => ({ ...current, saved: true }));
       setSelected(null);
       props.onReload();
       return;
     }
     if (result.failure.kind === "conflict") setConflict(true);
     else setFailure(result.failure.message);
+  };
+
+  const download = () => {
+    if (downloading) return;
+    setDownloading(true);
+    void downloadPdf(props.freshSrc, props.title).then((done) => {
+      setDownloading(false);
+      if (!done) setFailure("The PDF could not be downloaded. Try again.");
+    });
   };
 
   const highlightSelection = () => {
@@ -390,17 +436,27 @@ export default function PdfEditor(props: {
           event.preventDefault();
           event.stopPropagation();
           void save();
-        } else if (event.key === "z" && !event.shiftKey && !isEditableFocused(event.target)) {
+        } else if (
+          event.key === "z" &&
+          !event.shiftKey &&
+          !saving &&
+          !isEditableFocused(event.target)
+        ) {
           event.preventDefault();
           event.stopPropagation();
           setEdits(undoPdfEdit);
         }
       }}
     >
-      <PdfContentsReader key={`${revision}:${reopens}`} transport={transport} onOpened={onOpened} />
+      <PdfContentsReader
+        key={`${contents.read}:${reopens}`}
+        transport={transport}
+        onOpened={onOpened}
+      />
       <PdfViewer
-        key={revision}
         handle={viewer}
+        links={activeTool === "select"}
+        {...(props.onUnavailable === undefined ? {} : { onUnavailable: props.onUnavailable })}
         src={props.src}
         title={props.title}
         positionKey={sessionKey}
@@ -417,7 +473,7 @@ export default function PdfEditor(props: {
               <FileSurfaceAction
                 label="Highlight text"
                 pressed={activeTool === "highlight"}
-                disabled={!canEdit}
+                disabled={!editable}
                 onPress={() => chooseTool("highlight")}
               >
                 <HighlighterIcon className="size-3.5" />
@@ -425,7 +481,7 @@ export default function PdfEditor(props: {
               <FileSurfaceAction
                 label="Add a note"
                 pressed={activeTool === "note"}
-                disabled={!canEdit}
+                disabled={!editable}
                 onPress={() => chooseTool("note")}
               >
                 <MessageSquarePlusIcon className="size-3.5" />
@@ -433,7 +489,7 @@ export default function PdfEditor(props: {
               <FileSurfaceAction
                 label="Sign"
                 pressed={activeTool === "sign"}
-                disabled={!canEdit}
+                disabled={!editable}
                 onPress={() => chooseTool("sign")}
               >
                 <SignatureIcon className="size-3.5" />
@@ -460,6 +516,21 @@ export default function PdfEditor(props: {
         }
         toolbarEnd={
           <>
+            <FileSurfaceAction
+              label={dirty ? "Download the saved file" : "Download"}
+              disabled={downloading}
+              onPress={download}
+            >
+              <DownloadIcon className="size-3.5" />
+            </FileSurfaceAction>
+            {nativePdfViewerAvailable() ? (
+              <FileSurfaceAction
+                label="Open in a new tab to print"
+                onPress={() => window.open(props.freshSrc, "_blank", "noopener")}
+              >
+                <PrinterIcon className="size-3.5" />
+              </FileSurfaceAction>
+            ) : null}
             <FileSurfaceAction
               label="Notes and highlights"
               pressed={listOpen}
@@ -563,7 +634,12 @@ export default function PdfEditor(props: {
             ) : signatures.length > 0 && !conflict ? (
               <FileSurfaceBar actions={null}>
                 Saving makes your signature part of the page. It cannot be moved or removed
-                afterwards, except by going back to an earlier version.
+                afterwards
+                {ready?.versionsKept === true
+                  ? ", except by going back to an earlier version."
+                  : ready?.versionsKept === false
+                    ? ". No earlier version of this file is kept here, so commit or copy the unsigned file first if you may need it."
+                    : "."}
               </FileSurfaceBar>
             ) : null}
           </>
@@ -585,7 +661,7 @@ export default function PdfEditor(props: {
           <PdfPageOverlay
             surface={surface}
             tool={activeTool}
-            readOnly={!canEdit}
+            readOnly={!editable}
             // Unsaved values stay in view while a changed file waits to be loaded.
             fillForm={fillForm && (canEdit || dirty)}
             annotations={annotations}

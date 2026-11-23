@@ -15,16 +15,18 @@ vi.mock(import("pdfjs-dist/build/pdf.worker.min.mjs?url"), async () => {
 });
 
 import PdfEditor, { type PdfResult, type PdfTransport } from "./PdfEditor";
+import { textBoxesInRange } from "./pdfPlacement";
 
-/** One page, 400 by 300 points, with a line of text near its top. */
+/** One page, 400 by 300 points, with a line of text near its top and a link under it. */
 function onePagePdf() {
   const text = "BT /F1 20 Tf 40 250 Td (Lease agreement) Tj ET";
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [6 0 R] >>",
     `<< /Length ${text.length} >>\nstream\n${text}\nendstream`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    "<< /Type /Annot /Subtype /Link /Rect [40 200 140 215] /Border [0 0 0] /A << /S /URI /URI (https://example.com/terms) >> >>",
   ];
   let source = "%PDF-1.4\n";
   const offsets: number[] = [];
@@ -56,6 +58,8 @@ function fakeFile() {
   const state = {
     version: 1,
     conflictNext: false,
+    // A save answers once this settles.
+    gate: Promise.resolve(),
     saves: [] as Array<{
       edit: Pick<PdfEditInput, "operations" | "signatures">;
       expectedVersion: string;
@@ -65,6 +69,7 @@ function fakeFile() {
     open: async () => ok({ version: `v${state.version}`, ...contents }),
     save: async (edit, expectedVersion) => {
       state.saves.push({ edit, expectedVersion });
+      await state.gate;
       if (state.conflictNext) return { ok: false, failure: { kind: "conflict" } };
       state.version += 1;
       const saved: PdfEditResult = { version: `v${state.version}`, ...contents };
@@ -88,6 +93,7 @@ it("reviews, fills in, signs and saves a PDF, and keeps edits when the file chan
         transport={transport}
         sessionKey="test:lease.pdf"
         src={url}
+        freshSrc={url}
         revision="r1"
         title="lease.pdf"
         readOnly={false}
@@ -99,6 +105,10 @@ it("reviews, fills in, signs and saves a PDF, and keeps edits when the file chan
     await expect.element(screen.getByText("1 / 1 pages"), { timeout: 10_000 }).toBeVisible();
     const save = screen.getByRole("button", { name: "Save", exact: true });
     await expect.element(save).toBeDisabled();
+    // A link in the document can be followed while no tool is in hand.
+    await expect
+      .element(screen.getByRole("link", { name: "https://example.com/terms" }))
+      .toHaveAttribute("target", "_blank");
 
     // Highlight: selecting text with the tool makes a highlight of what was selected.
     await screen.getByRole("button", { name: "Highlight text" }).click();
@@ -150,7 +160,18 @@ it("reviews, fills in, signs and saves a PDF, and keeps edits when the file chan
     await screen.getByRole("button", { name: "Notes and highlights" }).click();
     await expect.element(screen.getByText("Check the dates")).toBeVisible();
 
+    // What a save has sent is in the file, so it cannot be changed until the save has answered.
+    let answer = () => {};
+    state.gate = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    await expect.element(screen.getByRole("button", { name: "Remove signature" })).toBeVisible();
     await save.click();
+    await expect.element(screen.getByText("Saving...", { exact: true })).toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "Remove signature" }))
+      .not.toBeInTheDocument();
+    answer();
     await expect.element(screen.getByText("Saved", { exact: true })).toBeVisible();
     expect(onReload).toHaveBeenCalledTimes(1);
     expect(state.saves).toHaveLength(1);
@@ -209,5 +230,34 @@ it("reviews, fills in, signs and saves a PDF, and keeps edits when the file chan
     expect(onPendingChange).toHaveBeenLastCalledWith(false);
   } finally {
     URL.revokeObjectURL(url);
+  }
+});
+
+it("measures only the text of a selection that runs from one page into the next", () => {
+  const host = document.createElement("div");
+  // Each page as the viewer lays it out: canvas, text layer, then an overlay.
+  host.innerHTML = [460, 20]
+    .map(
+      (top) =>
+        `<div style="position:relative;width:400px;height:500px"><canvas style="display:block;width:100%;height:100%"></canvas><div data-layer style="position:absolute;inset:0"><span style="position:absolute;left:40px;top:${top}px;font:16px sans-serif">Some text on the page</span></div><div style="position:absolute;inset:0"></div></div>`,
+    )
+    .join("");
+  document.body.append(host);
+  try {
+    const [first, second] = Array.from(host.querySelectorAll("[data-layer]"));
+    const range = document.createRange();
+    range.setStart(first!.querySelector("span")!.firstChild!, 5);
+    range.setEnd(second!.querySelector("span")!.firstChild!, 4);
+    // The range itself also reports the whole pages between the two runs of text.
+    expect(Array.from(range.getClientRects()).some((box) => box.height > 400)).toBe(true);
+
+    const whole = second!.querySelector("span")!.getBoundingClientRect();
+    for (const layer of [first!, second!]) {
+      const boxes = textBoxesInRange(range, layer);
+      expect(boxes.length).toBeGreaterThan(0);
+      expect(boxes.every((box) => box.height < 40 && box.width < whole.width)).toBe(true);
+    }
+  } finally {
+    host.remove();
   }
 });

@@ -19,9 +19,11 @@ import { useStableCallback } from "~/hooks/useStableCallback";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
 
+import { BrowserDocumentFrame, nativePdfViewerAvailable } from "../BrowserDocumentFrame";
 import { workspaceAssetResource } from "../filePreviewMode";
-import { FileSurfaceLoading } from "../fileSurfaceChrome";
+import { FileSurfaceLoading, FileSurfaceNotice } from "../fileSurfaceChrome";
 import PdfEditor, { type PdfResult, type PdfTransport } from "./PdfEditor";
+import { hasUnsavedPdfEdits, pdfSessionKey } from "./pdfUnsavedEdits";
 
 const isConflict = Schema.is(ProjectWriteFileConflictError);
 const isRefused = Schema.is(PdfRefusedError);
@@ -114,6 +116,10 @@ export default function WorkspacePdf(props: {
   const reportPending = useStableCallback((pending: boolean) =>
     props.onPendingChange(relativePath, pending),
   );
+  // The viewer with the tools reads the whole file into memory, within limits. A PDF beyond
+  // them is still read in the browser's own viewer, which loads it a part at a time.
+  const [plain, setPlain] = useState(false);
+  const file = { environmentId, cwd, relativePath };
 
   if (shown === null) {
     return assetUrl._tag === "Failure" ? (
@@ -125,16 +131,39 @@ export default function WorkspacePdf(props: {
     );
   }
   const { url, revision } = shown;
+  const withRevision = (address: string) =>
+    `${address}${address.includes("?") ? "&" : "?"}file-revision=${encodeURIComponent(revision)}`;
+  if (plain) {
+    return (
+      <>
+        <FileSurfaceNotice>
+          This PDF is too large or too slow to load for marking up here, so it is shown for reading
+          only.
+        </FileSurfaceNotice>
+        <BrowserDocumentFrame
+          pdf
+          src={withRevision(url)}
+          title={props.title}
+          documentKey={`${pdfSessionKey(file)}:${revision}`}
+          documentId={pdfSessionKey(file)}
+        />
+      </>
+    );
+  }
   return (
     <PdfEditor
       transport={transport}
-      sessionKey={`${environmentId}\u0000${cwd}\u0000${relativePath}`}
-      src={`${url}${url.includes("?") ? "&" : "?"}file-revision=${encodeURIComponent(revision)}`}
+      sessionKey={pdfSessionKey(file)}
+      src={withRevision(url)}
+      freshSrc={withRevision(minted?.revision === revision ? minted.url : url)}
       revision={revision}
       title={props.title}
       readOnly={props.readOnly}
       onPendingChange={reportPending}
       onReload={() => setReloads((count) => count + 1)}
+      onUnavailable={() => {
+        if (nativePdfViewerAvailable() && !hasUnsavedPdfEdits(file)) setPlain(true);
+      }}
     />
   );
 }

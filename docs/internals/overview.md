@@ -123,7 +123,9 @@ is drawn into the page's content instead, so no reader can move it, and the save
 the version store as signed. Only a person signs: the signing edit is a separate service method
 whose single caller is the client RPC, and
 [a test](../../apps/server/src/mcp/agentSigningGuard.test.ts) fails when anything else reaches
-it. Give an agent the plain `editPdf`, never the signing one. Saving replaces the file, and an
+it. Give an agent the plain `editPdf`, never the signing one. The library unpacks object
+streams whole and has no limit of its own, so the PDF code counts what its decoders grow to
+against a budget for each parse and refuses a file that goes over it. Saving replaces the file, and an
 asset URL is minted for one file as it was, so the client mints a new one after each save.
 
 Thread settlement is server-owned. The

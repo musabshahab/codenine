@@ -27,11 +27,23 @@ it("gives agents no way to place a signature on a PDF", () => {
     files.filter((file) => file.source.includes("editPdfWithSignatures")).map((file) => file.path),
   ).toEqual(["documents/Documents.ts", "ws.ts"]);
 
+  // The code under the service takes signatures directly, so only the service may reach it.
+  expect(
+    files
+      .filter((file) => !file.path.startsWith("documents/pdf/"))
+      .filter((file) => /pdfEdits/.test(file.source))
+      .map((file) => file.path),
+  ).toEqual(["documents/Documents.ts"]);
+
   const agentCode = files.filter((file) => file.path.startsWith("mcp/"));
   expect(agentCode.length).toBeGreaterThan(10);
   expect(
     agentCode
-      .filter((file) => /PdfSignaturePlacement|PdfEditInput|placeSignature/.test(file.source))
+      .filter((file) =>
+        /PdfSignaturePlacement|PdfEditInput|placeSignature|pdfEdits|\bsignatures\b/.test(
+          file.source,
+        ),
+      )
       .map((file) => file.path),
   ).toEqual([]);
 

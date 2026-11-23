@@ -5,6 +5,7 @@ import {
   addPdfEdit,
   changePdfEdit,
   dropPdfEdit,
+  dropSavedPdfEdits,
   listPdfAnnotations,
   pdfEditRequest,
   pdfFieldValues,
@@ -89,6 +90,15 @@ describe("pdfEditSession", () => {
     edits = undoPdfEdit(edits);
     expect(pdfFieldValues(fields, edits).get("tenant")).toEqual({ kind: "text", text: "Ada" });
     expect(dropPdfEdit(edits, "h1").map((edit) => edit.key)).toEqual(["f1"]);
+  });
+
+  it("does not keep a saved edit that was changed while the save was on its way", () => {
+    const sent: PdfPendingEdits = [signature];
+    const later = { kind: "note", key: "n9", page: 0, x: 1, y: 2, contents: "After" } as const;
+    const moved = changePdfEdit(sent, "s1", "signature", {
+      rect: { x: 60, y: 60, width: 160, height: 70 },
+    });
+    expect(dropSavedPdfEdits([...moved, later], sent)).toEqual([later]);
   });
 
   it("lists saved and unsaved highlights and notes in reading order", () => {
