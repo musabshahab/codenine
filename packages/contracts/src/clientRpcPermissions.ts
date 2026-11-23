@@ -65,6 +65,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.mediaGenerateImage]: AuthOrchestrationOperateScope,
   [WS_METHODS.mediaEditImage]: AuthOrchestrationOperateScope,
   [WS_METHODS.mediaCancelJob]: AuthOrchestrationOperateScope,
+  [WS_METHODS.documentsCopyAttachment]: AuthFilesystemWriteScope,
   [WS_METHODS.sourceControlCloneRepository]: AuthSourceControlWriteScope,
   [WS_METHODS.sourceControlPublishRepository]: AuthSourceControlWriteScope,
   // Signing in replaces the server's GitHub credential, as saving a token in Settings does.

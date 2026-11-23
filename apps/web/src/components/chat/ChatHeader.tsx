@@ -65,6 +65,11 @@ interface ChatHeaderProps {
   teamAgent: TeamAgentHeader | null;
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
+  /**
+   * The header is the chat column of document view: under the window's top-right controls, and
+   * beside a rail that already names the workspace.
+   */
+  besideDocument?: boolean;
   onOpenProjectSettings?: (() => void) | undefined;
   onFindInThread?: ((threadRef: ScopedThreadRef) => void) | undefined;
   /** The project command and panel toggles, between the title and the More button. */
@@ -135,6 +140,7 @@ export const ChatHeader = memo(function ChatHeader({
   teamAgent,
   onOpenThread,
   rightPanelOpen,
+  besideDocument = false,
   onOpenProjectSettings,
   onFindInThread,
   tools,
@@ -349,7 +355,10 @@ export const ChatHeader = memo(function ChatHeader({
   };
   return (
     <div
-      className={cn("flex min-w-0 flex-1 items-center gap-3", rightPanelOpen ? "pr-0" : "pr-10")}
+      className={cn(
+        "flex min-w-0 flex-1 items-center gap-3",
+        besideDocument ? "gap-1 pr-28" : rightPanelOpen ? "pr-0" : "pr-10",
+      )}
       onContextMenu={handleHeaderContextMenu}
     >
       <div ref={breadcrumbContainerRef} className="flex min-w-0 flex-1 flex-col justify-center">
@@ -357,7 +366,7 @@ export const ChatHeader = memo(function ChatHeader({
           ariaLabel="Chat breadcrumb"
           className="overflow-clip [overflow-clip-margin:2px]"
         >
-          {activeProject ? (
+          {activeProject && !besideDocument ? (
             <>
               <WorkspaceBreadcrumbItem
                 className={cn("shrink", isChat && "hidden @md/header-actions:flex")}
@@ -434,7 +443,7 @@ export const ChatHeader = memo(function ChatHeader({
             </>
           ) : null}
           <WorkspaceBreadcrumbItem current className="min-w-10 flex-1 gap-2">
-            {threadShell === null ? null : (
+            {threadShell === null || besideDocument ? null : (
               <ThreadKindIcon kind={resolveAgentThreadKind(threadShell, teamAgent)} />
             )}
             {renamingTitle !== null ? (

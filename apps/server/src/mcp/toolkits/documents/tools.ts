@@ -68,7 +68,7 @@ const SpreadsheetReadTool = Tool.make("codenine_spreadsheet_read", {
 const SpreadsheetEditTool = Tool.make("codenine_spreadsheet_edit", {
   ...shared,
   description:
-    "Change a .xlsx, .csv or .tsv file in this chat's folder: set cells (text, numbers, formulas) and formats, insert or delete rows and columns, add, rename or delete sheets. Operations apply in order, all or none. Everything else in the workbook is kept, formulas are recalculated, and the user can review and undo the change. Never rewrite a workbook with a script or edit its XML by hand: that drops formats, charts and formulas.",
+    "Change a .xlsx, .csv or .tsv file in this chat's folder: set cells (text, numbers, formulas) and formats, insert or delete rows and columns, sort a table's rows by a column (sortRows takes any cell of the table in the column to sort by; headings and a row of totals stay where they are), set column widths, add, rename or delete sheets. Operations apply in order, all or none. Everything else in the workbook is kept, formulas are recalculated, and the user can review and undo the change. Never rewrite a workbook with a script or edit its XML by hand: that drops formats, charts and formulas.",
   parameters: Schema.Struct({
     path: DocumentPath,
     ...ExpectedVersion,

@@ -4,7 +4,13 @@ import { canForkProjectedAssistantItem } from "@codenine/client-runtime/state/th
 import { memo, use, useState } from "react";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
-import { CheckIcon, FileDownIcon, GitForkIcon } from "lucide-react";
+import { CheckIcon, FileDownIcon, GitForkIcon, Undo2Icon } from "lucide-react";
+import { AuthFilesystemWriteScope } from "@codenine/contracts";
+import { requestConfirmDialog } from "~/confirmDialog";
+import { useEnvironmentScope } from "~/state/session";
+import { toastManager } from "../ui/toast";
+import { discardTurnFileChanges, type TurnFileChange } from "../files/discardTurnChange";
+import { turnUndoFiles } from "./turnUndo.logic";
 import { Button } from "../ui/button";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { checkpointFileTotals } from "@codenine/client-runtime/state/thread-checkpoints";
@@ -381,33 +387,117 @@ function AssistantChangedFilesSectionInner({
     }
   };
 
+  // Where the diff tab is offered, the review there is how a change is taken back.
+  const undoFiles =
+    !ctx.turnDiffTabOffered &&
+    threadRef &&
+    reviewTurnCount !== null &&
+    ctx.workspaceRoot !== undefined
+      ? turnUndoFiles({
+          files: checkpointFiles,
+          totalCount: checkpointFileTotals(turnSummary).count,
+          workspaceRoot: ctx.workspaceRoot,
+          repositoryRoot,
+        }).map((relativePath) => ({
+          environmentId: threadRef.environmentId,
+          cwd: ctx.workspaceRoot!,
+          relativePath,
+          threadId: threadRef.threadId,
+          turnCount: reviewTurnCount,
+        }))
+      : [];
+
   return (
-    <ChangedFilesCard
-      runId={turnSummary.runId}
-      files={checkpointFiles}
-      totals={checkpointFileTotals(turnSummary)}
-      allDirectoriesExpanded={allDirectoriesExpanded}
-      resolvedTheme={resolvedTheme}
-      onToggleAllDirectories={() =>
-        setExpanded(routeThreadKey, turnSummary.runId, !allDirectoriesExpanded)
-      }
-      onOpenTurnDiff={diffOffered ? onOpenTurnDiff : openInFile}
-      fullDiffOffered={diffOffered}
-      onFileContextMenu={(filePath, event) =>
-        onFileContextMenu(
-          {
-            environmentId: ctx.activeThreadEnvironmentId,
-            filePath,
-            workspaceRoot: ctx.workspaceRoot,
-            review:
-              threadRef && reviewTurnCount !== null
-                ? { threadRef, turnCount: reviewTurnCount }
-                : null,
-            repositoryRoot,
-          },
-          event,
-        )
-      }
-    />
+    <>
+      <ChangedFilesCard
+        runId={turnSummary.runId}
+        files={checkpointFiles}
+        totals={checkpointFileTotals(turnSummary)}
+        allDirectoriesExpanded={allDirectoriesExpanded}
+        resolvedTheme={resolvedTheme}
+        onToggleAllDirectories={() =>
+          setExpanded(routeThreadKey, turnSummary.runId, !allDirectoriesExpanded)
+        }
+        onOpenTurnDiff={diffOffered ? onOpenTurnDiff : openInFile}
+        fullDiffOffered={diffOffered}
+        onFileContextMenu={(filePath, event) =>
+          onFileContextMenu(
+            {
+              environmentId: ctx.activeThreadEnvironmentId,
+              filePath,
+              workspaceRoot: ctx.workspaceRoot,
+              review:
+                threadRef && reviewTurnCount !== null
+                  ? { threadRef, turnCount: reviewTurnCount }
+                  : null,
+              repositoryRoot,
+            },
+            event,
+          )
+        }
+      />
+      {undoFiles.length > 0 ? <UndoTurnChangeButton files={undoFiles} /> : null}
+    </>
+  );
+}
+
+// Turns undone in this window. A timeline row unmounts when it scrolls away, so the row cannot hold this.
+const undoneTurns = new Set<string>();
+const UNDONE_TURN_LIMIT = 200;
+
+/**
+ * Under the latest reply that changed files: puts them back as they were before it, through the
+ * review bar's Discard.
+ */
+function UndoTurnChangeButton({ files }: { files: ReadonlyArray<TurnFileChange> }) {
+  const first = files[0]!;
+  const canWrite = useEnvironmentScope(first.environmentId, AuthFilesystemWriteScope);
+  const turnKey = `${first.environmentId}:${first.threadId}:${first.turnCount}`;
+  const [state, setLocalState] = useState<"idle" | "working" | "undone">(() =>
+    undoneTurns.has(turnKey) ? "undone" : "idle",
+  );
+  const setState = (next: "idle" | "working" | "undone") => {
+    if (next === "undone") {
+      if (undoneTurns.size >= UNDONE_TURN_LIMIT) undoneTurns.clear();
+      undoneTurns.add(turnKey);
+    }
+    setLocalState(next);
+  };
+  if (!canWrite) return null;
+  const undo = async () => {
+    const confirmed = await requestConfirmDialog(
+      files.length === 1
+        ? "Undo this change?\nThe file goes back to how it was before this reply, without anything saved to it since."
+        : `Undo this change?\n${files.length} files go back to how they were before this reply, without anything saved to them since.`,
+    );
+    if (confirmed !== true) return;
+    setState("working");
+    const failed = await discardTurnFileChanges(files);
+    setState(failed.length === 0 ? "undone" : "idle");
+    if (failed.length === 0) return;
+    toastManager.add({
+      type: "error",
+      title: "Could not undo all of this change",
+      description: `${failed.map((file) => file.relativePath).join(", ")} ${
+        failed.some((file) => file.conflict)
+          ? "changed while being put back"
+          : "could not be put back"
+      }. Try again.`,
+    });
+  };
+  return (
+    <div className="mt-2">
+      <Button
+        type="button"
+        size="xs"
+        variant="outline"
+        disabled={state !== "idle"}
+        data-scroll-anchor-ignore
+        onClick={() => void undo()}
+      >
+        <Undo2Icon />
+        {state === "undone" ? "Change undone" : "Undo this change"}
+      </Button>
+    </div>
   );
 }

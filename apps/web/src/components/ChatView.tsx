@@ -128,6 +128,7 @@ import { resolveThreadReferenceCopyTarget } from "@codenine/client-runtime/threa
 import { resolveTerminalSessionLabel } from "@codenine/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
 import {
+  type CSSProperties,
   type SetStateAction,
   lazy,
   Suspense,
@@ -182,6 +183,14 @@ import {
   useRightPanelStore,
 } from "../rightPanelStore";
 import { createChatCanvasStore, resolveChatCanvasModel } from "./chat/canvasStore";
+import {
+  DOCUMENT_CHAT_MIN_WIDTH,
+  type DocumentLayoutInput,
+  otherFileView,
+  resolveDocumentLayout,
+} from "../documentView.logic";
+import { useDocumentRoom } from "../hooks/useDocumentRoom";
+import { useDocumentViewStore } from "../documentViewStore";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { ComposerContextPermissions } from "./ComposerContextPermissions";
@@ -189,7 +198,22 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@codenine/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
+import { isHostPath } from "@codenine/shared/path";
+import { RESIZABLE_WIDTH_PROPERTY, useResizableWidth } from "~/hooks/useResizableWidth";
+import {
+  documentContextForSend,
+  documentSelectionKey,
+  isDocumentContextDismissed,
+  readDocumentSelectionForSend,
+} from "~/documentContext";
+import { RightPanelResizeHandle } from "./RightPanelResizeHandle";
+import { PanelLeftOpenIcon, PanelRightCloseIcon } from "lucide-react";
+import { Button } from "./ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { DocumentRail } from "./files/DocumentRail";
+import { ExplorerInRailContext, FileStageContext } from "./files/explorerPlacement";
+import { DocumentComposerAssist } from "./chat/DocumentComposerAssist";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { toastManager } from "./ui/toast";
@@ -286,6 +310,8 @@ import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
 import {
+  ChatSlideOverToggle,
+  FileViewSwitch,
   PanelLayoutControls,
   type PanelLayoutControlsProps,
   RightPanelMaximizeControl,
@@ -417,6 +443,9 @@ type ChatViewProps =
 const DismissedFallbackWindowSchema = Schema.NullOr(Schema.String);
 
 const AgentSetupDialog = lazy(() => import("./onboarding/AgentSetupDialog"));
+
+const DOCUMENT_CHAT_DEFAULT_WIDTH = 360;
+const DOCUMENT_CHAT_MAX_WIDTH = 560;
 
 export default function ChatView(props: ChatViewProps) {
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
@@ -1034,7 +1063,47 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
-  const shouldUsePlanSidebarSheet = prefersPlanSidebarSheet && rightPanelState.maximized !== true;
+  const documentViewProject = useProject(
+    activeThread?.projectId == null
+      ? null
+      : scopeProjectRef(activeThread.environmentId, activeThread.projectId),
+  );
+  const documentViewWorkspaceKey =
+    documentViewProject === null
+      ? null
+      : `${documentViewProject.environmentId}:${documentViewProject.id}`;
+  const storedFileView = useDocumentViewStore((state) =>
+    documentViewWorkspaceKey === null ? undefined : state.viewByWorkspace[documentViewWorkspaceKey],
+  );
+  const documentChatCollapsed = useDocumentViewStore((state) => state.chatCollapsed);
+  const documentRailCollapsed = useDocumentViewStore((state) => state.railCollapsed);
+  // This screen is reused from chat to chat, so what belongs to one chat is held with its key.
+  const [chatSlideOver, setChatSlideOver] = useState({ threadKey: routeThreadKey, open: false });
+  const chatSlideOverOpen = chatSlideOver.threadKey === routeThreadKey && chatSlideOver.open;
+  const setChatSlideOverOpen = (open: boolean) =>
+    setChatSlideOver({ threadKey: routeThreadKey, open });
+  const fileTabOpen =
+    rightPanelState.isOpen && rightPanelState.surfaces.some((surface) => surface.kind === "file");
+  const documentRoom = useDocumentRoom(workspaceLayoutElement);
+  const documentLayoutInput: DocumentLayoutInput = {
+    presetView: projectPreset(documentViewProject, activeThread?.worktreePath).fileView,
+    storedView: storedFileView,
+    fileOpen: fileTabOpen && activeThreadRef !== null,
+    embedded,
+    narrow: prefersPlanSidebarSheet,
+    room: documentRoom,
+    maximized: rightPanelState.maximized === true,
+    chatCollapsed: documentChatCollapsed,
+    railCollapsed: documentRailCollapsed,
+    slideOverOpen: chatSlideOverOpen,
+  };
+  const documentLayout = resolveDocumentLayout(documentLayoutInput);
+  const documentView = documentLayout.documentView;
+  // The switch changes nothing on a narrow screen, where an open file is always the page.
+  const fileViewSwitchOffered = fileTabOpen && !embedded && !prefersPlanSidebarSheet;
+  // With an open file the panel is the page on a narrow screen, so it never becomes a sheet.
+  const shouldUsePlanSidebarSheet =
+    prefersPlanSidebarSheet && rightPanelState.maximized !== true && !documentView;
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
   );
@@ -2417,6 +2486,76 @@ export default function ChatView(props: ChatViewProps) {
   const freshSessionArmed = useFreshSessionArmed(routeThreadKey);
   const toggleKeepFullHistory = () => setKeepFullHistory(routeThreadKey, !keepFullHistory);
   const toggleKeepFullHistoryStable = useStableCallback(toggleKeepFullHistory);
+  const toggleFileViewStable = useStableCallback(() => {
+    if (documentViewWorkspaceKey === null) return;
+    useDocumentViewStore
+      .getState()
+      .setView(documentViewWorkspaceKey, otherFileView(documentLayout.view));
+    setChatSlideOverOpen(false);
+  });
+  // The file the chip names: the active tab, when it is a file of this workspace.
+  const activeDocumentPath =
+    documentView &&
+    activeRightPanelSurface?.kind === "file" &&
+    activeRightPanelSurface.attachment === undefined &&
+    !isHostPath(activeRightPanelSurface.relativePath)
+      ? activeRightPanelSurface.relativePath
+      : null;
+  const activeAttachmentName =
+    documentView && activeRightPanelSurface?.kind === "file"
+      ? (activeRightPanelSurface.attachment?.name ?? null)
+      : null;
+  const readDocumentContextStable = useStableCallback(() => {
+    if (activeDocumentPath === null || activeWorkspaceRoot === undefined) return null;
+    if (isDocumentContextDismissed(routeThreadKey)) return null;
+    return documentContextForSend({
+      relativePath: activeDocumentPath,
+      selection: readDocumentSelectionForSend(
+        documentSelectionKey(activeWorkspaceRoot, activeDocumentPath),
+      ),
+      messageKey: randomUUID(),
+    });
+  });
+  const chatActivityKey = `${timelineEntries.length}:${isWorking}`;
+  const [seenChatActivity, setSeenChatActivity] = useState<{
+    readonly threadKey: string;
+    readonly key: string;
+  } | null>(null);
+  const seenChatActivityKey =
+    seenChatActivity?.threadKey === routeThreadKey ? seenChatActivity.key : null;
+  const setSeenChatActivityKey = (key: string) =>
+    setSeenChatActivity({ threadKey: routeThreadKey, key });
+  const chatSlideOverOffered = documentLayout.slideOver;
+  const chatTuckedAway = chatSlideOverOffered
+    ? !chatSlideOverOpen
+    : documentLayout.chat === "strip";
+  // What the chat held when it was last on screen, so its button can show that more arrived.
+  if (
+    (!chatTuckedAway || seenChatActivityKey === null) &&
+    seenChatActivityKey !== chatActivityKey
+  ) {
+    setSeenChatActivityKey(chatActivityKey);
+  }
+  const chatUnread = chatTuckedAway && seenChatActivityKey !== chatActivityKey;
+  const {
+    width: documentChatWidth,
+    setWidth: setDocumentChatWidth,
+    handlers: documentChatResizeHandlers,
+  } = useResizableWidth({
+    storageKey: "codenine:document-chat-width",
+    defaultWidth: DOCUMENT_CHAT_DEFAULT_WIDTH,
+    minWidth: DOCUMENT_CHAT_MIN_WIDTH,
+    maxWidth: DOCUMENT_CHAT_MAX_WIDTH,
+    edge: "left",
+  });
+  const showDocumentRailStable = useStableCallback(() => {
+    const store = useDocumentViewStore.getState();
+    store.setRailCollapsed(false);
+    // Where the rail and the chat do not both fit, asking for the rail folds the chat away.
+    if (resolveDocumentLayout({ ...documentLayoutInput, railCollapsed: false }).rail !== "open") {
+      store.setChatCollapsed(true);
+    }
+  });
   const armFreshSessionStable = useStableCallback(() => armFreshSession(routeThreadKey));
   const handleRestoreThreadBranch = () => {
     if (!canWriteSourceControl) return;
@@ -2669,6 +2808,10 @@ export default function ChatView(props: ChatViewProps) {
         if (!canInterruptRunningThread) return false;
         if (!event.repeat) void onInterruptStable();
       },
+      "rightPanel.toggleDocumentView": ({ event }) => {
+        if (!fileViewSwitchOffered || documentViewWorkspaceKey === null) return false;
+        if (!event.repeat) toggleFileViewStable();
+      },
     },
     fallback: (command) => {
       const scriptId = projectScriptIdFromCommand(command);
@@ -2913,6 +3056,7 @@ export default function ChatView(props: ChatViewProps) {
     onSideChat: sideChat.available ? sendSideChatStable : undefined,
     sideChatDisabledReason,
     handleNewThreadInActiveProject,
+    readDocumentContext: readDocumentContextStable,
     persistThreadSettingsForNextTurn,
   });
 
@@ -3221,17 +3365,39 @@ export default function ChatView(props: ChatViewProps) {
         onOpenTask={openTaskSurfaceStable}
       />
     ) : null;
+  const fileViewSwitch = fileViewSwitchOffered ? (
+    <FileViewSwitch
+      view={documentLayout.view}
+      shortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggleDocumentView")}
+      onToggle={toggleFileViewStable}
+    />
+  ) : null;
   const panelLayoutControls = (
     <WorkspaceTitlebarControls
-      showMaximizeControl={!shouldUsePlanSidebarSheet}
+      // A narrow document view has no chat beside the file to maximise away.
+      showMaximizeControl={!shouldUsePlanSidebarSheet && !chatSlideOverOffered}
       rightPanelOpen={rightPanelOpen}
       animationsActive={panelAnimationsActive}
       maximized={rightPanelMaximized}
       onToggleMaximized={toggleRightPanelMaximizedStable}
     >
-      {panelToggleControls}
+      <div className="flex items-center gap-1">
+        {chatSlideOverOffered ? (
+          <ChatSlideOverToggle
+            open={chatSlideOverOpen}
+            unread={chatUnread}
+            onToggle={() => setChatSlideOverOpen(!chatSlideOverOpen)}
+          />
+        ) : null}
+        {fileViewSwitch}
+        {panelToggleControls}
+      </div>
     </WorkspaceTitlebarControls>
   );
+  const documentChat = documentLayout.chat;
+  const chatColumnHidden =
+    rightPanelMaximized || documentChat === "strip" || documentChat === "hidden";
+  const chatBesideStage = documentChat === "column" || chatSlideOverOffered;
   const workspaceFileDropHandlers = makeWorkspaceFileDropHandlers({
     setDragActive: setIsWorkspaceFileDragActive,
     addFiles: addDroppedFilesToComposer,
@@ -3241,18 +3407,56 @@ export default function ChatView(props: ChatViewProps) {
   const content = (
     <div
       ref={setWorkspaceLayoutElement}
-      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+      className={cn(
+        "relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background",
+        // Beside the stage the chat column narrows first; the stage keeps a usable width.
+        documentView && !chatSlideOverOffered && "[&>[data-preview-panel-mode]]:min-w-120",
+      )}
     >
       {rightPanelControlsAtRoot && !embedded ? panelLayoutControls : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
-          rightPanelMaximized ? "w-0 flex-none" : "flex-1",
+          chatSlideOverOffered
+            ? // Over the file on a narrow screen. Only its transform changes when it opens.
+              cn(
+                "absolute top-[var(--workspace-topbar-height)] right-0 bottom-0 z-30 w-[min(100%,24rem)] border-l border-border bg-background shadow-lg motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out",
+                !chatSlideOverOpen && "translate-x-full shadow-none",
+              )
+            : chatColumnHidden
+              ? "w-0 flex-none"
+              : documentChat === "column"
+                ? // It narrows to its minimum before the stage gives up any of its own.
+                  "relative order-last min-w-80 shrink grow-0 basis-(--resizable-width) border-l border-border"
+                : "flex-1",
         )}
+        style={
+          documentChat === "column"
+            ? ({ [RESIZABLE_WIDTH_PROPERTY]: `${documentChatWidth}px` } as CSSProperties)
+            : undefined
+        }
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
         data-chat-column
-        inert={rightPanelMaximized}
+        data-chat-column-layout={chatSlideOverOffered ? "slide-over" : documentChat}
+        inert={chatSlideOverOffered ? !chatSlideOverOpen : chatColumnHidden}
       >
+        {documentChat === "column" ? (
+          <RightPanelResizeHandle
+            handlers={documentChatResizeHandlers}
+            label="Resize chat"
+            tabIndex={0}
+            aria-valuenow={documentChatWidth}
+            aria-valuemin={DOCUMENT_CHAT_MIN_WIDTH}
+            aria-valuemax={DOCUMENT_CHAT_MAX_WIDTH}
+            onKeyDown={(event) => {
+              if (event.altKey || event.ctrlKey || event.metaKey) return;
+              const step = event.key === "ArrowLeft" ? 16 : event.key === "ArrowRight" ? -16 : null;
+              if (step === null) return;
+              event.preventDefault();
+              setDocumentChatWidth(documentChatWidth + step);
+            }}
+          />
+        ) : null}
         {embedded ? null : (
           <header
             ref={threadPanelPopoverAnchorRef}
@@ -3263,13 +3467,33 @@ export default function ChatView(props: ChatViewProps) {
                 ? cn(
                     "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
                     reserveTitleBarControlInset &&
-                      !inlineRightPanelOwnsTitleBar &&
+                      (!inlineRightPanelOwnsTitleBar || documentChat === "column") &&
                       "wco:pr-(--workspace-native-controls-inset)",
                   )
                 : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
-              COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+              // Beside the stage the chat is not at the window's left edge.
+              !chatBesideStage && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
             )}
           >
+            {documentChat === "column" ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost-muted"
+                      aria-label="Hide chat"
+                      className="mr-1 -ml-1 shrink-0 [-webkit-app-region:no-drag]"
+                      onClick={() => useDocumentViewStore.getState().setChatCollapsed(true)}
+                    />
+                  }
+                >
+                  <PanelRightCloseIcon />
+                </TooltipTrigger>
+                <TooltipPopup side="bottom">Hide chat</TooltipPopup>
+              </Tooltip>
+            ) : null}
             {isElectron && rightPanelControlsAtRoot ? (
               <span
                 aria-hidden
@@ -3296,6 +3520,7 @@ export default function ChatView(props: ChatViewProps) {
               teamAgent={teamAgentThread?.header ?? null}
               onOpenThread={onOpenRelatedThreadStable}
               rightPanelOpen={inlineRightPanelOwnsTitleBar}
+              besideDocument={documentChat === "column"}
               {...(activeDraftLogicalProjectKey
                 ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
                 : {})}
@@ -3513,6 +3738,17 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   >
                     <ChildThreadApprovals threadRef={activeThreadRef} />
+                    {activeWorkspaceRoot !== undefined &&
+                    (activeDocumentPath ?? activeAttachmentName) !== null ? (
+                      <DocumentComposerAssist
+                        threadKey={routeThreadKey}
+                        target={composerDraftTarget}
+                        cwd={activeWorkspaceRoot}
+                        relativePath={(activeDocumentPath ?? activeAttachmentName)!}
+                        attached={activeDocumentPath === null}
+                        composerRef={composerRef}
+                      />
+                    ) : null}
                     <div className="relative">
                       <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                         <ComposerSurface.Host
@@ -3932,8 +4168,67 @@ export default function ChatView(props: ChatViewProps) {
         )}
       </div>
 
+      {documentChat === "strip" ? (
+        <div
+          data-document-chat-strip
+          className="order-last flex w-11 shrink-0 flex-col items-center gap-2 border-l border-border bg-background"
+        >
+          <span aria-hidden className="h-[var(--workspace-topbar-height)] shrink-0" />
+          <ChatSlideOverToggle
+            open={false}
+            unread={chatUnread}
+            onToggle={() => useDocumentViewStore.getState().setChatCollapsed(false)}
+          />
+        </div>
+      ) : null}
+      {documentLayout.rail === "open" && activeProject && activeWorkspaceRoot ? (
+        <DocumentRail
+          environmentId={activeProject.environmentId}
+          cwd={activeWorkspaceRoot}
+          projectName={activeProject.title}
+          kind={activeProjectIsScratch ? null : activeProject.kind}
+          selectedPath={
+            activeRightPanelSurface?.kind === "file" &&
+            activeRightPanelSurface.attachment === undefined
+              ? activeRightPanelSurface.relativePath
+              : null
+          }
+          workspaceMutationId={workspaceMutationId}
+          onOpenFile={openFileSurfaceStable}
+          onCollapse={() => useDocumentViewStore.getState().setRailCollapsed(true)}
+        />
+      ) : null}
       {rightPanelPresent && activeThreadRef && !embedded ? (
         <ChatRightPanel
+          stage={
+            documentView
+              ? {
+                  atLeftEdge: documentLayout.rail !== "open",
+                  underTitlebarControls: !chatBesideStage || chatSlideOverOffered,
+                }
+              : undefined
+          }
+          leadingControls={
+            documentLayout.rail === "collapsed" ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost-muted"
+                      aria-label="Show documents"
+                      className="shrink-0 [-webkit-app-region:no-drag]"
+                      onClick={showDocumentRailStable}
+                    />
+                  }
+                >
+                  <PanelLeftOpenIcon />
+                </TooltipTrigger>
+                <TooltipPopup side="bottom">Show documents</TooltipPopup>
+              </Tooltip>
+            ) : null
+          }
           sheet={shouldUsePlanSidebarSheet}
           workspaceLayoutElement={workspaceLayoutElement}
           widthStorageKey={`codenine:preview-panel-width:${activeThreadKey}`}
@@ -3942,10 +4237,11 @@ export default function ChatView(props: ChatViewProps) {
           open={rightPanelOpen}
           keybindings={keybindings}
           getShortcutContext={getShortcutContextStable}
-          maximized={rightPanelMaximized}
+          maximized={rightPanelMaximized || documentView}
           layoutControls={
             rightPanelOpen ? (
               <div className="mr-px flex items-center gap-1">
+                {fileViewSwitch}
                 <RightPanelMaximizeControl
                   maximized={rightPanelMaximized}
                   onToggle={toggleRightPanelMaximizedStable}
@@ -3989,7 +4285,11 @@ export default function ChatView(props: ChatViewProps) {
           sideChatAvailable={sideChat.available}
           sideChatDisabledReason={sideChatDisabledReason}
         >
-          {rightPanelContent}
+          <FileStageContext value={documentView}>
+            <ExplorerInRailContext value={documentLayout.rail !== "hidden"}>
+              {rightPanelContent}
+            </ExplorerInRailContext>
+          </FileStageContext>
         </ChatRightPanel>
       ) : null}
 

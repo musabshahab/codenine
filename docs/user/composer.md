@@ -427,9 +427,22 @@ with other spreadsheet apps, Ctrl/Cmd+Z undoes your own cell edits, and edits sa
 with the same **Reload from disk** and **Overwrite** choice as a text file when the file changed
 underneath you. Here **Overwrite** puts only your edited cells into the file as it is now.
 
-**Rows and columns** inserts or deletes them, **Format** sets a number format, and the sheet tabs
-add, rename and delete sheets. These save at once and are not undone with Ctrl/Cmd+Z, so use
-[file versions](#file-versions) or Git to go back. Formatting a whole column or row reaches as
+The tools above the grid set bold, currency, per cent and a fill colour, insert or delete rows
+and columns, and **Sort** orders the table around the selected cell by that cell's column. A sort
+moves whole rows with their formats, keeps a first row of headings and a row of totals under the
+table in place, and stops at the first empty row. It is refused when it would change what a formula reads, such as a formula
+that points at one row of the table from elsewhere, or when the rows hold merged cells. The
+sheet tabs add, rename and delete sheets. These save at once and are not undone with Ctrl/Cmd+Z,
+so use [file versions](#file-versions) or Git to go back.
+
+Type a cell or a range such as `B16` or `A1:C4` into the box beside the formula bar to go there.
+**Find in sheet** (Ctrl/Cmd+F in the grid) searches the whole sheet, values and formulas; Enter
+goes to the next match and Shift+Enter to the one before. Selecting several cells shows their
+sum, average and count under the grid. Drag a column's edge to resize it, double-click the
+edge to fit its text, or press Alt+Shift+Left or Right to resize the selected columns from the
+keyboard; the width is saved in a workbook. While an agent's change to the
+file waits for **Keep** or **Discard**, the cells it changed are marked, as far as the grid had
+them on screen before the change. Formatting a whole column or row reaches as
 far as the sheet's last used cell. Edits that could not be saved yet stay with the file while you
 look at another one, and are saved or offered again when you come back to it. A CSV or TSV file holds text only: no
 formulas, formats or extra sheets.
@@ -500,7 +513,8 @@ A PDF in a workspace opens with a toolbar for marking it up. Nothing changes in 
 you press **Save** (Ctrl/Cmd+S); until then the toolbar's undo button, or Ctrl/Cmd+Z, takes back
 your latest change.
 
-- **Highlight text**: choose the tool, then select text on the page.
+- **Highlight text**: choose the tool, then select text on the page. Choose it again to put it
+  down. **Clear highlights** in the toolbar's menu removes every highlight you can remove.
 - **Add a note**: choose the tool, click where the note belongs, and write it. Click a highlight
   or a note later to read it, comment on it or remove it.
 - **Fill in the form**: when the PDF has form fields they become inputs on the page. Use the
@@ -509,7 +523,8 @@ your latest change.
   upload a PNG or JPEG of it (up to 512 KB). Click the page to place it, drag it to move it and
   drag its corner to resize it. Your name and the date, as your device writes dates, are printed
   under it.
-- **Notes and highlights** lists everything on the document; choose an entry to jump to it.
+- **Notes and highlights**, in the toolbar's menu, lists everything on the document; choose an
+  entry to jump to it.
 
 Highlights, notes and form values are saved in the PDF itself as standard annotations and
 fields, so other PDF readers show them and can change them. A signature is different: saving
@@ -531,7 +546,7 @@ whether to load the new file and keep your changes, or discard them. Closing the
 the page in a browser, asks first when a PDF has unsaved changes. The desktop app does not ask
 when it quits, so save before you close it.
 
-The toolbar's **Download** button saves the PDF, as last saved, to your device. In a browser,
+**Download**, in the toolbar's menu, saves the PDF, as last saved, to your device. In a browser,
 **Open in a new tab to print** shows it in the browser's own viewer, which prints it and lists
 its outline. A PDF over 50 MB or 2,000 pages, or one that takes too long to load, opens in the
 browser's own viewer for reading only.

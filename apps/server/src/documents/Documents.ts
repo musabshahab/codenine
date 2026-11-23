@@ -1,4 +1,8 @@
 import {
+  ATTACHMENT_COPY_MAX_BYTES,
+  AttachmentCopyError,
+  type AttachmentCopyInput,
+  type AttachmentCopyResult,
   type DeckEditInput,
   type DeckEditResult,
   type DeckOpenInput,
@@ -20,6 +24,9 @@ import {
   type ReplyFileSaveResult,
   type SpreadsheetEditInput,
   type SpreadsheetEditResult,
+  SPREADSHEET_FIND_MAX_MATCHES,
+  type SpreadsheetFindInput,
+  type SpreadsheetFindResult,
   type SpreadsheetOpenInput,
   type SpreadsheetOpenResult,
   SpreadsheetOperationError,
@@ -33,10 +40,13 @@ import * as KeyedLock from "@codenine/shared/KeyedLock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { resolveAttachmentPathById } from "../attachmentStore.ts";
+import * as ServerConfig from "../config.ts";
 import * as FileVersions from "../fileVersions/FileVersions.ts";
 import type * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "../workspace/WorkspaceFileSystem.ts";
@@ -49,6 +59,7 @@ import {
 } from "./pdf/pdfEdits.ts";
 import { locatePdfText, readPdfText as readPdfTextBytes } from "./pdf/pdfText.ts";
 import { DeckProblem, PptxDeck } from "./pptx/pptxDeck.ts";
+import { copyNameCandidates } from "./attachmentCopy.ts";
 import { markdownPdf, markdownTables, tableWorkbook } from "./reply/replyFile.ts";
 import { DelimitedTable } from "./spreadsheet/delimitedTable.ts";
 import {
@@ -183,6 +194,10 @@ export class Documents extends Context.Service<
     readonly readSpreadsheetRange: (
       input: SpreadsheetReadRangeInput,
     ) => Effect.Effect<SpreadsheetReadRangeResult, ReadError>;
+    /** Where a sheet's cells hold some text, in reading order and capped. */
+    readonly findInSpreadsheet: (
+      input: SpreadsheetFindInput,
+    ) => Effect.Effect<SpreadsheetFindResult, ReadError>;
     /**
      * Applies the operations in order and saves. Nothing is written unless all of them apply,
      * and a file that no longer has the expected version is left alone.
@@ -237,6 +252,13 @@ export class Documents extends Context.Service<
       input: ReplyFileSaveInput,
     ) => Effect.Effect<ReplyFileSaveResult, ReplyFileExistsError | ReplyFileError>;
     /**
+     * Saves a copy of a chat attachment at the top of the workspace, under its name or, when
+     * that is taken, the name with a number. Nothing already there is ever replaced.
+     */
+    readonly copyAttachment: (
+      input: AttachmentCopyInput,
+    ) => Effect.Effect<AttachmentCopyResult, AttachmentCopyError>;
+    /**
      * `editPdf` that also draws the user's signatures into their pages. Only a person signs, so
      * the only caller is the RPC a user's client makes: no agent tool may reach this.
      */
@@ -253,6 +275,8 @@ const make = Effect.gen(function* () {
   const pdfLimits = yield* PdfLimits;
   const deckLimits = yield* DeckLimits;
   const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const serverConfig = yield* ServerConfig.ServerConfig;
   const locks = yield* KeyedLock.make<string>();
   // Newest last. A model is dropped before it is changed and held again once the save succeeds.
   const held = new Map<string, { readonly version: string; readonly model: SpreadsheetModel }>();
@@ -350,6 +374,21 @@ const make = Effect.gen(function* () {
     );
   });
 
+  const findInSpreadsheet: Documents["Service"]["findInSpreadsheet"] = Effect.fn(
+    "Documents.findInSpreadsheet",
+  )(function* (input) {
+    return yield* locks.withLock(
+      keyOf(input),
+      Effect.gen(function* () {
+        const { version, model } = yield* load(input);
+        const found = yield* attempt(input.relativePath, "read", () =>
+          model.find(input.sheet, input.query, SPREADSHEET_FIND_MAX_MATCHES),
+        );
+        return { version, ...found };
+      }),
+    );
+  });
+
   const editSpreadsheet: Documents["Service"]["editSpreadsheet"] = Effect.fn(
     "Documents.editSpreadsheet",
   )(function* (input, options) {
@@ -373,6 +412,11 @@ const make = Effect.gen(function* () {
         });
         if (bytes.byteLength > limits.maxFileBytes) {
           return yield* new SpreadsheetTooLargeError({ relativePath, limit: "file-size" });
+        }
+        // Operations that changed nothing, such as sorting rows already in order, write nothing.
+        if (WorkspaceFileSystem.fileVersion(bytes) === version) {
+          hold(key, version, model);
+          return { version, sheets: model.sheets(), unchanged: true };
         }
         // The write checks the version again, so a change since the read above is still refused.
         const written = yield* fileVersions.writeFileBytes({
@@ -670,6 +714,57 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const copyAttachment: Documents["Service"]["copyAttachment"] = Effect.fn(
+    "Documents.copyAttachment",
+  )(function* (input) {
+    const names = copyNameCandidates(input.name);
+    if (names === null) {
+      return yield* new AttachmentCopyError({
+        reason: "bad-name",
+        message: "That name cannot be used for a file.",
+      });
+    }
+    const source = resolveAttachmentPathById({
+      attachmentsDir: serverConfig.attachmentsDir,
+      attachmentId: input.attachmentId,
+    });
+    const missing = new AttachmentCopyError({
+      reason: "not-found",
+      message: "The attachment is no longer on this machine.",
+    });
+    if (source === null) return yield* missing;
+    const size = yield* fileSystem.stat(source).pipe(Effect.mapError(() => missing));
+    if (Number(size.size) > ATTACHMENT_COPY_MAX_BYTES) {
+      return yield* new AttachmentCopyError({
+        reason: "too-large",
+        message: "The attachment is too large to copy into the workspace.",
+      });
+    }
+    const bytes = yield* fileSystem.readFile(source).pipe(Effect.mapError(() => missing));
+    for (const relativePath of names) {
+      const written = yield* fileVersions
+        .writeFileBytes({ cwd: input.cwd, relativePath, bytes, createOnly: true })
+        .pipe(
+          Effect.map((result) => ({ taken: false as const, result })),
+          Effect.catchTags({
+            WorkspaceFileConflictError: () => Effect.succeed({ taken: true as const }),
+          }),
+          Effect.mapError(
+            (cause) => new AttachmentCopyError({ reason: "failed", message: cause.message, cause }),
+          ),
+        );
+      if (written.taken) continue;
+      return {
+        relativePath: written.result.relativePath,
+        version: written.result.version ?? WorkspaceFileSystem.fileVersion(bytes),
+      };
+    }
+    return yield* new AttachmentCopyError({
+      reason: "failed",
+      message: `Too many files are already named like '${input.name}'. Rename one and try again.`,
+    });
+  });
+
   const editPdfWithSignatures: Documents["Service"]["editPdfWithSignatures"] = Effect.fn(
     "Documents.editPdfWithSignatures",
   )((input) => savePdf(input, input.signatures ?? []));
@@ -677,6 +772,7 @@ const make = Effect.gen(function* () {
   return Documents.of({
     openSpreadsheet,
     readSpreadsheetRange,
+    findInSpreadsheet,
     editSpreadsheet,
     openPdf,
     editPdf,
@@ -685,6 +781,7 @@ const make = Effect.gen(function* () {
     openDeck,
     editDeck,
     saveReplyFile,
+    copyAttachment,
   });
 });
 

@@ -22,15 +22,27 @@ const refused = (operationIndex?: number): EditResult => ({
 });
 
 /** `answers` are given to the edits in order; an edit past the last of them is saved. */
-function setup(answers: ReadonlyArray<EditResult | Promise<EditResult>> = []) {
+function setup(answers: ReadonlyArray<EditResult | Promise<EditResult>> = [], key = "book") {
   const edits: Array<ReadonlyArray<SpreadsheetOperation>> = [];
   const reads: Array<string> = [];
   const pendingReports: Array<boolean> = [];
+  /** The file as something outside the grid may leave it. */
+  const file = { version: "v1", a1: 5 };
+  /** How many edits had been sent when each search was made. */
+  const finds: Array<number> = [];
   const transport: SpreadsheetTransport = {
+    tools: true,
+    find: async () => {
+      finds.push(edits.length);
+      return {
+        ok: true,
+        value: { version: file.version, matches: [{ row: 0, column: 0 }], truncated: false },
+      };
+    },
     open: async () => ({
       ok: true,
       value: {
-        version: "v1",
+        version: file.version,
         format: "xlsx",
         sheets: [{ name: "Data" }, { name: "Huge" }],
         date1904: false,
@@ -47,11 +59,12 @@ function setup(answers: ReadonlyArray<EditResult | Promise<EditResult>> = []) {
       return {
         ok: true,
         value: {
-          version: "v1",
+          version: file.version,
           rowCount: 600,
           columnCount: 1,
-          cells: range.row === 0 ? [{ row: 0, column: 0, value: 5 }] : [],
+          cells: range.row === 0 ? [{ row: 0, column: 0, value: file.a1 }] : [],
           formats: {},
+          columnWidths: [{ column: 0, width: 140 }],
         },
       };
     },
@@ -68,7 +81,8 @@ function setup(answers: ReadonlyArray<EditResult | Promise<EditResult>> = []) {
       pendingReports.push(pending);
     },
   };
-  const session = new SpreadsheetSession({ ...input, key: "book" });
+  // Files with one key share where the user was in them, as a file opened again does.
+  const session = new SpreadsheetSession({ ...input, key });
   /** Settles on the first snapshot that matches, without polling. */
   const until = (matches: (snapshot: SpreadsheetSnapshot) => boolean) =>
     new Promise<void>((resolve) => {
@@ -84,7 +98,7 @@ function setup(answers: ReadonlyArray<EditResult | Promise<EditResult>> = []) {
     session.showArea({ top: 0, left: 0, bottom: 20, right: 5 });
     await until((snapshot) => snapshot.cellAt(0, 0)?.value === 5);
   };
-  return { session, input, edits, reads, pendingReports, until, ready };
+  return { session, input, edits, reads, pendingReports, file, finds, until, ready };
 }
 
 const number = (row: number, value: number) => ({
@@ -137,7 +151,7 @@ it("saves the other edits when one is refused, and sends a move on its own", asy
     [cell(0, 7), cell(1, 8), cell(2, 9)],
     [cell(0, 7), cell(2, 9)],
   ]);
-  expect(session.getSnapshot().notice).toBe("Not here.");
+  expect(session.getSnapshot().notice).toBe("That change was not saved. Not here.");
   expect(session.getSnapshot().status).toBe("ready");
 
   session.setCells([number(3, 4)]);
@@ -191,7 +205,27 @@ it("sends edits made during a save when its grid goes, and keeps failed ones for
   // Nothing is unsaved now, so the next grid starts from the file.
   const fresh = acquireSpreadsheetSession("book", input);
   expect(fresh).not.toBe(session);
+  // It still returns to the cell the user left, as when another document was shown meanwhile.
+  const place = { anchor: { row: 4, column: 2 }, focus: { row: 6, column: 3 } };
+  await new Promise<void>((resolve) => {
+    const stop = fresh.subscribe(() => {
+      if (fresh.getSnapshot().status !== "ready") return;
+      stop();
+      resolve();
+    });
+  });
+  fresh.select(place);
   fresh.release();
+  const back = acquireSpreadsheetSession("book", input);
+  await new Promise<void>((resolve) => {
+    const stop = back.subscribe(() => {
+      if (back.getSnapshot().status !== "ready") return;
+      stop();
+      resolve();
+    });
+  });
+  expect(back.getSnapshot().selection).toEqual(place);
+  back.release();
 });
 
 it("says so when a sheet cannot be read, and formats a whole column only where it is used", async () => {
@@ -227,5 +261,58 @@ it("says so when a sheet cannot be read, and formats a whole column only where i
   session.setCells([number(0, 1)]);
   await session.flush();
   expect(edits).toHaveLength(1);
+  session.release();
+});
+
+it("sorts as a move, saves a dragged width once, searches saved cells and marks an outside change", async () => {
+  const { session, edits, file, finds, until, ready } = setup(
+    [
+      SAVED,
+      SAVED,
+      SAVED,
+      { ok: true, value: { version: "v1", sheets: [{ name: "Data" }], unchanged: true } },
+    ],
+    "sorted",
+  );
+  await ready();
+  expect([...session.getSnapshot().fileWidths]).toEqual([[0, 140]]);
+
+  session.select({ anchor: { row: 3, column: 0 }, focus: { row: 3, column: 0 } });
+  session.setCells([number(0, 7)]);
+  session.setColumnWidth(2, 120);
+  session.setColumnWidth(2, 180);
+  session.sortRows(true);
+  await until((snapshot) => !snapshot.busy && snapshot.saveState === "saved");
+  // The width goes with the cell edits; the sort moves cells, so it travels alone, after them.
+  expect(edits).toEqual([
+    [cell(0, 7), { type: "setColumnWidth", sheet: "Data", column: 2, count: 1, width: 180 }],
+    [{ type: "sortRows", sheet: "Data", row: 3, column: 0, descending: true }],
+  ]);
+  expect(session.getSnapshot().canUndo).toBe(false);
+
+  // A search is of the file, so what is typed is saved before it is made.
+  session.setCells([number(1, 2)]);
+  expect(await session.find("7")).toMatchObject({ matches: [{ row: 0, column: 0 }] });
+  expect(finds).toEqual([3]);
+
+  // A sort the server says moved nothing keeps the steps to undo, and tells the user.
+  expect(session.getSnapshot()).toMatchObject({ canUndo: true, notice: null });
+  session.sortRows(false);
+  await until((snapshot) => !snapshot.busy && snapshot.saveState === "saved");
+  expect(session.getSnapshot().canUndo).toBe(true);
+  expect(session.getSnapshot().notice).toMatch(/^Nothing was sorted/);
+  session.dismissNotice();
+
+  // Something else writes the file. Its changed cells are marked while that change is reviewed.
+  file.version = "v2";
+  file.a1 = 9;
+  await session.checkForChanges();
+  await until((snapshot) => snapshot.cellAt(0, 0)?.value === 9);
+  expect(session.getSnapshot().changedAt(0, 0)).toBe(false);
+  session.setReviewing(true);
+  expect(session.getSnapshot().changedAt(0, 0)).toBe(true);
+  expect(session.getSnapshot().changedAt(1, 0)).toBe(false);
+  session.setReviewing(false);
+  expect(session.getSnapshot().changedAt(0, 0)).toBe(false);
   session.release();
 });

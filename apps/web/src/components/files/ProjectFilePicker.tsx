@@ -1,7 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useState, type ReactNode } from "react";
 
-import { useActiveProjectTarget, type ActiveProjectTarget } from "~/hooks/useActiveProjectTarget";
+import { useParams } from "@tanstack/react-router";
+import type { EnvironmentId } from "@codenine/contracts";
+
+import { useActiveProjectTarget } from "~/hooks/useActiveProjectTarget";
+import { useOpenWorkspaceFile } from "~/hooks/useOpenWorkspaceFile";
+import { useSidebarProjectGroups } from "~/hooks/useSidebarProjectGroups";
 import { useTheme } from "~/hooks/useTheme";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { primaryServerKeybindingsAtom } from "~/state/server";
@@ -68,7 +73,14 @@ function EmptyProjectFilePicker() {
   );
 }
 
-function OpenProjectFilePicker(props: ProjectFilePickerProps & { target: ActiveProjectTarget }) {
+interface FilePickerTarget {
+  readonly environmentId: EnvironmentId;
+  readonly cwd: string;
+  readonly projectName: string;
+  readonly open: (relativePath: string) => void | Promise<void>;
+}
+
+function OpenProjectFilePicker(props: ProjectFilePickerProps & { target: FilePickerTarget }) {
   const { target } = props;
   const [query, setQuery] = useState("");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
@@ -102,7 +114,7 @@ function OpenProjectFilePicker(props: ProjectFilePickerProps & { target: ActiveP
     ),
     icon: <PierreEntryIcon pathValue={match.path} kind="file" theme={resolvedTheme} />,
     run: async () => {
-      useRightPanelStore.getState().openFile(target.threadRef, match.path);
+      await target.open(match.path);
     },
   }));
 
@@ -147,10 +159,37 @@ function OpenProjectFilePicker(props: ProjectFilePickerProps & { target: ActiveP
 
 export function ProjectFilePicker(props: ProjectFilePickerProps) {
   const target = useActiveProjectTarget();
+  // On a workspace's page there is no chat yet: the file opens in a new draft chat there.
+  const { projectKey } = useParams({ strict: false });
+  const pageProject =
+    useSidebarProjectGroups().find((group) => group.projectKey === projectKey) ?? null;
+  const openWorkspaceFile = useOpenWorkspaceFile();
 
-  if (!target) {
-    return <EmptyProjectFilePicker />;
+  if (target) {
+    return (
+      <OpenProjectFilePicker
+        setOpen={props.setOpen}
+        target={{
+          environmentId: target.environmentId,
+          cwd: target.cwd,
+          projectName: target.projectName,
+          open: (path) => useRightPanelStore.getState().openFile(target.threadRef, path),
+        }}
+      />
+    );
   }
-
-  return <OpenProjectFilePicker setOpen={props.setOpen} target={target} />;
+  if (pageProject !== null) {
+    return (
+      <OpenProjectFilePicker
+        setOpen={props.setOpen}
+        target={{
+          environmentId: pageProject.environmentId,
+          cwd: pageProject.workspaceRoot,
+          projectName: pageProject.displayName,
+          open: (path) => openWorkspaceFile(pageProject, path),
+        }}
+      />
+    );
+  }
+  return <EmptyProjectFilePicker />;
 }

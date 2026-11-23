@@ -2469,6 +2469,7 @@ export const layerWsRpc = (
           media.cancel(input.jobId).pipe(Effect.map((cancelled) => ({ cancelled }))),
         [WS_METHODS.mediaSubscribeJobs]: () => media.jobs,
         [WS_METHODS.mediaGetImageRecord]: (input) => media.imageRecord(input),
+        [WS_METHODS.documentsCopyAttachment]: (input) => documents.copyAttachment(input),
         [WS_METHODS.projectsReadFileVersion]: (input) =>
           fileVersions
             .read(input)
@@ -2491,6 +2492,8 @@ export const layerWsRpc = (
           documents.openSpreadsheet(input).pipe(Effect.mapError(spreadsheetError)),
         [WS_METHODS.documentsReadSpreadsheetRange]: (input) =>
           documents.readSpreadsheetRange(input).pipe(Effect.mapError(spreadsheetError)),
+        [WS_METHODS.documentsFindInSpreadsheet]: (input) =>
+          documents.findInSpreadsheet(input).pipe(Effect.mapError(spreadsheetError)),
         [WS_METHODS.documentsEditSpreadsheet]: (input) =>
           documents
             .editSpreadsheet(input)

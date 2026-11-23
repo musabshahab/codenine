@@ -1,3 +1,4 @@
+import type { DocumentSelection } from "~/documentContext";
 import type {
   SpreadsheetCellFormat,
   SpreadsheetCellInput,
@@ -321,4 +322,211 @@ export function pasteTargets(
     }
   }
   return { targets, dropped };
+}
+
+/** The most selected cells whose values travel with a message; a larger selection sends its range only. */
+const SELECTION_VALUES_MAX_CELLS = 100;
+
+/** The selection as the chat's context chip reports it: the sheet, the range, and a small range's values. */
+export function spreadsheetDocumentSelection(
+  sheet: string,
+  area: GridArea,
+  text: (row: number, column: number) => string,
+): DocumentSelection {
+  const first = cellLabel({ row: area.top, column: area.left });
+  const last = cellLabel({ row: area.bottom, column: area.right });
+  const values =
+    areaCellCount(area) <= SELECTION_VALUES_MAX_CELLS ? areaToClipboardText(area, text) : "";
+  return {
+    kind: "spreadsheet",
+    sheet,
+    range: first === last ? first : `${first}:${last}`,
+    ...(values.trim() === "" ? {} : { values }),
+  };
+}
+
+export const DEFAULT_COLUMN_WIDTH = 96;
+const MIN_COLUMN_WIDTH = 40;
+/** The widest a column grows to fit its text; a longer value is cut off until the user widens it. */
+export const MAX_FITTED_COLUMN_WIDTH = 320;
+const MAX_COLUMN_WIDTH = 800;
+
+export function clampColumnWidth(width: number): number {
+  return Math.round(Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, width)));
+}
+
+/** Where each column sits when some have a width of their own. Lookups cost a search of those few. */
+export interface ColumnLayout {
+  readonly widthOf: (column: number) => number;
+  /** The left edge of a column, from the left edge of column A. */
+  readonly offsetOf: (column: number) => number;
+  /** The column under a distance from the left edge of column A. */
+  readonly columnAt: (offset: number) => number;
+}
+
+export function columnLayout(widths: ReadonlyMap<number, number>): ColumnLayout {
+  const columns = [...widths.keys()].sort((a, b) => a - b);
+  // lefts[i] is the left edge of the i-th sized column.
+  const lefts: Array<number> = [];
+  let extra = 0;
+  for (const column of columns) {
+    lefts.push(column * DEFAULT_COLUMN_WIDTH + extra);
+    extra += widths.get(column)! - DEFAULT_COLUMN_WIDTH;
+  }
+  /** How many sized columns satisfy `before`, which holds for a prefix of them. */
+  const count = (before: (index: number) => boolean) => {
+    let low = 0;
+    let high = columns.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (before(middle)) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const widthOf = (column: number) => widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
+  return {
+    widthOf,
+    offsetOf: (column) => {
+      const index = count((i) => columns[i]! < column);
+      if (index === 0) return column * DEFAULT_COLUMN_WIDTH;
+      const last = columns[index - 1]!;
+      return lefts[index - 1]! + widthOf(last) + (column - last - 1) * DEFAULT_COLUMN_WIDTH;
+    },
+    columnAt: (offset) => {
+      const index = count((i) => lefts[i]! <= offset);
+      if (index === 0) return Math.floor(offset / DEFAULT_COLUMN_WIDTH);
+      const last = columns[index - 1]!;
+      const past = offset - lefts[index - 1]! - widthOf(last);
+      return past < 0 ? last : last + 1 + Math.floor(past / DEFAULT_COLUMN_WIDTH);
+    },
+  };
+}
+
+/** The width that shows the widest of a column's texts, within the limits a fitted column keeps. */
+export function fittedColumnWidth(textWidths: Iterable<number>, padding: number): number {
+  let widest = 0;
+  for (const width of textWidths) widest = Math.max(widest, width);
+  return Math.round(
+    Math.max(DEFAULT_COLUMN_WIDTH, Math.min(MAX_FITTED_COLUMN_WIDTH, widest + padding)),
+  );
+}
+
+const NAME_BOX_CELL = String.raw`\$?([A-Za-z]{1,3})\$?(\d{1,7})`;
+const NAME_BOX_PATTERN = new RegExp(`^${NAME_BOX_CELL}(?::${NAME_BOX_CELL})?$`);
+const NAME_BOX_COLUMNS = /^\$?([A-Za-z]{1,3}):\$?([A-Za-z]{1,3})$/;
+const NAME_BOX_ROWS = /^\$?(\d{1,7}):\$?(\d{1,7})$/;
+
+function columnIndex(letters: string): number {
+  let column = 0;
+  for (const letter of letters.toUpperCase()) column = column * 26 + letter.charCodeAt(0) - 64;
+  return column - 1;
+}
+
+/**
+ * The selection a typed address names: a cell (`B16`), a range (`a1:c4`), whole columns (`C:D`)
+ * or whole rows (`2:5`). Null for anything else, or for a place the grid does not lay out.
+ */
+export function parseNameBoxInput(
+  text: string,
+  bounds: { readonly rowCount: number; readonly columnCount: number },
+): GridSelection | null {
+  const typed = text.trim();
+  const within = (selection: GridSelection) =>
+    [selection.anchor, selection.focus].every(
+      (cell) =>
+        cell.row >= 0 &&
+        cell.column >= 0 &&
+        cell.row < bounds.rowCount &&
+        cell.column < bounds.columnCount,
+    )
+      ? selection
+      : null;
+  const cells = NAME_BOX_PATTERN.exec(typed);
+  if (cells) {
+    const anchor = { row: Number(cells[2]) - 1, column: columnIndex(cells[1]!) };
+    const focus =
+      cells[3] === undefined
+        ? anchor
+        : { row: Number(cells[4]) - 1, column: columnIndex(cells[3]) };
+    return within({ anchor, focus });
+  }
+  const columns = NAME_BOX_COLUMNS.exec(typed);
+  if (columns) {
+    return within({
+      anchor: { row: 0, column: columnIndex(columns[1]!) },
+      focus: { row: bounds.rowCount - 1, column: columnIndex(columns[2]!) },
+    });
+  }
+  const rows = NAME_BOX_ROWS.exec(typed);
+  if (rows) {
+    return within({
+      anchor: { row: Number(rows[1]) - 1, column: 0 },
+      focus: { row: Number(rows[2]) - 1, column: bounds.columnCount - 1 },
+    });
+  }
+  return null;
+}
+
+/** An area as the name box shows it: `B3`, or `B3:D9`. */
+export function areaLabel(area: GridArea): string {
+  const first = cellLabel({ row: area.top, column: area.left });
+  const last = cellLabel({ row: area.bottom, column: area.right });
+  return first === last ? first : `${first}:${last}`;
+}
+
+export interface SelectionSummary {
+  /** Cells that hold something. */
+  readonly count: number;
+  /** Cells that hold a number, which the sum and the average are over. */
+  readonly numbers: number;
+  readonly sum: number;
+}
+
+/** The most cells a selection is added up over, so that selecting a whole sheet costs nothing. */
+export const SUMMARY_MAX_CELLS = 20_000;
+
+/**
+ * What a selection of several cells adds up to, from the cells read so far. Null for one cell,
+ * for a selection over the limit and for one that holds nothing.
+ */
+export function selectionSummary(
+  area: GridArea,
+  cellAt: (row: number, column: number) => CellData | undefined,
+): SelectionSummary | null {
+  const cells = areaCellCount(area);
+  if (cells < 2 || cells > SUMMARY_MAX_CELLS) return null;
+  let count = 0;
+  let numbers = 0;
+  let sum = 0;
+  for (let row = area.top; row <= area.bottom; row++) {
+    for (let column = area.left; column <= area.right; column++) {
+      const cell = cellAt(row, column);
+      if (cell?.value === undefined || cell.value === "") continue;
+      count += 1;
+      if (typeof cell.value === "number" && !cell.error) {
+        numbers += 1;
+        sum += cell.value;
+      }
+    }
+  }
+  return count === 0 ? null : { count, numbers, sum };
+}
+
+/** A sum or an average as the status bar shows it: without the noise of binary fractions. */
+export const summaryNumber = (value: number) =>
+  Number(value.toPrecision(12)).toLocaleString("en-GB", { maximumFractionDigits: 4 });
+
+/** The cells of two reads of one page that differ, as keys, by value or by formula. */
+export function changedCellKeys(
+  before: ReadonlyMap<number, CellData>,
+  after: ReadonlyMap<number, CellData>,
+): Array<number> {
+  const changed: Array<number> = [];
+  const differs = (left: CellData | undefined, right: CellData | undefined) =>
+    left?.value !== right?.value || left?.formula !== right?.formula;
+  for (const [key, cell] of after) if (differs(before.get(key), cell)) changed.push(key);
+  for (const [key, cell] of before)
+    if (!after.has(key) && differs(cell, undefined)) changed.push(key);
+  return changed;
 }

@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { IsoDateTime, ThreadId } from "@codenine/contracts";
+import { IsoDateTime, SPREADSHEET_FIND_MAX_MATCHES, ThreadId } from "@codenine/contracts";
 import type {
   PdfSignaturePlacement,
   SpreadsheetCell,
@@ -486,6 +486,222 @@ describe("Documents spreadsheets", () => {
       }),
     );
 
+    it.effect("sorts a table by a column, keeps its headings, and refuses what would misread", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeWorkspace();
+        const text = (name: string, value: string, style = "") =>
+          `<c r="${name}"${style} t="inlineStr"><is><t>${value}</t></is></c>`;
+        const table = (
+          extra: { row2?: string; after?: string; total?: number; cached?: boolean } = {},
+        ) => {
+          const total = extra.total ?? 6;
+          const result = (value: number) => (extra.cached === false ? "" : `<v>${value}</v>`);
+          return sheetXml(
+            `<row r="1">${text("A1", "Name", ' s="1"')}${text("B1", "Qty", ' s="1"')}</row>` +
+              `<row r="2" ht="30">${text("A2", "pear")}<c r="B2" s="2"><v>3</v></c><c r="C2"><f>B2*2</f>${result(6)}</c>${extra.row2 ?? ""}</row>` +
+              `<row r="3">${text("A3", "Apple")}<c r="B3"><v>10</v></c><c r="C3"><f>B3*2</f>${result(20)}</c></row>` +
+              `<row r="4">${text("A4", "fig")}<c r="B4"><v>1</v></c><c r="C4"><f>$B$4*2</f>${result(2)}</c></row>` +
+              `<row r="${total}">${text(`A${total}`, "Total")}<c r="B${total}"><f>SUM(B2:B4)</f><v>14</v></c></row>`,
+            extra.after === undefined ? {} : { after: extra.after },
+          );
+        };
+        const reader = (formula: string) =>
+          sheetXml(`<row r="1"><c r="A1"><f>${formula}</f><v>14</v></c></row>`);
+        const book = (sheet: string, other = "SUM(T!B2:B4)") =>
+          Effect.promise(() =>
+            bookOf([
+              { name: "T", xml: sheet },
+              { name: "Other", xml: reader(other) },
+            ]),
+          );
+        const sort = (column: number, descending: boolean): SpreadsheetOperation => ({
+          type: "sortRows",
+          sheet: "T",
+          row: 2,
+          column,
+          descending,
+        });
+        yield* workspace.write("sort.xlsx", yield* book(table()));
+        expect(
+          yield* workspace.documents.findInSpreadsheet({
+            cwd: workspace.cwd,
+            relativePath: "sort.xlsx",
+            sheet: "T",
+            query: "B3",
+          }),
+        ).toMatchObject({ matches: [{ row: 2, column: 2 }], truncated: false });
+        const find = (relativePath: string, sheet: string, query: string) =>
+          workspace.documents.findInSpreadsheet({ cwd: workspace.cwd, relativePath, sheet, query });
+        // A cell's value matches too, in any letter case.
+        expect((yield* find("sort.xlsx", "T", "APPLE")).matches).toEqual([{ row: 2, column: 0 }]);
+        // A search answers with a capped number of places, however many cells match.
+        const many = SPREADSHEET_FIND_MAX_MATCHES + 20;
+        yield* workspace.write(
+          "many.xlsx",
+          yield* book(
+            sheetXml(
+              Array.from(
+                { length: many },
+                (_, row) => `<row r="${row + 1}"><c r="A${row + 1}"><v>7</v></c></row>`,
+              ).join(""),
+            ),
+          ),
+        );
+        yield* workspace.write("many.csv", "Seven,x\n".repeat(many));
+        for (const [file, sheet, query] of [
+          ["many.xlsx", "T", "7"],
+          ["many.csv", "Sheet1", "seven"],
+        ] as const) {
+          const found = yield* find(file, sheet, query);
+          expect(found.truncated).toBe(true);
+          expect(found.matches).toHaveLength(SPREADSHEET_FIND_MAX_MATCHES);
+          expect(found.matches.at(-1)).toEqual({
+            row: SPREADSHEET_FIND_MAX_MATCHES - 1,
+            column: 0,
+          });
+        }
+        expect(yield* find("many.csv", "Sheet1", "X")).toMatchObject({
+          matches: { length: SPREADSHEET_FIND_MAX_MATCHES },
+          truncated: true,
+        });
+        expect(yield* find("many.csv", "Sheet1", "absent")).toMatchObject({
+          matches: [],
+          truncated: false,
+        });
+
+        // A Total row straight under the data is not one of the rows to sort.
+        yield* workspace.write("total.xlsx", yield* book(table({ total: 5 })));
+        yield* workspace.edit("total.xlsx", [sort(1, true)]);
+        const totalled = (yield* workspace.cells("total.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4", "A5"].map((name) => totalled[name]?.value)).toEqual([
+          "Apple",
+          "pear",
+          "fig",
+          "Total",
+        ]);
+        expect(totalled.B5).toMatchObject({ formula: "SUM(B2:B4)", value: 14 });
+
+        // Rows are ordered by what their formulas come to after the edits before the sort.
+        yield* workspace.write("stale.xlsx", yield* book(table()));
+        yield* workspace.edit("stale.xlsx", [
+          setCell("T", "B4", { kind: "number", number: 500 }),
+          sort(2, true),
+        ]);
+        const fresh = (yield* workspace.cells("stale.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4"].map((name) => fresh[name]?.value)).toEqual([
+          "fig",
+          "Apple",
+          "pear",
+        ]);
+        expect(fresh.C2).toMatchObject({ formula: "$B$2*2", value: 1000 });
+        // A file whose formulas carry no results, as openpyxl writes them, sorts by them all the same.
+        yield* workspace.write("bare.xlsx", yield* book(table({ cached: false })));
+        yield* workspace.edit("bare.xlsx", [sort(2, true)]);
+        const bare = (yield* workspace.cells("bare.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4"].map((name) => bare[name]?.value)).toEqual([
+          "Apple",
+          "pear",
+          "fig",
+        ]);
+
+        // A sort that moves nothing writes nothing, and says so.
+        const before = (yield* workspace.cells("total.xlsx", "T")).version;
+        for (const operation of [sort(1, true), { ...sort(1, true), row: 40 }]) {
+          expect(yield* workspace.edit("total.xlsx", [operation])).toMatchObject({
+            version: before,
+            unchanged: true,
+          });
+        }
+
+        yield* workspace.edit("sort.xlsx", [sort(1, true)]);
+        const sorted = (yield* workspace.cells("sort.xlsx", "T")).byName;
+        expect(["A1", "A2", "A3", "A4", "A6"].map((name) => sorted[name]?.value)).toEqual([
+          "Name",
+          "Apple",
+          "pear",
+          "fig",
+          "Total",
+        ]);
+        // A formula that reads its own row follows it, fixed or not, and so does the row's format.
+        expect(sorted.C2).toMatchObject({ formula: "B2*2", value: 20 });
+        expect(sorted.C3).toMatchObject({ formula: "B3*2", value: 6 });
+        expect(sorted.C4).toMatchObject({ formula: "$B$4*2", value: 2 });
+        expect(sorted.B3?.format).toBe("2");
+        expect(sorted.B2?.format).toBeUndefined();
+        expect(sorted.B6).toMatchObject({ formula: "SUM(B2:B4)", value: 14 });
+        const saved = yield* (yield* workspace.parts("sort.xlsx")).text("xl/worksheets/sheet1.xml");
+        expect(saved).toContain('<row r="3" ht="30">');
+
+        yield* workspace.edit("sort.xlsx", [sort(0, false)]);
+        const byName = (yield* workspace.cells("sort.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4"].map((name) => byName[name]?.value)).toEqual([
+          "Apple",
+          "fig",
+          "pear",
+        ]);
+
+        for (const [name, sheet, other, feature] of [
+          // A formula in a sorted row that reads another of them would read a different record.
+          [
+            "inside.xlsx",
+            table({ row2: '<c r="D2"><f>B3</f><v>10</v></c>' }),
+            undefined,
+            "sort-references",
+          ],
+          ["outside.xlsx", table(), "T!B3", "sort-references"],
+          [
+            "merged.xlsx",
+            table({ after: '<mergeCells count="1"><mergeCell ref="A3:A4"/></mergeCells>' }),
+            undefined,
+            "sort-merged-cells",
+          ],
+          [
+            "filter.xlsx",
+            table({ after: '<autoFilter ref="A1:C4"/>' }),
+            undefined,
+            "sheet-objects",
+          ],
+        ] as const) {
+          yield* workspace.write(name, yield* book(sheet, other));
+          expect(yield* workspace.edit(name, [sort(1, true)]).pipe(Effect.flip)).toMatchObject({
+            _tag: "SpreadsheetUnsupportedError",
+            feature,
+            operationIndex: 0,
+          });
+        }
+      }),
+    );
+
+    it.effect("saves column widths beside the ones the file already sets", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeWorkspace();
+        yield* workspace.write("book.xlsx", yield* Effect.promise(() => zipOf(workbookParts())));
+        expect((yield* workspace.cells("book.xlsx", "Data")).columnWidths).toEqual([
+          { column: 1, width: 126 },
+        ]);
+        yield* workspace.edit("book.xlsx", [
+          { type: "setColumnWidth", sheet: "Data", column: 2, count: 2, width: 70 },
+        ]);
+        expect((yield* workspace.cells("book.xlsx", "Data")).columnWidths).toEqual([
+          { column: 1, width: 126 },
+          { column: 2, width: 70 },
+          { column: 3, width: 70 },
+        ]);
+        const saved = yield* (yield* workspace.parts("book.xlsx")).text("xl/worksheets/sheet1.xml");
+        expect(saved).toContain(
+          '<cols><col min="2" max="2" width="18" customWidth="1"/><col min="3" max="4" width="10" customWidth="1"/></cols><sheetData>',
+        );
+        yield* workspace.write("table.csv", "a,b\n");
+        expect(
+          yield* workspace
+            .edit("table.csv", [
+              { type: "setColumnWidth", sheet: "Sheet1", column: 0, count: 1, width: 70 },
+            ])
+            .pipe(Effect.flip),
+        ).toMatchObject({ _tag: "SpreadsheetUnsupportedError", feature: "delimited-layout" });
+      }),
+    );
+
     it.effect("refuses changes that would damage what the workbook holds", () =>
       Effect.gen(function* () {
         const workspace = yield* makeWorkspace();
@@ -679,6 +895,16 @@ describe("Documents spreadsheets", () => {
         ] satisfies ReadonlyArray<SpreadsheetOperation>,
         after: "a\t1.5\n\nc\n=A1+1\n",
         read: { A1: "a", B1: "1.5", A4: "=A1+1" },
+      },
+      {
+        name: "sorts the rows under the headings by a column of numbers, and leaves a table below",
+        file: "sorted.csv",
+        before: "name,qty\r\npear,3\r\napple,10\r\nfig,\r\n\r\nnext,1",
+        operations: [
+          { type: "sortRows", sheet: "Sheet1", row: 2, column: 1, descending: true },
+        ] satisfies ReadonlyArray<SpreadsheetOperation>,
+        after: "name,qty\r\napple,10\r\npear,3\r\nfig,\r\n\r\nnext,1",
+        read: { A2: "apple", A4: "fig", A6: "next" },
       },
       {
         name: "adds no lines for rows inserted below the last one",
@@ -948,6 +1174,47 @@ describe("Documents reply files", () => {
           _tag: "ReplyFileError",
           reason: "failed",
         });
+      }),
+    );
+
+    it.effect("copies a chat attachment under a free name and keeps what is already there", () =>
+      Effect.gen(function* () {
+        const { cwd, documents, write, readBytes } = yield* makeWorkspace();
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const versions = yield* FileVersions.FileVersions;
+        const { attachmentsDir } = yield* ServerConfig.ServerConfig;
+        const attachmentId = "thread-1-00000000-0000-4000-8000-000000000001-xlsx";
+        yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(attachmentsDir, `${attachmentId}.xlsx`),
+          "attached",
+        );
+        const copy = (name: string, id = attachmentId) =>
+          documents.copyAttachment({ cwd, attachmentId: id, name });
+        const text = (name: string) =>
+          readBytes(name).pipe(Effect.map((bytes) => Buffer.from(bytes).toString()));
+
+        expect((yield* copy("budget.xlsx")).relativePath).toBe("budget.xlsx");
+        expect(yield* text("budget.xlsx")).toBe("attached");
+        // A taken name is never written over: the copy takes the next free number.
+        yield* write("budget (2).xlsx", "mine");
+        expect((yield* copy("budget.xlsx")).relativePath).toBe("budget (3).xlsx");
+        expect(yield* text("budget (2).xlsx")).toBe("mine");
+        // Only the name is kept of a path, so a copy cannot leave the workspace.
+        expect((yield* copy("../../outside/plan.xlsx")).relativePath).toBe("plan.xlsx");
+        // The folder has no Git, so the copy is a version Versions can list and restore.
+        const kept = (yield* versions.list({ cwd, relativePath: "budget.xlsx" })).versions;
+        expect(kept.map((version) => [version.origin, version.state])).toEqual([
+          ["user", "stored"],
+        ]);
+
+        expect(yield* copy("..").pipe(Effect.flip)).toMatchObject({ reason: "bad-name" });
+        expect(
+          yield* copy("budget.xlsx", "thread-1-00000000-0000-4000-8000-000000000002-xlsx").pipe(
+            Effect.flip,
+          ),
+        ).toMatchObject({ reason: "not-found" });
       }),
     );
   });

@@ -187,6 +187,12 @@ export function createProjectEnvironmentAtoms<R, E>(
       // The grid keeps the pages it shows, so a settled read is not held a second time.
       idleTtlMs: 1_000,
     }),
+    findInSpreadsheet: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:documents:find-in-spreadsheet",
+      tag: WS_METHODS.documentsFindInSpreadsheet,
+      staleTimeMs: 0,
+      idleTtlMs: 1_000,
+    }),
     editSpreadsheet: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:documents:edit-spreadsheet",
       tag: WS_METHODS.documentsEditSpreadsheet,
@@ -253,6 +259,21 @@ export function createProjectEnvironmentAtoms<R, E>(
           for (const path of writtenFilePaths(input, result))
             fileMetadata.refreshPath(environmentId, path, registry);
         }),
+    }),
+    copyAttachment: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:documents:copy-attachment",
+      tag: WS_METHODS.documentsCopyAttachment,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.documentsCopyAttachment, input).pipe(
+          Effect.tap((result) =>
+            fileMetadata.invalidate(resolveWorkspaceFilePath(result.relativePath, input.cwd)),
+          ),
+        ),
     }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),

@@ -16,25 +16,43 @@ import {
 } from "@codenine/shared/pdfGeometry";
 import {
   DownloadIcon,
+  EllipsisIcon,
+  EraserIcon,
   HighlighterIcon,
   ListIcon,
   MessageSquarePlusIcon,
-  MousePointer2Icon,
   PrinterIcon,
+  Redo2Icon,
   SignatureIcon,
   TextCursorInputIcon,
   Undo2Icon,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
+import { usePublishPdfSelection } from "../documentSelectionPublisher";
+
 import { Button } from "~/components/ui/button";
-import { Spinner } from "~/components/ui/spinner";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { isEditableFocused } from "~/lib/editableFocus";
 import { cn } from "~/lib/utils";
 
 import { nativePdfViewerAvailable } from "../BrowserDocumentFrame";
-import { FileSurfaceAction, FileSurfaceBar, FileSurfaceNotice } from "../fileSurfaceChrome";
+import {
+  FileSurfaceAction,
+  FileSurfaceBar,
+  FileSurfaceNotice,
+  FileToolButton,
+  FileToolSeparator,
+  FileToolStatus,
+} from "../fileSurfaceChrome";
 import PdfViewer, { type PdfPageSurface, type PdfViewerHandle } from "../PdfViewer";
 import {
   addPdfEdit,
@@ -278,8 +296,30 @@ export default function PdfEditor(props: {
   const [failure, setFailure] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const viewer = useRef<PdfViewerHandle>(null);
+  usePublishPdfSelection(root);
 
   const dirty = edits.length > 0;
+  // What undo took off, newest last. It holds only for the list undo left: any other change to
+  // the edits is a new action, after which there is nothing to redo.
+  const [undone, setUndone] = useState<{
+    readonly after: PdfPendingEdits;
+    readonly edits: PdfPendingEdits;
+  }>({ after: edits, edits: [] });
+  const redoable = undone.after === edits ? undone.edits : [];
+  const undo = () => {
+    const last = edits.at(-1);
+    if (last === undefined) return;
+    const after = undoPdfEdit(edits);
+    setEdits(() => after);
+    setUndone({ after, edits: [...redoable, last] });
+  };
+  const redo = () => {
+    const next = redoable.at(-1);
+    if (next === undefined) return;
+    const after = [...edits, next];
+    setEdits(() => after);
+    setUndone({ after, edits: redoable.slice(0, -1) });
+  };
   const reportPending = useStableCallback(props.onPendingChange);
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Tell the tab strip, which lives outside this view, whether the file has unsaved edits.
   useEffect(() => {
@@ -409,11 +449,32 @@ export default function PdfEditor(props: {
     setTool("select");
   };
 
-  const chooseTool = (next: PdfTool) => {
+  /** A tool pressed while it is in hand is put down again. */
+  const chooseTool = (pressed: Exclude<PdfTool, "select">) => {
+    const next = activeTool === pressed ? "select" : pressed;
     setSelected(null);
     setTool(next);
     if (next === "sign" && signature === null) setSignatureDialogOpen(true);
   };
+  const highlights = annotations.filter(
+    (annotation) =>
+      annotation.kind === "highlight" && annotation.removable && annotation.removal === null,
+  );
+  const clearHighlights = () => {
+    setSelected(null);
+    setEdits((current) =>
+      highlights.reduce(
+        (next, highlight) =>
+          highlight.saved
+            ? addPdfEdit(next, { kind: "remove", key: editKey(), id: highlight.key })
+            : dropPdfEdit(next, highlight.key),
+        current,
+      ),
+    );
+  };
+  const downloadLabel = dirty ? "Download the saved file" : "Download";
+  const printable = nativePdfViewerAvailable();
+  const print = () => window.open(props.freshSrc, "_blank", "noopener");
 
   const status = saving ? "Saving..." : dirty ? "Unsaved" : "Saved";
   const hint =
@@ -437,14 +498,14 @@ export default function PdfEditor(props: {
           event.stopPropagation();
           void save();
         } else if (
-          event.key === "z" &&
-          !event.shiftKey &&
+          (event.key.toLowerCase() === "z" || event.key === "y") &&
           !saving &&
           !isEditableFocused(event.target)
         ) {
           event.preventDefault();
           event.stopPropagation();
-          setEdits(undoPdfEdit);
+          if (event.key === "y" || event.shiftKey) redo();
+          else undo();
         }
       }}
     >
@@ -464,98 +525,135 @@ export default function PdfEditor(props: {
           canEdit || dirty ? (
             <>
               <FileSurfaceAction
-                label="Select"
-                pressed={activeTool === "select"}
-                onPress={() => chooseTool("select")}
+                label="Undo the last unsaved change"
+                disabled={!dirty || saving}
+                onPress={undo}
               >
-                <MousePointer2Icon className="size-3.5" />
+                <Undo2Icon className="size-3.5" />
               </FileSurfaceAction>
               <FileSurfaceAction
-                label="Highlight text"
+                label="Redo"
+                disabled={redoable.length === 0 || saving}
+                onPress={redo}
+              >
+                <Redo2Icon className="size-3.5" />
+              </FileSurfaceAction>
+              <FileToolSeparator />
+              <FileToolButton
+                label="Highlight"
+                name="Highlight text"
+                collapse="narrow"
                 pressed={activeTool === "highlight"}
                 disabled={!editable}
                 onPress={() => chooseTool("highlight")}
               >
-                <HighlighterIcon className="size-3.5" />
-              </FileSurfaceAction>
-              <FileSurfaceAction
-                label="Add a note"
+                <HighlighterIcon />
+              </FileToolButton>
+              <FileToolButton
+                label="Note"
+                name="Add a note"
+                collapse="narrow"
                 pressed={activeTool === "note"}
                 disabled={!editable}
                 onPress={() => chooseTool("note")}
               >
-                <MessageSquarePlusIcon className="size-3.5" />
-              </FileSurfaceAction>
-              <FileSurfaceAction
+                <MessageSquarePlusIcon />
+              </FileToolButton>
+              <FileToolButton
                 label="Sign"
+                name="Sign"
+                collapse="narrow"
                 pressed={activeTool === "sign"}
                 disabled={!editable}
                 onPress={() => chooseTool("sign")}
               >
-                <SignatureIcon className="size-3.5" />
-              </FileSurfaceAction>
+                <SignatureIcon />
+              </FileToolButton>
               {fields.length > 0 ? (
-                <FileSurfaceAction
-                  label="Fill in the form"
+                <FileToolButton
+                  label="Form"
+                  name="Fill in the form"
+                  collapse="narrow"
                   pressed={fillForm}
                   onPress={() => setFillForm((on) => !on)}
                 >
-                  <TextCursorInputIcon className="size-3.5" />
+                  <TextCursorInputIcon />
+                </FileToolButton>
+              ) : null}
+            </>
+          ) : undefined
+        }
+        toolbarEnd={
+          canEdit || dirty ? (
+            <>
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="More for this PDF"
+                    />
+                  }
+                >
+                  <EllipsisIcon className="size-3.5" />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  <MenuCheckboxItem checked={listOpen} onCheckedChange={setListOpen} closeOnClick>
+                    Notes and highlights
+                  </MenuCheckboxItem>
+                  <MenuItem
+                    disabled={!editable || highlights.length === 0}
+                    onClick={clearHighlights}
+                  >
+                    <EraserIcon />
+                    Clear highlights
+                  </MenuItem>
+                  <MenuSeparator />
+                  <MenuItem disabled={downloading} onClick={download}>
+                    <DownloadIcon />
+                    {downloadLabel}
+                  </MenuItem>
+                  {printable ? (
+                    <MenuItem onClick={print}>
+                      <PrinterIcon />
+                      Open in a new tab to print
+                    </MenuItem>
+                  ) : null}
+                </MenuPopup>
+              </Menu>
+              <FileToolStatus busy={saving} brief>
+                {status}
+              </FileToolStatus>
+              <Button
+                type="button"
+                size="xs"
+                disabled={!dirty || saving || !canEdit}
+                onClick={() => void save()}
+              >
+                Save
+              </Button>
+            </>
+          ) : (
+            <>
+              <FileSurfaceAction label={downloadLabel} disabled={downloading} onPress={download}>
+                <DownloadIcon className="size-3.5" />
+              </FileSurfaceAction>
+              {printable ? (
+                <FileSurfaceAction label="Open in a new tab to print" onPress={print}>
+                  <PrinterIcon className="size-3.5" />
                 </FileSurfaceAction>
               ) : null}
               <FileSurfaceAction
-                label="Undo the last unsaved change"
-                disabled={!dirty || saving}
-                onPress={() => setEdits(undoPdfEdit)}
+                label="Notes and highlights"
+                pressed={listOpen}
+                onPress={() => setListOpen((open) => !open)}
               >
-                <Undo2Icon className="size-3.5" />
+                <ListIcon className="size-3.5" />
               </FileSurfaceAction>
-              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
             </>
-          ) : null
-        }
-        toolbarEnd={
-          <>
-            <FileSurfaceAction
-              label={dirty ? "Download the saved file" : "Download"}
-              disabled={downloading}
-              onPress={download}
-            >
-              <DownloadIcon className="size-3.5" />
-            </FileSurfaceAction>
-            {nativePdfViewerAvailable() ? (
-              <FileSurfaceAction
-                label="Open in a new tab to print"
-                onPress={() => window.open(props.freshSrc, "_blank", "noopener")}
-              >
-                <PrinterIcon className="size-3.5" />
-              </FileSurfaceAction>
-            ) : null}
-            <FileSurfaceAction
-              label="Notes and highlights"
-              pressed={listOpen}
-              onPress={() => setListOpen((open) => !open)}
-            >
-              <ListIcon className="size-3.5" />
-            </FileSurfaceAction>
-            {canEdit || dirty ? (
-              // Kept together so the status never wraps away from its button.
-              <span className="flex items-center gap-1">
-                <span role="status" className="flex items-center gap-1 px-1 text-muted-foreground">
-                  {saving ? <Spinner className="size-3" /> : null}
-                  {status}
-                </span>
-                <Button
-                  type="button"
-                  size="xs"
-                  disabled={!dirty || saving || !canEdit}
-                  onClick={() => void save()}
-                >
-                  Save
-                </Button>
-              </span>
-            ) : null}
-          </>
+          )
         }
         header={
           <>

@@ -99,7 +99,7 @@ export function ChatCanvas({
         <div
           ref={widthProbeRef}
           aria-hidden
-          className="pointer-events-none invisible absolute h-0 w-(--chat-content-max-width) min-w-[40rem] box-content ps-3 sm:ps-12"
+          className="pointer-events-none invisible absolute h-0 w-(--chat-content-max-width) min-w-[40rem] box-content ps-3 sm:ps-12 in-data-[chat-column-layout=column]:ps-3 in-data-[chat-column-layout=slide-over]:ps-3"
         />
         {children}
       </div>

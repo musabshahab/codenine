@@ -79,7 +79,7 @@ it("fits the width, then finds split and rotated text and jumps to its page", as
       { container },
     );
     // The milestone is pdf.js booting its worker and parsing the document, not a frame count.
-    await expect.element(screen.getByText("1 / 2 pages"), { timeout: 10_000 }).toBeVisible();
+    await expect.element(screen.getByText("Page 1 of 2"), { timeout: 10_000 }).toBeVisible();
     const region = screen.container.querySelector<HTMLElement>('[role="region"]')!;
     // Fit width follows the measured viewport, which settles once the scrollbar appears.
     await vi.waitFor(() => {
@@ -98,7 +98,7 @@ it("fits the width, then finds split and rotated text and jumps to its page", as
     );
 
     await find.fill("budget");
-    await expect.element(screen.getByText("2 / 2 pages")).toBeVisible();
+    await expect.element(screen.getByText("Page 2 of 2")).toBeVisible();
     await expect.element(screen.getByRole("status")).toHaveTextContent("1/1");
     const rotated = await vi.waitFor(() => {
       const span = Array.from(region.querySelectorAll("[data-pdf-text-layer] span")).find(
@@ -150,10 +150,10 @@ it("restores page, within-page offset and zoom after a remount", async () => {
   );
   try {
     await using screen = await render(viewer(1, "restore:a"));
-    await expect.element(screen.getByText("1 / 2 pages")).toBeVisible();
+    await expect.element(screen.getByText("Page 1 of 2")).toBeVisible();
     await screen.getByRole("button", { name: "Zoom in", exact: true }).click();
     await screen.getByRole("button", { name: "Next page", exact: true }).click();
-    await expect.element(screen.getByText("2 / 2 pages")).toBeVisible();
+    await expect.element(screen.getByText("Page 2 of 2")).toBeVisible();
     const region = () => screen.getByRole("region", { name: "Restored PDF" }).element();
     const top = region().scrollTop + 40;
     const scrolled = new Promise((resolve) =>
@@ -165,7 +165,7 @@ it("restores page, within-page offset and zoom after a remount", async () => {
     const zoom = screen.container.textContent!.match(/\d+%/)![0];
 
     await screen.rerender(viewer(2, "restore:a"));
-    await expect.element(screen.getByText("2 / 2 pages")).toBeVisible();
+    await expect.element(screen.getByText("Page 2 of 2")).toBeVisible();
     await vi.waitFor(() => expect(region().scrollTop).toBeCloseTo(top, 0));
     await vi.waitFor(() => expect(screen.container.textContent).toContain(zoom));
 
@@ -176,7 +176,7 @@ it("restores page, within-page offset and zoom after a remount", async () => {
     });
     const fitTop = region().scrollTop;
     await screen.rerender(viewer(3, "restore:a"));
-    await expect.element(screen.getByText("2 / 2 pages")).toBeVisible();
+    await expect.element(screen.getByText("Page 2 of 2")).toBeVisible();
     await vi.waitFor(() => {
       expect(region().querySelector("canvas")!.getBoundingClientRect().width).toBe(
         region().clientWidth - 32,
@@ -185,8 +185,9 @@ it("restores page, within-page offset and zoom after a remount", async () => {
     });
 
     await screen.rerender(viewer(4, "restore:b"));
-    await expect.element(screen.getByText("1 / 2 pages")).toBeVisible();
-    await expect.element(screen.getByText("Fit width")).toBeVisible();
+    await expect.element(screen.getByText("Page 1 of 2")).toBeVisible();
+    // This narrow a status bar keeps the zoom as text for a screen reader only.
+    await expect.element(screen.getByText("Fit width")).toBeInTheDocument();
   } finally {
     URL.revokeObjectURL(url);
   }

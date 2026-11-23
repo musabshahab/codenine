@@ -10,9 +10,17 @@ import {
   officePreviewKind,
   FILE_TEXT_PREVIEW_MAX_BYTES,
 } from "@codenine/shared/filePreview";
-import { ChevronRightIcon, DownloadIcon, Trash2Icon, WrapTextIcon, XIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  DownloadIcon,
+  FileQuestionIcon,
+  Trash2Icon,
+  WrapTextIcon,
+  XIcon,
+} from "lucide-react";
 import { Check, Code2, Copy, Eye, Table2 } from "lucide";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, use, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useAssetUrlRefresh } from "~/assets/assetUrls";
 import ChatMarkdown from "~/components/ChatMarkdown";
@@ -34,8 +42,10 @@ import {
   FileSurfaceAction,
   FileSurfaceFailure,
   FileSurfaceLoading,
+  FileSurfaceMessage,
   FileSurfaceNotice,
 } from "./fileSurfaceChrome";
+import { FileToolSlotContext } from "./explorerPlacement";
 
 const LargeTextViewer = lazy(() => import("./LargeTextViewer"));
 
@@ -94,6 +104,8 @@ export function AttachmentFilePreview(props: {
         resource: Extract<AssetResource, { _tag: "media-file" | "draft-workspace-file" }>;
       };
   origin?: string;
+  /** Shows a workbook in the grid that edits workspace files, read only, instead of as laid out. */
+  spreadsheetGrid?: boolean;
   onRemove?: () => void;
   onClose?: () => void;
 }) {
@@ -140,6 +152,7 @@ export function AttachmentFilePreview(props: {
   const [localUrl, setLocalUrl] = useState<string | null>(null);
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [rendered, setRendered] = useState(true);
+  const toolSlot = use(FileToolSlotContext);
   const [revision, setRevision] = useState(0);
   const [content, setContent] = useState<{ text: string; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -323,6 +336,7 @@ export function AttachmentFilePreview(props: {
         name={props.name}
         kind={officeKind}
         sizeBytes={props.sizeBytes}
+        {...(props.spreadsheetGrid === true ? { spreadsheetGrid: true } : {})}
       />
     </Suspense>
   ) : kind === "pdf" || kind === "html" ? (
@@ -364,104 +378,114 @@ export function AttachmentFilePreview(props: {
       onError={() => setError("Unable to load image.")}
     />
   ) : (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center">
-      <p className="text-sm font-medium">No preview for this file</p>
-      <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-        Save it to open in an app that supports {props.name.split(".").at(-1) || "this format"}{" "}
-        files.
-      </p>
-    </div>
+    <FileSurfaceMessage icon={FileQuestionIcon} title="No preview for this file">
+      Save it to open in an app that supports {props.name.split(".").at(-1) || "this format"} files.
+    </FileSurfaceMessage>
+  );
+
+  const actions = (
+    <>
+      {renderedMode ? (
+        <FileSurfaceAction
+          label={renderedToggleLabel(renderedMode, rendered)}
+          pressed={rendered}
+          onPress={() => setRendered((value) => !value)}
+        >
+          <MorphIcon
+            className="size-3.5"
+            icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
+          />
+        </FileSurfaceAction>
+      ) : null}
+      {showsRawText ? (
+        <FileSurfaceAction
+          label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+          pressed={wordWrap}
+          onPress={() => setWordWrapOverride(!wordWrap)}
+        >
+          <WrapTextIcon className="size-3.5" />
+        </FileSurfaceAction>
+      ) : null}
+      {content || streamsText ? (
+        <FileSurfaceAction
+          label={isCopied ? "Copied" : content?.truncated ? "Copy preview" : "Copy contents"}
+          onPress={() => {
+            if (content) {
+              void copyToClipboard(content.text, undefined);
+              return;
+            }
+            const copy = copyContents.current;
+            if (!copy) {
+              toastManager.add({
+                type: "error",
+                title: "Could not copy file",
+                description: "Wait for the file to finish loading before copying.",
+              });
+              return;
+            }
+            void copy()
+              .then((text) => copyToClipboard(text, undefined))
+              .catch((cause: unknown) =>
+                toastManager.add({
+                  type: "error",
+                  title: "Could not copy file",
+                  description: cause instanceof Error ? cause.message : "Try again.",
+                }),
+              );
+          }}
+        >
+          <MorphIcon className="size-3.5" icon={isCopied ? Check : Copy} />
+        </FileSurfaceAction>
+      ) : null}
+      {url ? (
+        <FileSurfaceAction
+          label={saving ? "Preparing file…" : "Save file"}
+          disabled={saving}
+          onPress={save}
+        >
+          <DownloadIcon className="size-3.5" />
+        </FileSurfaceAction>
+      ) : null}
+      {props.onRemove ? (
+        <FileSurfaceAction label="Remove from draft" onPress={props.onRemove}>
+          <Trash2Icon className="size-3.5" />
+        </FileSurfaceAction>
+      ) : null}
+      {props.onClose ? (
+        <FileSurfaceAction label="Close" onPress={props.onClose}>
+          <XIcon className="size-3.5" />
+        </FileSurfaceAction>
+      ) : null}
+    </>
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className={cn(FILE_SURFACE_SUBHEADER_CLASS)} data-surface-subheader>
-        <div className="flex min-w-0 flex-1 items-center text-xs">
-          <span className="shrink-0 px-0.5 text-muted-foreground">
-            {props.origin ?? "Attachment"}
-          </span>
-          <ChevronRightIcon className="mx-1 size-3.5 shrink-0 text-muted-foreground/60" />
-          <span aria-current="page" className="min-w-0 truncate px-0.5 font-medium text-foreground">
-            {props.name}
-          </span>
-          {props.sizeBytes > 0 ? (
-            <span className="ml-2 shrink-0 text-muted-foreground">
-              {formatAttachmentSize(props.sizeBytes)}
+      {toolSlot === null ? (
+        <div className={cn(FILE_SURFACE_SUBHEADER_CLASS)} data-surface-subheader>
+          <div className="flex min-w-0 flex-1 items-center text-xs">
+            <span className="shrink-0 px-0.5 text-muted-foreground">
+              {props.origin ?? "Attachment"}
             </span>
-          ) : null}
+            <ChevronRightIcon className="mx-1 size-3.5 shrink-0 text-muted-foreground/60" />
+            <span
+              aria-current="page"
+              className="min-w-0 truncate px-0.5 font-medium text-foreground"
+            >
+              {props.name}
+            </span>
+            {props.sizeBytes > 0 ? (
+              <span className="ml-2 shrink-0 text-muted-foreground">
+                {formatAttachmentSize(props.sizeBytes)}
+              </span>
+            ) : null}
+          </div>
+          {actions}
         </div>
-        {renderedMode ? (
-          <FileSurfaceAction
-            label={renderedToggleLabel(renderedMode, rendered)}
-            pressed={rendered}
-            onPress={() => setRendered((value) => !value)}
-          >
-            <MorphIcon
-              className="size-3.5"
-              icon={rendered ? Code2 : renderedMode === "table" ? Table2 : Eye}
-            />
-          </FileSurfaceAction>
-        ) : null}
-        {showsRawText ? (
-          <FileSurfaceAction
-            label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
-            pressed={wordWrap}
-            onPress={() => setWordWrapOverride(!wordWrap)}
-          >
-            <WrapTextIcon className="size-3.5" />
-          </FileSurfaceAction>
-        ) : null}
-        {content || streamsText ? (
-          <FileSurfaceAction
-            label={isCopied ? "Copied" : content?.truncated ? "Copy preview" : "Copy contents"}
-            onPress={() => {
-              if (content) {
-                void copyToClipboard(content.text, undefined);
-                return;
-              }
-              const copy = copyContents.current;
-              if (!copy) {
-                toastManager.add({
-                  type: "error",
-                  title: "Could not copy file",
-                  description: "Wait for the file to finish loading before copying.",
-                });
-                return;
-              }
-              void copy()
-                .then((text) => copyToClipboard(text, undefined))
-                .catch((cause: unknown) =>
-                  toastManager.add({
-                    type: "error",
-                    title: "Could not copy file",
-                    description: cause instanceof Error ? cause.message : "Try again.",
-                  }),
-                );
-            }}
-          >
-            <MorphIcon className="size-3.5" icon={isCopied ? Check : Copy} />
-          </FileSurfaceAction>
-        ) : null}
-        {url ? (
-          <FileSurfaceAction
-            label={saving ? "Preparing file…" : "Save file"}
-            disabled={saving}
-            onPress={save}
-          >
-            <DownloadIcon className="size-3.5" />
-          </FileSurfaceAction>
-        ) : null}
-        {props.onRemove ? (
-          <FileSurfaceAction label="Remove from draft" onPress={props.onRemove}>
-            <Trash2Icon className="size-3.5" />
-          </FileSurfaceAction>
-        ) : null}
-        {props.onClose ? (
-          <FileSurfaceAction label="Close" onPress={props.onClose}>
-            <XIcon className="size-3.5" />
-          </FileSurfaceAction>
-        ) : null}
-      </div>
+      ) : toolSlot.element === null ? null : (
+        // On the stage the tab names the file, and these join the stage's one tool row.
+        createPortal(<div className="ml-auto flex items-center">{actions}</div>, toolSlot.element)
+      )}
       {content?.truncated ? (
         <FileSurfaceNotice>
           Preview limited to the first 1 MB

@@ -151,12 +151,16 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   fileVersions: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.openSpreadsheet, readSpreadsheetRange and editSpreadsheet. */
   spreadsheetEditing: Schema.optionalKey(Schema.Boolean),
+  /** Server sorts rows, saves column widths and answers documents.findInSpreadsheet. */
+  spreadsheetTools: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.openPdf and editPdf. */
   pdfEditing: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.saveReplyFile. */
   replyFiles: Schema.optionalKey(Schema.Boolean),
   /** Server answers the media.* methods and keeps `media` in its settings. */
   imageGeneration: Schema.optionalKey(Schema.Boolean),
+  /** Server answers documents.copyAttachment. */
+  attachmentCopies: Schema.optionalKey(Schema.Boolean),
   /** Server answers projects.listFileActivity. */
   fileActivity: Schema.optionalKey(Schema.Boolean),
   /** Server honors `deleteFolder` on project.delete. Older servers ignore it and keep the folder. */

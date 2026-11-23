@@ -73,6 +73,12 @@ import {
   DraftId,
 } from "../../composerDraftStore";
 import {
+  appendDocumentReference,
+  type DocumentContextForSend,
+  messageTakesDocumentContext,
+  setDocumentContextDismissed,
+} from "../../documentContext";
+import {
   filterTerminalContextsWithText,
   type TerminalContextDraft,
 } from "../../lib/terminalContext";
@@ -236,6 +242,8 @@ interface ComposerSendInput {
   /** Refuses `/side` with this reason and keeps the draft. */
   readonly sideChatDisabledReason: string | null;
   readonly handleNewThreadInActiveProject: () => void;
+  /** The open document and its selection, when document view's chip is on for this message. */
+  readonly readDocumentContext: () => DocumentContextForSend | null;
   readonly persistThreadSettingsForNextTurn: (input: {
     threadId: ThreadId;
     createdAt: string;
@@ -323,6 +331,7 @@ export function useComposerSend(input: ComposerSendInput) {
     onSideChat,
     sideChatDisabledReason,
     handleNewThreadInActiveProject,
+    readDocumentContext,
     persistThreadSettingsForNextTurn,
   } = input;
   const handleNewThread = useNewThreadHandler();
@@ -725,8 +734,16 @@ export function useComposerSend(input: ComposerSendInput) {
     // Records bind attachments by the id each side knows: the local id for the optimistic
     // row, the upload id (or local id on the data-URL path) on the wire; the server
     // rebinds them to the persisted id.
+    // Approval feedback and several-model starts take the user's text as it is.
+    const documentContext =
+      approvalFeedbackTarget === undefined &&
+      multipleModelSelections === null &&
+      messageTakesDocumentContext(messageTextForSend)
+        ? readDocumentContext()
+        : null;
     const buildOutgoingMessageContext = (attachmentIds: ReadonlyArray<string>) =>
       buildMessageContext({
+        documentContexts: documentContext === null ? [] : [documentContext.record],
         terminalContexts: composerTerminalContextsSnapshot,
         reviewComments: composerReviewCommentsSnapshot,
         threadContexts: composerThreadContextsSnapshot,
@@ -754,7 +771,9 @@ export function useComposerSend(input: ComposerSendInput) {
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      text:
+        appendDocumentReference(messageTextForSend, documentContext) ||
+        ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -1231,6 +1250,8 @@ export function useComposerSend(input: ComposerSendInput) {
       } else {
         turnStartSucceeded = true;
         setKeepFullHistory(routeThreadKey, false);
+        // The chip is left out of one message only, and only once that message has gone.
+        setDocumentContextDismissed(routeThreadKey, false);
         if (freshArm !== undefined) disarmFreshSession(routeThreadKey, freshArm);
         clearUsageLimitsFor(routeThreadKey);
         if (turnUsesAttachmentUploads) {

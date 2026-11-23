@@ -25,6 +25,7 @@ import {
   type Axis,
   type CellArea,
   type FormulaReference,
+  type ReferencePoint,
   type ReferenceRewrite,
   areaName,
   cellName,
@@ -40,6 +41,7 @@ import {
   shiftReference,
   type UnfollowedSheet,
 } from "./references.ts";
+import { hasHeaderRow, type SortKey, sortedOrder } from "./sortRows.ts";
 import {
   type XmlElement,
   attributeText,
@@ -424,7 +426,42 @@ export class XlsxWorkbook implements SpreadsheetModel {
         });
       }
     }
-    return { ...usedSize(contents), cells, formats };
+    const columnWidths = columnWidthsIn(contents.prefix, input.column, lastColumn);
+    return {
+      ...usedSize(contents),
+      cells,
+      formats,
+      ...(columnWidths.length === 0 ? {} : { columnWidths }),
+    };
+  }
+
+  async find(sheetName: string, query: string, limit: number) {
+    const sheet = this.sheetNamed(sheetName);
+    const contents = await this.load(sheet);
+    const strings = await this.strings();
+    const needle = query.toLowerCase();
+    const matches: Array<{ row: number; column: number }> = [];
+    for (const row of contents.rows) {
+      for (const cell of row.cells) {
+        if (cell.inner === "") continue;
+        const value = cachedValue(cell, strings);
+        const shown =
+          value === undefined || value === null
+            ? ""
+            : value instanceof FormulaErrorValue
+              ? value.code
+              : String(value);
+        if (
+          !shown.toLowerCase().includes(needle) &&
+          !(this.formulaText(contents, row, cell) ?? "").toLowerCase().includes(needle)
+        ) {
+          continue;
+        }
+        if (matches.length === limit) return { matches, truncated: true };
+        matches.push({ row: row.index, column: cell.column });
+      }
+    }
+    return { matches, truncated: false };
   }
 
   async apply(operations: ReadonlyArray<SpreadsheetOperation>): Promise<void> {
@@ -457,6 +494,34 @@ export class XlsxWorkbook implements SpreadsheetModel {
           );
           everythingChanged = true;
           break;
+        case "sortRows": {
+          // A sort orders rows by what their formulas come to, so the results are settled first.
+          const settle = (unread: boolean) => {
+            if (!unread && !everythingChanged && changed.size === 0) return;
+            this.valuesChanged = true;
+            this.recalculate(unread || everythingChanged ? null : changed);
+            changed.clear();
+            everythingChanged = false;
+          };
+          if (await this.sortRows(this.sheetNamed(operation.sheet), operation, settle)) {
+            everythingChanged = true;
+          }
+          break;
+        }
+        case "setColumnWidth": {
+          if (operation.column + operation.count > MAX_COLUMNS) {
+            throw invalidOperation("out-of-bounds");
+          }
+          const contents = this.sheetNamed(operation.sheet).contents!;
+          contents.prefix = withColumnWidth(
+            contents.prefix,
+            operation.column + 1,
+            operation.column + operation.count,
+            operation.width,
+          );
+          contents.dirty = true;
+          break;
+        }
         case "addSheet":
           await this.addSheet(operation.name);
           break;
@@ -850,7 +915,8 @@ export class XlsxWorkbook implements SpreadsheetModel {
     }
   }
 
-  private async resize(sheet: Sheet, axis: Axis, index: number, count: number) {
+  /** Refuses a sheet that holds something which names cells by position and would not follow them. */
+  private async assertCellsCanMove(sheet: Sheet) {
     const contents = sheet.contents!;
     if (contents.arrayAreas.length > 0) throw unsupported("array-formula");
     if (
@@ -861,13 +927,10 @@ export class XlsxWorkbook implements SpreadsheetModel {
     }
     await this.assertNoSheetObjects(sheet);
     await this.assertNoPivotSource(sheet);
-    const limit = axis === "row" ? MAX_ROWS : MAX_COLUMNS;
-    const size = usedSize(contents);
-    const used = axis === "row" ? size.rowCount : size.columnCount;
-    if (index >= limit || (count > 0 && Math.max(used, index) + count > limit)) {
-      throw invalidOperation("out-of-bounds");
-    }
-    // A copied formula in another sheet follows its origin, which would move without it.
+  }
+
+  /** Gives each cell its own formula text wherever a copied formula follows this sheet's cells. */
+  private expandFormulasFollowing(sheet: Sheet) {
     for (const other of this.worksheets()) {
       const held = other.contents!;
       if (
@@ -877,6 +940,155 @@ export class XlsxWorkbook implements SpreadsheetModel {
         this.expandSharedFormulas(held);
       }
     }
+  }
+
+  /**
+   * Sorts the rows of the table around a cell as whole rows; a formula that reads its own row
+   * follows it, and rows of totals under the table stay put. Refuses what would misread after.
+   * `settle` brings formula results up to date, all of them when told some were never
+   * calculated. Returns false when the rows are already in order.
+   */
+  private async sortRows(
+    sheet: Sheet,
+    operation: Extract<SpreadsheetOperation, { type: "sortRows" }>,
+    settle: (unread: boolean) => void,
+  ): Promise<boolean> {
+    const contents = sheet.contents!;
+    const strings = this.sharedStrings ?? [];
+    const { rows } = contents;
+    const filled = (row: Row | undefined) =>
+      row !== undefined && row.cells.some((cell) => cell.inner !== "");
+    const at = lowerBound(rows, operation.row, rowIndex);
+    if (rows[at]?.index !== operation.row || !filled(rows[at])) return false;
+    let first = at;
+    while (filled(rows[first - 1]) && rows[first - 1]!.index === rows[first]!.index - 1) first -= 1;
+    let last = at;
+    while (filled(rows[last + 1]) && rows[last + 1]!.index === rows[last]!.index + 1) last += 1;
+    const probe = (row: Row) =>
+      row.cells.flatMap((cell) =>
+        cell.inner === ""
+          ? []
+          : [
+              {
+                column: cell.column,
+                text: !cell.inner.includes("<f") && typeof cachedValue(cell, strings) === "string",
+                style: cell.style,
+              },
+            ],
+      );
+    if (hasHeaderRow(rows.slice(first, last + 1).map(probe))) first += 1;
+    // A row that adds up a range of the rows above it is a total, not one of the records.
+    const totals = (row: Row) =>
+      row.cells.some((cell) => {
+        const text = cell.inner.includes("<f") ? this.formulaText(contents, row, cell) : null;
+        if (text === null) return false;
+        let found = false;
+        mapFormulaReferences(text, (reference) => {
+          const { start, end } = reference;
+          if (reference.sheet !== null && !sameName(reference.sheet, sheet.name)) return null;
+          if (end === null || start.row === null || end.row === null) return null;
+          const low = Math.min(start.row, end.row) - 1;
+          const high = Math.max(start.row, end.row) - 1;
+          if (low < high && low >= rows[first]!.index && high < row.index) found = true;
+          return null;
+        });
+        return found;
+      });
+    while (last > first && totals(rows[last]!)) last -= 1;
+    const body = rows.slice(first, last + 1);
+    const keyCell = (row: Row) => {
+      const cell = row.cells[lowerBound(row.cells, operation.column, cellColumn)];
+      return cell?.column === operation.column ? cell : undefined;
+    };
+    settle(
+      body.some((row) => {
+        const cell = keyCell(row);
+        return cell?.inner.includes("<f") === true && cachedValue(cell, strings) === undefined;
+      }),
+    );
+    const keys = body.map((row): SortKey => {
+      const cell = keyCell(row);
+      const value = cell === undefined ? undefined : cachedValue(cell, strings);
+      if (value === undefined || value === null || value === "") return null;
+      return value instanceof FormulaErrorValue ? { error: value.code } : value;
+    });
+    const order = sortedOrder(keys, operation.descending);
+    if (order.every((from, to) => from === to)) return false;
+
+    await this.assertCellsCanMove(sheet);
+    const top = body[0]!.index;
+    const bottom = body.at(-1)!.index;
+    for (const match of contents.suffix.matchAll(/<mergeCell\b[^>]*?\bref="([^"]*)"/g)) {
+      const area = parseArea(match[1] ?? "");
+      if (area !== null && area.bottom >= top && area.top <= bottom) {
+        throw unsupported("sort-merged-cells");
+      }
+    }
+    this.expandFormulasFollowing(sheet);
+    /** How a reference's rows lie against the sorted rows. Sorting changes only "across". */
+    const reach = (reference: FormulaReference): "apart" | "around" | "across" => {
+      const end = reference.end ?? reference.start;
+      if (reference.start.row === null || end.row === null) return "around";
+      const low = Math.min(reference.start.row, end.row) - 1;
+      const high = Math.max(reference.start.row, end.row) - 1;
+      if (high < top || low > bottom) return "apart";
+      return low <= top && high >= bottom ? "around" : "across";
+    };
+    // Formulas outside the sorted rows keep their text, so they must read the same cells after.
+    rows.splice(first, body.length);
+    try {
+      await this.rewriteReferences(sheet, "resize", (reference) => {
+        if (reach(reference) === "across") throw unsupported("sort-references");
+        return null;
+      });
+    } finally {
+      rows.splice(first, 0, ...body);
+    }
+    const sorted = order.map((from, to) => ({ row: body[from]!, index: top + to }));
+    for (const { row, index } of sorted) {
+      const shift = (point: ReferencePoint) => ({ ...point, row: point.row! + index - row.index });
+      for (const cell of row.cells) {
+        const formula = formulaOf(cell);
+        if (formula === null || formula.text === "") continue;
+        const mapped = mapFormulaReferences(formula.text, (reference) => {
+          if (reference.sheet !== null && !sameName(reference.sheet, sheet.name)) return null;
+          if (reach(reference) !== "across") return null;
+          const end = reference.end ?? reference.start;
+          if (reference.start.row !== row.index + 1 || end.row !== row.index + 1) {
+            throw unsupported("sort-references");
+          }
+          return {
+            start: shift(reference.start),
+            end: reference.end === null ? null : shift(reference.end),
+          };
+        });
+        if (mapped.unfollowed.some((unfollowed) => unfollowed.through !== null)) {
+          throw unsupported("sheet-references");
+        }
+        if (mapped.formula === formula.text) continue;
+        cell.inner = cell.inner.replace(
+          FORMULA_PATTERN,
+          () => `<f${attributeText(formula.attributes)}>${escapeXml(mapped.formula)}</f>`,
+        );
+      }
+    }
+    for (const { row, index } of sorted) row.index = index;
+    rows.splice(first, body.length, ...sorted.map((moved) => moved.row));
+    contents.dirty = true;
+    return true;
+  }
+
+  private async resize(sheet: Sheet, axis: Axis, index: number, count: number) {
+    const contents = sheet.contents!;
+    await this.assertCellsCanMove(sheet);
+    const limit = axis === "row" ? MAX_ROWS : MAX_COLUMNS;
+    const size = usedSize(contents);
+    const used = axis === "row" ? size.rowCount : size.columnCount;
+    if (index >= limit || (count > 0 && Math.max(used, index) + count > limit)) {
+      throw invalidOperation("out-of-bounds");
+    }
+    // A copied formula in another sheet follows its origin, which would move without it.
+    this.expandFormulasFollowing(sheet);
     const removedEnd = index - count;
     const moved = (position: number) =>
       count > 0
@@ -1652,6 +1864,99 @@ function shiftColumnWidths(xml: string, at: number, count: number): string {
   }
   const rebuilt = items.length === 0 ? "" : `<cols>${items.join("")}</cols>`;
   return xml.slice(0, element.start) + rebuilt + xml.slice(element.end);
+}
+
+// A stored column width counts characters of the default font, about seven pixels each.
+const PIXELS_PER_WIDTH_UNIT = 7;
+
+function columnRecords(xml: string) {
+  const start = xml.indexOf("<cols");
+  const element = start === -1 ? undefined : childElements(xml, start).next().value;
+  if (element?.name !== "cols") return null;
+  const records: Array<{ min: number; max: number; attributes: Map<string, string> }> = [];
+  for (const child of childElements(element.inner ?? "")) {
+    const attributes = parseAttributes(child.attributes);
+    records.push({
+      min: Number(attributes.get("min")),
+      max: Number(attributes.get("max")),
+      attributes,
+    });
+  }
+  return { start: element.start, end: element.end, records };
+}
+
+/** The widths the sheet sets for the zero-based columns from `first` up to `last`, in pixels. */
+function columnWidthsIn(prefix: string, first: number, last: number) {
+  const widths: Array<{ column: number; width: number }> = [];
+  for (const record of columnRecords(prefix)?.records ?? []) {
+    const width = Number(record.attributes.get("width"));
+    if (!(width > 0) || /^(1|true)$/.test(record.attributes.get("hidden") ?? "")) continue;
+    const pixels = Math.max(1, Math.round(width * PIXELS_PER_WIDTH_UNIT));
+    for (
+      let column = Math.max(first, record.min - 1);
+      column < Math.min(last, record.max);
+      column++
+    ) {
+      widths.push({ column, width: pixels });
+    }
+  }
+  return widths;
+}
+
+/** The sheet's opening with a width for the one-based columns `first` to `last`. */
+function withColumnWidth(prefix: string, first: number, last: number, pixels: number): string {
+  const held = columnRecords(prefix);
+  const width = String(Math.round((pixels / PIXELS_PER_WIDTH_UNIT) * 100) / 100);
+  const sized = (attributes: ReadonlyMap<string, string>) => {
+    const next = new Map(attributes);
+    next.set("width", width);
+    next.set("customWidth", "1");
+    next.delete("bestFit");
+    return next;
+  };
+  const records: Array<{ min: number; max: number; attributes: Map<string, string> }> = [];
+  for (const record of held?.records ?? []) {
+    // A record the columns cut through keeps its own width on either side of them.
+    if (record.min < first) records.push({ ...record, max: Math.min(record.max, first - 1) });
+    if (record.max > last) records.push({ ...record, min: Math.max(record.min, last + 1) });
+    if (record.max >= first && record.min <= last) {
+      records.push({
+        min: Math.max(first, record.min),
+        max: Math.min(last, record.max),
+        attributes: sized(record.attributes),
+      });
+    }
+  }
+  records.sort((left, right) => left.min - right.min);
+  const complete: typeof records = [];
+  let next = first;
+  for (const record of records) {
+    if (record.min > next && next <= last) {
+      complete.push({
+        min: next,
+        max: Math.min(last, record.min - 1),
+        attributes: sized(new Map()),
+      });
+    }
+    complete.push(record);
+    if (record.max >= first) next = Math.max(next, record.max + 1);
+  }
+  if (next <= last) complete.push({ min: next, max: last, attributes: sized(new Map()) });
+  complete.sort((left, right) => left.min - right.min);
+  const items = complete.map((record) => {
+    const attributes = new Map([
+      ["min", String(record.min)],
+      ["max", String(record.max)],
+      ...record.attributes,
+    ]);
+    attributes.set("min", String(record.min));
+    attributes.set("max", String(record.max));
+    return `<col${attributeText(attributes)}/>`;
+  });
+  const cols = `<cols>${items.join("")}</cols>`;
+  return held === null
+    ? prefix + cols
+    : prefix.slice(0, held.start) + cols + prefix.slice(held.end);
 }
 
 /** The style a new cell starts with: its row's when the row has one, or else its column's. */

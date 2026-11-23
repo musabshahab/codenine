@@ -77,6 +77,13 @@ export interface RightPanelTabsProps {
   defaultWidth?: number;
   inlineSize?: PreviewPanelInlineSize;
   layoutControls?: ReactNode;
+  /**
+   * Set in document view, where the panel is the middle column: whether it reaches the window's
+   * left edge, and whether the window's top-right controls sit over its tab bar.
+   */
+  stage?: { readonly atLeftEdge: boolean; readonly underTitlebarControls: boolean } | undefined;
+  /** Shown before the tabs. */
+  leadingControls?: ReactNode;
   surfaces: readonly RightPanelSurface[];
   environmentId: EnvironmentId | null;
   activeSurfaceId: string | null;
@@ -686,6 +693,10 @@ function RightPanelTab(
 export function RightPanelTabs(props: RightPanelTabsProps) {
   const focusedSurface = props.surfaces.find((surface) => surface.id === props.activeSurfaceId);
   const ownsDesktopTitleBar = isElectron && props.mode === "inline";
+  const underTitlebarControls =
+    props.stage?.underTitlebarControls ?? (props.mode === "inline" && !props.layoutControls);
+  const atLeftEdge =
+    props.stage?.atLeftEdge ?? (props.mode === "inline" && props.maximized === true);
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
   const addSurfaceTriggerRef = useRef<HTMLButtonElement>(null);
@@ -959,13 +970,16 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       <div
         className={cn(
           "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 border-b pl-2",
-          props.mode === "inline" && !props.layoutControls ? "pr-28" : "pr-3",
+          underTitlebarControls ? "pr-28" : "pr-3",
           ownsDesktopTitleBar && "drag-region",
-          ownsDesktopTitleBar && "wco:pr-(--workspace-native-controls-inset)",
-          props.mode === "inline" && props.maximized && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+          ownsDesktopTitleBar &&
+            (props.stage?.underTitlebarControls ?? true) &&
+            "wco:pr-(--workspace-native-controls-inset)",
+          atLeftEdge && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
         )}
         data-right-panel-tabbar
       >
+        {props.leadingControls}
         <ScrollArea
           radius="none"
           ref={attachTabList}
@@ -1082,10 +1096,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           </div>
         ) : null}
         {props.layoutControls}
-        {ownsDesktopTitleBar && !props.layoutControls ? (
+        {ownsDesktopTitleBar && underTitlebarControls ? (
           <span aria-hidden className="hidden w-24 shrink-0 wco:block" />
         ) : null}
-        {ownsDesktopTitleBar ? (
+        {ownsDesktopTitleBar && (props.stage?.underTitlebarControls ?? true) ? (
           <span
             aria-hidden
             className="pointer-events-none fixed top-[calc(var(--workspace-controls-top)+var(--workspace-frame,0px))] right-[calc(var(--workspace-controls-right)+var(--workspace-frame,0px))] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"

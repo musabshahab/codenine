@@ -1,15 +1,18 @@
 import { useStableCallback } from "~/hooks/useStableCallback";
 import type { OfficePreviewKind } from "@codenine/shared/filePreview";
 import { lazy, Suspense, useEffect, useState } from "react";
+import { FileQuestionIcon } from "lucide-react";
 import {
   FileSurfaceLoading,
+  FileSurfaceMessage,
   FileSurfaceNotice,
-  FILE_SURFACE_SUBHEADER_CLASS,
+  FileToolRow,
 } from "./fileSurfaceChrome";
 import { OFFICE_PREVIEW_MAX_BYTES, type OfficeWorkerResult } from "./officePreviewProtocol";
 const WordDocument = lazy(() => import("./office/WordDocument"));
 const Spreadsheet = lazy(() => import("./office/Spreadsheet"));
 const Presentation = lazy(() => import("./office/Presentation"));
+const AttachmentSpreadsheet = lazy(() => import("./spreadsheet/AttachmentSpreadsheet"));
 async function readOfficeFile(src: string, signal: AbortSignal) {
   const response = await fetch(src, { signal });
   if (!response.ok) throw new Error("The file could not be loaded. Close it and try again.");
@@ -38,6 +41,8 @@ export default function OfficeViewer(props: {
   readonly name: string;
   readonly kind: Extract<OfficePreviewKind, "docx" | "xlsx" | "pptx">;
   readonly sizeBytes?: number;
+  /** Shows a workbook in the editing grid, read only, instead of as it is laid out. */
+  readonly spreadsheetGrid?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<Extract<OfficeWorkerResult, { bytes: ArrayBuffer }>>();
@@ -93,28 +98,30 @@ export default function OfficeViewer(props: {
   }, [props.src, props.kind, props.sizeBytes, fail]);
   if (error)
     return (
-      <div
-        role="alert"
-        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center"
-      >
-        <p className="text-sm font-medium">No preview for this file</p>
-        <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-          {error} Save it or open it in another app.
-        </p>
-      </div>
+      <FileSurfaceMessage icon={FileQuestionIcon} title="No preview for this file" alert>
+        {error} Save it or open it in another app.
+      </FileSurfaceMessage>
     );
   if (!prepared) return <FileSurfaceLoading />;
+  if (props.kind === "xlsx" && props.spreadsheetGrid === true) {
+    return (
+      <Suspense fallback={<FileSurfaceLoading />}>
+        <AttachmentSpreadsheet bytes={prepared.bytes} name={props.name} sessionKey={props.src} />
+      </Suspense>
+    );
+  }
   const Viewer =
     props.kind === "docx" ? WordDocument : props.kind === "xlsx" ? Spreadsheet : Presentation;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {details ? (
-        <div className={FILE_SURFACE_SUBHEADER_CLASS}>
-          <span className="text-xs text-muted-foreground" aria-live="polite">
+      {/* A deck's own row counts its slides. */}
+      {details && props.kind !== "pptx" ? (
+        <FileToolRow label="Document">
+          <span className="px-1 text-muted-foreground" aria-live="polite">
             {details}
             {props.kind !== "xlsx" ? " · Fit to width" : ""}
           </span>
-        </div>
+        </FileToolRow>
       ) : null}
       {prepared.truncated ? (
         <FileSurfaceNotice>

@@ -95,8 +95,8 @@ export default function DocumentPages(props: {
   return (
     <>
       {!props.output ? (
-        <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-3 py-1 text-xs text-muted-foreground">
-          <span className="min-w-0 flex-1 text-muted-foreground tabular-nums" role="status">
+        <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-0.5 border-b border-border/60 bg-background px-2 text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1 px-1 text-muted-foreground tabular-nums" role="status">
             {props.details}
           </span>
           <FileSurfaceAction

@@ -10,6 +10,7 @@ export function OfficeFilePreview(props: {
   readonly name: string;
   readonly kind: OfficePreviewKind;
   readonly sizeBytes?: number;
+  readonly spreadsheetGrid?: boolean;
 }) {
   return (
     <Suspense fallback={<FileSurfaceLoading />}>

@@ -143,6 +143,9 @@ import {
 } from "./orchestrationV2.ts";
 import {
   PdfEditInput,
+  AttachmentCopyError,
+  AttachmentCopyInput,
+  AttachmentCopyResult,
   ReplyFileError,
   ReplyFileExistsError,
   ReplyFileSaveInput,
@@ -159,6 +162,8 @@ import {
   SpreadsheetOpenInput,
   SpreadsheetOpenResult,
   SpreadsheetOperationError,
+  SpreadsheetFindInput,
+  SpreadsheetFindResult,
   SpreadsheetReadRangeInput,
   SpreadsheetReadRangeResult,
   SpreadsheetTooLargeError,
@@ -380,6 +385,7 @@ export const WS_METHODS = {
   projectsRestoreFileVersion: "projects.restoreFileVersion",
   documentsOpenSpreadsheet: "documents.openSpreadsheet",
   documentsReadSpreadsheetRange: "documents.readSpreadsheetRange",
+  documentsFindInSpreadsheet: "documents.findInSpreadsheet",
   documentsEditSpreadsheet: "documents.editSpreadsheet",
   documentsOpenPdf: "documents.openPdf",
   documentsEditPdf: "documents.editPdf",
@@ -390,6 +396,7 @@ export const WS_METHODS = {
   mediaCancelJob: "media.cancelJob",
   mediaSubscribeJobs: "media.subscribeJobs",
   mediaGetImageRecord: "media.getImageRecord",
+  documentsCopyAttachment: "documents.copyAttachment",
   projectsListFileActivity: "projects.listFileActivity",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
@@ -1288,6 +1295,12 @@ const WsDocumentsReadSpreadsheetRangeRpc = Rpc.make(WS_METHODS.documentsReadSpre
   error: Schema.Union(SpreadsheetReadErrors),
 });
 
+const WsDocumentsFindInSpreadsheetRpc = Rpc.make(WS_METHODS.documentsFindInSpreadsheet, {
+  payload: SpreadsheetFindInput,
+  success: SpreadsheetFindResult,
+  error: Schema.Union(SpreadsheetReadErrors),
+});
+
 const WsDocumentsEditSpreadsheetRpc = Rpc.make(WS_METHODS.documentsEditSpreadsheet, {
   payload: SpreadsheetEditInput,
   success: SpreadsheetEditResult,
@@ -1353,6 +1366,10 @@ const WsMediaGetImageRecordRpc = Rpc.make(WS_METHODS.mediaGetImageRecord, {
   payload: MediaImageRecordInput,
   success: Schema.NullOr(MediaImageRecord),
   error: EnvironmentAuthorizationError,
+const WsDocumentsCopyAttachmentRpc = Rpc.make(WS_METHODS.documentsCopyAttachment, {
+  payload: AttachmentCopyInput,
+  success: AttachmentCopyResult,
+  error: Schema.Union([AttachmentCopyError, EnvironmentAuthorizationError]),
 });
 
 const WsProjectsListFileActivityRpc = Rpc.make(WS_METHODS.projectsListFileActivity, {
@@ -1920,6 +1937,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsRestoreFileVersionRpc,
   WsDocumentsOpenSpreadsheetRpc,
   WsDocumentsReadSpreadsheetRangeRpc,
+  WsDocumentsFindInSpreadsheetRpc,
   WsDocumentsEditSpreadsheetRpc,
   WsDocumentsOpenPdfRpc,
   WsDocumentsEditPdfRpc,
@@ -1930,6 +1948,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsMediaCancelJobRpc,
   WsMediaSubscribeJobsRpc,
   WsMediaGetImageRecordRpc,
+  WsDocumentsCopyAttachmentRpc,
   WsProjectsListFileActivityRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

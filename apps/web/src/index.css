@@ -2549,6 +2549,16 @@ code {
   }
 }
 
+/* Beside or over a document the chat is a narrow column, whatever the window's width. */
+[data-chat-column-layout="column"] .chat-composer-lane,
+[data-chat-column-layout="slide-over"] .chat-composer-lane {
+  padding-inline: 0.75rem;
+}
+[data-chat-column-layout="column"] [data-chat-canvas] .messages-timeline-scroll,
+[data-chat-column-layout="slide-over"] [data-chat-canvas] .messages-timeline-scroll {
+  padding-inline: calc(0.75rem - var(--chat-timeline-gutter, 0px));
+}
+
 /* A workspace area with no control of its own takes F6 focus itself; keep that visible.
    workspaceFocus.ts marks those, since :focus-visible also matches a clicked area after a key press. */
 [data-workspace-area]:focus-visible {

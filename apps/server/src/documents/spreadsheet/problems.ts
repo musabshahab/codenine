@@ -1,4 +1,5 @@
 import type {
+  SpreadsheetFindResult,
   SpreadsheetOperation,
   SpreadsheetOperationError,
   SpreadsheetReadRangeInput,
@@ -58,6 +59,12 @@ export interface SpreadsheetModel {
   readonly readRange: (
     input: Pick<SpreadsheetReadRangeInput, "sheet" | "row" | "column" | "rowCount" | "columnCount">,
   ) => Promise<Omit<SpreadsheetReadRangeResult, "version">>;
+  /** Cells whose value or formula holds the text, without regard to case, up to `limit` of them. */
+  readonly find: (
+    sheet: string,
+    query: string,
+    limit: number,
+  ) => Promise<Omit<SpreadsheetFindResult, "version">>;
   /** A failed operation may leave the model half changed, so the caller must drop it. */
   readonly apply: (operations: ReadonlyArray<SpreadsheetOperation>) => Promise<void>;
   readonly save: () => Promise<Uint8Array>;
