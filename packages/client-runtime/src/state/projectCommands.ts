@@ -201,6 +201,32 @@ export function createProjectEnvironmentAtoms<R, E>(
             fileMetadata.refreshPath(environmentId, path, registry);
         }),
     }),
+    openPdf: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:documents:open-pdf",
+      tag: WS_METHODS.documentsOpenPdf,
+      staleTimeMs: 0,
+      idleTtlMs: 1_000,
+    }),
+    editPdf: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:documents:edit-pdf",
+      tag: WS_METHODS.documentsEditPdf,
+      scheduler: fileScheduler,
+      // The key `writeFile` uses, so an edit and a restore of one file never interleave.
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.documentsEditPdf, input).pipe(
+          Effect.tap(() => Effect.forEach(writtenFilePaths(input, input), fileMetadata.invalidate)),
+        ),
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() => {
+          for (const path of writtenFilePaths(input, input))
+            fileMetadata.refreshPath(environmentId, path, registry);
+        }),
+    }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
     create: createEnvironmentCommand(runtime, {

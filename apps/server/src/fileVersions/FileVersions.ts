@@ -98,9 +98,14 @@ export class FileVersions extends Context.Service<
     readonly writeFile: (
       input: ProjectWriteFileInput,
     ) => Effect.Effect<ProjectWriteFileResult, SaveError>;
-    /** `writeFile` for contents of any type, such as a workbook. */
+    /**
+     * `writeFile` for contents of any type, such as a workbook. A save with an `action` is kept
+     * as a version of its own, so the record of it is not merged into the saves around it.
+     */
     readonly writeFileBytes: (
-      input: WorkspaceFileSystem.WriteWorkspaceFileBytesInput,
+      input: WorkspaceFileSystem.WriteWorkspaceFileBytesInput & {
+        readonly action?: FileVersionStorage.FileVersionAction | undefined;
+      },
     ) => Effect.Effect<ProjectWriteFileResult, SaveError>;
     /** `writeFile` for a write that promises an undo: refused when what it replaces is not kept. */
     readonly overwriteFile: (
@@ -204,6 +209,7 @@ const toWire = (row: FileVersionStorage.FileVersionRow): ProjectFileVersion => (
   ...(row.contentHash === null ? {} : { version: row.contentHash }),
   ...(row.threadId === null ? {} : { threadId: ThreadId.make(row.threadId) }),
   ...(row.turnCount === null ? {} : { turnCount: PositiveInt.make(row.turnCount) }),
+  ...(row.action === null ? {} : { action: row.action }),
 });
 
 const make = Effect.gen(function* () {
@@ -280,7 +286,12 @@ const make = Effect.gen(function* () {
     relativePath: string,
     content: FileVersionStorage.FileVersionContent,
     mtimeMs: number | null,
-    origin: FileVersionWalkOrigin | { readonly kind: "user" | "restore" },
+    origin:
+      | FileVersionWalkOrigin
+      | {
+          readonly kind: "user" | "restore";
+          readonly action?: FileVersionStorage.FileVersionAction | undefined;
+        },
     known?: { readonly head: FileVersionStorage.FileVersionRow | null },
   ) {
     const head = known === undefined ? yield* storage.head(root, relativePath) : known.head;
@@ -293,8 +304,10 @@ const make = Effect.gen(function* () {
     const createdAt = yield* now;
     if (
       origin.kind === "user" &&
+      origin.action === undefined &&
       content.kind === "bytes" &&
       head?.origin === "user" &&
+      head.action === null &&
       head.state === "stored" &&
       Date.parse(createdAt) - Date.parse(head.createdAt) < limits.userSaveCoalesceMs
     ) {
@@ -311,6 +324,7 @@ const make = Effect.gen(function* () {
         ...(origin.kind === "agent"
           ? { threadId: origin.threadId, turnCount: origin.turnCount }
           : {}),
+        ...("action" in origin && origin.action !== undefined ? { action: origin.action } : {}),
         createdAt,
       },
       head,
@@ -353,6 +367,7 @@ const make = Effect.gen(function* () {
     written: FileVersionStorage.FileVersionContent,
     origin: "user" | "restore",
     recordReplaced: (relativePath: string) => Effect.Effect<void, E2>,
+    action?: FileVersionStorage.FileVersionAction,
   ) {
     const found = yield* relativePathOf(input).pipe(Effect.option);
     // The write reports a path outside the workspace itself.
@@ -366,7 +381,7 @@ const make = Effect.gen(function* () {
         const result = yield* write;
         yield* bestEffort(
           "record-written",
-          record(root, relativePath, written, null, { kind: origin }),
+          record(root, relativePath, written, null, { kind: origin, action }),
         );
         return result;
       }),
@@ -419,6 +434,7 @@ const make = Effect.gen(function* () {
       { kind: "bytes", bytes: input.bytes },
       "user",
       replacedIfPossible(input.cwd),
+      input.action,
     );
   });
 

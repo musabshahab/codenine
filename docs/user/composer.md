@@ -445,6 +445,39 @@ and CSV files that are not UTF-8 open for viewing only. Presentations are view-o
 When the agent's latest turn changed a workbook in a folder without Git, the file offers
 **Discard changes** to put the whole file back as it was, or **Keep**.
 
+### Review and sign PDFs
+
+A PDF in a workspace opens with a toolbar for marking it up. Nothing changes in the file until
+you press **Save** (Ctrl/Cmd+S); until then the toolbar's undo button, or Ctrl/Cmd+Z, takes back
+your latest change.
+
+- **Highlight text**: choose the tool, then select text on the page.
+- **Add a note**: choose the tool, click where the note belongs, and write it. Click a highlight
+  or a note later to read it, comment on it or remove it.
+- **Fill in the form**: when the PDF has form fields they become inputs on the page. Use the
+  toolbar toggle to hide them and read the page as it is.
+- **Sign**: draw your signature, type your name to have it written in a handwriting style, or
+  upload a PNG or JPEG of it (up to 512 KB). Click the page to place it, drag it to move it and
+  drag its corner to resize it. Your name and the date, as your device writes dates, are printed
+  under it.
+- **Notes and highlights** lists everything on the document; choose an entry to jump to it.
+
+Highlights, notes and form values are saved in the PDF itself as standard annotations and
+fields, so other PDF readers show them and can change them. A signature is different: saving
+draws it into the page, so it cannot be moved or removed afterwards. To take one back, restore an
+earlier version of the file ([file versions](#file-versions) in a folder without Git, where the
+save is listed as signed by you, or Git otherwise). It is a picture of your signature, not a
+certificate-based digital signature. Only you can sign: agents have no way to place a signature.
+
+Tick **Keep this signature on this device** to reuse a signature. It is stored in this browser
+only, and **Delete from this device** in the same dialog removes it.
+
+Some PDFs open for reading only, with the reason shown: ones protected with a password or
+permissions, ones that carry a certificate signature (any change would invalidate it), and ones
+over 32 MB. Highlights and notes made in another app are listed but can only be removed there.
+If the file changed on disk while you were working, the save is held back and you choose
+whether to load the new file and keep your changes, or discard them.
+
 ## HTML and PDF files in the file viewer
 
 HTML and PDF files open as rendered pages. Switch an HTML

@@ -12,7 +12,28 @@ vi.mock(import("pdfjs-dist/build/pdf.worker.min.mjs?url"), async () => {
   };
 });
 
-import PdfViewer from "./PdfViewer";
+import { pdfToViewRect } from "@codenine/shared/pdfGeometry";
+
+import PdfViewer, { type PdfPageSurface } from "./PdfViewer";
+
+// Where page 2 stores its line of text, in the file's own units.
+const BUDGET_LINE = { x: 26, y: 690, width: 220, height: 36 };
+const markBudgetLine = ({ index, geometry }: PdfPageSurface) => {
+  if (index !== 1) return null;
+  const box = pdfToViewRect(geometry, BUDGET_LINE);
+  return (
+    <div
+      data-mark
+      style={{
+        position: "absolute",
+        left: box.x,
+        top: box.y,
+        width: box.width,
+        height: box.height,
+      }}
+    />
+  );
+};
 
 // Page 1 is a short banner whose title is drawn in two runs with a font change, so pdf.js
 // splits it into two text spans. Page 2 is a letter page rotated a quarter turn.
@@ -53,9 +74,10 @@ it("fits the width, then finds split and rotated text and jumps to its page", as
   try {
     const container = document.createElement("div");
     container.style.cssText = "display:flex;width:500px;height:600px";
-    await using screen = await render(<PdfViewer src={url} title="Planning PDF" />, {
-      container,
-    });
+    await using screen = await render(
+      <PdfViewer src={url} title="Planning PDF" renderPageOverlay={markBudgetLine} />,
+      { container },
+    );
     // The milestone is pdf.js booting its worker and parsing the document, not a frame count.
     await expect.element(screen.getByText("1 / 2 pages"), { timeout: 10_000 }).toBeVisible();
     const region = screen.container.querySelector<HTMLElement>('[role="region"]')!;
@@ -95,6 +117,15 @@ it("fits the width, then finds split and rotated text and jumps to its page", as
     expect(textBounds.right).toBeLessThanOrEqual(pageBounds.right + 1);
     expect(textBounds.bottom).toBeLessThanOrEqual(pageBounds.bottom + 1);
     expect(getComputedStyle(rotated).userSelect).toBe("text");
+    // What a caller lays over a stored rectangle lands on the text that rectangle holds.
+    const mark = region.querySelector('[data-pdf-page="1"] [data-mark]')!.getBoundingClientRect();
+    expect(mark.height).toBeGreaterThan(mark.width);
+    expect(mark.left).toBeLessThanOrEqual(textBounds.left + 1);
+    expect(mark.top).toBeLessThanOrEqual(textBounds.top + 1);
+    expect(mark.right).toBeGreaterThanOrEqual(textBounds.right - 1);
+    expect(mark.bottom).toBeGreaterThanOrEqual(textBounds.bottom - 1);
+    expect(mark.width).toBeLessThan(textBounds.width * 2.5);
+    expect(mark.height).toBeLessThan(textBounds.height * 1.5);
     const range = document.createRange();
     range.selectNodeContents(rotated);
     const selection = window.getSelection()!;

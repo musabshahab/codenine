@@ -1,6 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
-import type { SpreadsheetCell, SpreadsheetOperation } from "@codenine/contracts";
+import { PDFDocument } from "@cantoo/pdf-lib";
+import type {
+  PdfSignaturePlacement,
+  SpreadsheetCell,
+  SpreadsheetOperation,
+} from "@codenine/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -697,6 +702,107 @@ describe("Documents spreadsheets", () => {
             .edit("table.csv", [{ type: "addSheet", name: "More" }])
             .pipe(Effect.flip),
         ).toMatchObject({ _tag: "SpreadsheetUnsupportedError", feature: "delimited-sheets" });
+      }),
+    );
+  });
+});
+
+describe("Documents PDFs", () => {
+  const pdf = async (protect = false) => {
+    const document = await PDFDocument.create();
+    document.addPage([300, 400]).drawText("Lease", { x: 30, y: 350 });
+    if (protect) document.encrypt({ userPassword: "open", ownerPassword: "owner" });
+    return document.save();
+  };
+  const signature: PdfSignaturePlacement = {
+    page: 0,
+    rect: { x: 30, y: 40, width: 120, height: 50 },
+    image: {
+      mediaType: "image/png",
+      dataBase64:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    },
+    name: "Ada Lovelace",
+    date: "23/11/2026",
+  };
+
+  it.layer(layerWith())("saving", (it) => {
+    it.effect("saves safely, records who signed and keeps signing out of the plain edit", () =>
+      Effect.gen(function* () {
+        const { cwd, documents, write } = yield* makeWorkspace();
+        const versions = yield* FileVersions.FileVersions;
+        const file = { cwd, relativePath: "lease.pdf" };
+        yield* write("lease.pdf", yield* Effect.promise(() => pdf()));
+        const opened = yield* documents.openPdf(file);
+        expect(opened).toMatchObject({ annotations: [], fields: [] });
+        expect(opened.refusal).toBeUndefined();
+
+        const note = { type: "addNote", page: 0, x: 40, y: 300, contents: "Check" } as const;
+        const noted = yield* documents.editPdf({
+          ...file,
+          expectedVersion: opened.version,
+          operations: [note],
+        });
+        expect(noted.annotations).toMatchObject([{ kind: "note", contents: "Check" }]);
+        assert.deepInclude(
+          yield* documents
+            .editPdf({ ...file, expectedVersion: opened.version, operations: [note] })
+            .pipe(Effect.flip),
+          { _tag: "WorkspaceFileConflictError", currentVersion: noted.version },
+        );
+
+        // A caller of the plain edit cannot sign, whatever it passes.
+        const smuggled = { ...file, operations: [], signatures: [signature] };
+        expect(yield* documents.editPdf(smuggled).pipe(Effect.flip)).toMatchObject({
+          _tag: "PdfOperationError",
+          reason: "nothing-to-save",
+        });
+        const signed = yield* documents.editPdfWithSignatures({
+          ...smuggled,
+          expectedVersion: noted.version,
+        });
+        const later = yield* documents.editPdf({ ...file, operations: [note] });
+
+        const listed = yield* versions.list(file);
+        expect(listed.versions.map((v) => [v.origin, v.action, v.version])).toEqual([
+          ["user", undefined, later.version],
+          ["user", "signed", signed.version],
+          ["user", undefined, noted.version],
+          ["external", undefined, opened.version],
+        ]);
+      }),
+    );
+
+    it.effect("answers why a PDF cannot be changed and leaves it as it is", () =>
+      Effect.gen(function* () {
+        const { cwd, documents, write, readBytes } = yield* makeWorkspace();
+        const file = { cwd, relativePath: "locked.pdf" };
+        const bytes = yield* Effect.promise(() => pdf(true));
+        yield* write("locked.pdf", bytes);
+        expect(yield* documents.openPdf(file)).toMatchObject({ refusal: "encrypted" });
+        expect(
+          yield* documents
+            .editPdfWithSignatures({ ...file, operations: [], signatures: [signature] })
+            .pipe(Effect.flip),
+        ).toMatchObject({ _tag: "PdfRefusedError", reason: "encrypted" });
+        expect(Buffer.from(yield* readBytes("locked.pdf")).equals(Buffer.from(bytes))).toBe(true);
+        expect(
+          yield* documents.openPdf({ cwd, relativePath: "gone.pdf" }).pipe(Effect.flip),
+        ).toMatchObject({ _tag: "DocumentMissingError" });
+      }),
+    );
+  });
+
+  it.layer(
+    layerWith().pipe(Layer.provide(Layer.succeed(Documents.PdfLimits, { maxFileBytes: 200 }))),
+  )("limits", (it) => {
+    it.effect("refuses a PDF over the size limit", () =>
+      Effect.gen(function* () {
+        const { cwd, documents, write } = yield* makeWorkspace();
+        yield* write("big.pdf", yield* Effect.promise(() => pdf()));
+        expect(
+          yield* documents.openPdf({ cwd, relativePath: "big.pdf" }).pipe(Effect.flip),
+        ).toMatchObject({ _tag: "PdfRefusedError", reason: "too-large" });
       }),
     );
   });

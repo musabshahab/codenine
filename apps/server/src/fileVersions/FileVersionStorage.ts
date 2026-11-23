@@ -54,6 +54,8 @@ export class FileVersionStorageError extends Schema.TaggedError<FileVersionStora
 }
 
 export type FileVersionOrigin = "user" | "agent" | "restore" | "external";
+/** What a save did beyond changing the contents. */
+export type FileVersionAction = "signed";
 
 export interface FileVersionRow {
   readonly versionId: number;
@@ -67,6 +69,7 @@ export interface FileVersionRow {
   readonly origin: FileVersionOrigin;
   readonly threadId: string | null;
   readonly turnCount: number | null;
+  readonly action: FileVersionAction | null;
   readonly createdAt: string;
 }
 
@@ -83,6 +86,7 @@ export interface AppendFileVersionInput {
   readonly origin: FileVersionOrigin;
   readonly threadId?: string | undefined;
   readonly turnCount?: number | undefined;
+  readonly action?: FileVersionAction | undefined;
   readonly createdAt: string;
 }
 
@@ -192,6 +196,7 @@ const make = Effect.gen(function* () {
     origin,
     thread_id AS "threadId",
     turn_count AS "turnCount",
+    action,
     created_at AS "createdAt"
   `;
 
@@ -404,11 +409,12 @@ const make = Effect.gen(function* () {
     yield* sql`
       INSERT INTO file_versions (
         workspace_root, relative_path, state, content_hash, byte_length, mtime_ms, change,
-        origin, thread_id, turn_count, created_at
+        origin, thread_id, turn_count, action, created_at
       ) VALUES (
         ${workspaceRoot}, ${input.relativePath}, ${content.state}, ${content.contentHash},
         ${content.byteLength}, ${input.mtimeMs}, ${change}, ${input.origin},
-        ${input.threadId ?? null}, ${input.turnCount ?? null}, ${input.createdAt}
+        ${input.threadId ?? null}, ${input.turnCount ?? null}, ${input.action ?? null},
+        ${input.createdAt}
       )
     `.pipe(Effect.mapError(failed("record a version")));
     if (replaced !== null) yield* pruneFile(workspaceRoot, input.relativePath);

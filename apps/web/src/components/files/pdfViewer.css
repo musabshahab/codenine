@@ -50,3 +50,51 @@
 [data-pdf-text-layer] .pdf-find-match {
   background: #ffc80066;
 }
+
+/* A PDF page is white whatever the app's theme, so what is laid over it keeps fixed colours. */
+[data-pdf-field] {
+  border: 1px solid #7aa2f7;
+  background: #f0f5ff;
+  color: #000;
+}
+[data-pdf-field]:focus {
+  border-color: #2f5fd0;
+  background: #fff;
+}
+[data-pdf-check] {
+  accent-color: #2f5fd0;
+}
+[data-pdf-pending] {
+  background: rgb(255 224 102 / 0.6);
+  mix-blend-mode: multiply;
+}
+[data-pdf-note] {
+  border: 1px solid #59501a;
+  background: #ffd54a;
+  color: #3d3608;
+}
+[data-pdf-selected] {
+  outline: 2px solid #3b6fd4;
+}
+[data-pdf-signature] {
+  outline: 1px dashed #3b6fd4;
+  color: #1a1a1a;
+}
+[data-pdf-signature-remove] {
+  border: 1px solid #3b6fd4;
+  background: #fff;
+  color: #3b6fd4;
+}
+[data-pdf-signature-remove]:hover {
+  background: #eaf1ff;
+}
+[data-pdf-signature-handle] {
+  border: 1px solid #fff;
+  background: #3b6fd4;
+}
+[data-pdf-signature-ink] {
+  color: #14213d;
+}
+[data-pdf-signature-hint] {
+  color: #737373;
+}

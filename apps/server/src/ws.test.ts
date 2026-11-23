@@ -1381,7 +1381,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
 );
 
 it.effect(
-  "a refused save, discard, restore or spreadsheet edit reaches the client as a write conflict",
+  "a refused save, discard, restore or document edit reaches the client as a write conflict",
   () =>
     Effect.gen(function* () {
       const exits = yield* Queue.unbounded<Exit.Exit<unknown, unknown>>();
@@ -1398,7 +1398,10 @@ it.effect(
           restore: () => Effect.fail(conflict),
         }),
         Layer.mock(FileBaselines.FileBaselines)({ revertTurnChange: () => Effect.fail(conflict) }),
-        Layer.mock(Documents.Documents)({ editSpreadsheet: () => Effect.fail(conflict) }),
+        Layer.mock(Documents.Documents)({
+          editSpreadsheet: () => Effect.fail(conflict),
+          editPdfWithSignatures: () => Effect.fail(conflict),
+        }),
         Layer.mock(ExternalLauncher.ExternalLauncher)({}),
         Layer.mock(ProviderRegistry.ProviderRegistry)({}),
         Layer.mock(UsageLimitSources.UsageLimitSources)({}),
@@ -1446,6 +1449,14 @@ it.effect(
             ...file,
             expectedVersion: "read",
             operations: [{ type: "addSheet", name: "Plan" }],
+          },
+        ],
+        [
+          WS_METHODS.documentsEditPdf,
+          {
+            ...file,
+            expectedVersion: "read",
+            operations: [{ type: "addNote", page: 0, x: 10, y: 10, contents: "Check" }],
           },
         ],
       ] as const;

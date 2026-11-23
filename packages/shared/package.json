@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./pdfGeometry": {
+      "types": "./src/pdfGeometry.ts",
+      "import": "./src/pdfGeometry.ts"
+    },
     "./changedFileKind": {
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"

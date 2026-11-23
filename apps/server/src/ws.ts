@@ -52,6 +52,7 @@ import {
   type ProjectMutation,
   ProjectFileVersionError,
   SpreadsheetFileError,
+  PdfFileError,
   ProjectListEntriesError,
   ProjectReadFileBaselineError,
   ProjectReadFileError,
@@ -652,6 +653,17 @@ const spreadsheetError = (cause: SpreadsheetServiceError) => {
       return new SpreadsheetFileError({ message: cause.message, cause });
   }
 };
+
+type PdfServiceError = Exclude<
+  Effect.Error<ReturnType<Documents.Documents["Service"]["editPdfWithSignatures"]>>,
+  WorkspaceFileSystem.WorkspaceFileConflictError
+>;
+
+/** PDF refusals reach the client as they are; anything else becomes a file error. */
+const pdfError = (cause: PdfServiceError) =>
+  cause._tag === "PdfRefusedError" || cause._tag === "PdfOperationError"
+    ? cause
+    : new PdfFileError({ message: cause.message, cause });
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
@@ -2469,6 +2481,27 @@ export const layerWsRpc = (
                 cause._tag === "WorkspaceFileConflictError"
                   ? projectWriteFileConflict(input, cause)
                   : spreadsheetError(cause),
+              ),
+            ),
+        [WS_METHODS.documentsOpenPdf]: (input) =>
+          documents
+            .openPdf(input)
+            .pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "PdfRefusedError"
+                  ? cause
+                  : new PdfFileError({ message: cause.message, cause }),
+              ),
+            ),
+        // The one caller of the signing edit: a person's client, never an agent's tool.
+        [WS_METHODS.documentsEditPdf]: (input) =>
+          documents
+            .editPdfWithSignatures(input)
+            .pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "WorkspaceFileConflictError"
+                  ? projectWriteFileConflict(input, cause)
+                  : pdfError(cause),
               ),
             ),
         [WS_METHODS.projectsMutate]: (mutation) =>

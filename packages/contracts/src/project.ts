@@ -645,6 +645,8 @@ export const ProjectFileVersion = Schema.Struct({
   // Who wrote these contents: an editor save, an agent's turn, a restore, or something outside
   // Codenine. The first time a file is seen counts as outside.
   origin: Schema.Literals(["user", "agent", "restore", "external"]),
+  // Set on the save in which the user placed their signature on the document.
+  action: Schema.optional(Schema.Literal("signed")),
   // The `version` a read of the file returns while it holds these contents.
   version: Schema.optional(TrimmedNonEmptyString),
   threadId: Schema.optional(ThreadId),

@@ -1,11 +1,15 @@
 import {
   useEffect,
   useEffectEvent,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
+  type Ref,
 } from "react";
+import { type PdfPageGeometry, pdfPageViewSize } from "@codenine/shared/pdfGeometry";
 import { TextLayer, type PDFDocumentProxy } from "pdfjs-dist";
 import { ChevronDownIcon, ChevronUpIcon, MinusIcon, PlusIcon, ScanIcon } from "lucide-react";
 import { Input } from "~/components/ui/input";
@@ -44,6 +48,19 @@ export type PdfViewState = {
   left: number;
 };
 
+/** A page as it is shown, for what a caller lays over it. */
+export interface PdfPageSurface {
+  readonly index: number;
+  readonly geometry: PdfPageGeometry;
+  /** The shown page's size in CSS pixels. */
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface PdfViewerHandle {
+  readonly showPage: (index: number) => void;
+}
+
 function PdfPage(props: {
   document: PDFDocumentProxy;
   index: number;
@@ -51,10 +68,13 @@ function PdfPage(props: {
   query: string;
   onSize: (index: number, ratio: number) => void;
   onError: (error: string) => void;
+  renderOverlay: ((surface: PdfPageSurface) => ReactNode) | undefined;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const text = useRef<HTMLDivElement>(null);
   const { document: pdf, index, width, onSize, onError } = props;
+  // The page's stored box and rotation, known once pdf.js has read the page.
+  const [frame, setFrame] = useState<Pick<PdfPageGeometry, "box" | "rotation"> | null>(null);
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- Render the PDF page canvas and text layer, cancelling tasks and releasing pdf.js page resources on cleanup.
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +90,8 @@ function PdfPage(props: {
       }
       const natural = page.getViewport({ scale: 1 });
       onSize(index, natural.height / natural.width);
+      const [left = 0, bottom = 0, right = 0, top = 0] = page.view;
+      setFrame({ box: [left, bottom, right, top], rotation: page.rotate });
       const viewport = page.getViewport({ scale: width / natural.width });
       const ratio = Math.min(
         2,
@@ -121,10 +143,26 @@ function PdfPage(props: {
     observer.observe(node, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, [props.query]);
+  let overlay: ReactNode = null;
+  if (props.renderOverlay !== undefined && frame !== null) {
+    const natural = pdfPageViewSize({ ...frame, scale: 1 });
+    const geometry = { ...frame, scale: width / natural.width };
+    overlay = props.renderOverlay({ index, geometry, ...pdfPageViewSize(geometry) });
+  }
   return (
     <>
       <canvas ref={canvas} aria-label={`Page ${index + 1}`} className="block h-full w-full" />
       <div ref={text} data-pdf-text-layer />
+      {overlay === null ? null : (
+        // Clicks fall through to the text under it, except on what the overlay itself offers.
+        <div
+          data-pdf-box={frame?.box.join(",")}
+          data-pdf-rotation={frame?.rotation}
+          className="pointer-events-none absolute inset-0"
+        >
+          {overlay}
+        </div>
+      )}
     </>
   );
 }
@@ -135,6 +173,16 @@ export default function PdfViewer(props: {
   positionKey?: string;
   initialView?: PdfViewState;
   onViewChange?: (view: PdfViewState) => void;
+  handle?: Ref<PdfViewerHandle>;
+  /** Controls before and after the viewer's own in its toolbar. */
+  toolbarStart?: ReactNode;
+  toolbarEnd?: ReactNode;
+  /** Lines under the toolbar. */
+  header?: ReactNode;
+  /** A panel beside the pages. */
+  side?: ReactNode;
+  /** What to lay over each shown page, such as highlights and form inputs. */
+  renderPageOverlay?: (surface: PdfPageSurface) => ReactNode;
 }) {
   const [savedPosition] = useState(() =>
     props.positionKey === undefined ? undefined : positions.get(props.positionKey),
@@ -268,6 +316,8 @@ export default function PdfViewer(props: {
   const showPage = (index: number) => {
     scroll.current?.scrollTo({ top: pdfPageScrollTop(offsets, index) });
   };
+  // Rebuilt each render so that it scrolls by the page offsets now on screen.
+  useImperativeHandle(props.handle, () => ({ showPage }));
   const changeZoom = (value: number | null) => {
     zoomAnchor.current = {
       page: current,
@@ -344,6 +394,7 @@ export default function PdfViewer(props: {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-2 py-1 text-xs">
+        {props.toolbarStart}
         <span className="mr-auto px-1 tabular-nums" aria-live="polite">
           {pdf ? `${current + 1} / ${pdf.numPages} pages` : "PDF"}
         </span>
@@ -422,71 +473,78 @@ export default function PdfViewer(props: {
             </FileSurfaceAction>
           </>
         ) : null}
+        {props.toolbarEnd}
       </div>
-      <div
-        ref={scroll}
-        role="region"
-        aria-label={props.title}
-        tabIndex={0}
-        className="relative min-h-0 min-w-0 w-full flex-1 overflow-auto scrollbar-gutter-stable bg-muted/40"
-        onScroll={(event) => {
-          const top = event.currentTarget.scrollTop;
-          setScrollTop(top);
-          saveView(event.currentTarget);
-        }}
-        onKeyDown={(event) => {
-          if ((event.ctrlKey || event.metaKey) && event.key === "f") {
-            event.preventDefault();
-            event.stopPropagation();
-            find.current?.focus();
-          }
-        }}
-      >
-        {error ? (
-          <FileSurfaceFailure
-            message={error}
-            onRetry={() => {
-              setError(null);
-              setPdf(null);
-              setRevision((value) => value + 1);
-            }}
-          />
-        ) : !pdf ? (
-          <FileSurfaceLoading />
-        ) : (
-          <div
-            className="relative"
-            style={{
-              height: `max(${offsets.at(-1) ?? 0}px, calc(100% + ${(offsets.at(-2) ?? 16) - 16}px))`,
-              minWidth: width + 32,
-            }}
-          >
-            {visible.map(({ index, ratio }) => (
-              <div
-                key={index}
-                className="absolute bg-white shadow-sm"
-                style={
-                  {
-                    top: offsets[index],
-                    left: Math.max(16, (viewport.width - width) / 2),
-                    width,
-                    height: width * ratio,
-                    "--total-scale-factor": 1,
-                  } as CSSProperties
-                }
-              >
-                <PdfPage
-                  document={pdf}
-                  index={index}
-                  width={width}
-                  query={query}
-                  onSize={onSize}
-                  onError={setError}
-                />
-              </div>
-            ))}
-          </div>
-        )}
+      {props.header}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div
+          ref={scroll}
+          role="region"
+          aria-label={props.title}
+          tabIndex={0}
+          className="relative min-h-0 min-w-0 w-full flex-1 overflow-auto scrollbar-gutter-stable bg-muted/40"
+          onScroll={(event) => {
+            const top = event.currentTarget.scrollTop;
+            setScrollTop(top);
+            saveView(event.currentTarget);
+          }}
+          onKeyDown={(event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "f") {
+              event.preventDefault();
+              event.stopPropagation();
+              find.current?.focus();
+            }
+          }}
+        >
+          {error ? (
+            <FileSurfaceFailure
+              message={error}
+              onRetry={() => {
+                setError(null);
+                setPdf(null);
+                setRevision((value) => value + 1);
+              }}
+            />
+          ) : !pdf ? (
+            <FileSurfaceLoading />
+          ) : (
+            <div
+              className="relative"
+              style={{
+                height: `max(${offsets.at(-1) ?? 0}px, calc(100% + ${(offsets.at(-2) ?? 16) - 16}px))`,
+                minWidth: width + 32,
+              }}
+            >
+              {visible.map(({ index, ratio }) => (
+                <div
+                  key={index}
+                  data-pdf-page={index}
+                  className="absolute bg-white shadow-sm"
+                  style={
+                    {
+                      top: offsets[index],
+                      left: Math.max(16, (viewport.width - width) / 2),
+                      width,
+                      height: width * ratio,
+                      "--total-scale-factor": 1,
+                    } as CSSProperties
+                  }
+                >
+                  <PdfPage
+                    document={pdf}
+                    index={index}
+                    width={width}
+                    query={query}
+                    onSize={onSize}
+                    onError={setError}
+                    renderOverlay={props.renderPageOverlay}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {props.side}
       </div>
     </div>
   );

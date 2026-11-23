@@ -165,6 +165,7 @@ interface FilePreviewPanelProps {
 }
 
 const WorkspaceSpreadsheet = lazy(() => import("./spreadsheet/WorkspaceSpreadsheet"));
+const WorkspacePdf = lazy(() => import("./pdf/WorkspacePdf"));
 const MermaidFilePreview = lazy(() =>
   import("./MermaidFilePreview").then((module) => ({ default: module.MermaidFilePreview })),
 );
@@ -1226,6 +1227,14 @@ export default function FilePreviewPanel({
       ? editableSpreadsheetKind(previewPath)
       : null;
   const workbookPath = spreadsheetKind?.format === "xlsx" ? previewPath : null;
+  // Older servers do not edit PDFs, so there the viewer stays as it was.
+  const pdfEditPath =
+    isPdf &&
+    attachment === undefined &&
+    !isHostFile &&
+    serverConfig?.environment.capabilities.pdfEditing === true
+      ? previewPath
+      : null;
   const [editWorkbookPreferred, setEditWorkbookPreferred] = useLocalStorage(
     EDIT_WORKBOOK_STORAGE_KEY,
     true,
@@ -1625,6 +1634,23 @@ export default function FilePreviewPanel({
               alt={relativePath}
               workspaceMutationId={workspaceMutationId}
             />
+          ) : pdfEditPath !== null && absolutePath ? (
+            <Suspense fallback={<FileSurfaceLoading />}>
+              <WorkspacePdf
+                key={`${environmentId}:${cwd}:${pdfEditPath}`}
+                environmentId={environmentId}
+                threadRef={threadRef}
+                draft={draft}
+                absolutePath={absolutePath}
+                workspaceRoot={cwd}
+                cwd={cwd}
+                relativePath={pdfEditPath}
+                title={pdfEditPath}
+                refreshKey={spreadsheetRefreshKey}
+                readOnly={!canWriteFiles}
+                onPendingChange={onPendingChange}
+              />
+            </Suspense>
           ) : relativePath && renderBrowserFile && absolutePath ? (
             <WorkspaceBrowserPreview
               key={absolutePath}

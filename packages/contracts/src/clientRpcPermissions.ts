@@ -58,6 +58,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.projectsRevertFileChange]: AuthFilesystemWriteScope,
   [WS_METHODS.projectsRestoreFileVersion]: AuthFilesystemWriteScope,
   [WS_METHODS.documentsEditSpreadsheet]: AuthFilesystemWriteScope,
+  // Changes a PDF, and is the only way a signature is placed on one.
+  [WS_METHODS.documentsEditPdf]: AuthFilesystemWriteScope,
   [WS_METHODS.sourceControlCloneRepository]: AuthSourceControlWriteScope,
   [WS_METHODS.sourceControlPublishRepository]: AuthSourceControlWriteScope,
   // Signing in replaces the server's GitHub credential, as saving a token in Settings does.

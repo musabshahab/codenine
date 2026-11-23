@@ -151,6 +151,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   fileVersions: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.openSpreadsheet, readSpreadsheetRange and editSpreadsheet. */
   spreadsheetEditing: Schema.optionalKey(Schema.Boolean),
+  /** Server answers documents.openPdf and editPdf. */
+  pdfEditing: Schema.optionalKey(Schema.Boolean),
   /** Server honors `deleteFolder` on project.delete. Older servers ignore it and keep the folder. */
   projectFolderDeletion: Schema.optionalKey(Schema.Boolean),
   /** Server answers projects.listIgnoredFiles. */

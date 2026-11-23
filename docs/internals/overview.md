@@ -115,6 +115,17 @@ error instead of applied. A formula result the built-in evaluator cannot produce
 never left stale, and the workbook is marked for a full recalculation on its next open in a
 spreadsheet app; results an edit does not reach are kept, since other readers have only them. Parsing runs on the server's own thread, which is why the size limits are low.
 
+A PDF is the opposite case: it is loaded and written whole with a PDF library, because its
+objects reference each other by number and there is no smaller unit to rewrite. That rewrite
+changes every byte offset, which is why a file with a certificate signature is refused rather
+than edited. Highlights, notes and form values stay standard annotations and fields. A signature
+is drawn into the page's content instead, so no reader can move it, and the save is recorded in
+the version store as signed. Only a person signs: the signing edit is a separate service method
+whose single caller is the client RPC, and
+[a test](../../apps/server/src/mcp/agentSigningGuard.test.ts) fails when anything else reaches
+it. Give an agent the plain `editPdf`, never the signing one. Saving replaces the file, and an
+asset URL is minted for one file as it was, so the client mints a new one after each save.
+
 Thread settlement is server-owned. The
 [settlement service](../../apps/server/src/orchestration-v2/ThreadSettlementService.ts) evaluates PR
 and inactivity settings without a connected client. Merge notifications invalidate cached PR state

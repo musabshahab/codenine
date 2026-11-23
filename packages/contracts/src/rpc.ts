@@ -142,6 +142,13 @@ import {
   OrchestrationV2ThreadLaunchError,
 } from "./orchestrationV2.ts";
 import {
+  PdfEditInput,
+  PdfEditResult,
+  PdfFileError,
+  PdfOpenInput,
+  PdfOpenResult,
+  PdfOperationError,
+  PdfRefusedError,
   SpreadsheetEditInput,
   SpreadsheetEditResult,
   SpreadsheetFileError,
@@ -356,6 +363,8 @@ export const WS_METHODS = {
   documentsOpenSpreadsheet: "documents.openSpreadsheet",
   documentsReadSpreadsheetRange: "documents.readSpreadsheetRange",
   documentsEditSpreadsheet: "documents.editSpreadsheet",
+  documentsOpenPdf: "documents.openPdf",
+  documentsEditPdf: "documents.editPdf",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
@@ -1259,6 +1268,24 @@ const WsDocumentsEditSpreadsheetRpc = Rpc.make(WS_METHODS.documentsEditSpreadshe
   error: Schema.Union([...SpreadsheetReadErrors, ProjectWriteFileConflictError]),
 });
 
+const WsDocumentsOpenPdfRpc = Rpc.make(WS_METHODS.documentsOpenPdf, {
+  payload: PdfOpenInput,
+  success: PdfOpenResult,
+  error: Schema.Union([PdfRefusedError, PdfFileError, EnvironmentAuthorizationError]),
+});
+
+const WsDocumentsEditPdfRpc = Rpc.make(WS_METHODS.documentsEditPdf, {
+  payload: PdfEditInput,
+  success: PdfEditResult,
+  error: Schema.Union([
+    PdfRefusedError,
+    PdfOperationError,
+    PdfFileError,
+    ProjectWriteFileConflictError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
@@ -1819,6 +1846,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsDocumentsOpenSpreadsheetRpc,
   WsDocumentsReadSpreadsheetRangeRpc,
   WsDocumentsEditSpreadsheetRpc,
+  WsDocumentsOpenPdfRpc,
+  WsDocumentsEditPdfRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,

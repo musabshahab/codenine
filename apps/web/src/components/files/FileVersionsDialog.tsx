@@ -44,7 +44,7 @@ function VersionAuthor(props: {
   );
   switch (version.origin) {
     case "user":
-      return "Saved in the editor";
+      return version.action === "signed" ? "Signed and saved by you" : "Saved in the editor";
     case "restore":
       return "Restored";
     case "external":
