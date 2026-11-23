@@ -1,13 +1,10 @@
 import { OrchestratorMcpFailure } from "@codenine/contracts";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as Documents from "../../../documents/Documents.ts";
-import * as ProjectService from "../../../project/ProjectService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { loadCaller, unavailable } from "../../threadAccess.ts";
+import { callerFolder } from "../callerFolder.ts";
 import { DocumentsToolkit } from "./tools.ts";
 
 const DEFAULT_ROWS = 100;
@@ -52,44 +49,16 @@ const documentFailure = (cause: { readonly _tag: string; readonly message: strin
       });
 };
 
-/** The calling chat's folder and the file's path inside it. */
-const locate = Effect.fn("mcp.documents.locate")(function* (
-  requested: string,
-  access: "read" | "edit",
-) {
-  const { caller } = yield* loadCaller();
-  if (caller === undefined) {
-    return yield* new OrchestratorMcpFailure({
-      code: "thread_credential_required",
-      message: "Document tools work on the calling chat's folder.",
-    });
-  }
-  if (access === "edit" && caller.interactionMode === "plan") {
-    return yield* new OrchestratorMcpFailure({
-      code: "capability_denied",
-      message: "This chat is in plan mode, which does not change files.",
-    });
-  }
-  // These tools are pre-approved for the provider, so no approval card would cover the write.
-  if (access === "edit" && caller.runtimeMode === "approval-required") {
-    return yield* new OrchestratorMcpFailure({
-      code: "capability_denied",
-      message:
-        "This chat asks the user before each file change, and Codenine cannot ask for a document edit. Tell the user what you would change, and that they can make the change in the file's tab or switch the chat to a mode that accepts edits.",
-    });
-  }
-  const projects = yield* ProjectService.ProjectService;
-  const project = yield* projects.getById(caller.projectId).pipe(Effect.mapError(unavailable));
-  if (Option.isNone(project)) {
-    return yield* new OrchestratorMcpFailure({
-      code: "invalid_request",
-      message: "This chat's workspace was not found.",
-    });
-  }
-  const path = yield* Path.Path;
-  const cwd = caller.worktreePath ?? project.value.workspaceRoot;
-  const relativePath = path.isAbsolute(requested) ? path.relative(cwd, requested) : requested;
-  return { cwd, relativePath: relativePath.replaceAll("\\", "/") };
+const REFUSAL = {
+  tools: "Document tools",
+  askFirst:
+    "This chat asks the user before each file change, and Codenine cannot ask for a document edit. Tell the user what you would change, and that they can make the change in the file's tab or switch the chat to a mode that accepts edits.",
+};
+
+// The calling chat's folder and the file's path inside it. Traced as `mcp.callerFolder`.
+const locate = Effect.fnUntraced(function* (requested: string, access: "read" | "edit") {
+  const folder = yield* callerFolder(access, REFUSAL);
+  return { cwd: folder.cwd, relativePath: folder.relative(requested) };
 });
 
 // The agent edits during its turn, so the user reviews these as they do its other changes.

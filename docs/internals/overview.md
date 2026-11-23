@@ -115,6 +115,17 @@ error instead of applied. A formula result the built-in evaluator cannot produce
 never left stale, and the workbook is marked for a full recalculation on its next open in a
 spreadsheet app; results an edit does not reach are kept, since other readers have only them. Parsing runs on the server's own thread, which is why the size limits are low.
 
+Images come from outside providers through the
+[Media service](../../apps/server/src/media/Media.ts), the one place the server spends the
+user's money with a provider it was not started for. Every request, from a client or from an
+agent's tools, passes its spending limits before a provider is called; never call an adapter
+around it. A provider is one adapter file and an entry in `MediaProviders.ts`, and an adapter
+reads its key from where Codenine already keeps it (a connector's token, an account's
+environment), so there is no media key setting. A job runs apart from the request that asked
+for it: once a provider has been paid, the result is saved and its cost recorded even when the
+client has gone. The agent tools are named in `mcp/toolkits/media/names.ts`, and each provider
+adapter turns them off for an agent without the `makeImages` ability.
+
 A PDF is the opposite case: it is loaded and written whole with a PDF library, because its
 objects reference each other by number and there is no smaller unit to rewrite. That rewrite
 changes every byte offset, which is why a file with a certificate signature is refused rather

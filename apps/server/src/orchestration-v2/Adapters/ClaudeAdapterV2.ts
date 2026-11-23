@@ -1,5 +1,6 @@
 import * as DocumentText from "../../provider/DocumentText.ts";
 import { DOCUMENT_EDIT_TOOLS, DOCUMENT_READ_TOOLS } from "../../mcp/toolkits/documents/names.ts";
+import { MEDIA_TOOLS } from "../../mcp/toolkits/media/names.ts";
 import { mcpToolResultOutput, toolOutputImages } from "@codenine/shared/toolOutput";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
 import { claudeTaskOutputRoot, tailClaudeTaskOutput } from "./ClaudeTaskOutputTail.ts";
@@ -510,6 +511,7 @@ const CLAUDE_TOOLS_BY_AGENT_ABILITY: Readonly<Record<AgentAbility, ReadonlyArray
   ],
   runCommands: ["Bash", "PowerShell", "Monitor"],
   searchWeb: ["WebSearch", "WebFetch"],
+  makeImages: claudeCodenineTools(MEDIA_TOOLS),
 };
 
 function claudeAgentSdkQueryToolsForSdk(

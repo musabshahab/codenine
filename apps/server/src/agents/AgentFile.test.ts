@@ -11,7 +11,13 @@ const reviewer: AgentDefinition = {
   model: { instanceId: ProviderInstanceId.make("claude_work"), model: "claude-x", effort: "high" },
   skills: ["review-code"],
   connectors: [{ id: ConnectionId.make("github"), approvals: { change: "ask", read: "auto" } }],
-  abilities: { readFiles: true, editFiles: false, runCommands: true, searchWeb: false },
+  abilities: {
+    readFiles: true,
+    editFiles: false,
+    runCommands: true,
+    searchWeb: false,
+    makeImages: true,
+  },
 };
 
 describe("AGENT.md", () => {

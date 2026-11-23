@@ -40,10 +40,18 @@ export const AgentAbilities = Schema.Struct({
   editFiles: Schema.Boolean,
   runCommands: Schema.Boolean,
   searchWeb: Schema.Boolean,
+  /** Pay the user's image provider for images. Off unless set, as in agents saved before it. */
+  makeImages: Schema.optionalKey(Schema.Boolean),
 });
 export type AgentAbilities = typeof AgentAbilities.Type;
 
-export const AgentAbility = Schema.Literals(["readFiles", "editFiles", "runCommands", "searchWeb"]);
+export const AgentAbility = Schema.Literals([
+  "readFiles",
+  "editFiles",
+  "runCommands",
+  "searchWeb",
+  "makeImages",
+]);
 export type AgentAbility = typeof AgentAbility.Type;
 
 export const AgentTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(80));

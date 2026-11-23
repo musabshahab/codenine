@@ -25,6 +25,7 @@ import { agentsEnvironment } from "../../state/agents";
 import { projectPreset } from "../../workspaceKind";
 import { connectorsEnvironment } from "../../state/connectors";
 import { useEnvironmentQuery } from "../../state/query";
+import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { AddSkillDialog } from "../chat/AddSkillDialog";
 import { ChoiceChip } from "../chat/ComposerChoiceChips";
@@ -67,6 +68,11 @@ const ABILITIES = [
   { key: "editFiles", title: "Edit files", hint: "Change files in the chat's workspace." },
   { key: "runCommands", title: "Run commands", hint: "Run programs in the chat's workspace." },
   { key: "searchWeb", title: "Search the web", hint: "Use the model's own web search." },
+  {
+    key: "makeImages",
+    title: "Make images",
+    hint: "Pay your image provider for pictures, within the limit set in Settings.",
+  },
 ] as const satisfies ReadonlyArray<{
   readonly key: keyof AgentAbilities;
   readonly title: string;
@@ -141,6 +147,10 @@ export function AgentForm({
   const remove = useAtomCommand(agentsEnvironment.delete, { reportFailure: false });
   const startChat = useStartAgentChat();
   const catalog = useAgentModelCatalog(environmentId);
+  // An older server would drop the ability on save, so its switch is not shown for one.
+  const offersImages =
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.environment.capabilities
+      .imageGeneration === true;
   const chatWorkspace = useAgentChatWorkspace(environmentId, workspace);
   const codenineSkills = useCodenineSkills(environmentId, null);
   const connectors = useEnvironmentQuery(connectorsEnvironment.state({ environmentId, input: {} }));
@@ -525,26 +535,28 @@ export function AgentForm({
             </p>
           </div>
           <div className="divide-y divide-border rounded-xl border border-border bg-card">
-            {ABILITIES.map((ability) => (
-              <AbilityRow
-                key={ability.key}
-                title={ability.title}
-                hint={ability.hint}
-                stuckOn={
-                  !abilities[ability.key] &&
-                  described?.account != null &&
-                  described.turnsOff !== null &&
-                  !described.turnsOff.includes(ability.key)
-                    ? `Stays on with ${described.account}, which can't turn it off.`
-                    : null
-                }
-                checked={abilities[ability.key]}
-                disabled={disabled}
-                onCheckedChange={(checked) =>
-                  change({ abilities: { ...abilities, [ability.key]: checked } })
-                }
-              />
-            ))}
+            {ABILITIES.filter((ability) => ability.key !== "makeImages" || offersImages).map(
+              (ability) => (
+                <AbilityRow
+                  key={ability.key}
+                  title={ability.title}
+                  hint={ability.hint}
+                  stuckOn={
+                    !abilities[ability.key] &&
+                    described?.account != null &&
+                    described.turnsOff !== null &&
+                    !described.turnsOff.includes(ability.key)
+                      ? `Stays on with ${described.account}, which can't turn it off.`
+                      : null
+                  }
+                  checked={abilities[ability.key] === true}
+                  disabled={disabled}
+                  onCheckedChange={(checked) =>
+                    change({ abilities: { ...abilities, [ability.key]: checked } })
+                  }
+                />
+              ),
+            )}
           </div>
         </section>
 

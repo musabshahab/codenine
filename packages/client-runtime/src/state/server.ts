@@ -1322,6 +1322,13 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
     }),
+    mediaOverview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:media:overview",
+      tag: WS_METHODS.mediaGetOverview,
+      // Spending and saved keys change outside this client, so each visit reads them again.
+      staleTimeMs: 0,
+      idleTtlMs: 30_000,
+    }),
     npmRelease: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:npm-release",
       tag: WS_METHODS.serverGetNpmRelease,

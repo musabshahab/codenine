@@ -53,6 +53,19 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("lets only those who may run agents pay for images", () => {
+    for (const method of [
+      WS_METHODS.mediaGenerateImage,
+      WS_METHODS.mediaEditImage,
+      WS_METHODS.mediaCancelJob,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
+    for (const method of [WS_METHODS.mediaGetOverview, WS_METHODS.mediaSubscribeJobs]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+    }
+  });
+
   it("rejects unknown RPC method names", () => {
     for (const method of ["server.notRegistered", "toString", "constructor"]) {
       expect(() => requiredScopeForRpcMethod(method)).toThrow(

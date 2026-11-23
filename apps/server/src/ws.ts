@@ -95,6 +95,7 @@ import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as FileBaselines from "./checkpointing/FileBaselines.ts";
 import * as Documents from "./documents/Documents.ts";
+import * as Media from "./media/Media.ts";
 import * as FileVersions from "./fileVersions/FileVersions.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
@@ -1402,6 +1403,7 @@ export const layerWsRpc = (
       const fileBaselines = yield* FileBaselines.FileBaselines;
       const fileVersions = yield* FileVersions.FileVersions;
       const documents = yield* Documents.Documents;
+      const media = yield* Media.Media;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -2460,6 +2462,13 @@ export const layerWsRpc = (
               ),
             ),
         [WS_METHODS.documentsSaveReplyFile]: (input) => documents.saveReplyFile(input),
+        [WS_METHODS.mediaGetOverview]: () => media.overview,
+        [WS_METHODS.mediaGenerateImage]: (input) => media.generate(input),
+        [WS_METHODS.mediaEditImage]: (input) => media.edit(input),
+        [WS_METHODS.mediaCancelJob]: (input) =>
+          media.cancel(input.jobId).pipe(Effect.map((cancelled) => ({ cancelled }))),
+        [WS_METHODS.mediaSubscribeJobs]: () => media.jobs,
+        [WS_METHODS.mediaGetImageRecord]: (input) => media.imageRecord(input),
         [WS_METHODS.projectsReadFileVersion]: (input) =>
           fileVersions
             .read(input)

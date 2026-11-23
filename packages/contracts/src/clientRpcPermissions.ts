@@ -61,6 +61,10 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // Changes a PDF, and is the only way a signature is placed on one.
   [WS_METHODS.documentsEditPdf]: AuthFilesystemWriteScope,
   [WS_METHODS.documentsSaveReplyFile]: AuthFilesystemWriteScope,
+  // Making an image spends the user's money with a provider, as running an agent does.
+  [WS_METHODS.mediaGenerateImage]: AuthOrchestrationOperateScope,
+  [WS_METHODS.mediaEditImage]: AuthOrchestrationOperateScope,
+  [WS_METHODS.mediaCancelJob]: AuthOrchestrationOperateScope,
   [WS_METHODS.sourceControlCloneRepository]: AuthSourceControlWriteScope,
   [WS_METHODS.sourceControlPublishRepository]: AuthSourceControlWriteScope,
   // Signing in replaces the server's GitHub credential, as saving a token in Settings does.

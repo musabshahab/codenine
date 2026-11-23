@@ -814,6 +814,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     providerSettingsOnly: true,
   },
   {
+    id: "media",
+    title: "Media",
+    to: "/settings/providers",
+    searchTerms: [
+      "images image generation pictures fal openrouter provider key default model spending limit monthly budget cost usage",
+    ],
+    providerSettingsOnly: true,
+  },
+  {
     id: "text-generators",
     title: "Text generators",
     to: "/settings/providers",

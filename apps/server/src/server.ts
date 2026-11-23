@@ -68,6 +68,7 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as FileBaselines from "./checkpointing/FileBaselines.ts";
 import * as Documents from "./documents/Documents.ts";
+import * as Media from "./media/Media.ts";
 import * as FileVersions from "./fileVersions/FileVersions.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
@@ -447,7 +448,11 @@ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   ),
 );
 
-const layerOrchestrationApplication = Layer.mergeAll(FileBaselines.layer, Documents.layer).pipe(
+const layerOrchestrationApplication = Layer.mergeAll(
+  FileBaselines.layer,
+  Documents.layer,
+  Media.layer.pipe(Layer.provide(layerKnownWorkspaces)),
+).pipe(
   Layer.provide(layerWorkspace),
   Layer.provideMerge(layerFileVersions),
   Layer.provideMerge(CheckpointDiffQuery.layer),

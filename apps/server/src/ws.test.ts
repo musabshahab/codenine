@@ -49,6 +49,7 @@ import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as FileBaselines from "./checkpointing/FileBaselines.ts";
 import * as Documents from "./documents/Documents.ts";
+import * as Media from "./media/Media.ts";
 import * as FileVersions from "./fileVersions/FileVersions.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as CodexInstallation from "./provider/CodexInstallation.ts";
@@ -766,6 +767,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(FileBaselines.FileBaselines)({}),
   Layer.mock(FileVersions.FileVersions)({}),
   Layer.mock(Documents.Documents)({}),
+  Layer.mock(Media.Media)({}),
   Layer.mock(CommandOutputHub.CommandOutputHub)({}),
   Layer.mock(CodexInstallation.CodexInstallation)({ managedDirectory: "/unused" }),
   Layer.mock(EnvironmentTheme.EnvironmentThemeService)({}),

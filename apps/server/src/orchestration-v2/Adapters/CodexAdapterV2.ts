@@ -1,5 +1,6 @@
 import { pipe } from "effect/Function";
 import { DOCUMENT_EDIT_TOOLS } from "../../mcp/toolkits/documents/names.ts";
+import { MEDIA_TOOLS } from "../../mcp/toolkits/media/names.ts";
 import * as DocumentText from "../../provider/DocumentText.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@codenine/provider-core/server/handoffBudget";
@@ -1467,6 +1468,8 @@ export function codexThreadRuntimeParams(input: {
                 CODEX_DIRECT_ONLY_CODENINE_TOOL,
                 // The read-only sandbox does not bind Codenine's own tools that change files.
                 ...(abilities?.editFiles === false ? DOCUMENT_EDIT_TOOLS : []),
+                // An agent pays for images only when it was given that ability.
+                ...(abilities !== undefined && abilities.makeImages !== true ? MEDIA_TOOLS : []),
               ],
             },
             // Code Mode runs a blocking wait as a nested call, and the model keeps working

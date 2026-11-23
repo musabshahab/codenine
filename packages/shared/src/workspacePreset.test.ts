@@ -29,6 +29,12 @@ describe("workspacePreset", () => {
     expect(workspacePreset("code").rightPanelTabs).not.toContain("sources");
   });
 
+  it("lets only a Create workspace's new agents pay for images", () => {
+    expect(
+      WorkspaceKind.literals.filter((kind) => workspacePreset(kind).agentAbilities.makeImages),
+    ).toEqual(["create"]);
+  });
+
   it.each(["work", "create"] as const)("keeps Git and commands out of a %s workspace", (kind) => {
     const preset = workspacePreset(kind);
     expect(preset.composerControls).toEqual({ checkout: false, gitActions: false });

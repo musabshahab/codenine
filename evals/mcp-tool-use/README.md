@@ -63,6 +63,16 @@ From `evals/`:
 pnpm mcp-tool-use --cases mcp-tool-use/cases/documents.ndjson --samples 3 --out runs/documents
 ```
 
+## Media cases
+
+`cases/media.ndjson` checks that agents make and change pictures with Codenine's image tools and not by calling a provider from the shell, that one request makes one image, that a refusal (no provider set up) is passed on to the user and not worked around, and, as a control, that resizing a file stays local work that costs nothing. Tool results are mocks, so no provider is called and the cases grade the route taken.
+
+From `evals/`:
+
+```sh
+pnpm mcp-tool-use --cases mcp-tool-use/cases/media.ndjson --samples 3 --out runs/media
+```
+
 ## Secrets cases
 
 `cases/secrets.ndjson` checks how agents get a secret only the user has: a login, PIN, pairing code, token or API key. Each case cites a finding of the October 2026 `request_secret` field review (`secret-field-2026-10`, root causes RC1–RC6) and describes its episode; prompts, worlds and secret values are authored Acme data, and every secret value is a fabricated fixture.

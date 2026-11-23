@@ -546,7 +546,23 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       "Bash",
       "PowerShell",
       "Monitor",
+      // Paid image tools are off unless the agent was given them.
+      "mcp__codenine__codenine_image_generate",
+      "mcp__codenine__codenine_image_edit",
     ];
+    assert.notIncludeMembers(
+      [
+        ...(ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
+          ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            cwd: "/workspace",
+            agent: { ...agent, abilities: { ...agent.abilities, makeImages: true } },
+          }),
+        ).disallowedTools ?? []),
+      ],
+      disallowedTools.slice(-2),
+    );
     for (const interactionMode of ["default", "plan"] as const) {
       assert.deepInclude(policyFor(interactionMode), {
         disallowedTools,

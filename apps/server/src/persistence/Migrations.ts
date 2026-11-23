@@ -89,6 +89,7 @@ import Migration0083 from "./Migrations/083_DropPreviewCleanupEffects.ts";
 import Migration0084 from "./Migrations/084_ProjectionProjectsKind.ts";
 import Migration0085 from "./Migrations/085_FileVersions.ts";
 import Migration0086 from "./Migrations/086_FileVersionAction.ts";
+import Migration0087 from "./Migrations/087_MediaGenerations.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -178,6 +179,7 @@ const migrationEntries = [
   [84, "ProjectionProjectsKind", Migration0084],
   [85, "FileVersions", Migration0085],
   [86, "FileVersionAction", Migration0086],
+  [87, "MediaGenerations", Migration0087],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

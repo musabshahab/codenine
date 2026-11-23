@@ -31,6 +31,7 @@ import {
   DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
   ProviderOptionSelections,
 } from "./model.ts";
+import { MediaSettings, MediaSettingsPatch } from "./media.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
@@ -1108,6 +1109,7 @@ export const ServerSettings = Schema.Struct({
   ),
   sidebarAutoSettleOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   backgroundActivity: BackgroundActivitySettings,
+  media: MediaSettings,
 
   automaticGitFetchInterval: Schema.DurationFromMillis.pipe(
     Schema.withDecodingDefault(
@@ -1462,6 +1464,7 @@ export const ServerSettingsPatch = Schema.Struct({
       overrides: Schema.optionalKey(BackgroundActivityOverrides),
     }),
   ),
+  media: Schema.optionalKey(MediaSettingsPatch),
   automaticGitFetchInterval: Schema.optionalKey(Schema.DurationFromMillis),
   providerHealthRefreshInterval: Schema.optionalKey(Schema.DurationFromMillis),
   backgroundActivityProfile: Schema.optionalKey(BackgroundActivityProfile),

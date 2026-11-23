@@ -38,6 +38,7 @@ import { buildCodexAdditionalContext } from "./CodexDeveloperInstructions.ts";
 import { DocumentText } from "./DocumentText.ts";
 import { ProviderRegistry } from "./ProviderRegistry.ts";
 import { Documents } from "../documents/Documents.ts";
+import { Media } from "../media/Media.ts";
 import budget from "./agentContextBudget.json" with { type: "json" };
 
 // Registration only stores tool definitions, so the handlers' services are never called.
@@ -47,6 +48,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ConnectorStore)({}),
   Layer.mock(DocumentText)({}),
   Layer.mock(Documents)({}),
+  Layer.mock(Media)({}),
   Layer.mock(GitVcsDriver)({}),
   Layer.mock(GitWorkflowService)({}),
   Layer.mock(ManagedProjectFolders)({ namedProjectsRoot: "" }),

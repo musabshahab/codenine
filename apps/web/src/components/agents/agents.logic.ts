@@ -267,6 +267,7 @@ export function agentAbilitiesLine(abilities: AgentAbilities): string {
     abilities.editFiles ? "edits files" : null,
     abilities.runCommands ? "runs commands" : null,
     abilities.searchWeb ? "searches the web" : null,
+    abilities.makeImages === true ? "makes images" : null,
   ].filter((part) => part !== null);
   if (parts.length === 0) return "Nothing: no files, commands or web";
   const line = joinWords(parts);

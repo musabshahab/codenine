@@ -88,6 +88,7 @@ export function parseAgentFile(name: AgentName, contents: string): AgentDefiniti
       editFiles: abilities.editFiles === true,
       runCommands: abilities.runCommands === true,
       searchWeb: abilities.searchWeb === true,
+      ...(abilities.makeImages === true ? { makeImages: true } : {}),
     },
   };
 }

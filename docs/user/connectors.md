@@ -91,7 +91,8 @@ These let an agent post for you, so their posting actions ask first unless you c
   own TikTok app passes TikTok's review. A self-hosted Postiz connects as a custom connector at its
   address followed by `/mcp`.
 - **fal** makes images, video and audio, billed to your fal account. Video costs much more than
-  images, so check fal's prices first.
+  images, so check fal's prices first. Codenine's own image tools use this key too, within a
+  spending limit you set: see [Images](./images.md).
 
 ## Not here yet
 

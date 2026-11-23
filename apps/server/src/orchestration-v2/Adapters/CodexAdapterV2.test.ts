@@ -267,7 +267,7 @@ describe("CodexAdapterV2 runtime policy", () => {
       }).config;
     assert.deepEqual(configFor(true, true), CodexAdapterV2.CODEX_THREAD_CONFIG);
     // The read-only sandbox does not reach Codenine's document tools, so they are turned off.
-    const codenineToolsOff = (editFiles: boolean) =>
+    const codenineToolsOff = (editFiles: boolean, makeImages?: boolean) =>
       CodexAdapterV2.codexThreadRuntimeParams({
         threadId: null,
         mcpSession: {
@@ -284,17 +284,29 @@ describe("CodexAdapterV2 runtime policy", () => {
           cwd: null,
           agent: {
             instructions: "",
-            abilities: { readFiles: true, editFiles, runCommands: true, searchWeb: true },
+            abilities: {
+              readFiles: true,
+              editFiles,
+              runCommands: true,
+              searchWeb: true,
+              ...(makeImages === undefined ? {} : { makeImages }),
+            },
           },
         },
       }).config["mcp_servers.codenine"];
-    assert.deepInclude(codenineToolsOff(true), { disabled_tools: ["codenine_thread_wait"] });
+    assert.deepInclude(codenineToolsOff(true, true), { disabled_tools: ["codenine_thread_wait"] });
+    // Paid image tools are off for an agent that was not given them.
+    const imageTools = ["codenine_image_generate", "codenine_image_edit"];
+    assert.deepInclude(codenineToolsOff(true), {
+      disabled_tools: ["codenine_thread_wait", ...imageTools],
+    });
     assert.deepInclude(codenineToolsOff(false), {
       disabled_tools: [
         "codenine_thread_wait",
         "codenine_spreadsheet_edit",
         "codenine_pdf_edit",
         "codenine_deck_edit",
+        ...imageTools,
       ],
     });
     assert.deepEqual(configFor(false, false), {

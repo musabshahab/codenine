@@ -94,6 +94,7 @@ import { ExpandableText } from "./ExpandableText";
 import { IntervalSecondsField } from "./IntervalSecondsField";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { useSecretSources } from "./SecretSourceInput";
+import { MediaSettings } from "./MediaSettings";
 import { TextGeneratorsSettings } from "./TextGeneratorsSettings";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
@@ -1061,6 +1062,14 @@ export function EnvironmentProviderSettings({
           environmentId={environmentId}
           environmentLabel={environmentLabel}
           providers={serverProviders}
+          readOnly={readOnly}
+        />
+      </EnvironmentWideAtWorkspace>
+
+      <EnvironmentWideAtWorkspace workspaceScoped={workspaceScoped}>
+        <MediaSettings
+          key={`media:${environmentId}`}
+          environmentId={environmentId}
           readOnly={readOnly}
         />
       </EnvironmentWideAtWorkspace>

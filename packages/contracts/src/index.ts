@@ -52,6 +52,7 @@ export * from "./codenineRepository.ts";
 export * from "./editor.ts";
 export * from "./project.ts";
 export * from "./documents.ts";
+export * from "./media.ts";
 export * from "./filesystem.ts";
 export * from "./assets.ts";
 export * from "./review.ts";

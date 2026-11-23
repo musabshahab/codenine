@@ -26,6 +26,7 @@ the terminal, worktrees, and pull requests.
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Keyboard focus](./user/keyboard-focus.md)
 - [Text generation models](./user/text-generation.md)
+- [Images](./user/images.md)
 - [Usage and limits](./user/usage.md)
 - [Context in portable handoffs](./user/portable-handoffs.md)
 - [Diagnostics data](./user/telemetry.md)

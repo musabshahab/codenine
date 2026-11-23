@@ -165,6 +165,18 @@ import {
   SpreadsheetUnsupportedError,
 } from "./documents.ts";
 import {
+  MediaCancelInput,
+  MediaCancelResult,
+  MediaEditInput,
+  MediaGenerateInput,
+  MediaImageErrors,
+  MediaImageRecord,
+  MediaImageRecordInput,
+  MediaImageResult,
+  MediaJobEvent,
+  MediaOverview,
+} from "./media.ts";
+import {
   ProjectCreateNewInput,
   ProjectCreateNewResult,
   ProjectCreateFromThreadInput,
@@ -372,6 +384,12 @@ export const WS_METHODS = {
   documentsOpenPdf: "documents.openPdf",
   documentsEditPdf: "documents.editPdf",
   documentsSaveReplyFile: "documents.saveReplyFile",
+  mediaGetOverview: "media.getOverview",
+  mediaGenerateImage: "media.generateImage",
+  mediaEditImage: "media.editImage",
+  mediaCancelJob: "media.cancelJob",
+  mediaSubscribeJobs: "media.subscribeJobs",
+  mediaGetImageRecord: "media.getImageRecord",
   projectsListFileActivity: "projects.listFileActivity",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
@@ -1300,6 +1318,43 @@ const WsDocumentsSaveReplyFileRpc = Rpc.make(WS_METHODS.documentsSaveReplyFile, 
   error: Schema.Union([ReplyFileExistsError, ReplyFileError, EnvironmentAuthorizationError]),
 });
 
+const WsMediaGetOverviewRpc = Rpc.make(WS_METHODS.mediaGetOverview, {
+  payload: Schema.Struct({}),
+  success: MediaOverview,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsMediaGenerateImageRpc = Rpc.make(WS_METHODS.mediaGenerateImage, {
+  payload: MediaGenerateInput,
+  success: MediaImageResult,
+  error: Schema.Union([...MediaImageErrors, EnvironmentAuthorizationError]),
+});
+
+const WsMediaEditImageRpc = Rpc.make(WS_METHODS.mediaEditImage, {
+  payload: MediaEditInput,
+  success: MediaImageResult,
+  error: Schema.Union([...MediaImageErrors, EnvironmentAuthorizationError]),
+});
+
+const WsMediaCancelJobRpc = Rpc.make(WS_METHODS.mediaCancelJob, {
+  payload: MediaCancelInput,
+  success: MediaCancelResult,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsMediaSubscribeJobsRpc = Rpc.make(WS_METHODS.mediaSubscribeJobs, {
+  payload: Schema.Struct({}),
+  success: MediaJobEvent,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const WsMediaGetImageRecordRpc = Rpc.make(WS_METHODS.mediaGetImageRecord, {
+  payload: MediaImageRecordInput,
+  success: Schema.NullOr(MediaImageRecord),
+  error: EnvironmentAuthorizationError,
+});
+
 const WsProjectsListFileActivityRpc = Rpc.make(WS_METHODS.projectsListFileActivity, {
   payload: ProjectListFileActivityInput,
   success: ProjectListFileActivityResult,
@@ -1869,6 +1924,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsDocumentsOpenPdfRpc,
   WsDocumentsEditPdfRpc,
   WsDocumentsSaveReplyFileRpc,
+  WsMediaGetOverviewRpc,
+  WsMediaGenerateImageRpc,
+  WsMediaEditImageRpc,
+  WsMediaCancelJobRpc,
+  WsMediaSubscribeJobsRpc,
+  WsMediaGetImageRecordRpc,
   WsProjectsListFileActivityRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

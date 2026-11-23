@@ -88,7 +88,7 @@ const CLAUDE_PRESENTATION = {
   displayName: "Claude",
   showInteractionModeToggle: true,
   reportsContextWindow: true,
-  agentAbilities: ["readFiles", "editFiles", "runCommands", "searchWeb"],
+  agentAbilities: ["readFiles", "editFiles", "runCommands", "searchWeb", "makeImages"],
   builtInModelInfo: { usesTools: true, readsImages: true, price: null },
 } as const;
 

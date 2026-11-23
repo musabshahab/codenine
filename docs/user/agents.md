@@ -19,7 +19,7 @@ connectors needs a model that can use tools. Effort is Low, Medium, High or Max;
 to each model's own levels, and a model without levels runs at its default.
 
 **On this computer** decides what the agent may do besides its connectors: read files, edit files,
-run commands, and search the web. A new agent starts with all of them off. Turn on only what the job
+run commands, search the web, and [make images](./images.md). A new agent starts with all of them off. Turn on only what the job
 needs; an email agent needs none of them. An agent works within these limits on its own: it cannot
 start, read or message other chats, and it never calls another agent. To have agents work together,
 ask for a team from a chat without an agent.
