@@ -128,6 +128,18 @@ streams whole and has no limit of its own, so the PDF code counts what its decod
 against a budget for each parse and refuses a file that goes over it. Saving replaces the file, and an
 asset URL is minted for one file as it was, so the client mints a new one after each save.
 
+Agents reach the same service through the
+[document tools](../../apps/server/src/mcp/toolkits/documents/tools.ts), never a second write
+path. A tool call made during a turn passes `duringTurn`, and the version store then records
+nothing for the write itself: the walk that ends the turn finds the file changed and records it
+as that turn's change, exactly as for a file the agent changed from its shell. Recording the
+write as a save would hide it from the turn, and with it the review and Discard. A deck is
+edited like a workbook, part by part in its Open XML package, and no client edits one. Both
+adapters turn the edit tools off for an agent without `editFiles`, because neither provider's
+own sandbox covers a tool that runs in the server. A document that is not text has no line
+review: its turn baseline answers `wholeFileOnly`, from the version store or, in a Git
+checkout, from the turn's first checkpoint, and Discard puts those bytes back.
+
 Thread settlement is server-owned. The
 [settlement service](../../apps/server/src/orchestration-v2/ThreadSettlementService.ts) evaluates PR
 and inactivity settings without a connected client. Merge notifications invalidate cached PR state

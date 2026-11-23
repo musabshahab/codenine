@@ -47,6 +47,8 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
     case "files":
     case "task":
     case "workflow":
+    case "sources":
+    case "activity":
       return surface.id === surface.kind;
     case "file":
       return (

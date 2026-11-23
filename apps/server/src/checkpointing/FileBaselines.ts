@@ -106,6 +106,8 @@ export class FileBaselines extends Context.Service<
 
 const UNAVAILABLE: ProjectReadFileBaselineResult = { available: false, contents: null };
 const WHOLE_FILE_ONLY: ProjectReadFileBaselineResult = { ...UNAVAILABLE, wholeFileOnly: true };
+// The largest file put back whole from a checkpoint, which is the largest document edited here.
+const WHOLE_FILE_MAX_BYTES = 32 * 1024 * 1024;
 // The largest text a workspace read returns, so a baseline never exceeds what it is compared to.
 const VERSION_BASELINE_MAX_BYTES = 1024 * 1024;
 const BYTE_ORDER_MARK_BYTES = [0xef, 0xbb, 0xbf];
@@ -184,8 +186,11 @@ const make = Effect.gen(function* () {
       // holds, such as ignored ones, which would otherwise look created by the turn.
       unlessSameAt: turn?.end,
     });
-    if (file.kind === "unavailable" || file.kind === "same") {
+    if (file.kind === "unavailable" || file.kind === "same" || file.kind === "bytes") {
       return { result: UNAVAILABLE, byteOrderMark: false };
+    }
+    if (file.kind === "binary") {
+      return { result: { ...WHOLE_FILE_ONLY, revision: file.commit }, byteOrderMark: false };
     }
     const byteOrderMark = file.kind === "text" && file.contents.startsWith(BYTE_ORDER_MARK);
     const result: ProjectReadFileBaselineResult = {
@@ -203,8 +208,44 @@ const make = Effect.gen(function* () {
     return { result, byteOrderMark };
   });
 
-  const read: FileBaselines["Service"]["read"] = (input) =>
-    readWithByteOrderMark(input).pipe(Effect.map(({ result }) => result));
+  /** A file that is not text as the turn's first checkpoint holds it. */
+  const checkpointBytes = Effect.fn("FileBaselines.checkpointBytes")(function* (
+    input: ProjectRevertFileChangeInput,
+  ) {
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    const turn = yield* checkpointDiffQuery.getTurnRefs(input).pipe(
+      Effect.catchTags({
+        CheckpointTurnRangeUnavailableError: () => Effect.succeed(null),
+        CheckpointRefUnavailableError: () => Effect.succeed(null),
+        CheckpointWorkspacePathMissingError: () => Effect.succeed(null),
+      }),
+    );
+    if (turn === null) return null;
+    const file = yield* checkpointStore.readFileAtRevision({
+      cwd: input.cwd,
+      revision: turn.start,
+      relativePath: target.relativePath,
+      bytes: { maxBytes: WHOLE_FILE_MAX_BYTES },
+    });
+    return file.kind === "bytes" ? { bytes: file.bytes } : null;
+  });
+
+  const read: FileBaselines["Service"]["read"] = Effect.fn("FileBaselines.readBaseline")(
+    function* (input) {
+      const { result } = yield* readWithByteOrderMark(input);
+      if (result.wholeFileOnly !== true) return result;
+      // A file that is not text has no workspace read to take its version from.
+      const current = yield* workspaceFileSystem
+        .readFileBytes({ ...input, maxBytes: WHOLE_FILE_MAX_BYTES })
+        .pipe(Effect.orElseSucceed(() => null));
+      return current?.kind === "file"
+        ? { ...result, currentVersion: WorkspaceFileSystem.fileVersion(current.bytes) }
+        : result;
+    },
+  );
 
   const revertTurnChange: FileBaselines["Service"]["revertTurnChange"] = Effect.fn(
     "FileBaselines.revertTurnChange",
@@ -215,7 +256,10 @@ const make = Effect.gen(function* () {
       source: { kind: "turn", threadId: input.threadId, turnCount: input.turnCount },
     });
     if (baseline.wholeFileOnly === true && input.change === undefined) {
-      const earlier = yield* fileVersions.turnBaseline({ ...target, ...input });
+      const earlier =
+        baseline.revision === undefined
+          ? yield* fileVersions.turnBaseline({ ...target, ...input })
+          : yield* checkpointBytes(input);
       if (earlier?.bytes) {
         // The write refuses a file that no longer has the version the caller saw.
         const written = yield* fileVersions.overwriteFileBytes({

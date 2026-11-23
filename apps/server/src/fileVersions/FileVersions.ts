@@ -4,6 +4,8 @@ import * as NodeFSP from "node:fs/promises";
 
 import type {
   ProjectFileVersion,
+  ProjectListFileActivityInput,
+  ProjectListFileActivityResult,
   ProjectListFileVersionsInput,
   ProjectListFileVersionsResult,
   ProjectReadFileVersionInput,
@@ -107,6 +109,11 @@ export class FileVersions extends Context.Service<
     readonly writeFileBytes: (
       input: WorkspaceFileSystem.WriteWorkspaceFileBytesInput & {
         readonly action?: FileVersionStorage.FileVersionAction | undefined;
+        /**
+         * True for a write an agent makes during its turn. The walk that ends the turn records
+         * it as the turn's change, as it does a change the agent made with its own tools.
+         */
+        readonly duringTurn?: boolean | undefined;
       },
     ) => Effect.Effect<ProjectWriteFileResult, SaveError>;
     /** `writeFile` for a write that promises an undo: refused when what it replaces is not kept. */
@@ -130,6 +137,10 @@ export class FileVersions extends Context.Service<
       ProjectListFileVersionsResult,
       WorkspacePaths.WorkspacePathOutsideRootError | FileVersionStorage.FileVersionStorageError
     >;
+    /** The workspace's newest recorded changes across its files. Empty in a Git checkout. */
+    readonly activity: (
+      input: ProjectListFileActivityInput,
+    ) => Effect.Effect<ProjectListFileActivityResult, FileVersionStorage.FileVersionStorageError>;
     readonly read: (
       input: ProjectReadFileVersionInput,
     ) => Effect.Effect<
@@ -201,6 +212,9 @@ interface WalkedFile {
   readonly byteLength: number;
   readonly mtimeMs: number;
 }
+
+// The most changes one activity read answers with, so the list stays small on the wire.
+const ACTIVITY_MAX_ENTRIES = 300;
 
 const toWire = (row: FileVersionStorage.FileVersionRow): ProjectFileVersion => ({
   id: String(row.versionId),
@@ -430,6 +444,22 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     const write = workspaceFileSystem.writeFileBytes(input);
     if (!(yield* isTracked(input.cwd))) return yield* write;
+    if (input.duringTurn === true) {
+      const found = yield* relativePathOf(input).pipe(Effect.option);
+      if (found._tag === "None") return yield* write;
+      const root = rootOf(input.cwd);
+      return yield* storage.withWriteLock(
+        root,
+        Effect.gen(function* () {
+          const earlier = walked.get(root);
+          // The walk before the turn holds what the file was, unless it could not read it.
+          if (earlier === undefined || isUnread(earlier, found.value)) {
+            yield* replacedIfPossible(input.cwd)(found.value);
+          }
+          return yield* write;
+        }),
+      );
+    }
     return yield* recorded(
       input,
       write,
@@ -482,6 +512,23 @@ const make = Effect.gen(function* () {
     const rows = yield* storage.list(rootOf(input.cwd), relativePath);
     return { tracked: yield* isTracked(input.cwd), versions: rows.map(toWire) };
   });
+
+  const activity: FileVersions["Service"]["activity"] = Effect.fn("FileVersions.activity")(
+    function* (input) {
+      const rows = yield* storage.recent(rootOf(input.cwd), {
+        since: input.since ?? null,
+        limit: ACTIVITY_MAX_ENTRIES,
+      });
+      return {
+        tracked: yield* isTracked(input.cwd),
+        entries: rows.map((row) => ({
+          ...toWire(row),
+          relativePath: row.relativePath,
+          change: row.change,
+        })),
+      };
+    },
+  );
 
   const storedVersion = Effect.fn("FileVersions.storedVersion")(function* (
     input: ProjectReadFileVersionInput,
@@ -746,6 +793,7 @@ const make = Effect.gen(function* () {
     overwriteFileBytes,
     removeFile,
     list,
+    activity,
     read,
     restore,
     syncWorkspace,

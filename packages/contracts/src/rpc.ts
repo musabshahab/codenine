@@ -143,6 +143,10 @@ import {
 } from "./orchestrationV2.ts";
 import {
   PdfEditInput,
+  ReplyFileError,
+  ReplyFileExistsError,
+  ReplyFileSaveInput,
+  ReplyFileSaveResult,
   PdfEditResult,
   PdfFileError,
   PdfOpenInput,
@@ -170,6 +174,8 @@ import {
   ProjectListEntriesInput,
   ProjectListEntriesResult,
   ProjectFileVersionError,
+  ProjectListFileActivityInput,
+  ProjectListFileActivityResult,
   ProjectListFileVersionsInput,
   ProjectListFileVersionsResult,
   ProjectReadFileVersionInput,
@@ -365,6 +371,8 @@ export const WS_METHODS = {
   documentsEditSpreadsheet: "documents.editSpreadsheet",
   documentsOpenPdf: "documents.openPdf",
   documentsEditPdf: "documents.editPdf",
+  documentsSaveReplyFile: "documents.saveReplyFile",
+  projectsListFileActivity: "projects.listFileActivity",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
@@ -1286,6 +1294,18 @@ const WsDocumentsEditPdfRpc = Rpc.make(WS_METHODS.documentsEditPdf, {
   ]),
 });
 
+const WsDocumentsSaveReplyFileRpc = Rpc.make(WS_METHODS.documentsSaveReplyFile, {
+  payload: ReplyFileSaveInput,
+  success: ReplyFileSaveResult,
+  error: Schema.Union([ReplyFileExistsError, ReplyFileError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsListFileActivityRpc = Rpc.make(WS_METHODS.projectsListFileActivity, {
+  payload: ProjectListFileActivityInput,
+  success: ProjectListFileActivityResult,
+  error: Schema.Union([ProjectFileVersionError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
@@ -1848,6 +1868,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsDocumentsEditSpreadsheetRpc,
   WsDocumentsOpenPdfRpc,
   WsDocumentsEditPdfRpc,
+  WsDocumentsSaveReplyFileRpc,
+  WsProjectsListFileActivityRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,

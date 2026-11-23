@@ -125,6 +125,8 @@ export interface WriteWorkspaceFileBytesInput {
   readonly relativePath: string;
   readonly bytes: Uint8Array;
   readonly expectedVersion?: string | undefined;
+  /** Writes only where no file is: one that is there is left alone and answered as a conflict. */
+  readonly createOnly?: boolean | undefined;
 }
 
 export type WorkspaceFileBytes =
@@ -711,6 +713,7 @@ export const make = Effect.gen(function* () {
   const writeContents = Effect.fn("WorkspaceFileSystem.writeContents")(function* (
     input: Pick<ProjectWriteFileInput, "cwd" | "relativePath" | "expectedVersion"> & {
       readonly contents: string | Uint8Array;
+      readonly createOnly?: boolean | undefined;
     },
   ) {
     yield* knownWorkspaces.assertContains(input.cwd);
@@ -736,16 +739,23 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
-    yield* Effect.tryPromise({
+    const created = yield* Effect.tryPromise({
       // A symlink swapped in after the check is not followed. Windows lacks O_NOFOLLOW.
       try: () =>
         NodeFSP.writeFile(realTargetPath, input.contents, {
           flag:
             NodeFS.constants.O_WRONLY |
             NodeFS.constants.O_CREAT |
-            NodeFS.constants.O_TRUNC |
+            // The file system refuses a file that is there, so no check can be raced.
+            (input.createOnly === true ? NodeFS.constants.O_EXCL : NodeFS.constants.O_TRUNC) |
             (NodeFS.constants.O_NOFOLLOW ?? 0),
-        }),
+        }).then(
+          () => true,
+          (cause: NodeJS.ErrnoException) => {
+            if (input.createOnly === true && cause.code === "EEXIST") return false;
+            throw cause;
+          },
+        ),
       catch: (cause) =>
         new WorkspaceFileSystemOperationError({
           workspaceRoot: input.cwd,
@@ -756,6 +766,16 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     });
+    if (!created) {
+      const existing = yield* Effect.promise(() =>
+        NodeFSP.readFile(realTargetPath).then(fileVersion, () => undefined),
+      );
+      return yield* new WorkspaceFileConflictError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        ...(existing === undefined ? {} : { currentVersion: existing }),
+      });
+    }
     // Editor autosave overwrites existing files, which leaves the indexed paths unchanged, and
     // fff's watcher applies the new contents on its own. A forced rescan re-walks the whole
     // workspace, and the save would wait for it.

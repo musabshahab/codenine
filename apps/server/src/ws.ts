@@ -2451,6 +2451,15 @@ export const layerWsRpc = (
                 (cause) => new ProjectFileVersionError({ message: cause.message, cause }),
               ),
             ),
+        [WS_METHODS.projectsListFileActivity]: (input) =>
+          fileVersions
+            .activity(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new ProjectFileVersionError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.documentsSaveReplyFile]: (input) => documents.saveReplyFile(input),
         [WS_METHODS.projectsReadFileVersion]: (input) =>
           fileVersions
             .read(input)

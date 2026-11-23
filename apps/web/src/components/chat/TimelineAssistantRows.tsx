@@ -4,7 +4,7 @@ import { canForkProjectedAssistantItem } from "@codenine/client-runtime/state/th
 import { memo, use, useState } from "react";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
-import { CheckIcon, GitForkIcon } from "lucide-react";
+import { CheckIcon, FileDownIcon, GitForkIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { checkpointFileTotals } from "@codenine/client-runtime/state/thread-checkpoints";
@@ -18,6 +18,8 @@ import {
 } from "../../state/entities";
 import { resolveDiffPathForWorkspace } from "../../diffFileActions";
 import { openFileForReview, reviewableTurnCount } from "../../fileReviewStore";
+import { useCanSaveReply } from "../work/SaveReplyDialog";
+import { useSaveReplyStore } from "../work/saveReplyStore";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { AssistantCitationSource } from "./AssistantCitationSource";
 import { resolveAssistantMessageCopyState } from "./MessagesTimeline.logic";
@@ -208,6 +210,9 @@ function AssistantMessageMeta({
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
       />
+      {showCopyButton && !copyStreaming && message.text ? (
+        <AssistantSaveButton text={message.text} />
+      ) : null}
       {projectedItem?.item.type === "assistant_message" ? (
         <AssistantForkButton projectedItem={projectedItem} />
       ) : null}
@@ -222,6 +227,32 @@ function AssistantMessageMeta({
         </Tooltip>
       )}
     </div>
+  );
+}
+
+/** Saves the reply into the workspace as a file. Hidden where the chat has no folder to save to. */
+function AssistantSaveButton({ text }: { text: string }) {
+  const ctx = use(TimelineRowCtx);
+  const canSave = useCanSaveReply(ctx.threadRef?.environmentId ?? null, ctx.workspaceRoot);
+  const threadRef = ctx.threadRef;
+  if (!canSave || threadRef === null) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost-muted"
+            aria-label="Save reply as file"
+            onClick={() => useSaveReplyStore.getState().open(threadRef, text)}
+          />
+        }
+      >
+        <FileDownIcon className="size-3" />
+      </TooltipTrigger>
+      <TooltipPopup>Save reply as file</TooltipPopup>
+    </Tooltip>
   );
 }
 

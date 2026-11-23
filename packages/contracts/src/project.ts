@@ -587,6 +587,9 @@ export const ProjectReadFileBaselineResult = Schema.Struct({
   // True when the earlier contents are kept but are not text, as for a workbook. The file can be
   // put back whole with projects.revertFileChange, but not compared here.
   wholeFileOnly: Schema.optional(Schema.Boolean),
+  // With `wholeFileOnly`: the read `version` of the file as it is now, which
+  // projects.revertFileChange takes as `expectedVersion`. Absent when the file is gone.
+  currentVersion: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectReadFileBaselineResult = typeof ProjectReadFileBaselineResult.Type;
 
@@ -667,6 +670,28 @@ export const ProjectListFileVersionsResult = Schema.Struct({
   versions: Schema.Array(ProjectFileVersion),
 });
 export type ProjectListFileVersionsResult = typeof ProjectListFileVersionsResult.Type;
+
+export const ProjectListFileActivityInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  // Only changes recorded at or after this time.
+  since: Schema.optional(IsoDateTime),
+});
+export type ProjectListFileActivityInput = typeof ProjectListFileActivityInput.Type;
+
+export const ProjectFileActivityEntry = Schema.Struct({
+  ...ProjectFileVersion.fields,
+  relativePath: TrimmedNonEmptyString,
+  change: Schema.Literals(["created", "modified", "deleted"]),
+});
+export type ProjectFileActivityEntry = typeof ProjectFileActivityEntry.Type;
+
+export const ProjectListFileActivityResult = Schema.Struct({
+  // False in a Git checkout, where the version store records nothing.
+  tracked: Schema.Boolean,
+  // Newest first, and at most the newest few hundred.
+  entries: Schema.Array(ProjectFileActivityEntry),
+});
+export type ProjectListFileActivityResult = typeof ProjectListFileActivityResult.Type;
 
 export const ProjectReadFileVersionInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

@@ -131,6 +131,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.documentsOpenSpreadsheet]: AuthFilesystemReadScope,
   [WS_METHODS.documentsReadSpreadsheetRange]: AuthFilesystemReadScope,
   [WS_METHODS.documentsOpenPdf]: AuthFilesystemReadScope,
+  [WS_METHODS.projectsListFileActivity]: AuthFilesystemReadScope,
   [WS_METHODS.projectsSearchContents]: AuthFilesystemReadScope,
   [WS_METHODS.projectsSearchEntries]: AuthFilesystemReadScope,
   [WS_METHODS.projectsWriteFile]: AuthFilesystemWriteScope,

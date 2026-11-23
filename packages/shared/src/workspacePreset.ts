@@ -1,7 +1,15 @@
 import type { AgentAbilities, WorkspaceKind } from "@codenine/contracts";
 
 /** A right-panel tab a workspace can offer; an open file counts as "files". */
-export type WorkspacePanelTab = "terminal" | "files" | "diff" | "side-chat" | "task" | "workflow";
+export type WorkspacePanelTab =
+  | "terminal"
+  | "files"
+  | "diff"
+  | "side-chat"
+  | "task"
+  | "workflow"
+  | "sources"
+  | "activity";
 
 export interface WorkspaceExample {
   readonly prompt: string;
@@ -77,10 +85,14 @@ export const WORKSPACE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>>
         },
       ],
     },
-    ...WITHOUT_GIT,
-    agentAbilities: { readFiles: true, editFiles: false, runCommands: false, searchWeb: true },
+    composerControls: WITHOUT_GIT.composerControls,
+    // Listed first where tabs are offered: what the chat read, and what changed in the folder.
+    rightPanelTabs: ["sources", "activity", ...WITHOUT_GIT.rightPanelTabs],
+    // Editing is how an agent fills in a spreadsheet, a form or a deck when asked.
+    agentAbilities: { readFiles: true, editFiles: true, runCommands: false, searchWeb: true },
     suggestedConnectors: ["gmail", "google-calendar", "google-drive", "slack", "notion"],
     suggestedSkills: [
+      "work-with-documents",
       "write-clear-emails",
       "triage-an-inbox",
       "summarise-a-meeting",
@@ -109,7 +121,10 @@ export const WORKSPACE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>>
 const inWorktree = (preset: WorkspacePreset): WorkspacePreset => ({
   ...preset,
   composerControls: WORKSPACE_PRESETS.code.composerControls,
-  rightPanelTabs: WORKSPACE_PRESETS.code.rightPanelTabs,
+  rightPanelTabs: [
+    ...preset.rightPanelTabs.filter((tab) => !WORKSPACE_PRESETS.code.rightPanelTabs.includes(tab)),
+    ...WORKSPACE_PRESETS.code.rightPanelTabs,
+  ],
 });
 
 const WORKTREE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>> = {

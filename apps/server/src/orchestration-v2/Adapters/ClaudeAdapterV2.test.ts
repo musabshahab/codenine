@@ -539,6 +539,10 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
       "NotebookEdit",
       "EnterWorktree",
       "ExitWorktree",
+      // Codenine's document tools change files too.
+      "mcp__codenine__codenine_spreadsheet_edit",
+      "mcp__codenine__codenine_pdf_edit",
+      "mcp__codenine__codenine_deck_edit",
       "Bash",
       "PowerShell",
       "Monitor",

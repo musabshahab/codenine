@@ -58,15 +58,14 @@ it("a thread's Git controls follow its workspace type's preset", async () => {
   await expect.element(launcher).toHaveAttribute("data-surface-launcher-keys", "TFD");
 
   // Ends on code, where the chord that did nothing in the other types opens the Diff tab.
-  for (const { kind, git } of [
-    { kind: "work", git: false },
-    { kind: "create", git: false },
-    { kind: "code", git: true },
+  // A Work workspace lists Sources and Activity first; the others keep them in the add menu.
+  for (const { kind, git, keys } of [
+    { kind: "work", git: false, keys: "RATF" },
+    { kind: "create", git: false, keys: "TF" },
+    { kind: "code", git: true, keys: "TFD" },
   ] as const) {
     await emitProjectUpdate({ kind });
-    await expect
-      .element(launcher)
-      .toHaveAttribute("data-surface-launcher-keys", git ? "TFD" : "TF");
+    await expect.element(launcher).toHaveAttribute("data-surface-launcher-keys", keys);
     // The narrow header hides its tools from the accessibility tree, so look in the document.
     await vi.waitFor(() =>
       expect(document.querySelector('button[aria-label="Changes"]') !== null).toBe(git),

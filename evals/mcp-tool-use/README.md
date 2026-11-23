@@ -53,6 +53,16 @@ pnpm mcp-tool-use --cases mcp-tool-use/cases/threads-vs-tasks.ndjson --samples 3
 
 These cases measure routing decisions with simulated tools, not delivered child work. The original PR's paid baseline found Sonnet starting a background native Agent for `tt-background-agent`; the routing fix is stacked separately in #27139. Historical model results and the unresolved top-level reviewer re-check wording are recorded in #27138.
 
+## Documents cases
+
+`cases/documents.ndjson` checks that agents change spreadsheets, PDFs and decks with Codenine's document tools and not by unzipping the file or scripting a library, that a request to sign a PDF is handed to the user, and, as a control, that ordinary shell work on a text file stays shell work. The files in each world are binary placeholders and the tool results are mocks, so the cases grade the route taken, not the document produced.
+
+From `evals/`:
+
+```sh
+pnpm mcp-tool-use --cases mcp-tool-use/cases/documents.ndjson --samples 3 --out runs/documents
+```
+
 ## Secrets cases
 
 `cases/secrets.ndjson` checks how agents get a secret only the user has: a login, PIN, pairing code, token or API key. Each case cites a finding of the October 2026 `request_secret` field review (`secret-field-2026-10`, root causes RC1–RC6) and describes its episode; prompts, worlds and secret values are authored Acme data, and every secret value is a fabricated fixture.

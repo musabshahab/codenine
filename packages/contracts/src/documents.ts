@@ -486,6 +486,7 @@ export class PdfOperationError extends Schema.TaggedError<PdfOperationError>()(
       "signature-image-invalid",
       "signature-image-too-large",
       "signature-text-unprintable",
+      "text-not-found",
     ]),
     // The index among the operations, or among the signatures for a signature reason.
     ...RefusedOperation,
@@ -513,11 +514,208 @@ export class PdfOperationError extends Schema.TaggedError<PdfOperationError>()(
         return "The signature image is too large. Use one under 512 KB and 8 megapixels.";
       case "signature-text-unprintable":
         return "The name or date uses characters that could not be printed on the page.";
+      case "text-not-found":
+        return "That text is not on that page. Read the page's text and quote it as it is written there.";
     }
   }
 }
 
 export class PdfFileError extends Schema.TaggedError<PdfFileError>()("PdfFileError", {
+  message: TrimmedNonEmptyString,
+  cause: Schema.optional(Schema.Defect()),
+}) {}
+
+const PDF_TEXT_MAX_PAGES = 50;
+
+export const PdfReadTextInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: SpreadsheetPath,
+  // Zero-based first page, and how many pages.
+  page: NonNegativeInt,
+  pageCount: PositiveInt.check(Schema.isLessThanOrEqualTo(PDF_TEXT_MAX_PAGES)),
+});
+export type PdfReadTextInput = typeof PdfReadTextInput.Type;
+
+export const PdfReadTextResult = Schema.Struct({
+  version: TrimmedNonEmptyString,
+  // How many pages the PDF has.
+  pageCount: NonNegativeInt,
+  pages: Schema.Array(
+    Schema.Struct({
+      page: NonNegativeInt,
+      // The page's text in reading order, one line per line. Empty for a scanned page.
+      text: Schema.String,
+      // True when the text was cut at the size limit.
+      truncated: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
+});
+export type PdfReadTextResult = typeof PdfReadTextResult.Type;
+
+/** Marks text a page already holds, found by its wording, so the caller needs no coordinates. */
+export const PdfTextMark = Schema.Struct({
+  page: NonNegativeInt,
+  // Text as the page reads, matched without regard to case or spacing. Its first occurrence.
+  text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000)),
+  // A note attached to the highlight.
+  note: Schema.optionalKey(PdfNoteText),
+  colour: Schema.optionalKey(PdfColour),
+});
+export type PdfTextMark = typeof PdfTextMark.Type;
+
+const DECK_EDIT_MAX_OPERATIONS = 500;
+const DeckText = Schema.String.check(Schema.isMaxLength(100_000));
+// One-based, as slide numbers are shown.
+const SlideNumber = PositiveInt;
+
+export const DeckShape = Schema.Struct({
+  // The shape's id on its slide, which an edit names.
+  id: TrimmedNonEmptyString,
+  name: Schema.String,
+  // What the layout holds here, such as `title`, `subTitle` or `body`. Absent for a free shape.
+  placeholder: Schema.optionalKey(Schema.String),
+  // Paragraphs joined with newlines.
+  text: Schema.String,
+});
+export type DeckShape = typeof DeckShape.Type;
+
+export const DeckSlide = Schema.Struct({
+  slide: SlideNumber,
+  layout: Schema.String,
+  shapes: Schema.Array(DeckShape),
+  notes: Schema.String,
+});
+export type DeckSlide = typeof DeckSlide.Type;
+
+export const DeckOpenInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: SpreadsheetPath,
+});
+export type DeckOpenInput = typeof DeckOpenInput.Type;
+
+const DeckContents = {
+  slides: Schema.Array(DeckSlide),
+  // The layouts a new slide can use, by name.
+  layouts: Schema.Array(Schema.String),
+};
+
+export const DeckOpenResult = Schema.Struct({ version: TrimmedNonEmptyString, ...DeckContents });
+export type DeckOpenResult = typeof DeckOpenResult.Type;
+
+const DeckPlaceholderText = Schema.Struct({
+  // A shape's `id`, or a placeholder kind such as `title` or `body`.
+  shape: TrimmedNonEmptyString,
+  text: DeckText,
+});
+
+/** Operations run in order; a later one sees the slide numbers the earlier ones left. */
+export const DeckOperation = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("setText"),
+    slide: SlideNumber,
+    ...DeckPlaceholderText.fields,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("addSlide"),
+    // A layout name from `layouts`.
+    layout: TrimmedNonEmptyString,
+    // The new slide's number. Omit to add it at the end.
+    at: Schema.optionalKey(SlideNumber),
+    text: Schema.optionalKey(Schema.Array(DeckPlaceholderText)),
+    notes: Schema.optionalKey(DeckText),
+  }),
+  Schema.Struct({ type: Schema.Literal("deleteSlide"), slide: SlideNumber }),
+  Schema.Struct({ type: Schema.Literal("moveSlide"), slide: SlideNumber, to: SlideNumber }),
+  Schema.Struct({ type: Schema.Literal("setNotes"), slide: SlideNumber, notes: DeckText }),
+]);
+export type DeckOperation = typeof DeckOperation.Type;
+
+export const DeckEditInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: SpreadsheetPath,
+  // The `version` the caller opened. A file that differs is not written.
+  expectedVersion: Schema.optional(TrimmedNonEmptyString),
+  operations: Schema.Array(DeckOperation).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(DECK_EDIT_MAX_OPERATIONS),
+  ),
+});
+export type DeckEditInput = typeof DeckEditInput.Type;
+
+export const DeckEditResult = Schema.Struct({ version: TrimmedNonEmptyString, ...DeckContents });
+export type DeckEditResult = typeof DeckEditResult.Type;
+
+/** The deck cannot be read or the operation cannot be applied. Nothing was written. */
+export class DeckOperationError extends Schema.TaggedError<DeckOperationError>()(
+  "DeckOperationError",
+  {
+    relativePath: Schema.String,
+    reason: Schema.Literals([
+      "not-a-deck",
+      "too-large",
+      "unknown-slide",
+      "unknown-shape",
+      "unknown-layout",
+      "last-slide",
+    ]),
+    ...RefusedOperation,
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "not-a-deck":
+        return `'${this.relativePath}' is not a .pptx deck that can be opened here. It may be damaged or protected with a password.`;
+      case "too-large":
+        return `'${this.relativePath}' is too large to change here.`;
+      case "unknown-slide":
+        return "That slide number is not in this deck.";
+      case "unknown-shape":
+        return "That slide has no shape with that id or placeholder kind that holds text.";
+      case "unknown-layout":
+        return "This deck has no layout with that name.";
+      case "last-slide":
+        return "A deck needs at least one slide.";
+    }
+  }
+}
+
+/** The largest reply saved as a file, as characters of Markdown. */
+export const REPLY_FILE_MAX_LENGTH = 2_000_000;
+
+export const ReplyFileFormat = Schema.Literals(["markdown", "pdf", "xlsx"]);
+export type ReplyFileFormat = typeof ReplyFileFormat.Type;
+
+export const ReplyFileSaveInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  // Where the file goes, inside the workspace. Its extension must fit the format.
+  relativePath: SpreadsheetPath,
+  format: ReplyFileFormat,
+  // The reply as Markdown. A spreadsheet takes its first table.
+  markdown: Schema.String.check(Schema.isMaxLength(REPLY_FILE_MAX_LENGTH)),
+  // The `currentVersion` of a file the user agreed to replace. Without it an existing file is
+  // never written.
+  replaceVersion: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type ReplyFileSaveInput = typeof ReplyFileSaveInput.Type;
+
+export const ReplyFileSaveResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  version: TrimmedNonEmptyString,
+});
+export type ReplyFileSaveResult = typeof ReplyFileSaveResult.Type;
+
+/** A file is already there, so nothing was written. Saving again with its version replaces it. */
+export class ReplyFileExistsError extends Schema.TaggedError<ReplyFileExistsError>()(
+  "ReplyFileExistsError",
+  { relativePath: Schema.String, currentVersion: TrimmedNonEmptyString },
+) {
+  override get message(): string {
+    return `'${this.relativePath}' already exists.`;
+  }
+}
+
+export class ReplyFileError extends Schema.TaggedError<ReplyFileError>()("ReplyFileError", {
+  reason: Schema.Literals(["no-table", "wrong-extension", "too-large", "failed"]),
   message: TrimmedNonEmptyString,
   cause: Schema.optional(Schema.Defect()),
 }) {}

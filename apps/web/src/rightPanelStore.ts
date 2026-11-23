@@ -16,6 +16,8 @@ const RIGHT_PANEL_KINDS = [
   "side-chat",
   "task",
   "workflow",
+  "sources",
+  "activity",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -50,7 +52,11 @@ export type RightPanelSurface =
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId }
   | { id: "task"; kind: "task" }
   /** The workflow the lead drafted in this chat. */
-  | { id: "workflow"; kind: "workflow" };
+  | { id: "workflow"; kind: "workflow" }
+  /** What this chat read or cited. */
+  | { id: "sources"; kind: "sources" }
+  /** Changes made to the workspace's files during this chat. */
+  | { id: "activity"; kind: "activity" };
 
 type SingletonRightPanelKind = Exclude<RightPanelKind, "file" | "terminal" | "side-chat">;
 
@@ -187,6 +193,10 @@ const singletonSurface = (kind: SingletonRightPanelKind): RightPanelSurface => {
       return { id: "task", kind };
     case "workflow":
       return { id: "workflow", kind };
+    case "sources":
+      return { id: "sources", kind };
+    case "activity":
+      return { id: "activity", kind };
   }
 };
 

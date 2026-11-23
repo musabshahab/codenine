@@ -117,6 +117,7 @@ import {
 } from "./fileSaveSessions";
 import { fileChangeMarkerCssFor } from "./fileChangeBlocks";
 import { DeletedFileReviewBar, FileReviewSurface } from "./FileReviewSurface";
+import { DocumentAgentChangeBar } from "./DocumentAgentChangeBar";
 import { FileVersionsDialog } from "./FileVersionsDialog";
 import { type FileBaseline, useFileBaseline } from "./useFileBaseline";
 import { isFileReviewKept, reviewableTurnCount, useFileReviewStore } from "~/fileReviewStore";
@@ -1240,7 +1241,7 @@ export default function FilePreviewPanel({
     true,
     Schema.Boolean,
   );
-  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versionsOpenHere, setVersionsOpenHere] = useState(false);
   const versionedPath =
     serverConfig?.environment.capabilities.fileVersions === true &&
     attachment === undefined &&
@@ -1268,9 +1269,13 @@ export default function FilePreviewPanel({
     !file.isPending
       ? previewPath
       : null;
-  const reviewPath = editablePath ?? missingPath ?? workbookPath;
+  // Documents that are not text. An agent's change to one is kept or put back whole.
+  const wholeFilePath =
+    workbookPath ??
+    ((isPdf || isDocument) && attachment === undefined && !isHostFile ? previewPath : null);
+  const reviewPath = editablePath ?? missingPath ?? wholeFilePath;
   // What the user can keep as the agent left it: a file that is still there.
-  const keptPath = editablePath ?? workbookPath;
+  const keptPath = editablePath ?? wholeFilePath;
   const headBaseline = useFileBaseline(
     editablePath !== null && canWriteFiles
       ? { environmentId, cwd, relativePath: editablePath, source: HEAD_BASELINE_SOURCE }
@@ -1289,6 +1294,15 @@ export default function FilePreviewPanel({
       keptPath !== null &&
       isFileReviewKept(state, threadKey, reviewTurnCount, keptPath),
   );
+  const versionsRequested = useFileReviewStore(
+    (state) =>
+      versionsPath !== null && state.versionsRequestByThreadKey[threadKey] === versionsPath,
+  );
+  const versionsOpen = versionsOpenHere || versionsRequested;
+  const setVersionsOpen = (open: boolean) => {
+    setVersionsOpenHere(open);
+    if (!open) useFileReviewStore.getState().requestVersions(threadKey, null);
+  };
   const turnBaseline = useFileBaseline(
     reviewPath !== null && reviewTurnCount !== null && !reviewKept
       ? {
@@ -1578,6 +1592,24 @@ export default function FilePreviewPanel({
         >
           The agent changed this file in its last turn.
         </FileSurfaceBar>
+      ) : null}
+      {wholeFilePath !== null &&
+      // The grid has its own bar, which also knows about unsaved cells.
+      !(workbookPath !== null && editsWorkbook) &&
+      reviewTurnCount !== null &&
+      turnBaseline?.wholeFileOnly === true &&
+      !reviewKept ? (
+        <DocumentAgentChangeBar
+          key={`${wholeFilePath}:${reviewTurnCount}`}
+          environmentId={environmentId}
+          cwd={cwd}
+          relativePath={wholeFilePath}
+          threadId={threadRef.threadId}
+          turnCount={reviewTurnCount}
+          canDiscard={canWriteFiles}
+          onKeep={keepReviewedFile}
+          onDiscarded={() => setFileRefreshRevision((revision) => revision + 1)}
+        />
       ) : null}
       {previewPath &&
       attachment === undefined &&

@@ -131,6 +131,11 @@ export class FileVersionStorage extends Context.Service<
       workspaceRoot: string,
       turn: { readonly threadId: string; readonly turnCount: number },
     ) => Stored<ReadonlyArray<FileVersionRow>>;
+    /** The workspace's newest versions across all its files, newest first. */
+    readonly recent: (
+      workspaceRoot: string,
+      input: { readonly since: string | null; readonly limit: number },
+    ) => Stored<ReadonlyArray<FileVersionRow>>;
     /** Records a new latest version of a file, then applies the per-file limit. */
     readonly append: (
       workspaceRoot: string,
@@ -260,6 +265,16 @@ const make = Effect.gen(function* () {
         AND workspace_root = ${workspaceRoot} AND origin = 'agent'
       ORDER BY version_id
     `.pipe(Effect.mapError(failed("read a turn's versions")));
+
+  const recent = (
+    workspaceRoot: string,
+    input: { readonly since: string | null; readonly limit: number },
+  ) =>
+    sql<FileVersionRow>`
+      SELECT ${columns} FROM file_versions
+      WHERE workspace_root = ${workspaceRoot} AND created_at >= ${input.since ?? ""}
+      ORDER BY version_id DESC LIMIT ${input.limit}
+    `.pipe(Effect.mapError(failed("read the workspace's recent versions")));
 
   const isReferenced = (workspaceRoot: string, hash: string) =>
     sql`
@@ -516,6 +531,7 @@ const make = Effect.gen(function* () {
     get,
     previous,
     turnRows,
+    recent,
     append,
     replaceContent,
     touch,

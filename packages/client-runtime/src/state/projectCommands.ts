@@ -162,6 +162,12 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 5_000,
       idleTtlMs: 60_000,
     }),
+    listFileActivity: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:list-file-activity",
+      tag: WS_METHODS.projectsListFileActivity,
+      staleTimeMs: 5_000,
+      idleTtlMs: 60_000,
+    }),
     readFileVersion: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:projects:read-file-version",
       tag: WS_METHODS.projectsReadFileVersion,
@@ -224,6 +230,27 @@ export function createProjectEnvironmentAtoms<R, E>(
       onSuccess: ({ environmentId, input }, registry) =>
         Effect.sync(() => {
           for (const path of writtenFilePaths(input, input))
+            fileMetadata.refreshPath(environmentId, path, registry);
+        }),
+    }),
+    saveReplyFile: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:documents:save-reply-file",
+      tag: WS_METHODS.documentsSaveReplyFile,
+      scheduler: fileScheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.documentsSaveReplyFile, input).pipe(
+          Effect.tap((result) =>
+            Effect.forEach(writtenFilePaths(input, result), fileMetadata.invalidate),
+          ),
+        ),
+      onSuccess: ({ environmentId, input }, registry, result) =>
+        Effect.sync(() => {
+          for (const path of writtenFilePaths(input, result))
             fileMetadata.refreshPath(environmentId, path, registry);
         }),
     }),

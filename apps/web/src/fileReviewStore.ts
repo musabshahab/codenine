@@ -13,6 +13,9 @@ interface FileReviewState {
   readonly keep: (threadKey: string, turnCount: number, relativePath: string) => void;
   /** Offers the file's change for review again. */
   readonly unkeep: (threadKey: string, relativePath: string) => void;
+  /** Per thread, the file whose tab was asked to show its versions. */
+  readonly versionsRequestByThreadKey: Readonly<Record<string, string>>;
+  readonly requestVersions: (threadKey: string, relativePath: string | null) => void;
 }
 
 export const useFileReviewStore = create<FileReviewState>((set) => ({
@@ -44,7 +47,22 @@ export const useFileReviewStore = create<FileReviewState>((set) => ({
         },
       };
     }),
+  versionsRequestByThreadKey: {},
+  requestVersions: (threadKey, relativePath) =>
+    set((state) => {
+      const { [threadKey]: _current, ...others } = state.versionsRequestByThreadKey;
+      return {
+        versionsRequestByThreadKey:
+          relativePath === null ? others : { ...others, [threadKey]: relativePath },
+      };
+    }),
 }));
+
+/** Opens a file's tab with its Versions list showing. */
+export function openFileVersions(threadRef: ScopedThreadRef, relativePath: string): void {
+  useFileReviewStore.getState().requestVersions(scopedThreadKey(threadRef), relativePath);
+  useRightPanelStore.getState().openFile(threadRef, relativePath);
+}
 
 export function isFileReviewKept(
   state: Pick<FileReviewState, "keptByThreadKey">,

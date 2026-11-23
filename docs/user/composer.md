@@ -440,10 +440,56 @@ like). A formula it cannot work out shows as its text until a spreadsheet app op
 calculates it. A change that would damage the workbook is refused with the reason, for example
 inserting rows in a sheet that holds a chart, a table, a filter or comments, or a formula with an
 unclosed bracket; make that change in a spreadsheet app. Your other unsaved edits are still saved. Workbooks over 16 MB or about 600,000 cells, files protected with a password,
-and CSV files that are not UTF-8 open for viewing only. Presentations are view-only.
+and CSV files that are not UTF-8 open for viewing only.
 
-When the agent's latest turn changed a workbook in a folder without Git, the file offers
-**Discard changes** to put the whole file back as it was, or **Keep**.
+### Documents the agent changes
+
+Ask the agent to change a spreadsheet, a PDF or a slide deck and it edits the file in place: it
+sets cells and formulas, fills in a PDF's form fields, highlights passages of a PDF with a note,
+and in a `.pptx` deck replaces text, adds a slide from one of the deck's own layouts, deletes or
+reorders slides and writes speaker notes. Everything it does not touch is kept, such as charts,
+pictures, themes and animations. Both Claude and Codex agents can do this. An agent that may not
+edit files cannot.
+
+Decks are view-only for you: the agent edits them, and you read the result. An open spreadsheet,
+PDF or deck shows the agent's change when its turn ends. If you had unsaved edits of your own in
+that file, they are kept and you choose between your edits and the file as it is now.
+
+When the agent's latest turn changed one of these files, the file's tab offers **Keep** or
+**Discard changes**. These files cannot be compared line by line, so Discard puts the whole file
+back as it was before that turn, without anything saved to it since. In a folder without Git
+the agent's change is also listed in the file's [versions](#file-versions), where any earlier
+version can be restored. The agent cannot sign a PDF; see below.
+
+### Sources
+
+The **Sources** tab in the right panel lists what the chat has read or cited: workspace files
+the agent read, files you attached, web pages it opened or found in a search, and connectors it
+used. Choose a file to open it beside the chat, or a page to open it in your browser. A Work
+workspace lists the tab first; in other workspaces add it with the panel's **+** button.
+
+### Activity
+
+The **Activity** tab lists the changes made to the workspace's files during the chat, newest
+first: which file, whether it was edited, created, deleted, restored or signed, and whether the
+agent did it (and in which turn) or you did. Choose an entry to review the latest turn's change
+in the file, or to see the file's versions for an earlier one. Your own saves, restores and
+signatures are listed in a folder without Git, where Codenine keeps
+[versions](#file-versions); in a Git checkout the list holds the agent's turns only.
+
+### Save a reply as a file
+
+Hover a reply and choose **Save reply as file**, or run **Save last reply as file** from the
+command palette. Pick the format, the file name and a folder inside the workspace:
+
+- **Markdown** saves the reply as it was written.
+- **PDF** saves it as pages of text with its headings, lists, code and tables. Characters
+  outside Western European text print as a question mark.
+- **Spreadsheet** is offered when the reply holds a table, and saves the first one as an
+  `.xlsx` sheet with a bold header row. Plain numbers become numbers you can sum.
+
+The file opens beside the chat. If a file with that name is already there, nothing is written
+until you choose **Replace file** or change the name.
 
 ### Review and sign PDFs
 
@@ -469,7 +515,7 @@ can take one back by restoring an earlier version of the file ([file versions](#
 where the save is listed as signed by you. In a Git checkout no earlier version is kept, so
 commit the unsigned file or keep a copy of it before you sign. It is a picture of your signature,
 not a certificate-based digital signature. Only you can sign: agents have no way to place a
-signature.
+signature. An agent can fill in the rest of a form and will then ask you to sign it here.
 
 Tick **Keep this signature on this device** to reuse a signature. It is stored in this browser
 only, and **Delete from this device** in the same dialog removes it.

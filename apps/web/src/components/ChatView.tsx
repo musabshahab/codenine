@@ -1,4 +1,5 @@
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
+import { SaveReplyDialog } from "./work/SaveReplyDialog";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@codenine/client-runtime/source-control-clients";
 import { resolveNewThreadModelSelection } from "@codenine/shared/usageLimits";
@@ -1164,6 +1165,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.worktreePath,
   );
   const diffTabOffered = workspacePreset.rightPanelTabs.includes("diff");
+  const documentTabsFirst = workspacePreset.rightPanelTabs.includes("sources");
   const hasActiveProject = activeProject !== null;
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- drops surfaces from the right panel store once bootstrap shows the thread has no workspace, or its workspace type offers no Diff tab
   useEffect(() => {
@@ -2265,6 +2267,8 @@ export default function ChatView(props: ChatViewProps) {
     openFileSurfaceStable,
     openTaskSurfaceStable,
     openWorkflowSurfaceStable,
+    openSourcesSurfaceStable,
+    openActivitySurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
@@ -3351,6 +3355,9 @@ export default function ChatView(props: ChatViewProps) {
               {...conversationArea}
               className="relative flex min-h-0 flex-1 flex-col bg-background"
             >
+              {activeThreadRef ? (
+                <SaveReplyDialog threadRef={activeThreadRef} workspaceRoot={activeWorkspaceRoot} />
+              ) : null}
               <WorkspaceMutationIdContext value={workspaceMutationId}>
                 <ThreadTimeline
                   pendingApprovals={pendingApprovals}
@@ -3966,6 +3973,15 @@ export default function ChatView(props: ChatViewProps) {
           onAddTask={threadTeamInfo === null ? undefined : openTaskSurfaceStable}
           onAddWorkflow={
             workflowDraft === null && savedWorkflow === null ? undefined : openWorkflowSurfaceStable
+          }
+          documentTabs={
+            activeProject === null
+              ? undefined
+              : {
+                  first: documentTabsFirst,
+                  onAddSources: openSourcesSurfaceStable,
+                  onAddActivity: openActivitySurfaceStable,
+                }
           }
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={diffAvailable}

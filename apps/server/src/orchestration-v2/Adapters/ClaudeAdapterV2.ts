@@ -1,4 +1,5 @@
 import * as DocumentText from "../../provider/DocumentText.ts";
+import { DOCUMENT_EDIT_TOOLS, DOCUMENT_READ_TOOLS } from "../../mcp/toolkits/documents/names.ts";
 import { mcpToolResultOutput, toolOutputImages } from "@codenine/shared/toolOutput";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
 import { claudeTaskOutputRoot, tailClaudeTaskOutput } from "./ClaudeTaskOutputTail.ts";
@@ -493,9 +494,20 @@ export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgent
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
 
 /** Claude Code's own tools behind each ability an agent can lose, as the Agent SDK names them. */
+const claudeCodenineTools = (names: ReadonlyArray<string>) =>
+  names.map((name) => `mcp__codenine__${name}`);
+
+// Codenine's document tools read and change files too, so they follow the same abilities.
 const CLAUDE_TOOLS_BY_AGENT_ABILITY: Readonly<Record<AgentAbility, ReadonlyArray<string>>> = {
-  readFiles: ["Read", "Glob", "Grep", "LSP"],
-  editFiles: ["Edit", "Write", "NotebookEdit", "EnterWorktree", "ExitWorktree"],
+  readFiles: ["Read", "Glob", "Grep", "LSP", ...claudeCodenineTools(DOCUMENT_READ_TOOLS)],
+  editFiles: [
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "EnterWorktree",
+    "ExitWorktree",
+    ...claudeCodenineTools(DOCUMENT_EDIT_TOOLS),
+  ],
   runCommands: ["Bash", "PowerShell", "Monitor"],
   searchWeb: ["WebSearch", "WebFetch"],
 };

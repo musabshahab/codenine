@@ -18,6 +18,8 @@ import {
 } from "../PersistentThreadTerminals";
 const DiffPanel = lazy(() => import("../DiffPanel"));
 const FilePreviewPanel = lazy(() => import("../files/FilePreviewPanel"));
+const SourcesPanel = lazy(() => import("../work/SourcesPanel"));
+const ActivityPanel = lazy(() => import("../work/ActivityPanel"));
 
 type RightPanelTerminalProps = Omit<
   PersistentThreadTerminalPanelProps,
@@ -84,6 +86,30 @@ export function RightPanelSurfaceContent(props: {
       );
     case "workflow":
       return <WorkflowDraftPanel key={scopedThreadKey(threadRef)} threadRef={threadRef} />;
+    case "sources":
+      return (
+        <Suspense fallback={null}>
+          <SourcesPanel
+            key={scopedThreadKey(threadRef)}
+            threadRef={threadRef}
+            workspaceRoot={props.files.workspaceRoot}
+            onOpenFile={props.files.onOpenFile}
+          />
+        </Suspense>
+      );
+    case "activity":
+      return (
+        <Suspense fallback={null}>
+          <ActivityPanel
+            key={scopedThreadKey(threadRef)}
+            threadRef={threadRef}
+            environmentId={props.environmentId}
+            workspaceRoot={props.files.workspaceRoot}
+            workspaceMutationId={props.workspaceMutationId}
+            versionsOffered={props.files.versionsOffered}
+          />
+        </Suspense>
+      );
     case "side-chat":
       // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
       return (

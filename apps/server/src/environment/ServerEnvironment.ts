@@ -272,6 +272,8 @@ export const make = Effect.gen(function* () {
       fileVersions: true,
       spreadsheetEditing: true,
       pdfEditing: true,
+      replyFiles: true,
+      fileActivity: true,
       projectFolderDeletion: true,
       ignoredFileListing: true,
       freshContext: true,

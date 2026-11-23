@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
+import { IsoDateTime } from "@codenine/contracts";
 import type {
   PdfSignaturePlacement,
   SpreadsheetCell,
@@ -807,6 +808,102 @@ describe("Documents PDFs", () => {
         expect(
           yield* documents.openPdf({ cwd, relativePath: "big.pdf" }).pipe(Effect.flip),
         ).toMatchObject({ _tag: "PdfRefusedError", reason: "too-large" });
+      }),
+    );
+  });
+});
+
+describe("Documents reply files", () => {
+  it.layer(layerWith())("saving a reply", (it) => {
+    it.effect("writes a new file, and replaces one only when its version is named", () =>
+      Effect.gen(function* () {
+        const { cwd, documents, write, readBytes, cells } = yield* makeWorkspace();
+        const versions = yield* FileVersions.FileVersions;
+        const reply = "# Plan\n\n| Step | Days |\n| --- | --- |\n| Draft | 2 |\n";
+        const save = (
+          relativePath: string,
+          format: "markdown" | "pdf" | "xlsx",
+          markdown = reply,
+        ) => documents.saveReplyFile({ cwd, relativePath, format, markdown });
+
+        const saved = yield* save("notes/plan.md", "markdown");
+        expect(saved.relativePath).toBe("notes/plan.md");
+        expect(Buffer.from(yield* readBytes("notes/plan.md")).toString()).toBe(reply);
+
+        yield* save("plan.xlsx", "xlsx");
+        expect((yield* cells("plan.xlsx", "Table")).byName.B2?.value).toBe(2);
+        expect(
+          Buffer.from(yield* readBytes("plan.pdf").pipe(Effect.orElseSucceed(() => []))),
+        ).toHaveLength(0);
+        yield* save("plan.pdf", "pdf");
+        expect(
+          Buffer.from(yield* readBytes("plan.pdf"))
+            .subarray(0, 5)
+            .toString(),
+        ).toBe("%PDF-");
+
+        // A file that is already there is left alone until the caller names its version.
+        yield* write("taken.md", "mine\n");
+        const exists = yield* save("taken.md", "markdown").pipe(Effect.flip);
+        assert(exists._tag === "ReplyFileExistsError");
+        expect(Buffer.from(yield* readBytes("taken.md")).toString()).toBe("mine\n");
+        const stale = yield* documents
+          .saveReplyFile({
+            cwd,
+            relativePath: "taken.md",
+            format: "markdown",
+            markdown: reply,
+            replaceVersion: "0".repeat(64),
+          })
+          .pipe(Effect.flip);
+        expect(stale).toMatchObject({
+          _tag: "ReplyFileExistsError",
+          currentVersion: exists.currentVersion,
+        });
+        yield* documents.saveReplyFile({
+          cwd,
+          relativePath: "taken.md",
+          format: "markdown",
+          markdown: reply,
+          replaceVersion: exists.currentVersion,
+        });
+        expect(Buffer.from(yield* readBytes("taken.md")).toString()).toBe(reply);
+        // What was replaced is kept, so Versions can put it back.
+        const kept = (yield* versions.list({ cwd, relativePath: "taken.md" })).versions;
+        expect(kept.map((version) => version.origin)).toEqual(["user", "external"]);
+        // The workspace's activity lists every recorded change, newest first.
+        const activity = yield* versions.activity({ cwd });
+        expect(activity.tracked).toBe(true);
+        expect(
+          activity.entries.map(({ relativePath, origin, change }) => [
+            relativePath,
+            origin,
+            change,
+          ]),
+        ).toEqual([
+          ["taken.md", "user", "modified"],
+          ["taken.md", "external", "created"],
+          ["plan.pdf", "user", "created"],
+          ["plan.xlsx", "user", "created"],
+          ["notes/plan.md", "user", "created"],
+        ]);
+        expect(
+          (yield* versions.activity({ cwd, since: IsoDateTime.make("2999-01-01T00:00:00.000Z") }))
+            .entries,
+        ).toEqual([]);
+
+        expect(yield* save("plain.xlsx", "xlsx", "No table.").pipe(Effect.flip)).toMatchObject({
+          _tag: "ReplyFileError",
+          reason: "no-table",
+        });
+        expect(yield* save("plan.docx", "pdf").pipe(Effect.flip)).toMatchObject({
+          _tag: "ReplyFileError",
+          reason: "wrong-extension",
+        });
+        expect(yield* save("../outside.md", "markdown").pipe(Effect.flip)).toMatchObject({
+          _tag: "ReplyFileError",
+          reason: "failed",
+        });
       }),
     );
   });

@@ -264,6 +264,34 @@ A plan the user can paste into a document or tracker:
 Size the plan to the work: a two-week task needs no risk register, a migration across teams does.`,
 };
 
+const workWithDocuments: LibrarySkillSource = {
+  name: "work-with-documents",
+  description:
+    "Reads and changes office documents in the workspace the way the user can review: spreadsheets (.xlsx, .csv), PDFs (form fields, highlights and notes) and slide decks (.pptx). Use when the user asks to update a spreadsheet, fill in or mark up a PDF, edit slides or speaker notes, or pull figures out of any of these files.",
+  instructions: `# Work with documents
+
+The user opens these files in Codenine and reviews what you changed, so change them with Codenine's document tools. They keep everything you do not touch, and each change can be discarded or restored.
+
+## Read first
+- Spreadsheet: \`codenine_spreadsheet_read\`. Read the sheet list, then the block you need. Rows and columns count from 0.
+- PDF: \`codenine_pdf_read\`. It returns page text and the form's fields with their names and values.
+- Deck: \`codenine_deck_read\`. It returns each slide's shapes with their ids, its notes, and the deck's layouts.
+- Quote figures exactly as the file has them, and say which sheet, page or slide they came from.
+
+## Change
+- Spreadsheet: \`codenine_spreadsheet_edit\`. Write a formula where the user would expect one (a total is \`=SUM(...)\`, not a typed number). Match the formats of the cells around your change.
+- PDF: \`codenine_pdf_edit\`. Fill fields by name. To mark a passage, quote its text from the page as you read it.
+- Deck: \`codenine_deck_edit\`. Replace text in the existing shapes, and add slides from the deck's own layouts so they match its design. Keep a slide to what fits: split long text over two slides.
+- Send the \`version\` from your read as \`expectedVersion\`. If the file changed since, read it again before you retry.
+- After a change, say what you changed and where, in a few lines.
+
+## Never
+- Unzip a .xlsx or .pptx, edit its XML, or rebuild the file with a script. That drops formats, charts, themes and formulas, and the user cannot review it.
+- Sign a PDF, or draw anything that stands for a signature. Only the user signs: tell them the file is ready and that Sign is in the PDF's tab.
+- Guess a value for a form field or a cell. Ask, or leave it empty and say so.
+- Send a document to an outside service to convert or read it.`,
+};
+
 const writeASkill: LibrarySkillSource = {
   name: "write-a-skill",
   description:
@@ -327,5 +355,6 @@ export const SKILL_LIBRARY: ReadonlyArray<LibrarySkillSource> = [
   summariseAMeeting,
   researchWithSources,
   planAProject,
+  workWithDocuments,
   writeASkill,
 ];

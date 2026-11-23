@@ -1,4 +1,5 @@
 import { pipe } from "effect/Function";
+import { DOCUMENT_EDIT_TOOLS } from "../../mcp/toolkits/documents/names.ts";
 import * as DocumentText from "../../provider/DocumentText.ts";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@codenine/provider-core/server/handoffBudget";
@@ -1462,7 +1463,11 @@ export function codexThreadRuntimeParams(input: {
             // Override only Codenine's servers so launch-argument MCP servers survive.
             "mcp_servers.codenine": {
               ...codenineServer,
-              disabled_tools: [CODEX_DIRECT_ONLY_CODENINE_TOOL],
+              disabled_tools: [
+                CODEX_DIRECT_ONLY_CODENINE_TOOL,
+                // The read-only sandbox does not bind Codenine's own tools that change files.
+                ...(abilities?.editFiles === false ? DOCUMENT_EDIT_TOOLS : []),
+              ],
             },
             // Code Mode runs a blocking wait as a nested call, and the model keeps working
             // around it. A second, direct-only registration makes it a plain tool call.

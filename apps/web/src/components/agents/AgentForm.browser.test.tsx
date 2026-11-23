@@ -190,7 +190,7 @@ it("follows a newer read until it is edited, then keeps the edits and offers the
 
 it.each([
   { kind: "code", on: [] },
-  { kind: "work", on: ["Read files", "Search the web"] },
+  { kind: "work", on: ["Read files", "Edit files", "Search the web"] },
   { kind: "create", on: ["Read files", "Edit files"] },
 ] as const)("a new agent in a $kind workspace starts with that type's abilities", async (row) => {
   setup();
@@ -225,11 +225,11 @@ it("a new agent takes its workspace's abilities when the workspace loads after t
 
   // A choice the user made is theirs, whatever the workspace turns out to be.
   await searchWeb.click();
-  state.workspaceKind = "create";
+  state.workspaceKind = "code";
   await screen.rerender(
     <AgentForm environmentId={environmentId} workspace={null} agent={null} connected />,
   );
   await expect.element(readFiles).toBeChecked();
   await expect.element(searchWeb).not.toBeChecked();
-  await expect.element(page.getByRole("switch", { name: "Edit files" })).not.toBeChecked();
+  await expect.element(page.getByRole("switch", { name: "Edit files" })).toBeChecked();
 });

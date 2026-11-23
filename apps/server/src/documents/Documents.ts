@@ -1,11 +1,23 @@
 import {
+  type DeckEditInput,
+  type DeckEditResult,
+  type DeckOpenInput,
+  type DeckOpenResult,
+  DeckOperationError,
   type PdfEditInput,
   type PdfEditResult,
   type PdfOpenInput,
   type PdfOpenResult,
   PdfOperationError,
+  type PdfReadTextInput,
+  type PdfReadTextResult,
   PdfRefusedError,
   type PdfSignaturePlacement,
+  type PdfTextMark,
+  ReplyFileError,
+  ReplyFileExistsError,
+  type ReplyFileSaveInput,
+  type ReplyFileSaveResult,
   type SpreadsheetEditInput,
   type SpreadsheetEditResult,
   type SpreadsheetOpenInput,
@@ -35,6 +47,9 @@ import {
   inspectPdf,
   PdfProblem,
 } from "./pdf/pdfEdits.ts";
+import { locatePdfText, readPdfText as readPdfTextBytes } from "./pdf/pdfText.ts";
+import { DeckProblem, PptxDeck } from "./pptx/pptxDeck.ts";
+import { markdownPdf, markdownTables, tableWorkbook } from "./reply/replyFile.ts";
 import { DelimitedTable } from "./spreadsheet/delimitedTable.ts";
 import {
   type SpreadsheetLimits,
@@ -76,6 +91,31 @@ export const PdfLimits = Context.Reference<{
   defaultValue: () => ({ maxFileBytes: 32 * MEBIBYTE, ...DEFAULT_PDF_UNPACK_LIMITS }),
 });
 
+/** The largest deck changed here, and the most its XML parts may unpack to. */
+const DeckLimits = Context.Reference<{
+  readonly maxFileBytes: number;
+  readonly maxUnpackedBytes: number;
+}>("codenine/documents/DeckLimits", {
+  defaultValue: () => ({ maxFileBytes: 32 * MEBIBYTE, maxUnpackedBytes: 96 * MEBIBYTE }),
+});
+
+const REPLY_EXTENSIONS = {
+  markdown: /\.(md|markdown)$/i,
+  pdf: /\.pdf$/i,
+  xlsx: /\.xlsx$/i,
+} as const;
+
+/** The colour of a highlight whose caller names none. */
+const DEFAULT_HIGHLIGHT_COLOUR = "FFE066";
+
+export interface DocumentEditOptions {
+  /**
+   * True when an agent makes the edit during its turn, so the version store records it as that
+   * turn's change and the user can review and discard it as they do the agent's other edits.
+   */
+  readonly duringTurn?: boolean | undefined;
+}
+
 export class DocumentMissingError extends Schema.TaggedError<DocumentMissingError>()(
   "DocumentMissingError",
   { relativePath: Schema.String },
@@ -116,6 +156,13 @@ type PdfReadError =
   | WorkspaceFileSystem.WorkspaceFileSystemError
   | WorkspacePaths.WorkspacePathOutsideRootError;
 
+type DeckError =
+  | DeckOperationError
+  | DocumentMissingError
+  | DocumentFailureError
+  | WorkspaceFileSystem.WorkspaceFileSystemError
+  | WorkspacePaths.WorkspacePathOutsideRootError;
+
 type PdfEditError =
   | PdfReadError
   | PdfOperationError
@@ -142,6 +189,7 @@ export class Documents extends Context.Service<
      */
     readonly editSpreadsheet: (
       input: SpreadsheetEditInput,
+      options?: DocumentEditOptions,
     ) => Effect.Effect<
       SpreadsheetEditResult,
       | ReadError
@@ -156,8 +204,38 @@ export class Documents extends Context.Service<
      * version is left alone. It cannot sign.
      */
     readonly editPdf: (
-      input: Omit<PdfEditInput, "signatures">,
+      input: Omit<PdfEditInput, "signatures"> & {
+        /** Highlights placed by quoting the page's text. They are added before the operations. */
+        readonly marks?: ReadonlyArray<PdfTextMark> | undefined;
+      },
+      options?: DocumentEditOptions,
     ) => Effect.Effect<PdfEditResult, PdfEditError>;
+    /** The text of a run of a PDF's pages. */
+    readonly readPdfText: (
+      input: PdfReadTextInput,
+    ) => Effect.Effect<PdfReadTextResult, PdfReadError | PdfOperationError>;
+    /** A deck's slides with their text and notes, and the layouts a new slide can use. */
+    readonly openDeck: (input: DeckOpenInput) => Effect.Effect<DeckOpenResult, DeckError>;
+    /**
+     * Applies the operations to a .pptx deck in order and saves. Nothing is written unless all
+     * of them apply, and a file that no longer has the expected version is left alone.
+     */
+    readonly editDeck: (
+      input: DeckEditInput,
+      options?: DocumentEditOptions,
+    ) => Effect.Effect<
+      DeckEditResult,
+      | DeckError
+      | WorkspaceFileSystem.WorkspaceFileConflictError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /**
+     * Writes a chat reply into the workspace as Markdown, as a PDF, or as a workbook of its first
+     * table. A file that is already there is only replaced when the caller names its version.
+     */
+    readonly saveReplyFile: (
+      input: ReplyFileSaveInput,
+    ) => Effect.Effect<ReplyFileSaveResult, ReplyFileExistsError | ReplyFileError>;
     /**
      * `editPdf` that also draws the user's signatures into their pages. Only a person signs, so
      * the only caller is the RPC a user's client makes: no agent tool may reach this.
@@ -173,6 +251,7 @@ const make = Effect.gen(function* () {
   const fileVersions = yield* FileVersions.FileVersions;
   const limits = yield* DocumentLimits;
   const pdfLimits = yield* PdfLimits;
+  const deckLimits = yield* DeckLimits;
   const path = yield* Path.Path;
   const locks = yield* KeyedLock.make<string>();
   // Newest last. A model is dropped before it is changed and held again once the save succeeds.
@@ -273,7 +352,7 @@ const make = Effect.gen(function* () {
 
   const editSpreadsheet: Documents["Service"]["editSpreadsheet"] = Effect.fn(
     "Documents.editSpreadsheet",
-  )(function* (input) {
+  )(function* (input, options) {
     const { cwd, relativePath } = input;
     const key = keyOf(input);
     return yield* locks.withLock(
@@ -301,6 +380,7 @@ const make = Effect.gen(function* () {
           relativePath,
           bytes,
           expectedVersion: version,
+          duringTurn: options?.duringTurn,
         });
         const saved = written.version ?? WorkspaceFileSystem.fileVersion(bytes);
         hold(key, saved, model);
@@ -352,8 +432,11 @@ const make = Effect.gen(function* () {
   );
 
   const savePdf = Effect.fn("Documents.savePdf")(function* (
-    input: Omit<PdfEditInput, "signatures">,
+    input: Omit<PdfEditInput, "signatures"> & {
+      readonly marks?: ReadonlyArray<PdfTextMark> | undefined;
+    },
     signatures: ReadonlyArray<PdfSignaturePlacement>,
+    options?: DocumentEditOptions,
   ) {
     const { cwd, relativePath } = input;
     return yield* locks.withLock(
@@ -368,9 +451,24 @@ const make = Effect.gen(function* () {
           });
         }
         const now = DateTime.toDateUtc(yield* DateTime.now);
+        const marks = input.marks ?? [];
+        const located =
+          marks.length === 0
+            ? []
+            : yield* attemptPdfEdit(relativePath, () => locatePdfText(bytes, marks));
+        const operations = [
+          ...marks.map((mark, index) => ({
+            type: "addHighlight" as const,
+            page: mark.page,
+            rects: located[index] ?? [],
+            colour: mark.colour ?? DEFAULT_HIGHLIGHT_COLOUR,
+            ...(mark.note === undefined ? {} : { contents: mark.note }),
+          })),
+          ...input.operations,
+        ];
         const edited = yield* attemptPdfEdit(relativePath, () =>
           editPdfBytes(bytes, {
-            operations: input.operations,
+            operations,
             signatures,
             now,
             limits: pdfLimits,
@@ -385,6 +483,7 @@ const make = Effect.gen(function* () {
           relativePath,
           bytes: edited.bytes,
           expectedVersion: version,
+          duringTurn: options?.duringTurn,
           ...(signatures.length > 0 ? { action: "signed" as const } : {}),
         });
         return {
@@ -396,8 +495,179 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const editPdf: Documents["Service"]["editPdf"] = Effect.fn("Documents.editPdf")((input) =>
-    savePdf(input, []),
+  const editPdf: Documents["Service"]["editPdf"] = Effect.fn("Documents.editPdf")(
+    (input, options) => savePdf(input, [], options),
+  );
+
+  const readPdfText: Documents["Service"]["readPdfText"] = Effect.fn("Documents.readPdfText")(
+    function* (input) {
+      const { bytes, version } = yield* readPdf(input);
+      const text = yield* attemptPdfEdit(input.relativePath, () =>
+        readPdfTextBytes(bytes, { page: input.page, pageCount: input.pageCount }),
+      ).pipe(
+        Effect.mapError((cause) =>
+          cause._tag === "DocumentFailureError"
+            ? new DocumentFailureError({
+                relativePath: cause.relativePath,
+                stage: "read",
+                cause: cause.cause,
+              })
+            : cause,
+        ),
+      );
+      return { version, ...text };
+    },
+  );
+
+  const readDeck = Effect.fn("Documents.readDeck")(function* (input: DeckOpenInput) {
+    const { relativePath } = input;
+    if (!relativePath.toLowerCase().endsWith(".pptx")) {
+      return yield* new DeckOperationError({ relativePath, reason: "not-a-deck" });
+    }
+    const file = yield* workspaceFileSystem.readFileBytes({
+      cwd: input.cwd,
+      relativePath,
+      maxBytes: deckLimits.maxFileBytes,
+    });
+    if (file.kind === "absent") return yield* new DocumentMissingError({ relativePath });
+    if (file.kind === "too-large") {
+      return yield* new DeckOperationError({ relativePath, reason: "too-large" });
+    }
+    return { bytes: file.bytes, version: WorkspaceFileSystem.fileVersion(file.bytes) };
+  });
+
+  /** Runs the deck code, which reports what it refuses by throwing. */
+  const attemptDeck = <A>(
+    relativePath: string,
+    stage: DocumentFailureError["stage"],
+    run: () => Promise<A>,
+  ) =>
+    Effect.tryPromise({
+      try: run,
+      catch: (cause) =>
+        cause instanceof DeckProblem
+          ? new DeckOperationError({
+              relativePath,
+              reason: cause.reason,
+              ...(cause.operationIndex === undefined
+                ? {}
+                : { operationIndex: cause.operationIndex }),
+            })
+          : new DocumentFailureError({ relativePath, stage, cause }),
+    });
+
+  const openDeck: Documents["Service"]["openDeck"] = Effect.fn("Documents.openDeck")(
+    function* (input) {
+      const { bytes, version } = yield* readDeck(input);
+      const contents = yield* attemptDeck(input.relativePath, "open", async () =>
+        (await PptxDeck.open(bytes, deckLimits)).contents(),
+      );
+      return { version, ...contents };
+    },
+  );
+
+  const editDeck: Documents["Service"]["editDeck"] = Effect.fn("Documents.editDeck")(
+    function* (input, options) {
+      const { cwd, relativePath } = input;
+      return yield* locks.withLock(
+        keyOf(input),
+        Effect.gen(function* () {
+          const { bytes, version } = yield* readDeck(input);
+          if (input.expectedVersion !== undefined && input.expectedVersion !== version) {
+            return yield* new WorkspaceFileSystem.WorkspaceFileConflictError({
+              workspaceRoot: cwd,
+              relativePath,
+              currentVersion: version,
+            });
+          }
+          const edited = yield* attemptDeck(relativePath, "edit", async () => {
+            const deck = await PptxDeck.open(bytes, deckLimits);
+            await deck.apply(input.operations);
+            return { bytes: await deck.save(), contents: await deck.contents() };
+          });
+          if (edited.bytes.byteLength > deckLimits.maxFileBytes) {
+            return yield* new DeckOperationError({ relativePath, reason: "too-large" });
+          }
+          // The write checks the version again, so a change since the read above is still refused.
+          const written = yield* fileVersions.writeFileBytes({
+            cwd,
+            relativePath,
+            bytes: edited.bytes,
+            expectedVersion: version,
+            duringTurn: options?.duringTurn,
+          });
+          return {
+            version: written.version ?? WorkspaceFileSystem.fileVersion(edited.bytes),
+            ...edited.contents,
+          };
+        }),
+      );
+    },
+  );
+
+  const replyBytes = Effect.fn("Documents.replyBytes")(function* (input: ReplyFileSaveInput) {
+    const failed = (cause: unknown) =>
+      new ReplyFileError({
+        reason: "failed",
+        message: "The reply could not be turned into that kind of file.",
+        cause,
+      });
+    switch (input.format) {
+      case "markdown":
+        return Buffer.from(input.markdown.endsWith("\n") ? input.markdown : `${input.markdown}\n`);
+      case "pdf":
+        return yield* Effect.tryPromise({ try: () => markdownPdf(input.markdown), catch: failed });
+      case "xlsx": {
+        const table = markdownTables(input.markdown)[0];
+        if (table === undefined) {
+          return yield* new ReplyFileError({
+            reason: "no-table",
+            message: "This reply has no table to save as a spreadsheet.",
+          });
+        }
+        return yield* Effect.tryPromise({ try: () => tableWorkbook(table, limits), catch: failed });
+      }
+    }
+  });
+
+  const saveReplyFile: Documents["Service"]["saveReplyFile"] = Effect.fn("Documents.saveReplyFile")(
+    function* (input) {
+      const { cwd, relativePath } = input;
+      if (!REPLY_EXTENSIONS[input.format].test(relativePath)) {
+        return yield* new ReplyFileError({
+          reason: "wrong-extension",
+          message: "The file name does not end with the extension of the chosen format.",
+        });
+      }
+      const bytes = yield* replyBytes(input);
+      const written = yield* fileVersions
+        .writeFileBytes({
+          cwd,
+          relativePath,
+          bytes,
+          ...(input.replaceVersion === undefined
+            ? { createOnly: true }
+            : { expectedVersion: input.replaceVersion }),
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            cause._tag === "WorkspaceFileConflictError" && cause.currentVersion !== undefined
+              ? new ReplyFileExistsError({ relativePath, currentVersion: cause.currentVersion })
+              : new ReplyFileError({
+                  reason: "failed",
+                  message:
+                    cause._tag === "WorkspaceFileConflictError"
+                      ? `'${relativePath}' was removed while it was being replaced. Save again.`
+                      : cause.message,
+                  cause,
+                }),
+          ),
+        );
+      return {
+        relativePath: written.relativePath,
+        version: written.version ?? WorkspaceFileSystem.fileVersion(bytes),
+      };
+    },
   );
 
   const editPdfWithSignatures: Documents["Service"]["editPdfWithSignatures"] = Effect.fn(
@@ -411,6 +681,10 @@ const make = Effect.gen(function* () {
     openPdf,
     editPdf,
     editPdfWithSignatures,
+    readPdfText,
+    openDeck,
+    editDeck,
+    saveReplyFile,
   });
 });
 

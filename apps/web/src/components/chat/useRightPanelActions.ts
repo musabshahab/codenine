@@ -102,6 +102,12 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "workflow");
   };
   const openWorkflowSurfaceStable = useStableCallback(openWorkflowSurface);
+  const openSourcesSurfaceStable = useStableCallback(() => {
+    if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "sources");
+  });
+  const openActivitySurfaceStable = useStableCallback(() => {
+    if (activeThreadRef) useRightPanelStore.getState().open(activeThreadRef, "activity");
+  });
   const openFileSurface = (relativePath: string) => {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
@@ -250,6 +256,8 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     openFileSurfaceStable,
     openTaskSurfaceStable,
     openWorkflowSurfaceStable,
+    openSourcesSurfaceStable,
+    openActivitySurfaceStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,

@@ -1,5 +1,6 @@
 import { threadPullRequestLinkMode } from "@codenine/client-runtime/thread-pull-request-compatibility";
 
+import { latestReplyText, useSaveReplyStore } from "./work/saveReplyStore";
 import {
   scopedThreadKey,
   scopeProjectRef,
@@ -47,6 +48,7 @@ import {
   SparklesIcon,
   SquarePenIcon,
   TextSearchIcon,
+  FileDownIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import {
@@ -481,6 +483,11 @@ function OpenCommandPaletteDialog(props: {
   const activeThreadKey = activeThread
     ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
     : null;
+  const activeServerConfig = environments.find(
+    (environment) => environment.environmentId === activeThread?.environmentId,
+  )?.serverConfig;
+  // Older servers cannot write a reply into the workspace.
+  const savesReplies = activeServerConfig?.environment.capabilities.replyFiles === true;
   const supportsThreadFind =
     environments.find((environment) => environment.environmentId === activeThread?.environmentId)
       ?.serverConfig?.threadFind === true;
@@ -780,6 +787,25 @@ function OpenCommandPaletteDialog(props: {
       icon: <MessageSquareDashedIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "chat.newWithoutProject",
       run: () => startScratchThread(scratchTargetEnvironmentId),
+    });
+  }
+
+  if (activeThread && savesReplies) {
+    const replyThreadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:save-reply-as-file",
+      title: "Save last reply as file",
+      searchTerms: ["save", "reply", "export", "markdown", "pdf", "spreadsheet", "xlsx", "file"],
+      icon: <FileDownIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        const reply = latestReplyText(replyThreadRef);
+        if (reply === null) {
+          toastManager.add({ type: "info", title: "This chat has no reply to save yet" });
+          return;
+        }
+        useSaveReplyStore.getState().open(replyThreadRef, reply);
+      },
     });
   }
 

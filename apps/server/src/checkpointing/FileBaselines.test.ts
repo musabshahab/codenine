@@ -1,6 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { CheckpointRef, type ProjectFileLineChange, ThreadId } from "@codenine/contracts";
 import { symlinksSupported } from "@codenine/shared/testing/symlinks";
 import * as Effect from "effect/Effect";
@@ -215,6 +215,49 @@ it.layer(layerTest)("FileBaselines", (it) => {
       }),
     );
 
+    it.effect("in Git, puts a file that is not text back whole from the turn's checkpoint", () =>
+      Effect.gen(function* () {
+        const baselines = yield* FileBaselines.FileBaselines;
+        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const checkpointStore = yield* CheckpointStore.CheckpointStore;
+        const { cwd, readDiskBytes } = yield* makeTurnWorkspace;
+        const before = Uint8Array.from({ length: 4096 }, (_, index) => (index * 31) % 256);
+        const deck = { cwd, relativePath: "deck.pptx", ...turn };
+        yield* fileSystem.writeFile(path.join(cwd, "deck.pptx"), before);
+        yield* checkpointStore.captureCheckpoint({ cwd, checkpointRef: TURN_START });
+        yield* fileSystem.writeFile(path.join(cwd, "deck.pptx"), Uint8Array.from([0, 1, 2]));
+        yield* checkpointStore.captureCheckpoint({ cwd, checkpointRef: TURN_END });
+
+        expect(
+          yield* baselines.read({
+            cwd,
+            relativePath: "deck.pptx",
+            source: { kind: "turn", ...turn },
+          }),
+        ).toMatchObject({
+          available: false,
+          contents: null,
+          wholeFileOnly: true,
+          currentVersion: WorkspaceFileSystem.fileVersion(Uint8Array.from([0, 1, 2])),
+        });
+        const seen = yield* files.readFileBytes({ ...deck, maxBytes: 1024 });
+        assert(seen.kind === "file");
+        expect(
+          yield* baselines
+            .revertTurnChange({ ...deck, expectedVersion: "0".repeat(64) })
+            .pipe(Effect.flip),
+        ).toMatchObject({ _tag: "WorkspaceFileConflictError" });
+        const reverted = yield* baselines.revertTurnChange({
+          ...deck,
+          expectedVersion: WorkspaceFileSystem.fileVersion(seen.bytes),
+        });
+        expect(reverted).toMatchObject({ relativePath: "deck.pptx", deleted: false });
+        expect(yield* readDiskBytes("deck.pptx")).toEqual(Buffer.from(before));
+      }),
+    );
+
     it.effect("deletes a file the turn created, and no other file missing from its start", () =>
       Effect.gen(function* () {
         const baselines = yield* FileBaselines.FileBaselines;
@@ -296,9 +339,10 @@ it.layer(layerTest)("FileBaselines", (it) => {
         // Contents that are not UTF-8 text, as a workbook's are not, cannot be compared or have
         // one change put back. The whole file goes back byte for byte.
         const wholeFileOnly = { available: false, contents: null, wholeFileOnly: true };
-        expect(yield* read("latin.csv")).toEqual(wholeFileOnly);
         const latinFile = { cwd, relativePath: "latin.csv", ...turn };
         const onDisk = WorkspaceFileSystem.fileVersion(latin("20"));
+        // It names the file's version now, which a Discard of the whole file must expect.
+        expect(yield* read("latin.csv")).toEqual({ ...wholeFileOnly, currentVersion: onDisk });
         expect(
           (yield* baselines
             .revertTurnChange({

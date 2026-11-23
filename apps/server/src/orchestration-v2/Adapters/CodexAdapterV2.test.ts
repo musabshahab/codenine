@@ -266,6 +266,37 @@ describe("CodexAdapterV2 runtime policy", () => {
         },
       }).config;
     assert.deepEqual(configFor(true, true), CodexAdapterV2.CODEX_THREAD_CONFIG);
+    // The read-only sandbox does not reach Codenine's document tools, so they are turned off.
+    const codenineToolsOff = (editFiles: boolean) =>
+      CodexAdapterV2.codexThreadRuntimeParams({
+        threadId: null,
+        mcpSession: {
+          environmentId: EnvironmentId.make("environment"),
+          threadId: ThreadId.make("thread"),
+          providerSessionId: "session",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          endpoint: "http://127.0.0.1:1/mcp",
+          authorizationHeader: "Bearer token",
+        },
+        runtimePolicy: {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: null,
+          agent: {
+            instructions: "",
+            abilities: { readFiles: true, editFiles, runCommands: true, searchWeb: true },
+          },
+        },
+      }).config["mcp_servers.codenine"];
+    assert.deepInclude(codenineToolsOff(true), { disabled_tools: ["codenine_thread_wait"] });
+    assert.deepInclude(codenineToolsOff(false), {
+      disabled_tools: [
+        "codenine_thread_wait",
+        "codenine_spreadsheet_edit",
+        "codenine_pdf_edit",
+        "codenine_deck_edit",
+      ],
+    });
     assert.deepEqual(configFor(false, false), {
       ...CodexAdapterV2.CODEX_THREAD_CONFIG,
       "features.shell_tool": false,

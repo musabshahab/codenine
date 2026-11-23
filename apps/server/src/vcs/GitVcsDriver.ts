@@ -1609,6 +1609,29 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         if (blobOf(entry) === blobOf(other)) return { kind: "same" };
       }
       if (entry === "absent") return { kind: "absent", commit };
+      if (input.bytes !== undefined) {
+        const { maxBytes } = input.bytes;
+        const chunks: Array<Uint8Array> = [];
+        let size = 0;
+        const read = yield* vcsProcess.run({
+          operation,
+          command: "git",
+          args: ["-C", input.cwd, "cat-file", "--filters", `${commit}:${treePath}`],
+          cwd: input.cwd,
+          spawnCwd: globalThis.process.cwd(),
+          allowNonZeroExit: true,
+          // The bytes are taken from the chunks, so the text copy is kept small.
+          maxOutputBytes: 4_096,
+          outputMode: "truncate",
+          onStdoutChunk: (chunk) => {
+            size += chunk.length;
+            if (size <= maxBytes) chunks.push(chunk);
+          },
+        });
+        return read.exitCode !== 0 || size > maxBytes
+          ? { kind: "unavailable" }
+          : { kind: "bytes", commit, bytes: Buffer.concat(chunks) };
+      }
       const contents = yield* execute({
         operation,
         cwd: input.cwd,
@@ -1618,13 +1641,13 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         maxOutputBytes: VcsDriver.FILE_AT_REVISION_MAX_BYTES,
         outputMode: "truncate",
       });
+      if (contents.exitCode !== 0) return { kind: "unavailable" };
       if (
-        contents.exitCode !== 0 ||
         contents.stdoutTruncated ||
         contents.stdoutInvalidUtf8 ||
         contents.stdout.includes("\0")
       ) {
-        return { kind: "unavailable" };
+        return { kind: "binary", commit };
       }
       return { kind: "text", commit, contents: contents.stdout };
     }),

@@ -30,6 +30,8 @@ import {
   MessagesSquare,
   Plus,
   TerminalSquare,
+  HistoryIcon,
+  LibraryIcon,
   UsersIcon,
   WorkflowIcon,
 } from "lucide-react";
@@ -97,6 +99,8 @@ export interface RightPanelTabsProps {
   onAddTask?: (() => void) | undefined;
   /** Absent on a chat where no lead drafted a workflow. */
   onAddWorkflow?: (() => void) | undefined;
+  /** The Sources and Activity tabs. Absent on a chat without a workspace. */
+  documentTabs?: DocumentTabs | undefined;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -104,6 +108,35 @@ export interface RightPanelTabsProps {
   /** Overrides the default reason while side chats are available but cannot start. */
   sideChatDisabledReason?: string | null;
   children: ReactNode;
+}
+
+export interface DocumentTabs {
+  /** True where the workspace type lists these tabs first, as a Work workspace does. */
+  readonly first: boolean;
+  readonly onAddSources: () => void;
+  readonly onAddActivity: () => void;
+}
+
+function documentTabActions(tabs: DocumentTabs | undefined, first: boolean) {
+  if (tabs === undefined || tabs.first !== first) return [];
+  return [
+    {
+      label: "Sources",
+      icon: LibraryIcon,
+      shortcut: "R",
+      available: true,
+      disabledReason: "",
+      onClick: tabs.onAddSources,
+    },
+    {
+      label: "Activity",
+      icon: HistoryIcon,
+      shortcut: "A",
+      available: true,
+      disabledReason: "",
+      onClick: tabs.onAddActivity,
+    },
+  ];
 }
 
 // T, F, D and S are taken; K is the last letter of "task".
@@ -219,6 +252,7 @@ function RightPanelEmptyState(props: {
   onAddSideChat?: (() => void) | undefined;
   onAddTask: (() => void) | undefined;
   onAddWorkflow: (() => void) | undefined;
+  documentTabs: DocumentTabs | undefined;
   terminalAvailable: boolean;
   diffAvailable: boolean;
   filesAvailable: boolean;
@@ -228,6 +262,8 @@ function RightPanelEmptyState(props: {
   const [highlight, setHighlight] = useState(-1);
 
   const actions = [
+    // Only where the workspace type lists them. Elsewhere they are in the add menu.
+    ...documentTabActions(props.documentTabs, true),
     ...(props.onAddTask
       ? [
           {
@@ -444,6 +480,10 @@ function surfaceTitle(
       return "Task";
     case "workflow":
       return "Workflow";
+    case "sources":
+      return "Sources";
+    case "activity":
+      return "Activity";
   }
 }
 
@@ -478,6 +518,10 @@ function SurfaceIcon({
       return <UsersIcon className="size-3 shrink-0" />;
     case "workflow":
       return <WorkflowIcon className="size-3 shrink-0" />;
+    case "sources":
+      return <LibraryIcon className="size-3 shrink-0" />;
+    case "activity":
+      return <HistoryIcon className="size-3 shrink-0" />;
   }
 }
 
@@ -706,6 +750,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   };
 
   const addSurfaceActions = [
+    ...documentTabActions(props.documentTabs, true),
     ...(props.onAddTask
       ? [
           {
@@ -770,6 +815,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           },
         ]
       : []),
+    ...documentTabActions(props.documentTabs, false),
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1055,6 +1101,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddSideChat={props.onAddSideChat}
             onAddTask={props.onAddTask}
             onAddWorkflow={props.onAddWorkflow}
+            documentTabs={props.documentTabs}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
             filesAvailable={props.filesAvailable}

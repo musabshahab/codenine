@@ -64,6 +64,7 @@ import {
   CHILD_PULL_REQUEST_REPORT_NEXT,
   PullRequestsToolkit,
 } from "../../apps/server/src/mcp/toolkits/pullRequests/tools.ts";
+import { DocumentsToolkit } from "../../apps/server/src/mcp/toolkits/documents/tools.ts";
 import { SkillsToolkit } from "../../apps/server/src/mcp/toolkits/skills/tools.ts";
 import { ThreadToolkit } from "../../apps/server/src/mcp/toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "../../apps/server/src/mcp/toolkits/worktree/tools.ts";
@@ -411,6 +412,7 @@ const codenineSourceTools: ReadonlyArray<Tool.Any> = [
   WorktreeToolkit,
   PullRequestsToolkit,
   SkillsToolkit,
+  DocumentsToolkit,
 ].flatMap((toolkit): ReadonlyArray<Tool.Any> => Object.values(toolkit.tools));
 // McpHttpServer decodes arguments with each tool's JSON codec, which drops undeclared keys.
 const codenineInputDecoders = new Map(
