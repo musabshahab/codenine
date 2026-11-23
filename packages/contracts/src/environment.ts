@@ -151,6 +151,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   fileVersions: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.openSpreadsheet, readSpreadsheetRange and editSpreadsheet. */
   spreadsheetEditing: Schema.optionalKey(Schema.Boolean),
+  /** Server sorts rows, saves column widths and answers documents.findInSpreadsheet. */
+  spreadsheetTools: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.openPdf and editPdf. */
   pdfEditing: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.saveReplyFile. */

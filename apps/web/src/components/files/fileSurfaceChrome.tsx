@@ -1,4 +1,5 @@
-import { type ReactNode, use } from "react";
+import { type ComponentType, type ReactNode, use } from "react";
+import { FileWarningIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { Spinner } from "~/components/ui/spinner";
@@ -81,7 +82,7 @@ export function FileSurfaceAction(props: {
               onClick={props.onPress}
               aria-label={props.label}
               variant="ghost"
-              size="icon-sm"
+              size="icon-xs"
             >
               {props.children}
             </Button>
@@ -93,7 +94,7 @@ export function FileSurfaceAction(props: {
               onPressedChange={props.onPress}
               aria-label={props.label}
               variant="ghost"
-              size="sm"
+              size="xs"
             >
               {props.children}
             </Toggle>
@@ -106,6 +107,80 @@ export function FileSurfaceAction(props: {
 }
 
 /**
+ * A tool named in words, with an icon or without. `hint` says more in a tooltip; a `pressed`
+ * tool is one that stays on, such as the tool a click on the page uses.
+ */
+export function FileToolButton(props: {
+  readonly label: string;
+  /** What the tool is called in full, where the label is a short form of it. */
+  readonly name?: string;
+  readonly hint?: string;
+  readonly pressed?: boolean;
+  readonly disabled?: boolean;
+  readonly onPress: () => void;
+  /** In a row too narrow for every label the tool shows its icon alone, so it needs one. */
+  readonly collapse?: boolean;
+  /** An icon before the label. */
+  readonly children?: ReactNode;
+}) {
+  const { pressed } = props;
+  const content = (
+    <>
+      {props.children}
+      {props.collapse ? (
+        <span className="hidden @[44rem]/tools:inline">{props.label}</span>
+      ) : (
+        props.label
+      )}
+    </>
+  );
+  const fullName = props.name ?? props.label;
+  const name = props.collapse || props.name !== undefined ? { "aria-label": fullName } : {};
+  // A button, not a toggle, so a tool that stays on is the same size as the ones beside it.
+  const button = (
+    <Button
+      type="button"
+      className="shrink-0"
+      disabled={props.disabled ?? false}
+      onClick={props.onPress}
+      variant="ghost"
+      size="xs"
+      {...name}
+      {...(pressed === undefined ? {} : { "aria-pressed": pressed })}
+      {...(pressed === true ? { "data-pressed": "" } : {})}
+    >
+      {content}
+    </Button>
+  );
+  const hint = props.hint ?? (props.collapse || props.name !== undefined ? fullName : undefined);
+  if (hint === undefined) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipPopup>{hint}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+export function FileToolSeparator() {
+  return <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />;
+}
+
+/** What the tool row says about the file at its end: whether it is saved, or cannot be changed. */
+export function FileToolStatus(props: { readonly busy?: boolean; readonly children: ReactNode }) {
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      className="flex shrink-0 items-center gap-1 px-1.5 text-2xs whitespace-nowrap text-muted-foreground"
+    >
+      {props.busy ? <Spinner className="size-3" /> : null}
+      {props.children}
+    </span>
+  );
+}
+
+/**
  * An editor's tools. A row of its own beside the chat; on the stage of document view they join
  * the stage's one tool row.
  */
@@ -113,19 +188,21 @@ export function FileToolRow(props: {
   readonly label: string;
   /** The tools wrap onto more lines instead of scrolling sideways. */
   readonly wrap?: boolean;
+  /** Shown only on the stage: beside the chat the tools are not worth a row of their own. */
+  readonly stageOnly?: boolean;
   /** Kept in view at the end of the row, such as the save state. */
   readonly end?: ReactNode;
   readonly children: ReactNode;
 }) {
   const slot = use(FileToolSlotContext);
-  if (slot !== null && slot.element === null) return null;
+  if (slot === null ? props.stageOnly === true : slot.element === null) return null;
   const row = (
     <>
       <div
         role="toolbar"
         aria-label={props.label}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-0.5",
+          "flex min-w-0 flex-1 items-center gap-0.5 text-xs",
           // One line of tools scrolls sideways where there is no room for all of them.
           props.wrap
             ? "flex-wrap"
@@ -141,8 +218,8 @@ export function FileToolRow(props: {
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center gap-1 border-b border-border/60 px-2 text-xs",
-        props.wrap ? "min-h-10 py-1" : "h-9",
+        "@container/tools flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 text-xs",
+        props.wrap ? "min-h-9 py-1" : "h-9",
       )}
     >
       {row}
@@ -150,35 +227,43 @@ export function FileToolRow(props: {
   );
 }
 
-export function FileSurfaceNotice(props: { readonly children: ReactNode }) {
-  return (
-    <div
-      role="status"
-      className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground"
-    >
-      {props.children}
-    </div>
-  );
-}
+const BAR_TONES = {
+  neutral: "border-border/60 bg-muted/40 text-muted-foreground",
+  warning: "border-warning/20 bg-warning-surface text-warning-foreground",
+} as const;
 
-/** A line under the file header that states something about the file and offers what to do. */
+/** A line under the tools that states something about the file and offers what to do about it. */
 export function FileSurfaceBar(props: {
   readonly tone?: "warning";
-  readonly actions: ReactNode;
+  readonly actions?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
     <div
       role="status"
       className={cn(
-        "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1.5 text-2xs",
-        props.tone === "warning"
-          ? "border-warning/20 bg-warning-surface text-warning-foreground"
-          : "text-muted-foreground",
+        "flex min-h-8 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-1 text-2xs leading-relaxed",
+        BAR_TONES[props.tone ?? "neutral"],
       )}
     >
       <span className="min-w-48 flex-1">{props.children}</span>
-      <span className="flex shrink-0 items-center gap-1.5">{props.actions}</span>
+      {props.actions ? (
+        <span className="flex shrink-0 items-center gap-1.5">{props.actions}</span>
+      ) : null}
+    </div>
+  );
+}
+
+/** A warning about how the file is shown, with nothing to do about it. */
+export function FileSurfaceNotice(props: { readonly children: ReactNode }) {
+  return <FileSurfaceBar tone="warning">{props.children}</FileSurfaceBar>;
+}
+
+/** One line under the document: a hint while idle, or what the selection adds up to. */
+export function FileStatusBar(props: { readonly children: ReactNode }) {
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-3 overflow-hidden border-t border-border/60 bg-muted/40 px-3 text-2xs whitespace-nowrap text-muted-foreground">
+      {props.children}
     </div>
   );
 }
@@ -189,11 +274,43 @@ export function FileSurfaceLoading(props: { readonly className?: string }) {
       role="status"
       aria-label="Loading file"
       className={cn(
-        "flex min-h-0 flex-1 items-center justify-center text-muted-foreground",
+        "flex min-h-0 flex-1 flex-col items-center justify-center gap-2 text-xs text-muted-foreground",
         props.className,
       )}
     >
       <Spinner size="lg" />
+      <span>Opening…</span>
+    </div>
+  );
+}
+
+/**
+ * What stands where a document would be when there is none to show: why, and what to do next.
+ * `alert` announces it as a failure.
+ */
+export function FileSurfaceMessage(props: {
+  readonly icon: ComponentType<{ readonly className?: string }>;
+  readonly title: string;
+  readonly alert?: boolean;
+  readonly actions?: ReactNode;
+  readonly children?: ReactNode;
+}) {
+  const Icon = props.icon;
+  return (
+    <div
+      role={props.alert ? "alert" : "status"}
+      className="scrollbar-gutter-both flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-auto px-6 py-8 text-center"
+    >
+      <span className="flex size-10 items-center justify-center rounded-xl border border-border/60 bg-muted/40 text-muted-foreground">
+        <Icon className="size-5" />
+      </span>
+      <div className="flex max-w-sm flex-col gap-1">
+        <p className="text-sm font-medium text-foreground">{props.title}</p>
+        {props.children ? (
+          <div className="text-xs leading-relaxed text-muted-foreground">{props.children}</div>
+        ) : null}
+      </div>
+      {props.actions ? <div className="flex items-center gap-2">{props.actions}</div> : null}
     </div>
   );
 }
@@ -203,20 +320,19 @@ export function FileSurfaceFailure(props: {
   readonly onRetry?: () => void;
 }) {
   return (
-    <div
-      role="alert"
-      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-xs leading-relaxed"
+    <FileSurfaceMessage
+      icon={FileWarningIcon}
+      title="This file could not be opened"
+      alert
+      actions={
+        props.onRetry ? (
+          <Button type="button" variant="outline" size="xs" onClick={props.onRetry}>
+            Try again
+          </Button>
+        ) : undefined
+      }
     >
-      <p className="text-destructive">{props.message}</p>
-      {props.onRetry ? (
-        <button
-          type="button"
-          onClick={props.onRetry}
-          className="rounded-md border border-input px-2.5 py-1 text-xs text-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        >
-          Try again
-        </button>
-      ) : null}
-    </div>
+      {props.message}
+    </FileSurfaceMessage>
   );
 }

@@ -54,9 +54,27 @@ export function workspaceSpreadsheetTransport(file: {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
   readonly relativePath: string;
+  /** True when the server sorts rows, saves column widths and searches a sheet. */
+  readonly tools: boolean;
 }): SpreadsheetTransport {
   const { environmentId, cwd, relativePath } = file;
   return {
+    ...(file.tools
+      ? {
+          tools: true,
+          find: async (sheet: string, query: string) =>
+            settle(
+              await executeAtomQuery(
+                appAtomRegistry,
+                projectEnvironment.findInSpreadsheet({
+                  environmentId,
+                  input: { cwd, relativePath, sheet, query },
+                }),
+                { ...QUIET, refresh: true },
+              ),
+            ),
+        }
+      : {}),
     open: async () =>
       settle(
         await executeAtomQuery(

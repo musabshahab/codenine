@@ -2,6 +2,7 @@ import type {
   SpreadsheetCellFormat,
   SpreadsheetCellInput,
   SpreadsheetEditResult,
+  SpreadsheetFindResult,
   SpreadsheetOpenResult,
   SpreadsheetOperation,
   SpreadsheetReadRangeInput,
@@ -17,6 +18,7 @@ import {
   cellKey,
   type CellPosition,
   cellToInput,
+  changedCellKeys,
   changeOperations,
   type EditHistory,
   EMPTY_HISTORY,
@@ -58,7 +60,7 @@ type RangeRequest = Pick<
   "sheet" | "row" | "column" | "rowCount" | "columnCount"
 >;
 
-/** How a session reaches the file. The grid never sees more of it than these three calls. */
+/** How a session reaches the file. The grid never sees more of it than these calls. */
 export interface SpreadsheetTransport {
   readonly open: () => Promise<SpreadsheetResult<SpreadsheetOpenResult>>;
   readonly readRange: (
@@ -69,6 +71,13 @@ export interface SpreadsheetTransport {
     operations: ReadonlyArray<SpreadsheetOperation>,
     expectedVersion: string | undefined,
   ) => Promise<SpreadsheetResult<SpreadsheetEditResult>>;
+  /** Present when the file's holder can search a sheet. */
+  readonly find?: (
+    sheet: string,
+    query: string,
+  ) => Promise<SpreadsheetResult<SpreadsheetFindResult>>;
+  /** True when the file's holder sorts rows and saves column widths. */
+  readonly tools?: boolean;
 }
 
 export interface SpreadsheetSnapshot {
@@ -90,6 +99,10 @@ export interface SpreadsheetSnapshot {
    * so whatever is derived from cells is derived again.
    */
   readonly cellAt: (row: number, column: number) => CellData | undefined;
+  /** Whether a cell of the active sheet differs from before the file last changed outside the grid. */
+  readonly changedAt: (row: number, column: number) => boolean;
+  /** The widths the file sets for the active sheet's columns, in pixels. Replaced, never changed. */
+  readonly fileWidths: ReadonlyMap<number, number>;
   readonly saveState: "saved" | "unsaved" | "saving" | "failed";
   readonly conflict: boolean;
   /** A change the server refused, to tell the user about once. */
@@ -132,7 +145,12 @@ const pageKey = (sheet: string, pageRow: number, pageColumn: number) =>
   `${sheet}\u0000${pageRow}\u0000${pageColumn}`;
 
 const movesCells = (operation: SpreadsheetOperation) =>
-  operation.type !== "setCell" && operation.type !== "setFormat";
+  operation.type !== "setCell" &&
+  operation.type !== "setFormat" &&
+  operation.type !== "setColumnWidth";
+
+const NO_WIDTHS: ReadonlyMap<number, number> = new Map();
+const NOTHING_CHANGED = () => false;
 
 interface SessionInput {
   readonly transport: SpreadsheetTransport;
@@ -183,6 +201,8 @@ export class SpreadsheetSession {
     rowCount: MIN_ROWS,
     columnCount: MIN_COLUMNS,
     cellAt: () => undefined,
+    changedAt: () => false,
+    fileWidths: NO_WIDTHS,
     saveState: "saved",
     conflict: false,
     notice: null,
@@ -198,6 +218,12 @@ export class SpreadsheetSession {
   private readonly usedSizes = new Map<string, { rows: number; columns: number }>();
   /** Sheets the server refused to read, with why, so they are not asked for again. */
   private readonly unreadable = new Map<string, string>();
+  private readonly fileWidths = new Map<string, ReadonlyMap<number, number>>();
+  /** Pages as they were when the file last changed outside the grid, until read again. */
+  private readonly before = new Map<string, ReadonlyMap<number, CellData>>();
+  /** Cells found to differ from `before`, by sheet. */
+  private readonly changed = new Map<string, Set<number>>();
+  private reviewing = false;
   private pending: Array<SpreadsheetOperation> = [];
   private history: EditHistory = EMPTY_HISTORY;
   private sequence = 0;
@@ -228,6 +254,41 @@ export class SpreadsheetSession {
   };
 
   readonly getSnapshot = () => this.snapshot;
+
+  /** Whether rows can be sorted and column widths saved with the file. */
+  get tools(): boolean {
+    return this.transport.tools === true;
+  }
+
+  get canFind(): boolean {
+    return this.transport.find !== undefined;
+  }
+
+  /**
+   * Where a sheet's cells hold some text, after saving what is unsaved so the search sees it.
+   * Null when the search could not be made.
+   */
+  async find(query: string): Promise<Omit<SpreadsheetFindResult, "version"> | null> {
+    const { find } = this.transport;
+    if (find === undefined || this.snapshot.status !== "ready") return null;
+    await this.save();
+    const result = await find(this.snapshot.activeSheet, query);
+    return result.ok ? result.value : null;
+  }
+
+  /**
+   * While a change to the file is under review, the cells it changed are marked. Ending the
+   * review forgets them.
+   */
+  setReviewing(reviewing: boolean): void {
+    if (reviewing === this.reviewing) return;
+    this.reviewing = reviewing;
+    if (!reviewing) {
+      this.changed.clear();
+      this.before.clear();
+    }
+    if (this.snapshot.status === "ready") this.bump();
+  }
 
   async open(): Promise<void> {
     const result = await this.transport.open();
@@ -311,6 +372,7 @@ export class SpreadsheetSession {
       activeSheet: name,
       selection: sheetView(this.view, name).selection ?? ORIGIN,
       sheetProblem: this.unreadable.get(name) ?? null,
+      fileWidths: this.fileWidths.get(name) ?? NO_WIDTHS,
       ...this.gridSize(name),
     });
     this.bump();
@@ -382,10 +444,12 @@ export class SpreadsheetSession {
       for (let row = area.top; row <= area.bottom; row++) {
         for (let column = area.left; column <= area.right; column++) {
           const cell = this.cell(row, column);
+          const { fill: _fill, ...withoutFill } = cell?.format ?? {};
           const next: SpreadsheetCellFormat = {
-            ...cell?.format,
+            ...(format.fill === undefined ? cell?.format : withoutFill),
             ...(format.bold === undefined ? {} : { bold: format.bold }),
             ...(format.numberFormat === undefined ? {} : { numberFormat: format.numberFormat }),
+            ...(typeof format.fill === "string" ? { fill: format.fill } : {}),
           };
           this.override(sheet, row, column, { ...cell, format: next });
         }
@@ -415,6 +479,35 @@ export class SpreadsheetSession {
     this.pending.push(operation);
     this.update({ busy: true });
     void this.save();
+  }
+
+  /**
+   * Sorts the table around the selected cell by that cell's column. The server finds the table
+   * and its headings, since it holds every row and the grid only the pages on screen.
+   */
+  sortRows(descending: boolean): void {
+    const { row, column } = this.snapshot.selection.anchor;
+    this.restructure({
+      type: "sortRows",
+      sheet: this.snapshot.activeSheet,
+      row,
+      column,
+      descending,
+    });
+  }
+
+  /** Saves a column width with the file. Not part of undo. */
+  setColumnWidth(column: number, width: number): void {
+    if (!this.canEdit() || !this.tools || this.snapshot.format !== "xlsx") return;
+    const sheet = this.snapshot.activeSheet;
+    const last = this.pending.at(-1);
+    // A column dragged again before the save goes once, at its last width.
+    if (last?.type === "setColumnWidth" && last.sheet === sheet && last.column === column) {
+      this.pending.pop();
+    }
+    this.sequence += 1;
+    this.pending.push({ type: "setColumnWidth", sheet, column, count: 1, width });
+    this.scheduleSave();
   }
 
   /** Saves pending edits now instead of after the pause. Settles when that save has. */
@@ -496,6 +589,18 @@ export class SpreadsheetSession {
 
   private adopt(opened: SpreadsheetOpenResult, resetView: boolean) {
     this.version = opened.version;
+    if (resetView) {
+      this.before.clear();
+      this.changed.clear();
+    } else {
+      // The file changed outside the grid: what was on screen is kept to compare with what is
+      // read next. Marks from a change nobody is reviewing are stale by now.
+      if (!this.reviewing) this.changed.clear();
+      for (const [key, page] of this.pages) {
+        if (!this.before.has(key)) this.before.set(key, page.cells);
+      }
+    }
+    this.fileWidths.clear();
     this.pages.clear();
     this.overrides.clear();
     this.usedSizes.clear();
@@ -516,6 +621,7 @@ export class SpreadsheetSession {
       sheets: opened.sheets,
       activeSheet,
       sheetProblem: null,
+      fileWidths: NO_WIDTHS,
       // A file opened again returns to the sheet and cell the user left it on.
       selection: resetView
         ? (remembered ?? ORIGIN)
@@ -590,6 +696,17 @@ export class SpreadsheetSession {
     }
     this.pages.delete(key);
     this.pages.set(key, { cells, stale: false });
+    const earlier = this.before.get(key);
+    if (earlier !== undefined) {
+      this.before.delete(key);
+      const differing = changedCellKeys(earlier, cells);
+      if (differing.length > 0) {
+        const marked = this.changed.get(sheet) ?? new Set<number>();
+        for (const cell of differing) marked.add(cell);
+        this.changed.set(sheet, marked);
+      }
+    }
+    this.readWidths(sheet, pageColumn, range.columnWidths ?? []);
     const oldest = this.pages.keys().next();
     if (this.pages.size > MAX_PAGES && !oldest.done) this.pages.delete(oldest.value);
     // The page holds every edit saved before it was asked for, so those no longer need showing.
@@ -609,6 +726,30 @@ export class SpreadsheetSession {
     }
     this.grow(sheet, range.rowCount, range.columnCount);
     this.bump();
+  }
+
+  /** Takes a page's column widths as the file's for those columns. */
+  private readWidths(
+    sheet: string,
+    pageColumn: number,
+    read: NonNullable<SpreadsheetReadRangeResult["columnWidths"]>,
+  ) {
+    const held = this.fileWidths.get(sheet) ?? NO_WIDTHS;
+    const first = pageColumn * PAGE_COLUMNS;
+    const same =
+      read.every(({ column, width }) => held.get(column) === width) &&
+      ![...held.keys()].some(
+        (column) =>
+          column >= first &&
+          column < first + PAGE_COLUMNS &&
+          !read.some((entry) => entry.column === column),
+      );
+    if (same) return;
+    const next = new Map(held);
+    for (let column = first; column < first + PAGE_COLUMNS; column++) next.delete(column);
+    for (const { column, width } of read) next.set(column, width);
+    this.fileWidths.set(sheet, next);
+    if (sheet === this.snapshot.activeSheet) this.update({ fileWidths: next });
   }
 
   private override(sheet: string, row: number, column: number, data: CellData | undefined) {
@@ -743,6 +884,9 @@ export class SpreadsheetSession {
     this.overrides.clear();
     this.usedSizes.clear();
     this.unreadable.clear();
+    this.fileWidths.clear();
+    this.before.clear();
+    this.changed.clear();
     this.history = EMPTY_HISTORY;
     let activeSheet = this.snapshot.activeSheet;
     for (const operation of batch) {
@@ -760,6 +904,7 @@ export class SpreadsheetSession {
       activeSheet,
       sheetProblem: null,
       busy: false,
+      fileWidths: NO_WIDTHS,
       selection: changedSheet ? ORIGIN : this.snapshot.selection,
       ...this.gridSize(activeSheet),
     });
@@ -783,7 +928,14 @@ export class SpreadsheetSession {
   }
 
   private bump() {
-    this.update({ cellAt: (row, column) => this.cell(row, column) });
+    const marked = this.reviewing ? this.changed.get(this.snapshot.activeSheet) : undefined;
+    this.update({
+      cellAt: (row, column) => this.cell(row, column),
+      changedAt:
+        marked === undefined || marked.size === 0
+          ? NOTHING_CHANGED
+          : (row, column) => marked.has(cellKey(row, column)),
+    });
   }
 
   private update(change: Partial<SpreadsheetSnapshot>) {

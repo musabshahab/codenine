@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  areaLabel,
   areaToClipboardText,
   type CellChange,
+  type CellData,
+  changedCellKeys,
+  cellKey,
   cellDisplayText,
   cellEditText,
   cellFromInput,
@@ -19,11 +23,15 @@ import {
   MAX_GRID_ROWS,
   moveSelection,
   parseCellInput,
+  parseNameBoxInput,
   pasteTargets,
   recordChanges,
   redoChanges,
   selectionArea,
+  selectionSummary,
   spreadsheetDocumentSelection,
+  SUMMARY_MAX_CELLS,
+  summaryNumber,
   undoChanges,
 } from "./spreadsheetModel";
 
@@ -100,6 +108,66 @@ describe("selection", () => {
     expect(
       spreadsheetDocumentSelection("Budget", { top: 0, left: 0, bottom: 99, right: 9 }, text),
     ).toEqual({ kind: "spreadsheet", sheet: "Budget", range: "A1:J100" });
+  });
+  it.each([
+    ["a cell", "B16", at(15, 1), at(15, 1)],
+    ["a range, in any case and with spaces around it", " a1:c4 ", at(0, 0), at(3, 2)],
+    ["a range written backwards, which keeps its ends", "C4:A1", at(3, 2), at(0, 0)],
+    ["fixed references", "$B$2:$C$3", at(1, 1), at(2, 2)],
+    ["whole columns", "B:C", at(0, 1), at(19, 2)],
+    ["whole rows", "2:3", at(1, 0), at(2, 4)],
+  ])("goes to %s typed into the name box", (_, text, anchor, focus) => {
+    expect(parseNameBoxInput(text, { rowCount: 20, columnCount: 5 })).toEqual({ anchor, focus });
+  });
+
+  it.each(["", "B", "16", "B0", "B21", "F1", "A1:", "A1:B", "Totals", "A1;B2", "=A1"])(
+    "does not go anywhere for %j",
+    (text) => {
+      expect(parseNameBoxInput(text, { rowCount: 20, columnCount: 5 })).toBeNull();
+    },
+  );
+
+  it("adds up the numbers in a selection and counts what it holds", () => {
+    const cells = new Map<number, CellData>([
+      [cellKey(0, 0), { value: "Qty" }],
+      [cellKey(1, 0), { value: 0.1 }],
+      [cellKey(2, 0), { value: 0.2, formula: "A2*2" }],
+      [cellKey(3, 0), { value: "#DIV/0!", error: true }],
+      [cellKey(4, 0), { format: { bold: true } }],
+      [cellKey(5, 0), { value: true }],
+      [cellKey(6, 0), { formula: "NOW()" }],
+    ]);
+    const cellAt = (row: number, column: number) => cells.get(cellKey(row, column));
+    const summary = selectionSummary({ top: 0, left: 0, bottom: 9, right: 1 }, cellAt);
+    // Text, an error and a boolean are counted and not added; a format alone is not counted.
+    expect(summary).toEqual({ count: 5, numbers: 2, sum: expect.closeTo(0.3, 12) });
+    expect(summaryNumber(summary!.sum)).toBe("0.3");
+    expect(summaryNumber(1234567.891)).toBe("1,234,567.891");
+    expect(areaLabel({ top: 0, left: 0, bottom: 9, right: 1 })).toBe("A1:B10");
+    // One cell has nothing to add up, nor does an empty range, nor one too large to walk.
+    expect(selectionSummary({ top: 1, left: 0, bottom: 1, right: 0 }, cellAt)).toBeNull();
+    expect(selectionSummary({ top: 7, left: 0, bottom: 9, right: 1 }, cellAt)).toBeNull();
+    expect(
+      selectionSummary({ top: 0, left: 0, bottom: SUMMARY_MAX_CELLS, right: 0 }, cellAt),
+    ).toBeNull();
+  });
+
+  it("finds the cells of a page that differ between two reads", () => {
+    const before = new Map<number, CellData>([
+      [1, { value: 1 }],
+      [2, { value: 2, formula: "A1+1" }],
+      [3, { value: "gone" }],
+      [4, { value: 4, format: { bold: true } }],
+      [5, { format: { bold: true } }],
+    ]);
+    const after = new Map<number, CellData>([
+      [1, { value: 1 }],
+      [2, { value: 2, formula: "A1+2" }],
+      [4, { value: 4 }],
+      [6, { value: "new" }],
+    ]);
+    // A format alone is not a change of contents.
+    expect(changedCellKeys(before, after).toSorted()).toEqual([2, 3, 6]);
   });
 });
 

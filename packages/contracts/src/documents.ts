@@ -82,6 +82,10 @@ export const SpreadsheetReadRangeResult = Schema.Struct({
   // Cells that hold a value, a formula or a format. Empty cells are left out.
   cells: Schema.Array(SpreadsheetCell),
   formats: Schema.Record(Schema.String, SpreadsheetCellFormat),
+  // Columns of the range whose width the file sets, in pixels at normal zoom.
+  columnWidths: Schema.optionalKey(
+    Schema.Array(Schema.Struct({ column: NonNegativeInt, width: PositiveInt })),
+  ),
 });
 export type SpreadsheetReadRangeResult = typeof SpreadsheetReadRangeResult.Type;
 
@@ -129,6 +133,24 @@ export const SpreadsheetOperation = Schema.Union([
   Schema.Struct({ type: Schema.Literal("deleteRows"), ...SpreadsheetSpan }),
   Schema.Struct({ type: Schema.Literal("insertColumns"), ...SpreadsheetSpan }),
   Schema.Struct({ type: Schema.Literal("deleteColumns"), ...SpreadsheetSpan }),
+  // Sorts the table around a cell by that cell's column: the rows above and below it that hold
+  // something, as whole rows. A first row of headings stays where it is.
+  Schema.Struct({
+    type: Schema.Literal("sortRows"),
+    sheet: SheetName,
+    row: NonNegativeInt,
+    column: NonNegativeInt,
+    descending: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("setColumnWidth"),
+    sheet: SheetName,
+    // Zero-based first column, and how many.
+    column: NonNegativeInt,
+    count: PositiveInt,
+    // In pixels at normal zoom.
+    width: PositiveInt.check(Schema.isBetween({ minimum: 8, maximum: 1800 })),
+  }),
   Schema.Struct({ type: Schema.Literal("addSheet"), name: SheetName }),
   Schema.Struct({ type: Schema.Literal("renameSheet"), sheet: SheetName, name: SheetName }),
   Schema.Struct({ type: Schema.Literal("deleteSheet"), sheet: SheetName }),
@@ -153,6 +175,27 @@ export const SpreadsheetEditResult = Schema.Struct({
   sheets: Schema.Array(SpreadsheetSheet),
 });
 export type SpreadsheetEditResult = typeof SpreadsheetEditResult.Type;
+
+/** The most matches one search returns. */
+export const SPREADSHEET_FIND_MAX_MATCHES = 500;
+
+export const SpreadsheetFindInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: SpreadsheetPath,
+  sheet: SheetName,
+  // Matched anywhere in a cell's value or formula, without regard to case.
+  query: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255)),
+});
+export type SpreadsheetFindInput = typeof SpreadsheetFindInput.Type;
+
+export const SpreadsheetFindResult = Schema.Struct({
+  version: TrimmedNonEmptyString,
+  // In reading order: along each row, then down.
+  matches: Schema.Array(Schema.Struct({ row: NonNegativeInt, column: NonNegativeInt })),
+  // True when the sheet holds more matches than were returned.
+  truncated: Schema.Boolean,
+});
+export type SpreadsheetFindResult = typeof SpreadsheetFindResult.Type;
 
 /** The file, or what it unpacks to, is over a limit, so it was not opened or changed. */
 export class SpreadsheetTooLargeError extends Schema.TaggedError<SpreadsheetTooLargeError>()(
@@ -196,6 +239,9 @@ export class SpreadsheetUnsupportedError extends Schema.TaggedError<SpreadsheetU
       "pivot-tables",
       "sheet-references",
       "last-sheet",
+      "sort-merged-cells",
+      "sort-references",
+      "delimited-layout",
     ]),
     ...RefusedOperation,
   },
@@ -222,6 +268,12 @@ export class SpreadsheetUnsupportedError extends Schema.TaggedError<SpreadsheetU
         return "Formulas or names in this workbook refer to this sheet in a way this change would break. Make the change in a spreadsheet app.";
       case "last-sheet":
         return "A workbook needs at least one visible sheet.";
+      case "sort-merged-cells":
+        return "These rows hold merged cells, which sorting would pull apart. Unmerge them first.";
+      case "sort-references":
+        return "Formulas read single rows of this table, so sorting would change what they calculate. Sort it in a spreadsheet app.";
+      case "delimited-layout":
+        return "A CSV or TSV file cannot hold column widths.";
     }
   }
 }

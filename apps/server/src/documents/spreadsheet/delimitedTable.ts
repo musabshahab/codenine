@@ -13,6 +13,7 @@ import {
   unsupported,
 } from "./problems.ts";
 import { MAX_COLUMNS, MAX_ROWS } from "./references.ts";
+import { hasHeaderRow, type SortKey, sortedOrder } from "./sortRows.ts";
 
 const SHEET_NAME = "Sheet1";
 const BYTE_ORDER_MARK = [0xef, 0xbb, 0xbf];
@@ -176,6 +177,20 @@ export class DelimitedTable implements SpreadsheetModel {
     return { rowCount: this.records.length, columnCount, cells, formats: {} };
   }
 
+  async find(sheet: string, query: string, limit: number) {
+    this.assertSheet(sheet);
+    const needle = query.toLowerCase();
+    const matches: Array<{ row: number; column: number }> = [];
+    for (const [row, record] of this.records.entries()) {
+      for (const [column, field] of record.fields.entries()) {
+        if (!field.toLowerCase().includes(needle)) continue;
+        if (matches.length === limit) return { matches, truncated: true };
+        matches.push({ row, column });
+      }
+    }
+    return { matches, truncated: false };
+  }
+
   async apply(operations: ReadonlyArray<SpreadsheetOperation>): Promise<void> {
     for (const [index, operation] of operations.entries()) {
       try {
@@ -223,6 +238,12 @@ export class DelimitedTable implements SpreadsheetModel {
           record.raw = null;
         }
         break;
+      case "sortRows":
+        this.assertSheet(operation.sheet);
+        this.sortRows(operation.row, operation.column, operation.descending);
+        break;
+      case "setColumnWidth":
+        throw unsupported("delimited-layout");
       case "setFormat":
         throw unsupported("delimited-formats");
       case "addSheet":
@@ -247,6 +268,38 @@ export class DelimitedTable implements SpreadsheetModel {
 
   private assertSheet(name: string) {
     if (name.toLowerCase() !== SHEET_NAME.toLowerCase()) throw invalidOperation("unknown-sheet");
+  }
+
+  private sortRows(row: number, column: number, descending: boolean) {
+    const filled = (record: DelimitedRecord | undefined) =>
+      record !== undefined && record.fields.some((field) => field !== "");
+    if (!filled(this.records[row])) return;
+    let top = row;
+    while (filled(this.records[top - 1])) top -= 1;
+    let bottom = row;
+    while (filled(this.records[bottom + 1])) bottom += 1;
+    const numeric = (field: string) => field.trim() !== "" && Number.isFinite(Number(field));
+    const block = this.records.slice(top, bottom + 1);
+    const header = hasHeaderRow(
+      block.map((record) =>
+        record.fields.flatMap((field, at) =>
+          field === "" ? [] : [{ column: at, text: !numeric(field), style: undefined }],
+        ),
+      ),
+    );
+    const first = top + (header ? 1 : 0);
+    const body = this.records.slice(first, bottom + 1);
+    const keys = body.map((record): SortKey => {
+      const field = record.fields[column] ?? "";
+      return field === "" ? null : numeric(field) ? Number(field) : field;
+    });
+    // Line endings stay with their lines' places: the file's last line may have none.
+    const endings = body.map((record) => record.ending);
+    const sorted = sortedOrder(keys, descending).map((at) => body[at]!);
+    sorted.forEach((record, at) => {
+      record.ending = endings[at]!;
+    });
+    this.records.splice(first, sorted.length, ...sorted);
   }
 
   private emptyRecord(): DelimitedRecord {

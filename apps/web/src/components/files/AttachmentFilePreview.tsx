@@ -10,7 +10,14 @@ import {
   officePreviewKind,
   FILE_TEXT_PREVIEW_MAX_BYTES,
 } from "@codenine/shared/filePreview";
-import { ChevronRightIcon, DownloadIcon, Trash2Icon, WrapTextIcon, XIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  DownloadIcon,
+  FileQuestionIcon,
+  Trash2Icon,
+  WrapTextIcon,
+  XIcon,
+} from "lucide-react";
 import { Check, Code2, Copy, Eye, Table2 } from "lucide";
 import { lazy, Suspense, use, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -35,6 +42,7 @@ import {
   FileSurfaceAction,
   FileSurfaceFailure,
   FileSurfaceLoading,
+  FileSurfaceMessage,
   FileSurfaceNotice,
 } from "./fileSurfaceChrome";
 import { FileToolSlotContext } from "./explorerPlacement";
@@ -370,13 +378,9 @@ export function AttachmentFilePreview(props: {
       onError={() => setError("Unable to load image.")}
     />
   ) : (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 text-center">
-      <p className="text-sm font-medium">No preview for this file</p>
-      <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
-        Save it to open in an app that supports {props.name.split(".").at(-1) || "this format"}{" "}
-        files.
-      </p>
-    </div>
+    <FileSurfaceMessage icon={FileQuestionIcon} title="No preview for this file">
+      Save it to open in an app that supports {props.name.split(".").at(-1) || "this format"} files.
+    </FileSurfaceMessage>
   );
 
   const actions = (

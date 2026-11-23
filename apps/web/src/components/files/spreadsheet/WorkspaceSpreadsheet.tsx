@@ -1,6 +1,7 @@
 import type { EnvironmentId, ThreadId } from "@codenine/contracts";
 import { ProjectWriteFileConflictError } from "@codenine/contracts";
 import { squashAtomCommandFailure } from "@codenine/client-runtime/state/runtime";
+import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import { type ReactNode, useState } from "react";
 
@@ -8,6 +9,7 @@ import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { projectEnvironment } from "~/state/projects";
+import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { FileSurfaceBar } from "../fileSurfaceChrome";
@@ -41,9 +43,13 @@ export default function WorkspaceSpreadsheet(props: {
   readonly agentChange: SpreadsheetAgentChange | null;
 }) {
   const { environmentId, cwd, relativePath, sharedWithTextEditor, onPendingChange } = props;
+  // Older servers neither sort nor search, so those tools are left out there.
+  const tools =
+    useAtomValue(serverEnvironment.configValueAtom(environmentId))?.environment.capabilities
+      .spreadsheetTools === true;
   // The parent remounts this for another file, so one transport lasts the mount.
   const [transport] = useState((): SpreadsheetTransport => {
-    const base = workspaceSpreadsheetTransport({ environmentId, cwd, relativePath });
+    const base = workspaceSpreadsheetTransport({ environmentId, cwd, relativePath, tools });
     if (!sharedWithTextEditor) return base;
     return {
       ...base,
@@ -74,6 +80,7 @@ export default function WorkspaceSpreadsheet(props: {
       refreshKey={props.refreshKey}
       onPendingChange={reportPending}
       fallback={props.fallback}
+      reviewing={agentChange !== null}
       {...(agentChange === null
         ? {}
         : {

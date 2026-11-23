@@ -24,6 +24,9 @@ import {
   type ReplyFileSaveResult,
   type SpreadsheetEditInput,
   type SpreadsheetEditResult,
+  SPREADSHEET_FIND_MAX_MATCHES,
+  type SpreadsheetFindInput,
+  type SpreadsheetFindResult,
   type SpreadsheetOpenInput,
   type SpreadsheetOpenResult,
   SpreadsheetOperationError,
@@ -191,6 +194,10 @@ export class Documents extends Context.Service<
     readonly readSpreadsheetRange: (
       input: SpreadsheetReadRangeInput,
     ) => Effect.Effect<SpreadsheetReadRangeResult, ReadError>;
+    /** Where a sheet's cells hold some text, in reading order and capped. */
+    readonly findInSpreadsheet: (
+      input: SpreadsheetFindInput,
+    ) => Effect.Effect<SpreadsheetFindResult, ReadError>;
     /**
      * Applies the operations in order and saves. Nothing is written unless all of them apply,
      * and a file that no longer has the expected version is left alone.
@@ -363,6 +370,21 @@ const make = Effect.gen(function* () {
         const { version, model } = yield* load(input);
         const range = yield* attempt(input.relativePath, "read", () => model.readRange(input));
         return { version, ...range };
+      }),
+    );
+  });
+
+  const findInSpreadsheet: Documents["Service"]["findInSpreadsheet"] = Effect.fn(
+    "Documents.findInSpreadsheet",
+  )(function* (input) {
+    return yield* locks.withLock(
+      keyOf(input),
+      Effect.gen(function* () {
+        const { version, model } = yield* load(input);
+        const found = yield* attempt(input.relativePath, "read", () =>
+          model.find(input.sheet, input.query, SPREADSHEET_FIND_MAX_MATCHES),
+        );
+        return { version, ...found };
       }),
     );
   });
@@ -745,6 +767,7 @@ const make = Effect.gen(function* () {
   return Documents.of({
     openSpreadsheet,
     readSpreadsheetRange,
+    findInSpreadsheet,
     editSpreadsheet,
     openPdf,
     editPdf,

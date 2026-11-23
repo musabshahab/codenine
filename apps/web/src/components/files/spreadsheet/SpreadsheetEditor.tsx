@@ -1,9 +1,14 @@
 import type { SpreadsheetOperation } from "@codenine/contracts";
 import {
+  ArrowDownAZIcon,
+  ArrowUpZAIcon,
   BoldIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  DollarSignIcon,
   EllipsisIcon,
-  HashIcon,
   PaintBucketIcon,
+  PercentIcon,
   PlusIcon,
   Redo2Icon,
   Undo2Icon,
@@ -21,6 +26,7 @@ import {
 } from "react";
 
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "~/components/ui/menu";
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -31,15 +37,20 @@ import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 
 import {
+  FileStatusBar,
   FileSurfaceAction,
   FileSurfaceBar,
   FileSurfaceFailure,
   FileSurfaceLoading,
   FileSurfaceNotice,
+  FileToolButton,
   FileToolRow,
+  FileToolSeparator,
+  FileToolStatus,
 } from "../fileSurfaceChrome";
 import {
   areaCellCount,
+  areaLabel,
   areaToClipboardText,
   cellCopyText,
   cellDisplayText,
@@ -55,9 +66,12 @@ import {
   type GridSelection,
   moveSelection,
   parseCellInput,
+  parseNameBoxInput,
   pasteTargets,
   selectionArea,
+  selectionSummary,
   spreadsheetDocumentSelection,
+  summaryNumber,
 } from "./spreadsheetModel";
 import { usePublishDocumentSelection } from "../documentSelectionPublisher";
 import {
@@ -68,13 +82,15 @@ import {
 } from "./spreadsheetSession";
 import { rememberColumnWidths, rememberSheetScroll, sheetView } from "./spreadsheetViewMemory";
 
-const ROW_HEIGHT = 24;
+const ROW_HEIGHT = 28;
+/** The size cell text is drawn at, which is also the size it is measured at. */
+const CELL_FONT_SIZE = 13;
 /** A cell's side padding and border, plus a little air, around its measured text. */
 const CELL_TEXT_PADDING = 20;
 /** The rows whose text decides a column's fitted width. */
 const FIT_ROWS = 200;
-const HEADER_HEIGHT = 24;
-const ROW_HEADER_WIDTH = 52;
+const HEADER_HEIGHT = 26;
+const ROW_HEADER_WIDTH = 48;
 const OVERSCAN = 3;
 /** The most cells one copy, paste or clear handles, so a whole-sheet selection cannot stall the tab. */
 const MAX_BULK_CELLS = 10_000;
@@ -111,7 +127,7 @@ function fitNewColumns(input: {
       if (cell === null) continue;
       measuringContext ??= document.createElement("canvas").getContext("2d");
       if (measuringContext === null) return null;
-      measuringContext.font = `${cell.bold ? "600 " : ""}12px ${input.fontFamily}`;
+      measuringContext.font = `${cell.bold ? "600 " : ""}${CELL_FONT_SIZE}px ${input.fontFamily}`;
       textWidths.push(measuringContext.measureText(cell.text).width);
     }
     // A column with nothing read yet is looked at again when its cells arrive.
@@ -125,11 +141,12 @@ function fitNewColumns(input: {
   return columns.length === 0 ? null : { widths: widths ?? input.widths, columns };
 }
 
-const NUMBER_FORMATS = [
-  { label: "Automatic", code: "" },
-  { label: "Number", code: "#,##0.00" },
-  { label: "Percent", code: "0%" },
-  { label: "Date", code: "yyyy-mm-dd" },
+const CURRENCY_FORMAT = "$#,##0.00";
+const PERCENT_FORMAT = "0%";
+/** Formats that are asked for less often, offered in the menu. */
+const MORE_NUMBER_FORMATS = [
+  { label: "with two decimals", code: "#,##0.00" },
+  { label: "as a date", code: "yyyy-mm-dd" },
 ] as const;
 
 export interface SpreadsheetEditorState {
@@ -155,8 +172,10 @@ export default function SpreadsheetEditor(props: {
   readonly onPendingChange: (pending: boolean) => void;
   /** Shown instead when the file cannot be opened for editing here. */
   readonly fallback: ReactNode;
-  /** Bars above the grid that act on the whole file. */
+  /** A bar under the tools that acts on the whole file. */
   readonly renderHeader?: (state: SpreadsheetEditorState) => ReactNode;
+  /** True while a change to the file is under review, when the cells it changed are marked. */
+  readonly reviewing?: boolean;
 }) {
   const { transport, sessionKey, saveDelayMs = 500 } = props;
   const [session, setSession] = useState<SpreadsheetSession | null>(null);
@@ -183,6 +202,7 @@ function SpreadsheetSurface(props: {
   readonly refreshKey: string | null;
   readonly fallback: ReactNode;
   readonly renderHeader?: (state: SpreadsheetEditorState) => ReactNode;
+  readonly reviewing?: boolean;
 }) {
   const { session } = props;
   const snapshot = useSyncExternalStore(session.subscribe, session.getSnapshot);
@@ -193,6 +213,11 @@ function SpreadsheetSurface(props: {
     openedWith.current = props.refreshKey;
     void session.checkForChanges();
   }, [session, props.refreshKey]);
+  const reviewing = props.reviewing === true;
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- the session outlives this view and holds the marks, so it is told when a review starts and ends
+  useEffect(() => {
+    session.setReviewing(reviewing);
+  }, [session, reviewing]);
 
   if (snapshot.status === "loading") return <FileSurfaceLoading />;
   if (snapshot.status === "unavailable") {
@@ -208,8 +233,8 @@ function SpreadsheetSurface(props: {
     );
   }
   const saved = snapshot.saveState === "saved" && !snapshot.conflict;
-  return (
-    <div className="@container flex min-h-0 flex-1 flex-col">
+  const bars = (
+    <>
       {props.renderHeader?.({
         version: saved ? snapshot.version : undefined,
         reload: () => void session.reload(),
@@ -276,16 +301,19 @@ function SpreadsheetSurface(props: {
           This sheet cannot be shown here, so it looks empty. {snapshot.sheetProblem}
         </FileSurfaceNotice>
       ) : null}
+    </>
+  );
+  return (
+    <div className="@container flex min-h-0 flex-1 flex-col">
       <SpreadsheetGrid
         key={snapshot.activeSheet}
         session={session}
         snapshot={snapshot}
         name={props.name}
         readOnly={props.readOnly}
+        bars={bars}
       />
-      {snapshot.format === "xlsx" ? (
-        <SheetTabs session={session} snapshot={snapshot} readOnly={props.readOnly} />
-      ) : null}
+      <SheetBar session={session} snapshot={snapshot} readOnly={props.readOnly} />
     </div>
   );
 }
@@ -293,7 +321,7 @@ function SpreadsheetSurface(props: {
 const SAVE_STATE_LABELS: Record<SpreadsheetSnapshot["saveState"], string> = {
   saved: "Saved",
   unsaved: "Unsaved",
-  saving: "Saving...",
+  saving: "Saving…",
   failed: "Not saved",
 };
 
@@ -303,17 +331,27 @@ interface Editing extends CellPosition {
   readonly surface: "cell" | "bar";
 }
 
+// Cells scroll under the headers, so a header is opaque: its tint is painted over the background.
+const HEADER_FILL = "bg-background bg-linear-to-b from-muted to-muted";
+const HEADER_SELECTED = "from-primary/14 to-primary/14 font-medium text-foreground";
+
+const FIELD_CLASS =
+  "h-7 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset disabled:opacity-60";
+
 function SpreadsheetGrid(props: {
   readonly session: SpreadsheetSession;
   readonly snapshot: SpreadsheetSnapshot;
   readonly name: string;
   readonly readOnly: boolean;
+  readonly bars: ReactNode;
 }) {
   const { session, snapshot } = props;
-  const { selection, rowCount, columnCount, format, date1904 } = snapshot;
+  const { selection, rowCount, columnCount, format, date1904, cellAt, changedAt, fileWidths } =
+    snapshot;
   const editable =
     !props.readOnly && !snapshot.busy && !snapshot.conflict && snapshot.sheetProblem === null;
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const findRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState({ firstRow: 0, firstColumn: 0, rows: 40, columns: 12 });
   const sheet = snapshot.activeSheet;
   // The grid is keyed by its sheet, so this starts from the widths the sheet was left with.
@@ -326,6 +364,8 @@ function SpreadsheetGrid(props: {
     editingRef.current = next;
     setEditingState(next);
   };
+  /** What is typed into the name box, until it is entered or left. */
+  const [address, setAddress] = useState<{ text: string; invalid: boolean } | null>(null);
 
   // Stable for the scroll and resize listeners, which read the layout of the latest render.
   const measure = useStableCallback(() => {
@@ -379,15 +419,25 @@ function SpreadsheetGrid(props: {
     }
   }, [session, view.firstRow, view.firstColumn, lastRow, lastColumn]);
 
-  // Changes only when cell contents may have, so moving the selection measures nothing.
-  const { cellAt } = snapshot;
-  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- measures cell text with a canvas once cells arrive, so a column opens wide enough for what it holds, before paint
+  // `cellAt` changes only when cell contents may have, so moving the selection measures nothing.
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- takes the widths the file sets, then measures cell text with a canvas once cells arrive so the other columns open wide enough for what they hold, before paint
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
+    const held = sheetView(session.view, sheet);
+    // A column the file gives a width keeps it, unless the user has sized it here since.
+    let base = widths;
+    const fromFile: Array<number> = [];
+    for (const [column, width] of fileWidths) {
+      if (held.fitted.has(column)) continue;
+      fromFile.push(column);
+      if (base === widths) base = new Map(widths);
+      (base as Map<number, number>).set(column, clampColumnWidth(width));
+    }
+    if (fromFile.length > 0) rememberColumnWidths(session.view, sheet, base, fromFile);
     const fitted = fitNewColumns({
-      fitted: sheetView(session.view, sheet).fitted,
-      widths,
+      fitted: held.fitted,
+      widths: base,
       fontFamily: getComputedStyle(scroller).fontFamily,
       firstColumn: view.firstColumn,
       lastColumn,
@@ -399,10 +449,22 @@ function SpreadsheetGrid(props: {
           : { text: cellDisplayText(cell, date1904), bold: cell.format?.bold === true };
       },
     });
-    if (fitted === null) return;
-    rememberColumnWidths(session.view, sheet, fitted.widths, fitted.columns);
-    if (fitted.widths !== widths) setWidths(fitted.widths);
-  }, [session, sheet, cellAt, widths, view.firstColumn, lastColumn, rowCount, date1904]);
+    if (fitted !== null) {
+      rememberColumnWidths(session.view, sheet, fitted.widths, fitted.columns);
+      base = fitted.widths;
+    }
+    if (base !== widths) setWidths(base);
+  }, [
+    session,
+    sheet,
+    cellAt,
+    fileWidths,
+    widths,
+    view.firstColumn,
+    lastColumn,
+    rowCount,
+    date1904,
+  ]);
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- column widths decide which columns are on screen, so the scroller is measured again when they change
   useLayoutEffect(() => {
     measure();
@@ -426,10 +488,20 @@ function SpreadsheetGrid(props: {
     setWidths(next);
   };
   const resizing = useRef<{ column: number; startX: number; startWidth: number } | null>(null);
+  /** The drag is over: a width that changed is saved with the file where it can be. */
+  const endResize = () => {
+    const drag = resizing.current;
+    resizing.current = null;
+    if (drag === null) return;
+    const width = sheetView(session.view, sheet).widths.get(drag.column);
+    if (width !== undefined && width !== drag.startWidth && editable) {
+      session.setColumnWidth(drag.column, width);
+    }
+  };
 
   const active = selection.anchor;
   const area = selectionArea(selection);
-  const activeCell = snapshot.cellAt(active.row, active.column);
+  const activeCell = cellAt(active.row, active.column);
   const bounds = { rowCount, columnCount };
 
   const reveal = ({ row, column }: CellPosition) => {
@@ -455,6 +527,7 @@ function SpreadsheetGrid(props: {
   };
   const move = (rows: number, columns: number, extend: boolean) =>
     select(moveSelection(selection, { rows, columns }, extend, bounds));
+  const focusGrid = () => scrollerRef.current?.focus({ preventScroll: true });
 
   const startEditing = (text: string | null, surface: Editing["surface"]) => {
     if (!editable) return;
@@ -470,16 +543,13 @@ function SpreadsheetGrid(props: {
     const current = editingRef.current;
     if (current === null) return;
     setEditing(null);
-    if (
-      commit &&
-      current.text !== cellEditText(snapshot.cellAt(current.row, current.column), format)
-    ) {
+    if (commit && current.text !== cellEditText(cellAt(current.row, current.column), format)) {
       session.setCells([
         { row: current.row, column: current.column, input: parseCellInput(current.text, format) },
       ]);
     }
     if (then === undefined) return;
-    scrollerRef.current?.focus({ preventScroll: true });
+    focusGrid();
     if (then.rows !== 0 || then.columns !== 0) move(then.rows, then.columns, false);
   };
   const editorKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -493,6 +563,16 @@ function SpreadsheetGrid(props: {
       event.preventDefault();
       finishEditing(false, { rows: 0, columns: 0 });
     }
+  };
+  const goToAddress = (text: string) => {
+    const target = parseNameBoxInput(text, bounds);
+    if (target === null) return setAddress({ text, invalid: true });
+    if (editingRef.current !== null) finishEditing(true);
+    setAddress(null);
+    session.select(target);
+    reveal(target.focus);
+    reveal(target.anchor);
+    focusGrid();
   };
 
   const tooMany = () =>
@@ -538,6 +618,14 @@ function SpreadsheetGrid(props: {
           anchor: { row: 0, column: 0 },
           focus: { row: rowCount - 1, column: columnCount - 1 },
         });
+      } else if (letter === "f" && findRef.current !== null) {
+        handled();
+        event.stopPropagation();
+        findRef.current.focus();
+        findRef.current.select();
+      } else if (letter === "b" && editable && format === "xlsx") {
+        handled();
+        session.setFormat({ bold: activeCell?.format?.bold !== true });
       }
       return;
     }
@@ -596,7 +684,7 @@ function SpreadsheetGrid(props: {
     }
     event.clipboardData.setData(
       "text/plain",
-      areaToClipboardText(area, (row, column) => cellCopyText(snapshot.cellAt(row, column))),
+      areaToClipboardText(area, (row, column) => cellCopyText(cellAt(row, column))),
     );
     return true;
   };
@@ -655,7 +743,7 @@ function SpreadsheetGrid(props: {
     if (editingRef.current !== null) finishEditing(true);
     // The grid keeps focus, so the keyboard works straight after a click.
     event.preventDefault();
-    scrollerRef.current?.focus({ preventScroll: true });
+    focusGrid();
     event.currentTarget.setPointerCapture(event.pointerId);
     session.select(event.shiftKey ? { anchor: selection.anchor, focus: hit.focus } : hit);
   };
@@ -675,18 +763,17 @@ function SpreadsheetGrid(props: {
   const rows = area.bottom - area.top + 1;
   const columns = area.right - area.left + 1;
   usePublishDocumentSelection(
-    spreadsheetDocumentSelection(sheet, area, (row, column) =>
-      cellCopyText(snapshot.cellAt(row, column)),
-    ),
+    spreadsheetDocumentSelection(sheet, area, (row, column) => cellCopyText(cellAt(row, column))),
   );
   const plural = (count: number, noun: string) => (count === 1 ? noun : `${count} ${noun}s`);
 
   const cells: Array<ReactNode> = [];
   for (let row = view.firstRow; row < lastRow; row++) {
     for (let column = view.firstColumn; column < lastColumn; column++) {
-      const cell = snapshot.cellAt(row, column);
-      if (cell === undefined) continue;
-      const pending = cell.value === undefined && cell.formula !== undefined;
+      const cell = cellAt(row, column);
+      const changed = changedAt(row, column);
+      if (cell === undefined && !changed) continue;
+      const pending = cell?.value === undefined && cell?.formula !== undefined;
       cells.push(
         <div
           key={`${row}:${column}`}
@@ -694,12 +781,16 @@ function SpreadsheetGrid(props: {
           aria-rowindex={row + 1}
           aria-colindex={column + 1}
           data-cell={cellLabel({ row, column })}
+          {...(changed ? { "data-changed": "" } : {})}
           className={cn(
-            "absolute overflow-hidden px-1.5 text-xs leading-6 text-ellipsis whitespace-nowrap",
-            typeof cell.value === "number" && !cell.error && "text-right tabular-nums",
-            cell.format?.bold && "font-semibold",
-            cell.error && "text-destructive",
+            "absolute overflow-hidden px-2 leading-6.75 text-ellipsis whitespace-nowrap",
+            typeof cell?.value === "number" && !cell.error && "text-right tabular-nums",
+            cell?.format?.bold && "font-semibold",
+            cell?.error && "text-destructive",
             pending && "text-muted-foreground",
+            // A change under review: a still tint and a corner mark, in both themes.
+            changed &&
+              "bg-info/12 after:absolute after:top-0 after:right-0 after:border-4 after:border-transparent after:border-t-info after:border-r-info",
           )}
           style={{
             top: HEADER_HEIGHT + row * ROW_HEIGHT,
@@ -707,7 +798,7 @@ function SpreadsheetGrid(props: {
             width: layout.widthOf(column) - 1,
             height: ROW_HEIGHT - 1,
             // A fill is a fixed colour, so its text stays dark in both themes.
-            ...(cell.format?.fill === undefined
+            ...(cell?.format?.fill === undefined
               ? {}
               : { backgroundColor: `#${cell.format.fill}`, color: "#18181b" }),
           }}
@@ -739,8 +830,9 @@ function SpreadsheetGrid(props: {
         role="columnheader"
         data-column-header={column}
         className={cn(
-          "absolute top-0 flex h-full items-center justify-center border-r border-border/60 text-2xs text-muted-foreground select-none",
-          column >= area.left && column <= area.right && "bg-accent text-foreground",
+          "absolute top-0 flex h-full items-center justify-center border-r border-border text-2xs text-muted-foreground select-none",
+          HEADER_FILL,
+          column >= area.left && column <= area.right && HEADER_SELECTED,
         )}
         style={{ left, width }}
       >
@@ -761,12 +853,8 @@ function SpreadsheetGrid(props: {
             if (drag === null || drag.column !== column) return;
             setColumnWidth(column, drag.startWidth + event.clientX - drag.startX);
           }}
-          onPointerUp={() => {
-            resizing.current = null;
-          }}
-          onPointerCancel={() => {
-            resizing.current = null;
-          }}
+          onPointerUp={endResize}
+          onPointerCancel={endResize}
           onDoubleClick={(event) => {
             event.stopPropagation();
             fitColumns(column, column);
@@ -783,8 +871,9 @@ function SpreadsheetGrid(props: {
         role="rowheader"
         data-row-header={row}
         className={cn(
-          "absolute left-0 flex items-center justify-center border-r border-b border-border/60 bg-background text-2xs text-muted-foreground tabular-nums select-none",
-          row >= area.top && row <= area.bottom && "bg-accent text-foreground",
+          "absolute left-0 flex items-center justify-center border-r border-b border-border text-2xs text-muted-foreground tabular-nums select-none",
+          HEADER_FILL,
+          row >= area.top && row <= area.bottom && HEADER_SELECTED,
         )}
         style={{ top: row * ROW_HEIGHT, width: ROW_HEADER_WIDTH, height: ROW_HEIGHT }}
       >
@@ -793,196 +882,313 @@ function SpreadsheetGrid(props: {
     );
   }
 
+  const numberFormat = activeCell?.format?.numberFormat ?? "";
+  const fill = activeCell?.format?.fill?.toUpperCase();
   return (
     <>
       <FileToolRow
         label="Spreadsheet tools"
         end={
-          <span
-            className="shrink-0 pr-1 text-2xs whitespace-nowrap text-muted-foreground"
-            role="status"
-            aria-live="polite"
-          >
+          <FileToolStatus busy={snapshot.saveState === "saving"}>
             {props.readOnly ? "Read only" : SAVE_STATE_LABELS[snapshot.saveState]}
-          </span>
+          </FileToolStatus>
         }
       >
-        <FileSurfaceAction
-          label="Undo"
-          disabled={!editable || !snapshot.canUndo}
-          onPress={() => session.undo()}
-        >
-          <Undo2Icon className="size-3.5" />
-        </FileSurfaceAction>
-        <FileSurfaceAction
-          label="Redo"
-          disabled={!editable || !snapshot.canRedo}
-          onPress={() => session.redo()}
-        >
-          <Redo2Icon className="size-3.5" />
-        </FileSurfaceAction>
-        <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
-        {format === "xlsx" ? (
+        {props.readOnly ? null : (
           <>
             <FileSurfaceAction
-              label="Bold"
-              pressed={activeCell?.format?.bold === true}
-              disabled={!editable}
-              onPress={() => session.setFormat({ bold: activeCell?.format?.bold !== true })}
+              label="Undo"
+              disabled={!editable || !snapshot.canUndo}
+              onPress={() => session.undo()}
             >
-              <BoldIcon className="size-3.5" />
+              <Undo2Icon className="size-3.5" />
             </FileSurfaceAction>
+            <FileSurfaceAction
+              label="Redo"
+              disabled={!editable || !snapshot.canRedo}
+              onPress={() => session.redo()}
+            >
+              <Redo2Icon className="size-3.5" />
+            </FileSurfaceAction>
+            <FileToolSeparator />
+            {format === "xlsx" ? (
+              <>
+                <FileSurfaceAction
+                  label="Bold"
+                  pressed={activeCell?.format?.bold === true}
+                  disabled={!editable}
+                  onPress={() => session.setFormat({ bold: activeCell?.format?.bold !== true })}
+                >
+                  <BoldIcon className="size-3.5" />
+                </FileSurfaceAction>
+                <FileSurfaceAction
+                  label="Currency"
+                  pressed={numberFormat === CURRENCY_FORMAT}
+                  disabled={!editable}
+                  onPress={() =>
+                    session.setFormat({
+                      numberFormat: numberFormat === CURRENCY_FORMAT ? "" : CURRENCY_FORMAT,
+                    })
+                  }
+                >
+                  <DollarSignIcon className="size-3.5" />
+                </FileSurfaceAction>
+                <FileSurfaceAction
+                  label="Per cent"
+                  pressed={numberFormat === PERCENT_FORMAT}
+                  disabled={!editable}
+                  onPress={() =>
+                    session.setFormat({
+                      numberFormat: numberFormat === PERCENT_FORMAT ? "" : PERCENT_FORMAT,
+                    })
+                  }
+                >
+                  <PercentIcon className="size-3.5" />
+                </FileSurfaceAction>
+                <FileToolSeparator />
+                <div
+                  role="group"
+                  aria-label="Fill"
+                  // Shown where the row has room; a narrower row offers the menu beside it.
+                  className="hidden shrink-0 items-center gap-1 px-1 @[38rem]/tools:flex"
+                >
+                  <FillSwatch
+                    label="No fill"
+                    colour={null}
+                    selected={fill === undefined}
+                    disabled={!editable}
+                    onPick={() => session.setFormat({ fill: null })}
+                  />
+                  {FILLS.map((item) => (
+                    <FillSwatch
+                      key={item.colour}
+                      label={`${item.label} fill`}
+                      colour={item.colour}
+                      selected={fill === item.colour}
+                      disabled={!editable}
+                      onPick={() => session.setFormat({ fill: item.colour })}
+                    />
+                  ))}
+                </div>
+                <span className="flex shrink-0 @[38rem]/tools:hidden">
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Fill colour"
+                          disabled={!editable}
+                        />
+                      }
+                    >
+                      <PaintBucketIcon className="size-3.5" />
+                    </MenuTrigger>
+                    <MenuPopup align="start">
+                      <MenuItem onClick={() => session.setFormat({ fill: null })}>
+                        <FillDot colour={null} />
+                        No fill
+                      </MenuItem>
+                      {FILLS.map((item) => (
+                        <MenuItem
+                          key={item.colour}
+                          onClick={() => session.setFormat({ fill: item.colour })}
+                        >
+                          <FillDot colour={item.colour} />
+                          {item.label}
+                        </MenuItem>
+                      ))}
+                    </MenuPopup>
+                  </Menu>
+                </span>
+                <FileToolSeparator />
+              </>
+            ) : null}
+            {session.tools ? (
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      className="shrink-0"
+                      variant="ghost"
+                      size="xs"
+                      disabled={!editable}
+                    />
+                  }
+                >
+                  Sort
+                </MenuTrigger>
+                <MenuPopup align="start">
+                  <MenuItem
+                    onClick={() => {
+                      if (editingRef.current !== null) finishEditing(true);
+                      session.sortRows(false);
+                    }}
+                  >
+                    <ArrowDownAZIcon />
+                    Column {columnLabel(active.column)} ascending
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      if (editingRef.current !== null) finishEditing(true);
+                      session.sortRows(true);
+                    }}
+                  >
+                    <ArrowUpZAIcon />
+                    Column {columnLabel(active.column)} descending
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            ) : null}
+            <FileToolButton
+              label="Row"
+              hint="Insert a row below"
+              disabled={!editable}
+              onPress={() =>
+                restructure({ type: "insertRows", sheet, index: area.bottom + 1, count: 1 })
+              }
+            >
+              <PlusIcon />
+            </FileToolButton>
+            <FileToolButton
+              label="Column"
+              hint="Insert a column to the right"
+              disabled={!editable}
+              onPress={() =>
+                restructure({ type: "insertColumns", sheet, index: area.right + 1, count: 1 })
+              }
+            >
+              <PlusIcon />
+            </FileToolButton>
             <Menu>
               <MenuTrigger
                 render={
                   <Button
                     type="button"
+                    className="shrink-0"
                     variant="ghost"
-                    size="icon-sm"
-                    aria-label="Number format"
-                    title="Number format"
+                    size="icon-xs"
+                    aria-label="More for rows, columns and formats"
                     disabled={!editable}
                   />
                 }
               >
-                <HashIcon className="size-3.5" />
+                <EllipsisIcon className="size-3.5" />
               </MenuTrigger>
               <MenuPopup align="end">
-                {NUMBER_FORMATS.map((item) => (
-                  <MenuItem
-                    key={item.label}
-                    onClick={() => session.setFormat({ numberFormat: item.code })}
-                  >
-                    {item.label}
-                  </MenuItem>
-                ))}
+                <MenuItem
+                  onClick={() =>
+                    restructure({ type: "insertRows", sheet, index: area.top, count: rows })
+                  }
+                >
+                  Insert {plural(rows, "row")} above
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    restructure({ type: "insertRows", sheet, index: area.bottom + 1, count: rows })
+                  }
+                >
+                  Insert {plural(rows, "row")} below
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    restructure({ type: "insertColumns", sheet, index: area.left, count: columns })
+                  }
+                >
+                  Insert {plural(columns, "column")} left
+                </MenuItem>
+                <MenuItem
+                  onClick={() =>
+                    restructure({
+                      type: "insertColumns",
+                      sheet,
+                      index: area.right + 1,
+                      count: columns,
+                    })
+                  }
+                >
+                  Insert {plural(columns, "column")} right
+                </MenuItem>
+                <MenuSeparator />
+                <MenuItem onClick={() => fitColumns(area.left, area.right)}>
+                  Fit {plural(columns, "column")} to the text
+                </MenuItem>
+                {format === "xlsx" ? (
+                  <>
+                    <MenuSeparator />
+                    <MenuItem onClick={() => session.setFormat({ numberFormat: "" })}>
+                      Format as a plain number
+                    </MenuItem>
+                    {MORE_NUMBER_FORMATS.map((item) => (
+                      <MenuItem
+                        key={item.label}
+                        onClick={() => session.setFormat({ numberFormat: item.code })}
+                      >
+                        Format {item.label}
+                      </MenuItem>
+                    ))}
+                  </>
+                ) : null}
+                <MenuSeparator />
+                <MenuItem
+                  variant="destructive"
+                  onClick={() =>
+                    restructure({ type: "deleteRows", sheet, index: area.top, count: rows })
+                  }
+                >
+                  Delete {plural(rows, "row")}
+                </MenuItem>
+                <MenuItem
+                  variant="destructive"
+                  onClick={() =>
+                    restructure({ type: "deleteColumns", sheet, index: area.left, count: columns })
+                  }
+                >
+                  Delete {plural(columns, "column")}
+                </MenuItem>
               </MenuPopup>
             </Menu>
-            <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
-            <div role="group" aria-label="Fill" className="flex shrink-0 items-center gap-1 px-1">
-              <PaintBucketIcon aria-hidden className="size-3.5 text-muted-foreground" />
-              <FillSwatch
-                label="No fill"
-                colour={null}
-                selected={activeCell?.format?.fill === undefined}
-                disabled={!editable}
-                onPick={() => session.setFormat({ fill: null })}
-              />
-              {FILLS.map((fill) => (
-                <FillSwatch
-                  key={fill.colour}
-                  label={`${fill.label} fill`}
-                  colour={fill.colour}
-                  selected={activeCell?.format?.fill?.toUpperCase() === fill.colour}
-                  disabled={!editable}
-                  onPick={() => session.setFormat({ fill: fill.colour })}
-                />
-              ))}
-            </div>
-            <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
           </>
-        ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={!editable}
-          onClick={() =>
-            restructure({ type: "insertRows", sheet, index: area.bottom + 1, count: 1 })
-          }
-        >
-          <PlusIcon />
-          Row
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={!editable}
-          onClick={() =>
-            restructure({ type: "insertColumns", sheet, index: area.right + 1, count: 1 })
-          }
-        >
-          <PlusIcon />
-          Column
-        </Button>
-        <Menu>
-          <MenuTrigger
+        )}
+      </FileToolRow>
+      {props.bars}
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 bg-background px-2">
+        <Tooltip>
+          <TooltipTrigger
             render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="More for rows and columns"
-                disabled={!editable}
+              <input
+                aria-label="Name box"
+                aria-invalid={address?.invalid === true}
+                className={cn(
+                  FIELD_CLASS,
+                  "w-18 shrink-0 text-center font-mono text-2xs text-muted-foreground focus-visible:text-foreground",
+                  address?.invalid && "border-destructive",
+                )}
+                spellCheck={false}
+                value={address?.text ?? areaLabel(area)}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => setAddress({ text: event.target.value, invalid: false })}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    goToAddress(event.currentTarget.value);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    setAddress(null);
+                    focusGrid();
+                  }
+                }}
+                onBlur={() => setAddress(null)}
               />
             }
-          >
-            <EllipsisIcon className="size-3.5" />
-          </MenuTrigger>
-          <MenuPopup align="end">
-            <MenuItem
-              onClick={() =>
-                restructure({ type: "insertRows", sheet, index: area.top, count: rows })
-              }
-            >
-              Insert {plural(rows, "row")} above
-            </MenuItem>
-            <MenuItem
-              onClick={() =>
-                restructure({ type: "insertRows", sheet, index: area.bottom + 1, count: rows })
-              }
-            >
-              Insert {plural(rows, "row")} below
-            </MenuItem>
-            <MenuItem
-              onClick={() =>
-                restructure({ type: "insertColumns", sheet, index: area.left, count: columns })
-              }
-            >
-              Insert {plural(columns, "column")} left
-            </MenuItem>
-            <MenuItem
-              onClick={() =>
-                restructure({ type: "insertColumns", sheet, index: area.right + 1, count: columns })
-              }
-            >
-              Insert {plural(columns, "column")} right
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem onClick={() => fitColumns(area.left, area.right)}>
-              Fit {plural(columns, "column")} to the text
-            </MenuItem>
-            <MenuSeparator />
-            <MenuItem
-              variant="destructive"
-              onClick={() =>
-                restructure({ type: "deleteRows", sheet, index: area.top, count: rows })
-              }
-            >
-              Delete {plural(rows, "row")}
-            </MenuItem>
-            <MenuItem
-              variant="destructive"
-              onClick={() =>
-                restructure({ type: "deleteColumns", sheet, index: area.left, count: columns })
-              }
-            >
-              Delete {plural(columns, "column")}
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
-      </FileToolRow>
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 px-2 text-xs">
-        <span
-          className="flex h-6.5 w-14 shrink-0 items-center justify-center rounded-sm border border-input font-mono text-2xs text-muted-foreground"
-          aria-label="Selected cell"
-        >
-          {cellLabel(active)}
-        </span>
+          />
+          <TooltipPopup>Type a cell or a range, such as B16 or A1:C4, and press Enter</TooltipPopup>
+        </Tooltip>
         <input
           aria-label="Cell contents"
-          className="h-6.5 min-w-0 flex-1 rounded-sm border border-input bg-transparent px-2 font-mono text-xs outline-none focus-visible:border-ring disabled:opacity-60"
+          className={cn(FIELD_CLASS, "min-w-0 flex-1")}
           spellCheck={false}
           disabled={!editable}
           value={editing?.text ?? cellEditText(activeCell, format)}
@@ -997,6 +1203,16 @@ function SpreadsheetGrid(props: {
             if (editingRef.current?.surface === "bar") finishEditing(true);
           }}
         />
+        {session.canFind ? (
+          <SheetFind
+            session={session}
+            onInput={(element) => {
+              findRef.current = element;
+            }}
+            onGo={(cell) => select({ anchor: cell, focus: cell })}
+            onDone={focusGrid}
+          />
+        ) : null}
       </div>
       <div
         ref={scrollerRef}
@@ -1022,6 +1238,7 @@ function SpreadsheetGrid(props: {
           style={{
             width: ROW_HEADER_WIDTH + layout.offsetOf(columnCount),
             height: HEADER_HEIGHT + rowCount * ROW_HEIGHT,
+            fontSize: CELL_FONT_SIZE,
             backgroundImage: "linear-gradient(to bottom, var(--border) 1px, transparent 1px)",
             backgroundSize: `100% ${ROW_HEIGHT}px`,
             backgroundPosition: `0 ${HEADER_HEIGHT - 1}px`,
@@ -1037,12 +1254,12 @@ function SpreadsheetGrid(props: {
           }}
         >
           <div
-            className="sticky top-0 z-20 border-b border-border/60 bg-background"
+            className={cn("sticky top-0 z-20 border-b border-border", HEADER_FILL)}
             style={{ height: HEADER_HEIGHT }}
           >
             <div
               data-grid-corner
-              className="sticky left-0 z-10 h-full border-r border-border/60 bg-background"
+              className={cn("sticky left-0 z-10 h-full border-r border-border", HEADER_FILL)}
               style={{ width: ROW_HEADER_WIDTH }}
             />
             {columnHeaders}
@@ -1052,16 +1269,18 @@ function SpreadsheetGrid(props: {
           </div>
           {cells}
           {columnLines}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute bg-primary/8"
-            style={{
-              top: HEADER_HEIGHT + area.top * ROW_HEIGHT,
-              left: ROW_HEADER_WIDTH + layout.offsetOf(area.left),
-              width: layout.offsetOf(area.right + 1) - layout.offsetOf(area.left) - 1,
-              height: rows * ROW_HEIGHT - 1,
-            }}
-          />
+          {rows > 1 || columns > 1 ? (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute border border-primary/50 bg-primary/8"
+              style={{
+                top: HEADER_HEIGHT + area.top * ROW_HEIGHT - 1,
+                left: ROW_HEADER_WIDTH + layout.offsetOf(area.left) - 1,
+                width: layout.offsetOf(area.right + 1) - layout.offsetOf(area.left) + 1,
+                height: rows * ROW_HEIGHT + 1,
+              }}
+            />
+          ) : null}
           <div
             aria-hidden
             data-active-cell={cellLabel(active)}
@@ -1077,7 +1296,7 @@ function SpreadsheetGrid(props: {
             <input
               autoFocus
               aria-label={`Edit ${cellLabel(editing)}`}
-              className="absolute z-10 border-2 border-primary bg-background px-1 text-xs outline-none"
+              className="absolute z-10 border-2 border-primary bg-background px-1.5 outline-none"
               spellCheck={false}
               style={{
                 top: HEADER_HEIGHT + editing.row * ROW_HEIGHT - 1,
@@ -1095,6 +1314,118 @@ function SpreadsheetGrid(props: {
         </div>
       </div>
     </>
+  );
+}
+
+interface Found {
+  readonly query: string;
+  readonly version: string | undefined;
+  readonly matches: ReadonlyArray<CellPosition>;
+  readonly truncated: boolean;
+  readonly at: number;
+}
+
+/** Finds text in the active sheet. The server searches, since the grid holds only what is on screen. */
+function SheetFind({
+  session,
+  onInput,
+  ...props
+}: {
+  readonly session: SpreadsheetSession;
+  /** Hands over the search box, so the grid's shortcut can put the caret in it. */
+  readonly onInput: (element: HTMLInputElement | null) => void;
+  readonly onGo: (cell: CellPosition) => void;
+  readonly onDone: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<Found | null>(null);
+  const [searching, setSearching] = useState(false);
+  const text = query.trim();
+
+  const step = async (direction: 1 | -1) => {
+    if (text === "" || searching) return;
+    let next: Found;
+    if (found?.query === text && found.version === session.getSnapshot().version) {
+      const count = found.matches.length;
+      next = count === 0 ? found : { ...found, at: (found.at + direction + count) % count };
+    } else {
+      setSearching(true);
+      const result = await session.find(text);
+      setSearching(false);
+      if (result === null) {
+        toastManager.add({ type: "error", title: "This sheet could not be searched" });
+        return;
+      }
+      // The search starts from the selected cell and wraps round.
+      const { version, selection } = session.getSnapshot();
+      const { row, column } = selection.anchor;
+      const from = result.matches.findIndex(
+        (match) => match.row > row || (match.row === row && match.column >= column),
+      );
+      next = { query: text, version, ...result, at: Math.max(0, from) };
+    }
+    setFound(next);
+    const match = next.matches[next.at];
+    if (match !== undefined) props.onGo(match);
+  };
+  const current = found?.query === text ? found : null;
+
+  return (
+    <div role="search" className="flex shrink-0 items-center gap-0.5">
+      <div className="w-32">
+        <Input
+          ref={onInput}
+          size="compact"
+          type="search"
+          aria-label="Find in sheet"
+          placeholder="Find in sheet"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void step(event.shiftKey ? -1 : 1);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              setQuery("");
+              props.onDone();
+            }
+          }}
+        />
+      </div>
+      {text !== "" ? (
+        <>
+          <span
+            role="status"
+            className="px-1 text-2xs whitespace-nowrap text-muted-foreground tabular-nums"
+          >
+            {searching
+              ? "Searching…"
+              : current === null
+                ? "Press Enter"
+                : current.matches.length === 0
+                  ? "No matches"
+                  : `${current.at + 1} of ${current.matches.length}${current.truncated ? "+" : ""}`}
+          </span>
+          <FileSurfaceAction label="Previous match" onPress={() => void step(-1)}>
+            <ChevronUpIcon className="size-3.5" />
+          </FileSurfaceAction>
+          <FileSurfaceAction label="Next match" onPress={() => void step(1)}>
+            <ChevronDownIcon className="size-3.5" />
+          </FileSurfaceAction>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function FillDot(props: { readonly colour: string | null }) {
+  return (
+    <span
+      aria-hidden
+      className="size-3.5 shrink-0 rounded-full border border-border bg-background"
+      style={props.colour === null ? undefined : { backgroundColor: `#${props.colour}` }}
+    />
   );
 }
 
@@ -1117,7 +1448,7 @@ function FillSwatch(props: {
             disabled={props.disabled}
             className={cn(
               "size-4.5 shrink-0 rounded-full border border-border bg-background outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-50",
-              props.selected && "border-primary",
+              props.selected && "border-primary ring-1 ring-primary",
             )}
             style={props.colour === null ? undefined : { backgroundColor: `#${props.colour}` }}
             onClick={props.onPick}
@@ -1129,7 +1460,8 @@ function FillSwatch(props: {
   );
 }
 
-function SheetTabs(props: {
+/** Under the grid: the workbook's sheets, and what the selection adds up to. */
+function SheetBar(props: {
   readonly session: SpreadsheetSession;
   readonly snapshot: SpreadsheetSnapshot;
   readonly readOnly: boolean;
@@ -1140,6 +1472,10 @@ function SheetTabs(props: {
   const [renaming, setRenaming] = useState<string | null>(null);
   const sheets = snapshot.sheets.filter((sheet) => sheet.hidden !== true);
   const active = snapshot.activeSheet;
+  const { top, left, bottom, right } = selectionArea(snapshot.selection);
+  const { cellAt } = snapshot;
+  const summary = selectionSummary({ top, left, bottom, right }, cellAt);
+  const selected = areaCellCount({ top, left, bottom, right });
 
   const addSheet = () => {
     const names = new Set(snapshot.sheets.map((sheet) => sheet.name.toLowerCase()));
@@ -1163,81 +1499,107 @@ function SheetTabs(props: {
   };
 
   return (
-    <div className="flex h-8 shrink-0 items-center gap-1 border-t border-border/60 px-2">
-      <div
-        role="tablist"
-        aria-label="Sheets"
-        className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
-      >
-        {sheets.map((sheet) =>
-          renaming !== null && sheet.name === active ? (
-            <input
-              key={sheet.name}
-              aria-label="Sheet name"
-              autoFocus
-              className="h-6 w-32 shrink-0 rounded-sm border border-ring bg-background px-1.5 text-xs outline-none"
-              maxLength={31}
-              value={renaming}
-              onChange={(event) => setRenaming(event.target.value)}
-              onBlur={(event) => rename(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") rename(event.currentTarget.value);
-                else if (event.key === "Escape") setRenaming(null);
-              }}
-            />
-          ) : (
-            <button
-              key={sheet.name}
-              type="button"
-              role="tab"
-              aria-selected={sheet.name === active}
-              className={cn(
-                "h-6 max-w-40 shrink-0 truncate rounded-sm px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                sheet.name === active
-                  ? "bg-accent font-medium text-foreground"
-                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-              )}
-              onClick={() => session.selectSheet(sheet.name)}
-              onDoubleClick={() => {
-                if (editable && sheet.name === active) setRenaming(active);
-              }}
-            >
-              {sheet.name}
-            </button>
-          ),
-        )}
-      </div>
-      {editable ? (
-        <>
-          <FileSurfaceAction label="Add sheet" onPress={addSheet}>
-            <PlusIcon className="size-3.5" />
-          </FileSurfaceAction>
-          <Menu>
-            <MenuTrigger
-              render={
-                <Button type="button" variant="ghost" size="icon-xs" aria-label="Sheet options" />
-              }
-            >
-              <EllipsisIcon className="size-3.5" />
-            </MenuTrigger>
-            <MenuPopup align="start" side="top">
-              <MenuItem onClick={() => setRenaming(active)}>Rename sheet</MenuItem>
-              <MenuItem
-                variant="destructive"
-                disabled={sheets.length <= 1}
-                onClick={() => void remove()}
+    <FileStatusBar>
+      {snapshot.format === "xlsx" ? (
+        <div className="flex min-w-0 shrink items-center gap-0.5">
+          <div
+            role="tablist"
+            aria-label="Sheets"
+            className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {sheets.map((sheet) =>
+              renaming !== null && sheet.name === active ? (
+                <input
+                  key={sheet.name}
+                  aria-label="Sheet name"
+                  autoFocus
+                  className="h-5.5 w-32 shrink-0 rounded-sm border border-ring bg-background px-1.5 text-xs text-foreground outline-none"
+                  maxLength={31}
+                  value={renaming}
+                  onChange={(event) => setRenaming(event.target.value)}
+                  onBlur={(event) => rename(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") rename(event.currentTarget.value);
+                    else if (event.key === "Escape") setRenaming(null);
+                  }}
+                />
+              ) : (
+                <button
+                  key={sheet.name}
+                  type="button"
+                  role="tab"
+                  aria-selected={sheet.name === active}
+                  className={cn(
+                    "h-5.5 max-w-40 shrink-0 truncate rounded-sm px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    sheet.name === active
+                      ? "bg-background font-medium text-foreground shadow-xs ring-1 ring-border"
+                      : "hover:bg-accent hover:text-foreground",
+                  )}
+                  onClick={() => session.selectSheet(sheet.name)}
+                  onDoubleClick={() => {
+                    if (editable && sheet.name === active) setRenaming(active);
+                  }}
+                >
+                  {sheet.name}
+                </button>
+              ),
+            )}
+          </div>
+          {editable ? (
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    className="shrink-0"
+                    variant="ghost"
+                    size="icon-micro"
+                    aria-label="Sheet options"
+                  />
+                }
               >
-                Delete sheet
-              </MenuItem>
-            </MenuPopup>
-          </Menu>
-        </>
+                <EllipsisIcon />
+              </MenuTrigger>
+              <MenuPopup align="start" side="top">
+                <MenuItem onClick={addSheet}>Add a sheet</MenuItem>
+                <MenuItem onClick={() => setRenaming(active)}>Rename this sheet</MenuItem>
+                <MenuItem
+                  variant="destructive"
+                  disabled={sheets.length <= 1}
+                  onClick={() => void remove()}
+                >
+                  Delete this sheet
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
+          ) : null}
+        </div>
       ) : null}
-      {editable ? (
-        <span className="ml-auto truncate pl-3 text-2xs text-muted-foreground hidden @2xl:inline">
-          Type a value, or a formula such as =SUM(C2:C9)
-        </span>
-      ) : null}
-    </div>
+      <span role="status" className="ml-auto min-w-0 truncate tabular-nums">
+        {summary !== null ? (
+          <>
+            {summary.numbers > 0 ? (
+              <>
+                Sum {summaryNumber(summary.sum)}
+                <span aria-hidden> · </span>
+                Average {summaryNumber(summary.sum / summary.numbers)}
+                <span aria-hidden> · </span>
+              </>
+            ) : null}
+            Count {summary.count.toLocaleString("en-GB")}
+          </>
+        ) : selected > 1 ? (
+          `${selected.toLocaleString("en-GB")} cells selected`
+        ) : editable ? (
+          snapshot.format === "xlsx" ? (
+            "Type a value, or a formula such as =SUM(C2:C9)"
+          ) : (
+            "Type to change a cell. A CSV or TSV file holds text only."
+          )
+        ) : props.readOnly ? (
+          "Read only"
+        ) : null}
+      </span>
+    </FileStatusBar>
   );
 }

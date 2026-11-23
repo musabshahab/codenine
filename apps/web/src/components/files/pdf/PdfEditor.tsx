@@ -31,13 +31,19 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { usePublishPdfSelection } from "../documentSelectionPublisher";
 
 import { Button } from "~/components/ui/button";
-import { Spinner } from "~/components/ui/spinner";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { isEditableFocused } from "~/lib/editableFocus";
 import { cn } from "~/lib/utils";
 
 import { nativePdfViewerAvailable } from "../BrowserDocumentFrame";
-import { FileSurfaceAction, FileSurfaceBar, FileSurfaceNotice } from "../fileSurfaceChrome";
+import {
+  FileSurfaceAction,
+  FileSurfaceBar,
+  FileSurfaceNotice,
+  FileToolButton,
+  FileToolSeparator,
+  FileToolStatus,
+} from "../fileSurfaceChrome";
 import PdfViewer, { type PdfPageSurface, type PdfViewerHandle } from "../PdfViewer";
 import {
   addPdfEdit,
@@ -502,7 +508,7 @@ export default function PdfEditor(props: {
               >
                 <Redo2Icon className="size-3.5" />
               </FileSurfaceAction>
-              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+              <FileToolSeparator />
               <FileSurfaceAction
                 label="Select"
                 pressed={activeTool === "select"}
@@ -510,40 +516,48 @@ export default function PdfEditor(props: {
               >
                 <MousePointer2Icon className="size-3.5" />
               </FileSurfaceAction>
-              <FileSurfaceAction
-                label="Highlight text"
+              <FileToolButton
+                label="Highlight"
+                name="Highlight text"
+                collapse
                 pressed={activeTool === "highlight"}
                 disabled={!editable}
                 onPress={() => chooseTool("highlight")}
               >
-                <HighlighterIcon className="size-3.5" />
-              </FileSurfaceAction>
-              <FileSurfaceAction
-                label="Add a note"
+                <HighlighterIcon />
+              </FileToolButton>
+              <FileToolButton
+                label="Note"
+                name="Add a note"
+                collapse
                 pressed={activeTool === "note"}
                 disabled={!editable}
                 onPress={() => chooseTool("note")}
               >
-                <MessageSquarePlusIcon className="size-3.5" />
-              </FileSurfaceAction>
-              <FileSurfaceAction
+                <MessageSquarePlusIcon />
+              </FileToolButton>
+              <FileToolButton
                 label="Sign"
+                name="Sign"
+                collapse
                 pressed={activeTool === "sign"}
                 disabled={!editable}
                 onPress={() => chooseTool("sign")}
               >
-                <SignatureIcon className="size-3.5" />
-              </FileSurfaceAction>
+                <SignatureIcon />
+              </FileToolButton>
               {fields.length > 0 ? (
-                <FileSurfaceAction
-                  label="Fill in the form"
+                <FileToolButton
+                  label="Form"
+                  name="Fill in the form"
+                  collapse
                   pressed={fillForm}
                   onPress={() => setFillForm((on) => !on)}
                 >
-                  <TextCursorInputIcon className="size-3.5" />
-                </FileSurfaceAction>
+                  <TextCursorInputIcon />
+                </FileToolButton>
               ) : null}
-              <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+              <FileToolSeparator />
             </>
           ) : null
         }
@@ -574,10 +588,7 @@ export default function PdfEditor(props: {
             {canEdit || dirty ? (
               // Kept together so the status never wraps away from its button.
               <span className="flex items-center gap-1">
-                <span role="status" className="flex items-center gap-1 px-1 text-muted-foreground">
-                  {saving ? <Spinner className="size-3" /> : null}
-                  {status}
-                </span>
+                <FileToolStatus busy={saving}>{status}</FileToolStatus>
                 <Button
                   type="button"
                   size="xs"

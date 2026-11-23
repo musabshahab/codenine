@@ -19,6 +19,7 @@ import {
   FileSurfaceAction,
   FileSurfaceFailure,
   FileSurfaceLoading,
+  FileStatusBar,
   FileToolRow,
 } from "./fileSurfaceChrome";
 import { DocumentTooLargeError, readBoundedDocument } from "./readBoundedDocument";
@@ -523,49 +524,6 @@ export default function PdfViewer(props: {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <FileToolRow label="PDF tools" wrap>
         {props.toolbarStart}
-        <span className="mr-auto px-1 tabular-nums" aria-live="polite">
-          {pdf ? `${current + 1} / ${pdf.numPages} pages` : "PDF"}
-        </span>
-        <FileSurfaceAction
-          label="Previous page"
-          disabled={!pdf || current === 0}
-          onPress={() => showPage(current - 1)}
-        >
-          <ChevronUpIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <FileSurfaceAction
-          label="Next page"
-          disabled={!pdf || current + 1 >= pdf.numPages}
-          onPress={() => showPage(current + 1)}
-        >
-          <ChevronDownIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <FileSurfaceAction
-          label="Zoom out"
-          disabled={scale <= PDF_MIN_ZOOM}
-          onPress={() => changeZoom(stepPdfZoom(scale, -1))}
-        >
-          <MinusIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <span className="min-w-14 text-center tabular-nums">
-          {zoom === null ? "Fit width" : `${Math.round(scale * 100)}%`}
-        </span>
-        <FileSurfaceAction
-          label="Zoom in"
-          disabled={scale >= PDF_MAX_ZOOM}
-          onPress={() => changeZoom(stepPdfZoom(scale, 1))}
-        >
-          <PlusIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <FileSurfaceAction
-          label="Fit width"
-          onPress={() => {
-            changeZoom(null);
-            scroll.current?.scrollTo({ left: 0 });
-          }}
-        >
-          <ScanIcon className="size-3.5" />
-        </FileSurfaceAction>
         <div className="w-28">
           <Input
             ref={find}
@@ -601,6 +559,7 @@ export default function PdfViewer(props: {
             </FileSurfaceAction>
           </>
         ) : null}
+        <span className="flex-1" />
         {props.toolbarEnd}
       </FileToolRow>
       {props.header}
@@ -676,6 +635,51 @@ export default function PdfViewer(props: {
         </div>
         {props.side}
       </div>
+      <FileStatusBar>
+        <FileSurfaceAction
+          label="Previous page"
+          disabled={!pdf || current === 0}
+          onPress={() => showPage(current - 1)}
+        >
+          <ChevronUpIcon className="size-3.5" />
+        </FileSurfaceAction>
+        <FileSurfaceAction
+          label="Next page"
+          disabled={!pdf || current + 1 >= pdf.numPages}
+          onPress={() => showPage(current + 1)}
+        >
+          <ChevronDownIcon className="size-3.5" />
+        </FileSurfaceAction>
+        <span className="mr-auto tabular-nums" aria-live="polite">
+          {pdf ? `${current + 1} / ${pdf.numPages} pages` : "PDF"}
+        </span>
+        <FileSurfaceAction
+          label="Zoom out"
+          disabled={scale <= PDF_MIN_ZOOM}
+          onPress={() => changeZoom(stepPdfZoom(scale, -1))}
+        >
+          <MinusIcon className="size-3.5" />
+        </FileSurfaceAction>
+        <span className="min-w-14 text-center tabular-nums">
+          {zoom === null ? "Fit width" : `${Math.round(scale * 100)}%`}
+        </span>
+        <FileSurfaceAction
+          label="Zoom in"
+          disabled={scale >= PDF_MAX_ZOOM}
+          onPress={() => changeZoom(stepPdfZoom(scale, 1))}
+        >
+          <PlusIcon className="size-3.5" />
+        </FileSurfaceAction>
+        <FileSurfaceAction
+          label="Fit width"
+          onPress={() => {
+            changeZoom(null);
+            scroll.current?.scrollTo({ left: 0 });
+          }}
+        >
+          <ScanIcon className="size-3.5" />
+        </FileSurfaceAction>
+      </FileStatusBar>
     </div>
   );
 }

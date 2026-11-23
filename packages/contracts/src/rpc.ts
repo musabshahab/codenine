@@ -162,6 +162,8 @@ import {
   SpreadsheetOpenInput,
   SpreadsheetOpenResult,
   SpreadsheetOperationError,
+  SpreadsheetFindInput,
+  SpreadsheetFindResult,
   SpreadsheetReadRangeInput,
   SpreadsheetReadRangeResult,
   SpreadsheetTooLargeError,
@@ -371,6 +373,7 @@ export const WS_METHODS = {
   projectsRestoreFileVersion: "projects.restoreFileVersion",
   documentsOpenSpreadsheet: "documents.openSpreadsheet",
   documentsReadSpreadsheetRange: "documents.readSpreadsheetRange",
+  documentsFindInSpreadsheet: "documents.findInSpreadsheet",
   documentsEditSpreadsheet: "documents.editSpreadsheet",
   documentsOpenPdf: "documents.openPdf",
   documentsEditPdf: "documents.editPdf",
@@ -1274,6 +1277,12 @@ const WsDocumentsReadSpreadsheetRangeRpc = Rpc.make(WS_METHODS.documentsReadSpre
   error: Schema.Union(SpreadsheetReadErrors),
 });
 
+const WsDocumentsFindInSpreadsheetRpc = Rpc.make(WS_METHODS.documentsFindInSpreadsheet, {
+  payload: SpreadsheetFindInput,
+  success: SpreadsheetFindResult,
+  error: Schema.Union(SpreadsheetReadErrors),
+});
+
 const WsDocumentsEditSpreadsheetRpc = Rpc.make(WS_METHODS.documentsEditSpreadsheet, {
   payload: SpreadsheetEditInput,
   success: SpreadsheetEditResult,
@@ -1875,6 +1884,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsRestoreFileVersionRpc,
   WsDocumentsOpenSpreadsheetRpc,
   WsDocumentsReadSpreadsheetRangeRpc,
+  WsDocumentsFindInSpreadsheetRpc,
   WsDocumentsEditSpreadsheetRpc,
   WsDocumentsOpenPdfRpc,
   WsDocumentsEditPdfRpc,

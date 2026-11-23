@@ -58,9 +58,21 @@ export function installDocumentWorkspace(options?: {
   const edits: Array<ReadonlyArray<SpreadsheetOperation>> = [];
   const values = new Map<string, string | number>();
   HEADERS.forEach((header, column) => values.set(`0:${column}`, header));
-  ROWS.forEach((row, index) =>
-    row.forEach((value, column) => values.set(`${index + 1}:${column}`, value)),
-  );
+  const rows = ROWS.map((row) => [...row]);
+  const place = () =>
+    rows.forEach((row, index) =>
+      row.forEach((value, column) => values.set(`${index + 1}:${column}`, value)),
+    );
+  place();
+  // The totals under the table, as the workbook's formulas left them.
+  const totals = new Map<string, { value: string | number; formula?: string; format?: string }>([
+    ["10:0", { value: "Average wait", format: "bold" }],
+    ["10:2", { value: 3.875, formula: "AVERAGE(C2:C9)", format: "decimal" }],
+    ["11:0", { value: "Refunds owed", format: "bold" }],
+    ["11:3", { value: 212, formula: "SUM(D2:D9)", format: "currency" }],
+    ["12:0", { value: "Urgent", format: "bold" }],
+    ["12:4", { value: 4, formula: 'COUNTIF(E2:E9,"urgent")' }],
+  ]);
   let version = 1;
   const rpc = installFakeRpc({
     [WS_METHODS.projectsListEntries]: () =>
@@ -105,15 +117,41 @@ export function installDocumentWorkspace(options?: {
         ) {
           continue;
         }
-        cells.push({ row, column, value, ...(row === 0 ? { format: "bold" } : {}) });
+        cells.push({
+          row,
+          column,
+          value,
+          ...(row === 0 ? { format: "bold" } : column === 3 ? { format: "currency" } : {}),
+        });
+      }
+      for (const [key, cell] of totals) {
+        const [row, column] = key.split(":").map(Number) as [number, number];
+        if (row >= input.row + input.rowCount || column >= input.column + input.columnCount) {
+          continue;
+        }
+        cells.push({ row, column, ...cell });
       }
       return Effect.succeed({
         version: `v${version}`,
-        rowCount: ROWS.length + 1,
+        rowCount: 13,
         columnCount: HEADERS.length,
         cells,
-        formats: { bold: { bold: true } },
+        formats: {
+          bold: { bold: true },
+          currency: { numberFormat: "$#,##0.00" },
+          decimal: { numberFormat: "0.0" },
+        },
       });
+    },
+    [WS_METHODS.documentsFindInSpreadsheet]: (input: { readonly query: string }) => {
+      const matches: Array<{ row: number; column: number }> = [];
+      for (const [key, value] of values) {
+        if (!String(value).toLowerCase().includes(input.query.toLowerCase())) continue;
+        const [row, column] = key.split(":").map(Number) as [number, number];
+        matches.push({ row, column });
+      }
+      matches.sort((left, right) => left.row - right.row || left.column - right.column);
+      return Effect.succeed({ version: `v${version}`, matches, truncated: false });
     },
     [WS_METHODS.documentsEditSpreadsheet]: (input: {
       readonly operations: ReadonlyArray<SpreadsheetOperation>;
@@ -121,6 +159,18 @@ export function installDocumentWorkspace(options?: {
       edits.push(input.operations);
       if (options?.holdEdits === true) return Effect.never;
       for (const operation of input.operations) {
+        if (operation.type === "sortRows") {
+          const { column, descending } = operation;
+          rows.sort((left, right) => {
+            const [a, b] = [left[column]!, right[column]!];
+            const order =
+              typeof a === "number" && typeof b === "number"
+                ? a - b
+                : String(a).localeCompare(String(b));
+            return descending ? -order : order;
+          });
+          place();
+        }
         if (operation.type !== "setCell") continue;
         const key = `${operation.row}:${operation.column}`;
         if (operation.input.kind === "text") values.set(key, operation.input.text);

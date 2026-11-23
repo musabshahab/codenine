@@ -486,6 +486,135 @@ describe("Documents spreadsheets", () => {
       }),
     );
 
+    it.effect("sorts a table by a column, keeps its headings, and refuses what would misread", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeWorkspace();
+        const text = (name: string, value: string, style = "") =>
+          `<c r="${name}"${style} t="inlineStr"><is><t>${value}</t></is></c>`;
+        const table = (extra: { row2?: string; after?: string } = {}) =>
+          sheetXml(
+            `<row r="1">${text("A1", "Name", ' s="1"')}${text("B1", "Qty", ' s="1"')}</row>` +
+              `<row r="2" ht="30">${text("A2", "pear")}<c r="B2" s="2"><v>3</v></c><c r="C2"><f>B2*2</f><v>6</v></c>${extra.row2 ?? ""}</row>` +
+              `<row r="3">${text("A3", "Apple")}<c r="B3"><v>10</v></c><c r="C3"><f>B3*2</f><v>20</v></c></row>` +
+              `<row r="4">${text("A4", "fig")}<c r="B4"><v>1</v></c><c r="C4"><f>$B$4*2</f><v>2</v></c></row>` +
+              `<row r="6">${text("A6", "Total")}<c r="B6"><f>SUM(B2:B4)</f><v>14</v></c></row>`,
+            extra.after === undefined ? {} : { after: extra.after },
+          );
+        const reader = (formula: string) =>
+          sheetXml(`<row r="1"><c r="A1"><f>${formula}</f><v>14</v></c></row>`);
+        const book = (sheet: string, other = "SUM(T!B2:B4)") =>
+          Effect.promise(() =>
+            bookOf([
+              { name: "T", xml: sheet },
+              { name: "Other", xml: reader(other) },
+            ]),
+          );
+        const sort = (column: number, descending: boolean): SpreadsheetOperation => ({
+          type: "sortRows",
+          sheet: "T",
+          row: 2,
+          column,
+          descending,
+        });
+        yield* workspace.write("sort.xlsx", yield* book(table()));
+        expect(
+          yield* workspace.documents.findInSpreadsheet({
+            cwd: workspace.cwd,
+            relativePath: "sort.xlsx",
+            sheet: "T",
+            query: "B3",
+          }),
+        ).toMatchObject({ matches: [{ row: 2, column: 2 }], truncated: false });
+
+        yield* workspace.edit("sort.xlsx", [sort(1, true)]);
+        const sorted = (yield* workspace.cells("sort.xlsx", "T")).byName;
+        expect(["A1", "A2", "A3", "A4", "A6"].map((name) => sorted[name]?.value)).toEqual([
+          "Name",
+          "Apple",
+          "pear",
+          "fig",
+          "Total",
+        ]);
+        // A formula that reads its own row follows it, fixed or not, and so does the row's format.
+        expect(sorted.C2).toMatchObject({ formula: "B2*2", value: 20 });
+        expect(sorted.C3).toMatchObject({ formula: "B3*2", value: 6 });
+        expect(sorted.C4).toMatchObject({ formula: "$B$4*2", value: 2 });
+        expect(sorted.B3?.format).toBe("2");
+        expect(sorted.B2?.format).toBeUndefined();
+        expect(sorted.B6).toMatchObject({ formula: "SUM(B2:B4)", value: 14 });
+        const saved = yield* (yield* workspace.parts("sort.xlsx")).text("xl/worksheets/sheet1.xml");
+        expect(saved).toContain('<row r="3" ht="30">');
+
+        yield* workspace.edit("sort.xlsx", [sort(0, false)]);
+        const byName = (yield* workspace.cells("sort.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4"].map((name) => byName[name]?.value)).toEqual([
+          "Apple",
+          "fig",
+          "pear",
+        ]);
+
+        for (const [name, sheet, other, feature] of [
+          // A formula in a sorted row that reads another of them would read a different record.
+          [
+            "inside.xlsx",
+            table({ row2: '<c r="D2"><f>B3</f><v>10</v></c>' }),
+            undefined,
+            "sort-references",
+          ],
+          ["outside.xlsx", table(), "T!B3", "sort-references"],
+          [
+            "merged.xlsx",
+            table({ after: '<mergeCells count="1"><mergeCell ref="A3:A4"/></mergeCells>' }),
+            undefined,
+            "sort-merged-cells",
+          ],
+          [
+            "filter.xlsx",
+            table({ after: '<autoFilter ref="A1:C4"/>' }),
+            undefined,
+            "sheet-objects",
+          ],
+        ] as const) {
+          yield* workspace.write(name, yield* book(sheet, other));
+          expect(yield* workspace.edit(name, [sort(1, true)]).pipe(Effect.flip)).toMatchObject({
+            _tag: "SpreadsheetUnsupportedError",
+            feature,
+            operationIndex: 0,
+          });
+        }
+      }),
+    );
+
+    it.effect("saves column widths beside the ones the file already sets", () =>
+      Effect.gen(function* () {
+        const workspace = yield* makeWorkspace();
+        yield* workspace.write("book.xlsx", yield* Effect.promise(() => zipOf(workbookParts())));
+        expect((yield* workspace.cells("book.xlsx", "Data")).columnWidths).toEqual([
+          { column: 1, width: 126 },
+        ]);
+        yield* workspace.edit("book.xlsx", [
+          { type: "setColumnWidth", sheet: "Data", column: 2, count: 2, width: 70 },
+        ]);
+        expect((yield* workspace.cells("book.xlsx", "Data")).columnWidths).toEqual([
+          { column: 1, width: 126 },
+          { column: 2, width: 70 },
+          { column: 3, width: 70 },
+        ]);
+        const saved = yield* (yield* workspace.parts("book.xlsx")).text("xl/worksheets/sheet1.xml");
+        expect(saved).toContain(
+          '<cols><col min="2" max="2" width="18" customWidth="1"/><col min="3" max="4" width="10" customWidth="1"/></cols><sheetData>',
+        );
+        yield* workspace.write("table.csv", "a,b\n");
+        expect(
+          yield* workspace
+            .edit("table.csv", [
+              { type: "setColumnWidth", sheet: "Sheet1", column: 0, count: 1, width: 70 },
+            ])
+            .pipe(Effect.flip),
+        ).toMatchObject({ _tag: "SpreadsheetUnsupportedError", feature: "delimited-layout" });
+      }),
+    );
+
     it.effect("refuses changes that would damage what the workbook holds", () =>
       Effect.gen(function* () {
         const workspace = yield* makeWorkspace();
@@ -679,6 +808,16 @@ describe("Documents spreadsheets", () => {
         ] satisfies ReadonlyArray<SpreadsheetOperation>,
         after: "a\t1.5\n\nc\n=A1+1\n",
         read: { A1: "a", B1: "1.5", A4: "=A1+1" },
+      },
+      {
+        name: "sorts the rows under the headings by a column of numbers, and leaves a table below",
+        file: "sorted.csv",
+        before: "name,qty\r\npear,3\r\napple,10\r\nfig,\r\n\r\nnext,1",
+        operations: [
+          { type: "sortRows", sheet: "Sheet1", row: 2, column: 1, descending: true },
+        ] satisfies ReadonlyArray<SpreadsheetOperation>,
+        after: "name,qty\r\napple,10\r\npear,3\r\nfig,\r\n\r\nnext,1",
+        read: { A2: "apple", A4: "fig", A6: "next" },
       },
       {
         name: "adds no lines for rows inserted below the last one",

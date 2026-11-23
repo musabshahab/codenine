@@ -2483,6 +2483,8 @@ export const layerWsRpc = (
           documents.openSpreadsheet(input).pipe(Effect.mapError(spreadsheetError)),
         [WS_METHODS.documentsReadSpreadsheetRange]: (input) =>
           documents.readSpreadsheetRange(input).pipe(Effect.mapError(spreadsheetError)),
+        [WS_METHODS.documentsFindInSpreadsheet]: (input) =>
+          documents.findInSpreadsheet(input).pipe(Effect.mapError(spreadsheetError)),
         [WS_METHODS.documentsEditSpreadsheet]: (input) =>
           documents
             .editSpreadsheet(input)

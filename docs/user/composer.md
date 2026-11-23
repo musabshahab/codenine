@@ -427,9 +427,21 @@ with other spreadsheet apps, Ctrl/Cmd+Z undoes your own cell edits, and edits sa
 with the same **Reload from disk** and **Overwrite** choice as a text file when the file changed
 underneath you. Here **Overwrite** puts only your edited cells into the file as it is now.
 
-**Rows and columns** inserts or deletes them, **Format** sets a number format, and the sheet tabs
-add, rename and delete sheets. These save at once and are not undone with Ctrl/Cmd+Z, so use
-[file versions](#file-versions) or Git to go back. Formatting a whole column or row reaches as
+The tools above the grid set bold, currency, per cent and a fill colour, insert or delete rows
+and columns, and **Sort** orders the table around the selected cell by that cell's column. A sort
+moves whole rows with their formats, keeps a first row of headings in place, and stops at the
+first empty row. It is refused when it would change what a formula reads, such as a formula
+that points at one row of the table from elsewhere, or when the rows hold merged cells. The
+sheet tabs add, rename and delete sheets. These save at once and are not undone with Ctrl/Cmd+Z,
+so use [file versions](#file-versions) or Git to go back.
+
+Type a cell or a range such as `B16` or `A1:C4` into the box beside the formula bar to go there.
+**Find in sheet** (Ctrl/Cmd+F in the grid) searches the whole sheet, values and formulas; Enter
+goes to the next match and Shift+Enter to the one before. Selecting several cells shows their
+sum, average and count under the grid. Drag a column's edge to resize it, or double-click the
+edge to fit its text; a width you drag is saved in a workbook. While an agent's change to the
+file waits for **Keep** or **Discard**, the cells it changed are marked, as far as the grid had
+them on screen before the change. Formatting a whole column or row reaches as
 far as the sheet's last used cell. Edits that could not be saved yet stay with the file while you
 look at another one, and are saved or offered again when you come back to it. A CSV or TSV file holds text only: no
 formulas, formats or extra sheets.

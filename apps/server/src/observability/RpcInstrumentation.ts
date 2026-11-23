@@ -145,6 +145,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.projectsRestoreFileVersion]: "workspace",
   [WS_METHODS.documentsOpenSpreadsheet]: "workspace",
   [WS_METHODS.documentsReadSpreadsheetRange]: "workspace",
+  [WS_METHODS.documentsFindInSpreadsheet]: "workspace",
   [WS_METHODS.documentsEditSpreadsheet]: "workspace",
   [WS_METHODS.documentsOpenPdf]: "workspace",
   [WS_METHODS.documentsEditPdf]: "workspace",

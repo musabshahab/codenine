@@ -40,7 +40,15 @@ import { EditProvider, File, Virtualizer, useWorkerPool } from "@pierre/diffs/re
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import { useFilesystemReadAccess } from "~/state/filesystem";
 import { mediaFileReference } from "@codenine/client-runtime/media-reference";
-import { FolderTree, HistoryIcon, WrapTextIcon } from "lucide-react";
+import {
+  FileQuestionIcon,
+  FolderTree,
+  HistoryIcon,
+  LockIcon,
+  Redo2Icon,
+  Undo2Icon,
+  WrapTextIcon,
+} from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
 import { lazy, Suspense, use, useEffect, useRef, useState } from "react";
@@ -105,6 +113,9 @@ import {
   FileSurfaceBar,
   FileSurfaceFailure,
   FileSurfaceLoading,
+  FileSurfaceMessage,
+  FileToolRow,
+  FileToolStatus,
 } from "./fileSurfaceChrome";
 import SourceFilePreview from "./ReadOnlySourcePreview";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
@@ -712,6 +723,8 @@ interface EditableFileSurfaceProps {
   resolvedTheme: "light" | "dark";
   revealRequestId: number;
   wordWrap: boolean;
+  /** True while an edit to this file waits to be saved. */
+  pending: boolean;
   onPostRender: FilePostRender;
   onPendingChange: (relativePath: string, pending: boolean) => void;
 }
@@ -732,9 +745,12 @@ function EditableFileSurface({
   resolvedTheme,
   revealRequestId,
   wordWrap,
+  pending,
   onPostRender,
   onPendingChange,
 }: EditableFileSurfaceProps) {
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const changeMarkerCss = useFileChangeMarkerCss(relativePath, headBaseline, contents);
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -781,6 +797,8 @@ function EditableFileSurface({
     file,
     lineAnnotations: nextLineAnnotations,
   }: EditorChangeEvent<"file", FileCommentAnnotationGroup, undefined>) => {
+    setCanUndo(editorRef.current?.canUndo === true);
+    setCanRedo(editorRef.current?.canRedo === true);
     if (file.contents === getProjectFileContents(environmentId, cwd, relativePath)) return;
     setEditedContents(file.contents);
     setProjectFileQueryData(environmentId, cwd, relativePath, file.contents, version);
@@ -928,6 +946,26 @@ function EditableFileSurface({
 
   return (
     <EditProvider createEditor={createFileEditor}>
+      <FileToolRow
+        label="Editor tools"
+        stageOnly
+        end={<FileToolStatus busy={pending}>{pending ? "Saving…" : "Saved"}</FileToolStatus>}
+      >
+        <FileSurfaceAction
+          label="Undo"
+          disabled={!canUndo}
+          onPress={() => editorRef.current?.undo()}
+        >
+          <Undo2Icon className="size-3.5" />
+        </FileSurfaceAction>
+        <FileSurfaceAction
+          label="Redo"
+          disabled={!canRedo}
+          onPress={() => editorRef.current?.redo()}
+        >
+          <Redo2Icon className="size-3.5" />
+        </FileSurfaceAction>
+      </FileToolRow>
       <div ref={surfaceRef} className="flex min-h-0 flex-1">
         <Virtualizer
           className="file-preview-virtualizer min-h-0 flex-1 overflow-auto"
@@ -1001,6 +1039,7 @@ function RenderedMarkdownSurface({
   | "revealLine"
   | "revealRequestId"
   | "wordWrap"
+  | "pending"
   | "onPostRender"
 > & {
   threadRef: ScopedThreadRef;
@@ -1410,18 +1449,11 @@ export default function FilePreviewPanel({
   };
 
   if (attachment === undefined && !canReadFiles) {
-    if (fileAccess.isPending) {
-      return (
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          Checking file access...
-        </div>
-      );
-    }
+    if (fileAccess.isPending) return <FileSurfaceLoading />;
     return (
-      <div className="p-4 text-sm text-muted-foreground">
+      <FileSurfaceMessage icon={LockIcon} title="Files cannot be read here">
         {fileAccess.error ?? "This connection cannot read host files."}
-      </div>
+      </FileSurfaceMessage>
     );
   }
 
@@ -1456,6 +1488,21 @@ export default function FilePreviewPanel({
   const editsWorkbook =
     workbookPath !== null && (!canViewWorkbook || (canWriteFiles && editWorkbookPreferred));
 
+  const openIn =
+    absolutePath &&
+    (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
+      <OpenInPicker
+        environmentId={environmentId}
+        keybindings={keybindings}
+        availableEditors={availableEditors}
+        enableShortcut={openInShortcutEnabled}
+        openInCwd={absolutePath}
+        openInCwdIsFile={file.isFile}
+        compact
+        revealFileManager={revealsInFileManager}
+      />
+    ) : null;
+
   return (
     <DocumentSelectionKeyContext
       value={
@@ -1470,7 +1517,7 @@ export default function FilePreviewPanel({
             <div
               className={
                 stageToolRow
-                  ? "flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 border-b border-border/60 bg-background px-2 text-xs"
+                  ? "@container/tools flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 border-b border-border/60 bg-background px-2 text-xs"
                   : FILE_SURFACE_SUBHEADER_CLASS
               }
               // The inline panel's subheader rule shortens the row; the stage's tool row keeps its own.
@@ -1504,19 +1551,7 @@ export default function FilePreviewPanel({
                   </div>
                 </ScrollArea>
               )}
-              {absolutePath &&
-              (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
-                <OpenInPicker
-                  environmentId={environmentId}
-                  keybindings={keybindings}
-                  availableEditors={availableEditors}
-                  enableShortcut={openInShortcutEnabled}
-                  openInCwd={absolutePath}
-                  openInCwdIsFile={file.isFile}
-                  compact
-                  revealFileManager={revealsInFileManager}
-                />
-              ) : null}
+              {stageToolRow ? null : openIn}
               {canToggleRendered && renderedMode ? (
                 <FileSurfaceAction
                   label={renderedToggleLabel(renderedMode, rendered)}
@@ -1562,6 +1597,8 @@ export default function FilePreviewPanel({
                   <HistoryIcon className="size-3.5" />
                 </FileSurfaceAction>
               ) : null}
+              {/* On the stage the save state and Versions come first, then where else to open it. */}
+              {stageToolRow ? openIn : null}
               {!isHostFile && previewPath !== null && !explorerInRail ? (
                 <FileSurfaceAction
                   label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
@@ -1574,9 +1611,9 @@ export default function FilePreviewPanel({
             </div>
           ) : null}
           {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
-            <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
+            <FileSurfaceBar>
               Read-only connection. Unsaved edits are kept until write access returns.
-            </div>
+            </FileSurfaceBar>
           ) : null}
           {versionsPath !== null && versionsOpen ? (
             <FileVersionsDialog
@@ -1698,10 +1735,10 @@ export default function FilePreviewPanel({
           !renderBrowserFile &&
           file.data?.truncated &&
           (draft || isMarkdown || isMermaid || isHtml) ? (
-            <div className="shrink-0 border-b border-warning/20 bg-warning-surface px-3 py-1.5 text-2xs text-warning-foreground">
+            <FileSurfaceBar tone="warning">
               Preview limited to the first 1 MB of a {file.data.byteLength.toLocaleString()} byte
               file.
-            </div>
+            </FileSurfaceBar>
           ) : null}
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <div
@@ -1829,37 +1866,34 @@ export default function FilePreviewPanel({
               ) : documentPreview !== null ? (
                 documentPreview
               ) : relativePath && file.error && file.data === null ? (
-                <div
-                  role="alert"
-                  className="scrollbar-gutter-both flex min-h-0 flex-1 flex-col overflow-auto"
+                <FileSurfaceMessage
+                  icon={FileQuestionIcon}
+                  title="This file could not be opened"
+                  alert
                 >
-                  <div className="my-auto flex shrink-0 flex-col gap-3 px-6 py-6 text-center text-xs leading-relaxed">
-                    <p className="text-destructive">
-                      {file.readError ? filePreviewReadErrorMessage(file.readError) : file.error}
+                  <p className="text-destructive">
+                    {file.readError ? filePreviewReadErrorMessage(file.readError) : file.error}
+                  </p>
+                  {attemptedPath ? (
+                    <p className="mt-2">
+                      Attempted path
+                      <code className="block font-mono break-all text-foreground select-all">
+                        {attemptedPath}
+                      </code>
                     </p>
-                    {attemptedPath ? (
-                      <p className="text-muted-foreground">
-                        Attempted path
-                        <code className="block break-all font-mono text-foreground select-all">
-                          {attemptedPath}
-                        </code>
-                      </p>
-                    ) : null}
-                    {!isHostFile ? (
-                      <p className="text-muted-foreground">
-                        Workspace folder:{" "}
-                        <code className="break-all font-mono select-all">
-                          {file.readError?.cwd ?? cwd}
-                        </code>
-                        . Check the link's path or locate the file in Files.
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
+                  ) : null}
+                  {!isHostFile ? (
+                    <p className="mt-2">
+                      Workspace folder:{" "}
+                      <code className="font-mono break-all select-all">
+                        {file.readError?.cwd ?? cwd}
+                      </code>
+                      . Check the link's path or locate the file in Files.
+                    </p>
+                  ) : null}
+                </FileSurfaceMessage>
               ) : relativePath && file.data === null ? (
-                <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
-                  <Spinner size="lg" />
-                </div>
+                <FileSurfaceLoading />
               ) : relativePath && file.data ? (
                 reviewOpen && turnBaseline && reviewTurnCount !== null ? (
                   <FileReviewSurface
@@ -1947,6 +1981,7 @@ export default function FilePreviewPanel({
                       resolvedTheme={resolvedTheme}
                       revealRequestId={revealRequestId}
                       wordWrap={wordWrap}
+                      pending={selectedFilePending}
                       onPostRender={onFilePostRender}
                       onPendingChange={onPendingChange}
                     />

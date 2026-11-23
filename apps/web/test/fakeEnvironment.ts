@@ -63,6 +63,7 @@ const descriptor = {
     repositoryIdentity: true,
     workspaceKinds: true,
     spreadsheetEditing: true,
+    spreadsheetTools: true,
     pdfEditing: true,
   },
 };
