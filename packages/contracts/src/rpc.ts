@@ -44,6 +44,9 @@ import {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   FilesystemBrowseError,
+  FilesystemCreateDirectoryInput,
+  FilesystemCreateDirectoryResult,
+  FilesystemCreateDirectoryError,
 } from "./filesystem.ts";
 import {
   AssetAccessError,
@@ -406,6 +409,7 @@ export const WS_METHODS = {
   shellOpenInEditor: "shell.openInEditor",
 
   filesystemBrowse: "filesystem.browse",
+  filesystemCreateDirectory: "filesystem.createDirectory",
   filesystemGetMetadata: "filesystem.getMetadata",
   assetsCreateUrl: "assets.createUrl",
   assetsPersistChatAttachments: "assets.persistChatAttachments",
@@ -1419,6 +1423,12 @@ const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   error: Schema.Union([FilesystemBrowseError, EnvironmentAuthorizationError]),
 });
 
+const WsFilesystemCreateDirectoryRpc = Rpc.make(WS_METHODS.filesystemCreateDirectory, {
+  payload: FilesystemCreateDirectoryInput,
+  success: FilesystemCreateDirectoryResult,
+  error: Schema.Union([FilesystemCreateDirectoryError, EnvironmentAuthorizationError]),
+});
+
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
   success: AssetCreateUrlResult,
@@ -1953,6 +1963,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
+  WsFilesystemCreateDirectoryRpc,
   WsFilesystemGetMetadataRpc,
   WsAssetsCreateUrlRpc,
   WsAssetsPersistChatAttachmentsRpc,

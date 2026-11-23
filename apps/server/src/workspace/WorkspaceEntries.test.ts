@@ -816,6 +816,75 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
       }),
     );
 
+    it.effect("marks Git repositories only when asked", () =>
+      Effect.gen(function* () {
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const cwd = yield* makeTempDir({ prefix: "codenine-workspace-browse-repos-" });
+        yield* writeTextFile(cwd, "repo/.git/HEAD", "ref: refs/heads/main");
+        yield* writeTextFile(cwd, "plain/notes.txt", "");
+        // A link to a folder is a folder to browse; a link to a file or to nothing is not.
+        yield* Effect.promise(() => NodeFSP.symlink(`${cwd}/plain`, `${cwd}/linked`));
+        yield* Effect.promise(() => NodeFSP.symlink(`${cwd}/plain/notes.txt`, `${cwd}/note`));
+        yield* Effect.promise(() => NodeFSP.symlink(`${cwd}/absent`, `${cwd}/broken`));
+        const partialPath = yield* appendSeparator(cwd);
+
+        const marked = yield* workspaceEntries.browse({ partialPath, detectRepositories: true });
+        const unmarked = yield* workspaceEntries.browse({ partialPath });
+
+        expect(marked.entries.map((entry) => [entry.name, entry.isGitRepository])).toEqual([
+          ["linked", undefined],
+          ["plain", undefined],
+          ["repo", true],
+        ]);
+        expect(unmarked.entries.every((entry) => entry.isGitRepository === undefined)).toBe(true);
+      }),
+    );
+
+    it.effect("makes one new folder and refuses names that would land elsewhere", () =>
+      Effect.gen(function* () {
+        const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "codenine-workspace-mkdir-" });
+        yield* writeTextFile(cwd, "taken/file.txt", "kept");
+
+        const made = yield* workspaceEntries.createDirectory({ parentPath: cwd, name: "reports" });
+        const failures = yield* Effect.forEach(
+          [
+            { parentPath: cwd, name: "taken" },
+            { parentPath: cwd, name: ".." },
+            { parentPath: cwd, name: "a/b" },
+            { parentPath: path.join(cwd, "absent"), name: "reports" },
+          ],
+          (input) =>
+            workspaceEntries.createDirectory(input).pipe(
+              Effect.flip,
+              Effect.map((error) => error.failure),
+            ),
+        );
+        // Names Windows cannot hold are refused there before anything is made.
+        const windowsFailures = yield* Effect.forEach(
+          ["a:b", "what?", "trailing.", "trailing "],
+          (name) =>
+            workspaceEntries.createDirectory({ parentPath: cwd, name }).pipe(
+              Effect.provideService(HostProcess.Platform, "win32"),
+              Effect.flip,
+              Effect.map((error) => error.failure),
+            ),
+        );
+        const listed = yield* workspaceEntries.browse({ partialPath: yield* appendSeparator(cwd) });
+
+        expect(made).toEqual({ path: path.join(cwd, "reports") });
+        expect(failures).toEqual([
+          "already_exists",
+          "invalid_name",
+          "invalid_name",
+          "parent_missing",
+        ]);
+        expect(windowsFailures).toEqual(Array.from({ length: 4 }, () => "invalid_name"));
+        expect(listed.entries.map((entry) => entry.name)).toEqual(["reports", "taken"]);
+      }),
+    );
+
     it.effect("marks only a missing directory as missing when browsing fails", () =>
       Effect.gen(function* () {
         const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
@@ -838,6 +907,13 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           _tag: "WorkspaceEntriesReadDirectoryError",
           pathMissing: false,
         });
+
+        // A folder the server may not read is not an empty folder: the listing says so.
+        vi.mocked(NodeFSP.readdir).mockRejectedValueOnce(
+          Object.assign(new Error("denied"), { code: "EACCES" }),
+        );
+        const denied = yield* workspaceEntries.browse({ partialPath: yield* appendSeparator(cwd) });
+        expect(denied).toMatchObject({ entries: [], permissionDenied: true });
       }),
     );
   });

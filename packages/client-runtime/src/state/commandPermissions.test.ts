@@ -186,6 +186,7 @@ describe("command permissions", () => {
     [WS_METHODS.mediaEditImage, AuthOrchestrationOperateScope],
     [WS_METHODS.mediaCancelJob, AuthOrchestrationOperateScope],
     [WS_METHODS.documentsCopyAttachment, AuthFilesystemWriteScope],
+    [WS_METHODS.filesystemCreateDirectory, AuthFilesystemWriteScope],
     [ORCHESTRATION_V2_WS_METHODS.stopWorkflow, AuthOrchestrationOperateScope],
   ] as const)(
     "uses the target grant for both availability and execution of %s",

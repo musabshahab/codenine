@@ -1,6 +1,8 @@
 import { scopeProjectRef, scopeThreadRef } from "@codenine/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@codenine/client-runtime/state/models";
 import { withoutUnlinkedWorkflowRuns } from "@codenine/client-runtime/state/team-threads";
+import { resolveThreadActivityTimestamp } from "@codenine/client-runtime/state/thread-sort";
+import { useAtomValue } from "@effect/atom-react";
 import {
   FolderIcon,
   GitBranchIcon,
@@ -10,6 +12,7 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { Link, useRouter } from "@tanstack/react-router";
+import { type ReactNode, useState } from "react";
 
 import { resolveProjectScripts } from "@codenine/shared/projectScripts";
 
@@ -18,18 +21,27 @@ import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useSidebarProjectGroups } from "../../hooks/useSidebarProjectGroups";
-import { openWorkThreads, useTeamTasks } from "../../hooks/useWorkLists";
+import { useTeamTasks } from "../../hooks/useWorkLists";
+import { useRightPanelStore } from "../../rightPanelStore";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useQuietThreadShells } from "../../state/entities";
-import { useEnvironmentIdentities } from "../../state/environments";
+import { useEnvironmentIdentities, useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
+import { serverEnvironment } from "../../state/server";
 import { vcsEnvironment } from "../../state/vcs";
 import { buildThreadRouteParams } from "../../threadRoutes";
-import { formatElapsedDurationLabel } from "../../timestampFormat";
+import { projectPreset } from "../../workspaceKind";
+import { HomeRecentFiles } from "../projectHome/HomeRecentFiles";
+import {
+  HomeCheckoutCard,
+  HomeCommandsCard,
+  HomeConnectorsCard,
+  HomeSkillsCard,
+} from "../projectHome/HomeSide";
+import { HomeStarter } from "../projectHome/HomeStarter";
+import { HomeChats, HomeTasks } from "../projectHome/HomeThreads";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { ScriptIcon } from "../projectScriptEditor";
-import { ThreadKindIcon } from "../ThreadKindIcon";
-import { resolveThreadKind } from "../threadKind.logic";
+import { filterSidebarV2VisibleThreads } from "../Sidebar.logic";
 import { Button, InlineButton } from "../ui/button";
 import {
   Empty,
@@ -40,10 +52,11 @@ import {
   EmptyTitle,
 } from "../ui/empty";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { teamTaskProgress } from "./tasksPage.logic";
+import { WorkspaceKindBadge } from "../WorkspaceKindBadge";
+import { folderChipLabel, selectHomeChats } from "./projectHome.logic";
 import { WorkspacePage } from "./WorkspacePage";
 
-/** A project's overview: where it lives, its commands, and its open tasks and chats. */
+/** A workspace's home: where work in it starts, and what is going on in it. */
 export function ProjectPage(props: { projectKey: string }) {
   const group =
     useSidebarProjectGroups().find((candidate) => candidate.projectKey === props.projectKey) ??
@@ -73,6 +86,9 @@ export function ProjectPage(props: { projectKey: string }) {
   return <ProjectOverview group={group} />;
 }
 
+const activeAt = (thread: EnvironmentThreadShell) =>
+  resolveThreadActivityTimestamp(thread) ?? thread.updatedAt;
+
 function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
   const router = useRouter();
   const handleNewThread = useNewThreadHandler();
@@ -80,14 +96,22 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
   const environments = useEnvironmentIdentities();
   const nowMinute = useNowMinute();
   const nowMs = Date.parse(`${nowMinute}Z`);
+  const [chatFilter, setChatFilter] = useState("");
+  const scratch = group.isScratch === true;
+  const preset = projectPreset(group);
+  const { environmentId, workspaceRoot } = group;
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const connected =
+    useEnvironments().environments.find(
+      (environment) => environment.environmentId === environmentId,
+    )?.connection.phase === "connected";
   // Saved commands live in settings, the same source the thread header's command button reads.
-  const scripts = resolveProjectScripts(useEnvironmentSettings(group.environmentId), group);
-  const gitStatus = useEnvironmentQuery(
-    vcsEnvironment.status({
-      environmentId: group.environmentId,
-      input: { cwd: group.workspaceRoot },
-    }),
-  ).data;
+  const scripts = resolveProjectScripts(useEnvironmentSettings(environmentId), group);
+  // Personal has no folder of its own: each of its chats works in its own.
+  const git = useEnvironmentQuery(
+    scratch ? null : vcsEnvironment.status({ environmentId, input: { cwd: workspaceRoot } }),
+  );
+  const gitStatus = git.data;
   const branch = gitStatus?.isRepo ? gitStatus.refName : null;
   const memberKeys = new Set(
     group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
@@ -95,11 +119,15 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
   const inProject = (thread: Pick<EnvironmentThreadShell, "environmentId" | "projectId">) =>
     memberKeys.has(`${thread.environmentId}:${thread.projectId}`);
   const tasks = useTeamTasks().filter(inProject);
-  const chats = withoutUnlinkedWorkflowRuns(
-    openWorkThreads(useQuietThreadShells(), `${nowMinute}Z`),
-  )
-    .filter((thread) => inProject(thread) && thread.source.teamSummary == null)
-    .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  const projectChats = withoutUnlinkedWorkflowRuns(
+    filterSidebarV2VisibleThreads(useQuietThreadShells(), null),
+  ).filter(
+    (thread) =>
+      inProject(thread) &&
+      thread.source.teamSummary == null &&
+      thread.source.teamTask === undefined,
+  );
+  const chats = selectHomeChats({ threads: projectChats, activeAt, filter: chatFilter });
   const machines = [
     ...new Set(
       group.memberProjects.map(
@@ -109,9 +137,27 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
       ),
     ),
   ];
-  const startThread = async (team: boolean) => {
-    const opened = await handleNewThread(scopeProjectRef(group.environmentId, group.id));
+  const projectRef = scopeProjectRef(environmentId, group.id);
+  const startThread = async (team: boolean, prompt?: string) => {
+    const opened = await handleNewThread(
+      projectRef,
+      prompt === undefined || prompt === "" ? undefined : { prompt },
+    );
     if (opened && team) setTeamRequested(opened.draftId, true);
+    return opened;
+  };
+  // A file opens beside a chat, so opening one from here starts the workspace's new chat.
+  const openFile = async (path: string) => {
+    const opened = await startThread(false);
+    if (opened) {
+      useRightPanelStore.getState().openFile(scopeThreadRef(environmentId, opened.threadId), path);
+    }
+  };
+  const browseFiles = async () => {
+    const opened = await startThread(false);
+    if (opened) {
+      useRightPanelStore.getState().open(scopeThreadRef(environmentId, opened.threadId), "files");
+    }
   };
   const openThread = (thread: EnvironmentThreadShell) =>
     void router.navigate({
@@ -140,127 +186,154 @@ function ProjectOverview({ group }: { group: SidebarProjectSnapshot }) {
           </Button>
           <Button variant="outline" size="sm" onClick={() => void startThread(false)}>
             <MessageCirclePlusIcon />
-            New chat
+            <span className="max-sm:sr-only">New chat</span>
           </Button>
           <Button size="sm" onClick={() => void startThread(true)}>
             <UsersIcon />
-            New task
+            <span className="max-sm:sr-only">New task</span>
           </Button>
         </>
       }
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-10">
-        <ProjectFavicon project={group} className="size-11 rounded-lg" />
-        <h2 className="text-3xl font-semibold tracking-tight text-foreground">
-          {group.displayName}
-        </h2>
-        <dl className="grid grid-cols-[6rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 text-sm">
-          <dt className="leading-7 text-muted-foreground">Details</dt>
-          <dd className="flex flex-wrap gap-2">
-            <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs text-foreground">
-              <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate font-mono">{group.workspaceRoot}</span>
-            </span>
-            {branch === null ? null : (
-              <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs text-foreground">
-                <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{branch}</span>
-              </span>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-8 sm:px-6 sm:py-10">
+        <header className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <ProjectFavicon project={group} className="size-10 rounded-lg" />
+            <h2 className="min-w-0 truncate font-semibold text-2xl text-foreground tracking-tight">
+              {group.displayName}
+            </h2>
+            {scratch ? null : <WorkspaceKindBadge kind={group.kind ?? "code"} />}
+          </div>
+          {scratch ? (
+            <p className="text-muted-foreground text-sm">
+              Chats started without a workspace. Each one works in its own folder.
+            </p>
+          ) : (
+            <ul aria-label="Details" className="flex flex-wrap gap-1.5">
+              <DetailChip icon={<FolderIcon />} label="Folder" tip={workspaceRoot} mono>
+                {folderChipLabel(workspaceRoot, serverConfig?.homeDirectory)}
+              </DetailChip>
+              {machines.map((machine) => (
+                <DetailChip key={machine} icon={<MonitorIcon />} label="Machine">
+                  {machine}
+                </DetailChip>
+              ))}
+              {branch === null || !preset.composerControls.checkout ? null : (
+                <DetailChip icon={<GitBranchIcon />} label="Branch">
+                  {branch}
+                </DetailChip>
+              )}
+            </ul>
+          )}
+        </header>
+        {/* The tools sit beside everything on a wide page, and above the long lists on a narrow one. */}
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_17rem] lg:grid-rows-[auto_1fr]">
+          <div className="flex min-w-0 flex-col gap-8">
+            <HomeStarter
+              startScreen={preset.startScreen}
+              onStart={(prompt, team) => void startThread(team, prompt)}
+            />
+            {scratch ? null : (
+              <HomeRecentFiles
+                environmentId={environmentId}
+                workspaceRoot={workspaceRoot}
+                connected={connected}
+                checkout={preset.composerControls.checkout}
+                git={gitStatus}
+                gitError={git.error}
+                fileActivity={serverConfig?.environment.capabilities.fileActivity === true}
+                nowMs={nowMs}
+                onOpen={(path) => void openFile(path)}
+                onBrowse={() => void browseFiles()}
+              />
             )}
-            {machines.map((machine) => (
-              <span
-                key={machine}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs text-foreground"
-              >
-                <MonitorIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                {machine}
-              </span>
-            ))}
-          </dd>
-          <dt className="leading-7 text-muted-foreground">Commands</dt>
-          <dd className="flex flex-wrap gap-2">
-            {scripts.length === 0 ? (
-              <span className="text-xs text-muted-foreground">
-                None yet.{" "}
-                <InlineButton onClick={openSettings}>Add them in workspace settings</InlineButton>
-              </span>
-            ) : (
-              scripts.map((script) => (
-                <Tooltip key={script.id}>
-                  <TooltipTrigger
-                    render={
-                      <span className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs text-foreground" />
-                    }
-                  >
-                    <ScriptIcon
-                      icon={script.icon}
-                      className={
-                        script.icon === "play"
-                          ? "size-3 shrink-0 fill-current text-success-foreground"
-                          : "size-3.5 shrink-0 text-muted-foreground"
-                      }
-                    />
-                    {script.name}
-                  </TooltipTrigger>
-                  <TooltipPopup side="top">
-                    <code>{script.command}</code>
-                  </TooltipPopup>
-                </Tooltip>
-              ))
-            )}
-          </dd>
-        </dl>
-        <div className="h-px bg-border" />
-        <ThreadList
-          heading="Tasks"
-          empty="No tasks yet. Start one with New task."
-          threads={tasks}
-          detail={(thread) => teamTaskProgress(thread.source.teamSummary)}
-          onOpen={openThread}
-        />
-        <ThreadList
-          heading="Chats in this workspace"
-          empty="No open chats."
-          threads={chats}
-          detail={(thread) => formatElapsedDurationLabel(thread.updatedAt, nowMs)}
-          onOpen={openThread}
-        />
+          </div>
+          {scratch ? null : (
+            <aside
+              aria-label="Workspace tools"
+              className="grid min-w-0 content-start gap-3 sm:grid-cols-2 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:grid-cols-1"
+            >
+              {preset.composerControls.checkout ? (
+                <>
+                  <HomeCheckoutCard
+                    status={gitStatus}
+                    connected={connected}
+                    error={git.error}
+                    onRetry={git.refresh}
+                  />
+                  <HomeCommandsCard scripts={scripts} onOpenSettings={openSettings} />
+                </>
+              ) : null}
+              <HomeConnectorsCard
+                environmentId={environmentId}
+                connected={connected}
+                suggested={preset.suggestedConnectors}
+              />
+              <HomeSkillsCard
+                environmentId={environmentId}
+                projectId={group.id}
+                connected={connected}
+                suggested={preset.suggestedSkills}
+              />
+            </aside>
+          )}
+          <div className="flex min-w-0 flex-col gap-8 lg:col-start-1">
+            <HomeChats
+              chats={chats.chats}
+              total={projectChats.length}
+              counts={chats.counts}
+              moreCount={chats.moreCount}
+              filter={chatFilter}
+              onFilterChange={setChatFilter}
+              activeAt={activeAt}
+              nowMs={nowMs}
+              onOpen={openThread}
+            />
+            <HomeTasks
+              tasks={tasks}
+              empty={
+                <>
+                  No tasks yet. A task gives the work to a team of agents you approve first.{" "}
+                  <InlineButton onClick={() => void startThread(true)}>Start a task</InlineButton>
+                </>
+              }
+              onOpen={openThread}
+            />
+          </div>
+        </div>
       </div>
     </WorkspacePage>
   );
 }
 
-function ThreadList(props: {
-  heading: string;
-  empty: string;
-  threads: ReadonlyArray<EnvironmentThreadShell>;
-  detail: (thread: EnvironmentThreadShell) => string;
-  onOpen: (thread: EnvironmentThreadShell) => void;
+function DetailChip(props: {
+  readonly icon: ReactNode;
+  /** Read out before the value, which on its own is just a path or a name. */
+  readonly label: string;
+  /** The whole value, for a chip that may cut it short. */
+  readonly tip?: string;
+  readonly mono?: boolean;
+  readonly children: ReactNode;
 }) {
+  const chip = (
+    <span className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-foreground text-xs [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground">
+      {props.icon}
+      <span className="sr-only">{props.label}: </span>
+      <span className={props.mono ? "truncate font-mono" : "truncate"}>{props.children}</span>
+    </span>
+  );
   return (
-    <section aria-label={props.heading} className="flex flex-col gap-1">
-      <h3 className="pb-1 text-xs font-medium text-muted-foreground">{props.heading}</h3>
-      {props.threads.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{props.empty}</p>
+    <li className="flex max-w-full min-w-0">
+      {props.tip === undefined ? (
+        chip
       ) : (
-        <ul className="flex flex-col gap-px">
-          {props.threads.map((thread) => (
-            <li key={`${thread.environmentId}:${thread.id}`}>
-              <button
-                type="button"
-                onClick={() => props.onOpen(thread)}
-                className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                <ThreadKindIcon kind={resolveThreadKind(thread)} className="size-4" />
-                <span className="min-w-0 flex-1 truncate text-foreground">{thread.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {props.detail(thread)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <Tooltip>
+          <TooltipTrigger render={chip} />
+          <TooltipPopup side="bottom">
+            <code>{props.tip}</code>
+          </TooltipPopup>
+        </Tooltip>
       )}
-    </section>
+    </li>
   );
 }

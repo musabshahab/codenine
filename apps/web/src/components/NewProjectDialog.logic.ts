@@ -55,7 +55,10 @@ export interface NewProjectMachineSource {
   readonly serverConfig: {
     readonly environment: {
       readonly platform: ExecutionEnvironmentPlatform;
-      readonly capabilities: { readonly workspaceKinds?: boolean };
+      readonly capabilities: {
+        readonly workspaceKinds?: boolean;
+        readonly folderCreation?: boolean;
+      };
     };
     readonly settings: Pick<
       ServerSettings,
@@ -78,6 +81,8 @@ export interface NewProjectMachine {
   readonly newProjectsRoot: string | null;
   /** Older servers drop a workspace's type, so their workspaces are not offered one. */
   readonly workspaceKinds: boolean;
+  /** Older servers cannot make a folder from the folder browser. */
+  readonly folderCreation: boolean;
   readonly addProjectBaseDirectory: string;
   readonly ghqCloneLayout: boolean;
 }
@@ -145,6 +150,7 @@ export function newProjectMachines(
           homeDirectory: config.homeDirectory ?? null,
           newProjectsRoot: config.newProjectsRoot ?? null,
           workspaceKinds: config.environment.capabilities.workspaceKinds === true,
+          folderCreation: config.environment.capabilities.folderCreation === true,
           addProjectBaseDirectory: config.settings.addProjectBaseDirectory,
           ghqCloneLayout: config.settings.ghqCloneLayout,
         },

@@ -3916,8 +3916,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         yield* initRepoWithCommit(cwd);
         yield* writeTextFile(cwd, "src/old.ts", "one\ntwo\nthree\n");
         yield* writeTextFile(cwd, "café notes.md", "draft\n");
+        yield* writeTextFile(cwd, "gone.txt", "bye\n");
         yield* git(cwd, ["add", "."]);
         yield* git(cwd, ["commit", "-m", "add files"]);
+        yield* (yield* FileSystem.FileSystem).remove(`${cwd}/gone.txt`);
         yield* git(cwd, ["mv", "src/old.ts", "src/new.ts"]);
         yield* writeTextFile(cwd, "src/new.ts", "one\ntwo\nthree\nfour\n");
         yield* writeTextFile(cwd, "café notes.md", "draft\nedit\n");
@@ -3927,8 +3929,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
 
         assert.deepEqual(status.workingTree.files, [
           { path: "café notes.md", insertions: 1, deletions: 0 },
+          // Files that are no longer in the folder say so, so nothing offers to open them.
+          { path: "gone.txt", insertions: 0, deletions: 1, deleted: true },
           { path: "src/new.ts", insertions: 1, deletions: 0 },
-          { path: "src/old.ts", insertions: 0, deletions: 0 },
+          { path: "src/old.ts", insertions: 0, deletions: 0, deleted: true },
         ]);
         yield* driver.commit(cwd, "Commit selection", "", {
           stage: { filePaths: status.workingTree.files.map((file) => file.path) },

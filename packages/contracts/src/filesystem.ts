@@ -29,18 +29,24 @@ export type FilesystemGetMetadataResult = typeof FilesystemGetMetadataResult.Typ
 export const FilesystemBrowseInput = Schema.Struct({
   partialPath: TrimmedNonEmptyString.check(Schema.isMaxLength(FILESYSTEM_PATH_MAX_LENGTH)),
   cwd: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(FILESYSTEM_PATH_MAX_LENGTH))),
+  // Marks each listed folder that is a Git repository. One stat per folder, so only asked for
+  // by a folder browser. Older servers ignore it.
+  detectRepositories: Schema.optional(Schema.Boolean),
 });
 export type FilesystemBrowseInput = typeof FilesystemBrowseInput.Type;
 
 export const FilesystemBrowseEntry = Schema.Struct({
   name: TrimmedNonEmptyString,
   fullPath: TrimmedNonEmptyString,
+  isGitRepository: Schema.optional(Schema.Boolean),
 });
 export type FilesystemBrowseEntry = typeof FilesystemBrowseEntry.Type;
 
 export const FilesystemBrowseResult = Schema.Struct({
   parentPath: TrimmedNonEmptyString,
   entries: Schema.Array(FilesystemBrowseEntry),
+  // Set when the server may not read the folder; its entries are then empty.
+  permissionDenied: Schema.optional(Schema.Boolean),
 });
 export type FilesystemBrowseResult = typeof FilesystemBrowseResult.Type;
 
@@ -89,3 +95,36 @@ export class FilesystemBrowseError extends Schema.TaggedError<FilesystemBrowseEr
     } as any);
   }
 }
+
+const FILESYSTEM_DIRECTORY_NAME_MAX_LENGTH = 255;
+
+export const FilesystemCreateDirectoryInput = Schema.Struct({
+  // An absolute host path, or one under ~/.
+  parentPath: TrimmedNonEmptyString.check(Schema.isMaxLength(FILESYSTEM_PATH_MAX_LENGTH)),
+  // One path segment: no separators, and not "." or "..".
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(FILESYSTEM_DIRECTORY_NAME_MAX_LENGTH)),
+});
+export type FilesystemCreateDirectoryInput = typeof FilesystemCreateDirectoryInput.Type;
+
+export const FilesystemCreateDirectoryResult = Schema.Struct({
+  path: TrimmedNonEmptyString,
+});
+export type FilesystemCreateDirectoryResult = typeof FilesystemCreateDirectoryResult.Type;
+
+export const FilesystemCreateDirectoryFailure = Schema.Literals([
+  "invalid_name",
+  "already_exists",
+  "parent_missing",
+  "permission_denied",
+  "create_failed",
+]);
+export type FilesystemCreateDirectoryFailure = typeof FilesystemCreateDirectoryFailure.Type;
+
+/** `message` is written for the user and shown as is. */
+export class FilesystemCreateDirectoryError extends Schema.TaggedError<FilesystemCreateDirectoryError>()(
+  "FilesystemCreateDirectoryError",
+  {
+    failure: FilesystemCreateDirectoryFailure,
+    message: TrimmedNonEmptyString,
+  },
+) {}

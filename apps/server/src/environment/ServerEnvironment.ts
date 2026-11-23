@@ -277,6 +277,7 @@ export const make = Effect.gen(function* () {
       imageGeneration: true,
       attachmentCopies: true,
       fileActivity: true,
+      folderCreation: true,
       projectFolderDeletion: true,
       ignoredFileListing: true,
       freshContext: true,

@@ -27,6 +27,7 @@ const machine = (overrides: Partial<NewProjectMachine> = {}): NewProjectMachine 
   homeDirectory: "/home/me",
   newProjectsRoot: "/home/me/.codenine/projects",
   workspaceKinds: true,
+  folderCreation: true,
   addProjectBaseDirectory: "",
   ghqCloneLayout: false,
   ...overrides,
@@ -83,6 +84,7 @@ describe("newProjectMachines", () => {
       homeDirectory: "C:\\Users\\me",
       newProjectsRoot: null,
       workspaceKinds: false,
+      folderCreation: false,
       addProjectBaseDirectory: "D:\\code",
       ghqCloneLayout: true,
     });

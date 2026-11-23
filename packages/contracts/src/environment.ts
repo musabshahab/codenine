@@ -161,6 +161,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   imageGeneration: Schema.optionalKey(Schema.Boolean),
   /** Server answers documents.copyAttachment. */
   attachmentCopies: Schema.optionalKey(Schema.Boolean),
+  /** Server answers filesystem.createDirectory. */
+  folderCreation: Schema.optionalKey(Schema.Boolean),
   /** Server answers projects.listFileActivity. */
   fileActivity: Schema.optionalKey(Schema.Boolean),
   /** Server honors `deleteFolder` on project.delete. Older servers ignore it and keep the folder. */
