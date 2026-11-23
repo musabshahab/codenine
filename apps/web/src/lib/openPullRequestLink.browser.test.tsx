@@ -6,7 +6,11 @@ import { page } from "vite-plus/test/browser";
 
 import { act, render, stubGlobal } from "../../test/render";
 
-const state = vi.hoisted(() => ({ preview: vi.fn(), openLink: vi.fn() }));
+const state = vi.hoisted(() => ({
+  preview: vi.fn(),
+  openLink: vi.fn(),
+  workspace: { kind: "code", worktreePath: null as string | null },
+}));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => state.preview }));
 vi.mock("./openExternalLink", () => ({ openExternalLink: state.openLink }));
 vi.mock(import("../state/environments"), async (original) => ({
@@ -17,8 +21,8 @@ vi.mock("../state/entities", async (original) => ({
   ...(await original<typeof import("../state/entities")>()),
   readProjects: () => [project],
   useProjects: () => [project],
-  readProject: () => project,
-  readThreadShell: () => ({ projectId: "project", worktreePath: null }),
+  readProject: () => ({ ...project, kind: state.workspace.kind }),
+  readThreadShell: () => ({ projectId: "project", worktreePath: state.workspace.worktreePath }),
 }));
 vi.mock("../state/server", async (original) => {
   const { Atom } = await import("effect/reactivity");
@@ -68,6 +72,7 @@ function CommitLink({ url = commitUrl }: { url?: string }) {
 function setup() {
   state.preview.mockReset().mockResolvedValue(AsyncResult.success({ sources: [] }));
   state.openLink.mockReset().mockResolvedValue(undefined);
+  state.workspace = { kind: "code", worktreePath: null };
   __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
   useDiffPanelStore.setState({
     byThreadKey: {},
@@ -143,3 +148,37 @@ it("opens an available commit in the closed Diff pane without the pane resetting
   // ChatView resets a pane opened without an explicit request to Changes unless this is set.
   expect(useDiffPanelStore.getState().consumeKeepSelectionOnOpen(threadRef)).toBe(true);
 });
+
+it.each([
+  { kind: "work", worktreePath: null, opensDiff: false },
+  { kind: "work", worktreePath: "/repo-worktrees/a", opensDiff: true },
+])(
+  "a commit link in a $kind workspace (worktree: $worktreePath) opens the Diff tab: $opensDiff",
+  async ({ opensDiff, ...workspace }) => {
+    setup();
+    state.workspace = workspace;
+    state.preview.mockResolvedValue(
+      AsyncResult.success({ sources: [{ kind: "commit", headRef: "a".repeat(40) }] }),
+    );
+    await using screen = await render(
+      <AppAtomRegistryProvider>
+        <CommitLink />
+      </AppAtomRegistryProvider>,
+    );
+    const handled: boolean[] = [];
+    screen.container.addEventListener(
+      "click",
+      (event) => {
+        handled.push(event.defaultPrevented);
+        event.preventDefault();
+      },
+      { once: true },
+    );
+    await screen.getByRole("link", { name: "Commit" }).click();
+    expect(handled).toEqual([opensDiff]);
+    await vi.waitFor(() =>
+      expect(Object.keys(useDiffPanelStore.getState().byThreadKey)).toHaveLength(opensDiff ? 1 : 0),
+    );
+    expect(state.preview).toHaveBeenCalledTimes(opensDiff ? 1 : 0);
+  },
+);

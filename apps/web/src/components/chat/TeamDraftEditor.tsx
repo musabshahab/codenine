@@ -20,6 +20,7 @@ import {
   type TeamTaskId,
   type TeamWorkspace,
 } from "@codenine/contracts";
+import { scopeProjectRef } from "@codenine/client-runtime/environment";
 import { teamMembersWithoutAgent } from "@codenine/shared/team";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -35,6 +36,8 @@ import {
 import { type ReactElement, type ReactNode, useId, useState } from "react";
 
 import { cn } from "../../lib/utils";
+import { useProject, useQuietThreadShell } from "../../state/entities";
+import { projectPreset } from "../../workspaceKind";
 import { agentChatModelSelection, useAgents } from "../agents/useAgents";
 import { ConnectorMark } from "../connectors/ConnectorMark";
 import { Button, InlineButton } from "../ui/button";
@@ -155,6 +158,12 @@ export function TeamDraftEditor(props: {
 }) {
   const { leadRef, draft, catalog, disabled, onChange } = props;
   const list = useAgents(leadRef.environmentId);
+  const lead = useQuietThreadShell(leadRef);
+  // The server runs every member in the lead's checkout where the workspace type has no
+  // checkout controls, so the choice of a worktree is offered only where it is honoured.
+  const ownWorktrees = projectPreset(
+    useProject(lead === null ? null : scopeProjectRef(lead.environmentId, lead.projectId)),
+  ).composerControls.checkout;
   const yours: YourAgents = {
     agents: list.agents,
     loading: list.data === null && list.error === null,
@@ -214,6 +223,7 @@ export function TeamDraftEditor(props: {
                 base={props.base}
                 catalog={catalog}
                 yours={yours}
+                ownWorktrees={ownWorktrees}
                 disabled={disabled}
                 onChange={onChange}
               />
@@ -225,6 +235,7 @@ export function TeamDraftEditor(props: {
                   yours={yours}
                   catalog={catalog}
                   fallbackModelSelection={fallbackModel}
+                  ownWorktrees={ownWorktrees}
                   disabled={disabled}
                   onAdd={(change) => {
                     onChange({
@@ -334,6 +345,8 @@ function TeamRosterRow(props: {
   base: TeamDraft;
   catalog: TeamModelCatalog;
   yours: YourAgents;
+  /** False where the workspace type runs every member in the lead's checkout. */
+  ownWorktrees: boolean;
   disabled: boolean;
   onChange: OnTeamDraftChange;
 }) {
@@ -352,7 +365,7 @@ function TeamRosterRow(props: {
     // The lead may name a member apart from its agent; the row still says which agent runs it.
     agentTitle === undefined || agentTitle === member.label ? null : `${agentTitle} agent`,
     member.role === "custom" ? null : TEAM_ROLE_LABELS[member.role],
-    TEAM_WORKSPACE_LABELS[member.workspace],
+    props.ownWorktrees ? TEAM_WORKSPACE_LABELS[member.workspace] : null,
     stepText.charAt(0).toUpperCase() + stepText.slice(1),
   ]
     .filter((part) => part !== null)
@@ -446,6 +459,7 @@ function TeamRosterRow(props: {
         editing ? (
           <TeamMemberEditForm
             member={member}
+            ownWorktrees={props.ownWorktrees}
             disabled={props.disabled}
             onSave={(edit) => {
               props.onChange({ type: "member.edit", agentId: member.id, ...edit });
@@ -1021,6 +1035,8 @@ const FORM_FRAME = "m-1 flex flex-col gap-3 rounded-md border bg-background p-3"
 /** Edits a member the lead defined: its name, role, workspace and instructions. */
 function TeamMemberEditForm(props: {
   member: TeamAgent;
+  /** False where the workspace type runs every member in the lead's checkout. */
+  ownWorktrees: boolean;
   disabled: boolean;
   onSave: (edit: {
     label: string;
@@ -1051,7 +1067,7 @@ function TeamMemberEditForm(props: {
         <TeamRoleField value={role} onChange={setRole} />
       </div>
       <TeamInstructionsField autoFocus value={instructions} onChange={setInstructions} />
-      <TeamWorkspaceField value={workspace} onChange={setWorkspace} />
+      {props.ownWorktrees ? <TeamWorkspaceField value={workspace} onChange={setWorkspace} /> : null}
       <div className="flex items-center justify-end gap-1">
         <Button size="xs" variant="ghost" onClick={props.onClose}>
           Cancel
@@ -1078,6 +1094,8 @@ function TeamAddMemberForm(props: {
   catalog: TeamModelCatalog;
   /** The model a new member, or an agent without one, starts on. */
   fallbackModelSelection: ModelSelection | null;
+  /** False where the workspace type runs every member in the lead's checkout. */
+  ownWorktrees: boolean;
   disabled: boolean;
   onAdd: (change: TeamMemberAddChange) => void;
   onClose: () => void;
@@ -1224,7 +1242,9 @@ function TeamAddMemberForm(props: {
               is added.
             </p>
           )}
-          <TeamWorkspaceField value={workspace} onChange={setWorkspace} />
+          {props.ownWorktrees ? (
+            <TeamWorkspaceField value={workspace} onChange={setWorkspace} />
+          ) : null}
         </>
       )}
       {actions}

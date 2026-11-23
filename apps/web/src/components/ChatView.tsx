@@ -1159,7 +1159,10 @@ export default function ChatView(props: ChatViewProps) {
       activeProject,
       environmentById.get(activeProject.environmentId)?.serverConfig?.scratchWorkspaceRoot ?? null,
     );
-  const workspacePreset = projectPreset(activeProjectIsScratch ? null : activeProject);
+  const workspacePreset = projectPreset(
+    activeProjectIsScratch ? null : activeProject,
+    activeThread?.worktreePath,
+  );
   const diffTabOffered = workspacePreset.rightPanelTabs.includes("diff");
   const hasActiveProject = activeProject !== null;
   // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- drops surfaces from the right panel store once bootstrap shows the thread has no workspace, or its workspace type offers no Diff tab
@@ -3528,7 +3531,9 @@ export default function ChatView(props: ChatViewProps) {
                                 canOperateThread={canOperateThread}
                                 reportedModelSelection={reportedModelSelection}
                                 multipleModelSelections={multipleModelSelections}
+                                // Each extra model runs in its own worktree.
                                 supportsMultipleModels={
+                                  workspacePreset.composerControls.checkout &&
                                   serverConfig?.environment.capabilities
                                     .requiredWorktreeBootstrap === true
                                 }

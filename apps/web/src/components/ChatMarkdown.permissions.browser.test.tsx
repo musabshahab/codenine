@@ -6,6 +6,7 @@ import {
   type AuthEnvironmentScope,
   type EditorId,
   type ThreadPullRequestLink,
+  type WorkspaceKind,
 } from "@codenine/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
@@ -25,6 +26,7 @@ const state = vi.hoisted(() => ({
   openExternal: vi.fn(),
   copy: vi.fn(),
   pullRequests: [] as ThreadPullRequestLink[],
+  workspace: { kind: "code" as WorkspaceKind, worktreePath: null as string | null },
 }));
 
 vi.mock(import("../state/use-atom-query-runner"), async (original) => ({
@@ -75,7 +77,12 @@ vi.mock(import("../state/server"), async (original) => {
 });
 vi.mock(import("../state/entities"), async (original) => ({
   ...(await original()),
-  readThreadShell: (() => ({ pullRequests: state.pullRequests })) as never,
+  readThreadShell: (() => ({
+    pullRequests: state.pullRequests,
+    projectId,
+    worktreePath: state.workspace.worktreePath,
+  })) as never,
+  readProject: (() => ({ kind: state.workspace.kind })) as never,
   useProjects: (() => [{ id: projectId, environmentId: threadRef.environmentId }]) as never,
 }));
 vi.mock(import("../remoteOpen"), async (original) => ({
@@ -130,6 +137,7 @@ function setup() {
   state.allowed = true;
   state.listeners.clear();
   state.pullRequests = [];
+  state.workspace = { kind: "code", worktreePath: null };
   state.openEditor.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   state.link.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   state.unlink.mockReset().mockResolvedValue(AsyncResult.success(undefined));
@@ -276,5 +284,24 @@ it.each(["link-to-thread", "unlink-from-thread"])(
         }),
       }),
     );
+  },
+);
+
+it.each([
+  { kind: "work", worktreePath: null, offered: false },
+  { kind: "create", worktreePath: null, offered: false },
+  { kind: "work", worktreePath: "/repo-worktrees/a", offered: true },
+] as const)(
+  "a pull request link in a $kind workspace (worktree: $worktreePath) can be linked to the chat: $offered",
+  async ({ offered, ...workspace }) => {
+    using _setup = setup();
+    state.workspace = workspace;
+    await using screen = await renderMarkdown(`[Review](${linkedPullRequest.url})`);
+    await screen.openContextMenu();
+    expect(offeredActions().includes("link-to-thread")).toBe(offered);
+    // A link made before the type changed can still be removed.
+    state.pullRequests = [linkedPullRequest];
+    await screen.openContextMenu();
+    expect(offeredActions()).toContain("unlink-from-thread");
   },
 );

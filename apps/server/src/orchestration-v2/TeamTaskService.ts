@@ -15,6 +15,7 @@ import {
 } from "@codenine/contracts";
 import { isAwaitingReview, teamTaskModelSelection } from "@codenine/shared/team";
 import { formatThreadLink } from "@codenine/shared/threadLinks";
+import { workspacePreset } from "@codenine/shared/workspacePreset";
 import { subagentResultForRun } from "@codenine/provider-core/server/subagentProjection";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -324,11 +325,11 @@ const make = Effect.gen(function* () {
     agent: TeamAgent,
   ): Effect.fn.Return<OrchestrationV2ThreadLaunchWorkspaceStrategy, TeamTaskWorkspaceError> {
     const branch = lead.branch === null ? {} : { branch: lead.branch };
-    if (agent.workspace === "shared") {
-      return lead.worktreePath === null
+    const shared: OrchestrationV2ThreadLaunchWorkspaceStrategy =
+      lead.worktreePath === null
         ? { type: "root", ...branch }
         : { type: "existing_worktree", worktreePath: lead.worktreePath, ...branch };
-    }
+    if (agent.workspace === "shared") return shared;
     const { projectId } = lead;
     const project = Option.getOrUndefined(
       yield* projects
@@ -342,6 +343,8 @@ const make = Effect.gen(function* () {
     if (project === undefined) {
       return yield* new TeamTaskWorkspaceError({ reason: "project-missing", projectId });
     }
+    // A workspace type without checkout controls gives its user no way to land a branch.
+    if (!workspacePreset(project.kind).composerControls.checkout) return shared;
     const base = yield* git
       .resolveCommit({ cwd: lead.worktreePath ?? project.workspaceRoot, revision: "HEAD" })
       .pipe(

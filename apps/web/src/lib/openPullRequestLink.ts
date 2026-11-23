@@ -14,6 +14,7 @@ import {
 } from "../diffPanelStore";
 
 import { readProject, readThreadShell } from "../state/entities";
+import { projectPreset } from "../workspaceKind";
 import { reviewEnvironment } from "../state/review";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 
@@ -62,6 +63,7 @@ export function useOpenChangeRequestLink(
       commitThread &&
       resolvedThreadRef &&
       commitProject?.environmentId === resolvedThreadRef.environmentId &&
+      projectPreset(commitProject, commitThread.worktreePath).rightPanelTabs.includes("diff") &&
       identity &&
       identity.provider === parsedCommit.definition.kind &&
       parsedCommit.definition.isChangeRequestInRepository(identity, parsedCommit.link)

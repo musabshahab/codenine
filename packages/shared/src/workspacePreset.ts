@@ -106,7 +106,26 @@ export const WORKSPACE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>>
   },
 };
 
-/** A project without a type, such as one from an older server, is a code workspace. */
-export function workspacePreset(kind: WorkspaceKind | null | undefined): WorkspacePreset {
-  return WORKSPACE_PRESETS[kind ?? "code"];
+const inWorktree = (preset: WorkspacePreset): WorkspacePreset => ({
+  ...preset,
+  composerControls: WORKSPACE_PRESETS.code.composerControls,
+  rightPanelTabs: WORKSPACE_PRESETS.code.rightPanelTabs,
+});
+
+const WORKTREE_PRESETS: Readonly<Record<WorkspaceKind, WorkspacePreset>> = {
+  code: WORKSPACE_PRESETS.code,
+  work: inWorktree(WORKSPACE_PRESETS.work),
+  create: inWorktree(WORKSPACE_PRESETS.create),
+};
+
+/**
+ * A project without a type, such as one from an older server, is a code workspace. A chat that
+ * already runs in a worktree keeps Git and the Diff tab in every type: its work is on a branch
+ * that nothing else would show or land.
+ */
+export function workspacePreset(
+  kind: WorkspaceKind | null | undefined,
+  worktreePath?: string | null,
+): WorkspacePreset {
+  return (worktreePath == null ? WORKSPACE_PRESETS : WORKTREE_PRESETS)[kind ?? "code"];
 }

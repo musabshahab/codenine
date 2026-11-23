@@ -148,7 +148,8 @@ import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 import { resolveRemoteOpenState, useRemoteOpenResolution } from "../remoteOpen";
 import { useRightPanelStore } from "../rightPanelStore";
-import { readThreadShell } from "../state/entities";
+import { readProject, readThreadShell } from "../state/entities";
+import { projectPreset } from "../workspaceKind";
 import { serverEnvironment } from "../state/server";
 import { shellEnvironment } from "../state/shell";
 import { assetEnvironment } from "../state/assets";
@@ -651,9 +652,13 @@ function useChatMarkdownState({
   const resolveThreadPullRequest = (
     href: string,
   ): (ThreadPullRequestKey & { readonly url: string }) | null => {
+    const thread = threadRef === undefined ? null : readThreadShell(threadRef);
     if (
-      threadRef === undefined ||
-      readThreadShell(threadRef) === null ||
+      thread === null ||
+      !projectPreset(
+        readProject({ environmentId: thread.environmentId, projectId: thread.projectId }),
+        thread.worktreePath,
+      ).composerControls.gitActions ||
       !pullRequestLinking.canLink(href)
     )
       return null;

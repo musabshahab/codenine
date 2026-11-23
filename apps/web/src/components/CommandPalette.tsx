@@ -865,8 +865,10 @@ function OpenCommandPaletteDialog(props: {
 
   if (
     activeThread !== null &&
-    projectPreset(projectByKey.get(`${activeThread.environmentId}:${activeThread.projectId}`))
-      .composerControls.gitActions &&
+    projectPreset(
+      projectByKey.get(`${activeThread.environmentId}:${activeThread.projectId}`),
+      activeThread.worktreePath,
+    ).composerControls.gitActions &&
     threadPullRequestLinkMode(activeThreadServerConfig?.environment.capabilities) !== "unsupported"
   ) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);

@@ -205,3 +205,31 @@ it.each([
     else await expect.element(ability).not.toBeChecked();
   }
 });
+
+it("a new agent takes its workspace's abilities when the workspace loads after the form", async () => {
+  setup();
+  await using screen = await render(
+    <AgentForm environmentId={environmentId} workspace={null} agent={null} connected />,
+  );
+  const readFiles = page.getByRole("switch", { name: "Read files" });
+  const searchWeb = page.getByRole("switch", { name: "Search the web" });
+  await expect.element(readFiles).not.toBeChecked();
+  await page.getByLabelText("Name").fill("Mail helper");
+
+  state.workspaceKind = "work";
+  await screen.rerender(
+    <AgentForm environmentId={environmentId} workspace={null} agent={null} connected />,
+  );
+  await expect.element(readFiles).toBeChecked();
+  await expect.element(searchWeb).toBeChecked();
+
+  // A choice the user made is theirs, whatever the workspace turns out to be.
+  await searchWeb.click();
+  state.workspaceKind = "create";
+  await screen.rerender(
+    <AgentForm environmentId={environmentId} workspace={null} agent={null} connected />,
+  );
+  await expect.element(readFiles).toBeChecked();
+  await expect.element(searchWeb).not.toBeChecked();
+  await expect.element(page.getByRole("switch", { name: "Edit files" })).not.toBeChecked();
+});

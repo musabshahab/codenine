@@ -21,6 +21,7 @@ import {
   TurnItemId,
   WorkflowId,
   WorkflowStepId,
+  type WorkspaceKind,
 } from "@codenine/contracts";
 import * as IdAllocator from "@codenine/provider-core/server/IdAllocator";
 import type * as ProviderAdapter from "@codenine/provider-core/server/ProviderAdapter";
@@ -125,7 +126,7 @@ const task = (id: string, dependsOn: ReadonlyArray<string> = [], by = builder): 
  */
 const layerTeam = (
   launched: Queue.Queue<ThreadId>,
-  options: { readonly headResolves?: boolean } = {},
+  options: { readonly headResolves?: boolean; readonly kind?: WorkspaceKind } = {},
 ) => {
   const layerDatabase = SqlitePersistence.layerMemory;
   const layerServerSettings = ServerSettings.layerTest();
@@ -135,7 +136,12 @@ const layerTeam = (
     Layer.provide(layerReceipts),
   );
   const layerProjects = Layer.mock(ProjectService.ProjectService)({
-    getById: (id) => Effect.succeed(id === projectId ? Option.some(project) : Option.none()),
+    getById: (id) =>
+      Effect.succeed(
+        id === projectId
+          ? Option.some({ ...project, kind: options.kind ?? project.kind })
+          : Option.none(),
+      ),
   });
   const layerLaunchDependencies = Layer.mergeAll(
     WorktreeSetupTracker.layer,
@@ -994,6 +1000,22 @@ it.effect("a task whose worktree cannot be cut fails with the reason", () =>
         );
       }),
     { headResolves: false },
+  ),
+);
+
+it.effect("a workspace type without checkout controls runs every task in the lead's checkout", () =>
+  withTeam(
+    (launched) =>
+      Effect.gen(function* () {
+        const isolated = agent("isolated", fast, "worktree");
+        yield* propose([task("build", [], isolated)], [isolated]);
+        yield* approve();
+        const [buildThreadId] = yield* runEffects(launched, 1);
+        const build = yield* thread(buildThreadId!);
+        assert.equal(build.runs[0]!.workspacePreparation?.type, "existing_worktree");
+        assert.equal(build.thread.worktreePath, leadCheckout);
+      }),
+    { kind: "work" },
   ),
 );
 

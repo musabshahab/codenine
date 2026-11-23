@@ -94,18 +94,16 @@ export interface AgentFormForTeam {
   readonly intro?: string;
 }
 
-function draftOf(
-  agent: AgentDetail | null,
-  start: AgentFormStart | undefined,
-  /** The workspace preset's abilities, for a new agent no suggestion describes. */
-  presetAbilities: AgentAbilities,
-) {
+function draftOf(agent: AgentDetail | null, start: AgentFormStart | undefined) {
   const model = agent === null ? (start?.model ?? null) : agent.model;
   const modelChoice: AgentModelChoiceValue | null =
     model === null ? null : { instanceId: model.instanceId, model: model.model };
   const effort: AgentEffort = model?.effort ?? "medium";
   const skills: ReadonlyArray<SkillName> = agent?.skills ?? [];
   const connectors: ReadonlyArray<AgentConnector> = agent?.connectors ?? start?.connectors ?? [];
+  // Null until the user picks: a new agent no suggestion describes takes its workspace
+  // preset's abilities, and the workspace can load, or change type, after the form opens.
+  const abilities: AgentAbilities | null = agent?.abilities ?? start?.abilities ?? null;
   return {
     title: agent?.title ?? start?.title ?? "",
     description: agent?.description ?? start?.description ?? "",
@@ -114,7 +112,7 @@ function draftOf(
     effort,
     skills,
     connectors,
-    abilities: agent?.abilities ?? start?.abilities ?? presetAbilities,
+    abilities,
   };
 }
 
@@ -151,10 +149,11 @@ export function AgentForm({
   const [busy, setBusy] = useState(false);
   const { draft, newer, follow, change, release, saved } = useEditorDraft(
     agent,
-    (from) => draftOf(from, forTeam?.start, projectPreset(chatWorkspace).agentAbilities),
+    (from) => draftOf(from, forTeam?.start),
     busy,
   );
-  const { title, description, instructions, modelChoice, effort, skills, abilities } = draft;
+  const { title, description, instructions, modelChoice, effort, skills } = draft;
+  const abilities = draft.abilities ?? projectPreset(chatWorkspace).agentAbilities;
   const agentConnectors = draft.connectors;
   const [pickingModel, setPickingModel] = useState(false);
   const [pickingSkill, setPickingSkill] = useState(false);
