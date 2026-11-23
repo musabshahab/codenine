@@ -240,7 +240,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
   private unpackedBytes = 0;
   private cellCount = 0;
   private readonly workbookPath: string;
-  private readonly relationshipPrefix: string;
+  private readonly relationshipPrefix: string | null;
   private workbookXml: string;
   private workbookDirty = false;
   private valuesChanged = false;
@@ -256,7 +256,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
     limits: SpreadsheetLimits;
     workbookPath: string;
     workbookXml: string;
-    relationshipPrefix: string;
+    relationshipPrefix: string | null;
     sheets: Array<Sheet>;
     definedNames: Array<DefinedName>;
     sharedStringsPath: string | null;
@@ -300,11 +300,17 @@ export class XlsxWorkbook implements SpreadsheetModel {
     if (root?.name !== "workbook" || root.inner === null) throw unsupported("workbook-layout");
     const rootAttributes = parseAttributes(root.attributes);
     if (rootAttributes.get("xmlns") !== MAIN_NAMESPACE) throw unsupported("workbook-layout");
-    const relationshipPrefix = [...rootAttributes].find(
-      ([name, value]) => name.startsWith("xmlns:") && value === RELATIONSHIPS_NAMESPACE,
-    )?.[0];
-    if (relationshipPrefix === undefined) throw unsupported("workbook-layout");
-    const prefix = relationshipPrefix.slice("xmlns:".length);
+    const relationshipPrefixIn = (attributes: ReadonlyMap<string, string>) =>
+      [...attributes]
+        .find(
+          ([name, value]) => name.startsWith("xmlns:") && value === RELATIONSHIPS_NAMESPACE,
+        )?.[0]
+        .slice("xmlns:".length);
+    // Some writers declare the relationships namespace on each sheet element, not on the root.
+    const rootPrefix = relationshipPrefixIn(rootAttributes);
+    if (rootPrefix === undefined && rootAttributes.has("xmlns:r")) {
+      throw unsupported("workbook-layout");
+    }
     const relationships = readRelationships(
       (await read(relationshipsPath(workbookPath))) ?? "",
       workbookPath,
@@ -314,7 +320,9 @@ export class XlsxWorkbook implements SpreadsheetModel {
     const sheets: Array<Sheet> = [];
     for (const element of childElements(sheetsElement.inner ?? "")) {
       const attributes = parseAttributes(element.attributes);
-      const relationshipId = attributes.get(`${prefix}:id`);
+      const ownPrefix = relationshipPrefixIn(attributes);
+      const prefix = ownPrefix ?? rootPrefix;
+      const relationshipId = prefix === undefined ? undefined : attributes.get(`${prefix}:id`);
       const relationship = relationships.find((candidate) => candidate.id === relationshipId);
       const name = attributes.get("name");
       if (name === undefined || relationshipId === undefined || relationship === undefined) {
@@ -324,6 +332,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
       attributes.delete("name");
       attributes.delete("sheetId");
       attributes.delete(`${prefix}:id`);
+      if (ownPrefix !== undefined) attributes.delete(`xmlns:${ownPrefix}`);
       sheets.push({
         name,
         sheetId,
@@ -352,7 +361,7 @@ export class XlsxWorkbook implements SpreadsheetModel {
       limits,
       workbookPath,
       workbookXml,
-      relationshipPrefix: prefix,
+      relationshipPrefix: rootPrefix ?? null,
       sheets,
       definedNames,
       sharedStringsPath: partOfType("/sharedStrings"),
@@ -1406,13 +1415,15 @@ export class XlsxWorkbook implements SpreadsheetModel {
           ? xml.slice(0, insertAt) + text + xml.slice(insertAt)
           : xml.slice(0, existing.start) + text + xml.slice(existing.end);
     };
-    const prefix = this.relationshipPrefix;
+    const prefix = this.relationshipPrefix ?? "r";
+    const declaration =
+      this.relationshipPrefix === null ? ` xmlns:r="${RELATIONSHIPS_NAMESPACE}"` : "";
     replaceChild(
       "sheets",
       `<sheets>${this.allSheets
         .map(
           (sheet) =>
-            `<sheet name="${escapeAttribute(sheet.name)}" sheetId="${sheet.sheetId}"${attributeText(sheet.attributes)} ${prefix}:id="${escapeAttribute(sheet.relationshipId)}"/>`,
+            `<sheet name="${escapeAttribute(sheet.name)}" sheetId="${sheet.sheetId}"${attributeText(sheet.attributes)}${declaration} ${prefix}:id="${escapeAttribute(sheet.relationshipId)}"/>`,
         )
         .join("")}</sheets>`,
       [],

@@ -163,6 +163,7 @@ export function SaveReplyForm(props: {
     <Dialog open onOpenChange={(open) => (open ? undefined : close())}>
       <DialogPopup>
         <form
+          className="flex min-h-0 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
             void save();

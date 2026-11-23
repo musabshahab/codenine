@@ -464,6 +464,25 @@ describe("Documents spreadsheets", () => {
         ]);
         expect((yield* workspace.cells("book.xlsx", "X")).byName.A1?.value).toBe("in X");
         expect((yield* workspace.cells("book.xlsx", "Y")).byName.A1?.value).toBe("in Y");
+
+        // openpyxl declares the relationships namespace on each sheet, not on the workbook.
+        const parts = workbookParts();
+        const declaredPerSheet = parts["xl/workbook.xml"]!.replace(
+          ` xmlns:r="${RELATIONSHIPS}"`,
+          "",
+        ).replaceAll("<sheet ", `<sheet xmlns:r="${RELATIONSHIPS}" `);
+        yield* workspace.write(
+          "perSheet.xlsx",
+          yield* Effect.promise(() => zipOf({ ...parts, "xl/workbook.xml": declaredPerSheet })),
+        );
+        const added = yield* workspace.edit("perSheet.xlsx", [{ type: "addSheet", name: "More" }]);
+        expect(added.sheets.map((sheet) => sheet.name)).toEqual([
+          "Data",
+          "Summary",
+          "Notes",
+          "More",
+        ]);
+        expect((yield* workspace.cells("perSheet.xlsx", "Data")).byName.B5?.value).toBe(60.5);
       }),
     );
 
