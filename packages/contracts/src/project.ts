@@ -630,6 +630,72 @@ export class ProjectRevertFileChangeError extends Schema.TaggedError<ProjectReve
   },
 ) {}
 
+export const ProjectFileVersion = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+  byteLength: NonNegativeInt,
+  // Only a "stored" version can be read and restored. "deleted" marks the file's removal, and
+  // "skipped" a change whose contents were too large to keep.
+  state: Schema.Literals(["stored", "deleted", "skipped"]),
+  // Who wrote these contents: an editor save, an agent's turn, a restore, or something outside
+  // Codenine. The first time a file is seen counts as outside.
+  origin: Schema.Literals(["user", "agent", "restore", "external"]),
+  // The `version` a read of the file returns while it holds these contents.
+  version: Schema.optional(TrimmedNonEmptyString),
+  threadId: Schema.optional(ThreadId),
+  turnCount: Schema.optional(PositiveInt),
+});
+export type ProjectFileVersion = typeof ProjectFileVersion.Type;
+
+export const ProjectListFileVersionsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+});
+export type ProjectListFileVersionsInput = typeof ProjectListFileVersionsInput.Type;
+
+export const ProjectListFileVersionsResult = Schema.Struct({
+  // False in a Git checkout, where checkpoints and Git hold the history instead.
+  tracked: Schema.Boolean,
+  // Newest first.
+  versions: Schema.Array(ProjectFileVersion),
+});
+export type ProjectListFileVersionsResult = typeof ProjectListFileVersionsResult.Type;
+
+export const ProjectReadFileVersionInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
+  versionId: TrimmedNonEmptyString,
+});
+export type ProjectReadFileVersionInput = typeof ProjectReadFileVersionInput.Type;
+
+export const ProjectReadFileVersionResult = Schema.Struct({
+  // Null for a version that is not text or is over the preview limit. It can still be restored.
+  contents: Schema.NullOr(Schema.String),
+  byteLength: NonNegativeInt,
+});
+export type ProjectReadFileVersionResult = typeof ProjectReadFileVersionResult.Type;
+
+export const ProjectRestoreFileVersionInput = Schema.Struct({
+  ...ProjectReadFileVersionInput.fields,
+  // As for a save: the read `version` the caller saw. Omit to replace whatever is on disk.
+  expectedVersion: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProjectRestoreFileVersionInput = typeof ProjectRestoreFileVersionInput.Type;
+
+export const ProjectRestoreFileVersionResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  version: TrimmedNonEmptyString,
+});
+export type ProjectRestoreFileVersionResult = typeof ProjectRestoreFileVersionResult.Type;
+
+export class ProjectFileVersionError extends Schema.TaggedError<ProjectFileVersionError>()(
+  "ProjectFileVersionError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 export const ProjectEnsureScratchResult = Schema.Struct({
   projectId: ProjectId,
 });

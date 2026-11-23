@@ -50,6 +50,7 @@ import {
   type ProjectFileFailure,
   type ProjectFileOperation,
   type ProjectMutation,
+  ProjectFileVersionError,
   ProjectListEntriesError,
   ProjectReadFileBaselineError,
   ProjectReadFileError,
@@ -91,6 +92,7 @@ import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as FileBaselines from "./checkpointing/FileBaselines.ts";
+import * as FileVersions from "./fileVersions/FileVersions.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -1367,6 +1369,7 @@ export const layerWsRpc = (
       const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
       const fileBaselines = yield* FileBaselines.FileBaselines;
+      const fileVersions = yield* FileVersions.FileVersions;
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
@@ -2378,7 +2381,7 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.projectsWriteFile]: (input) =>
-          workspaceFileSystem.writeFile(input).pipe(
+          fileVersions.writeFile(input, "user").pipe(
             Effect.mapError((cause) =>
               cause._tag === "WorkspaceFileConflictError"
                 ? projectWriteFileConflict(input, cause)
@@ -2406,6 +2409,32 @@ export const layerWsRpc = (
                 cause._tag === "WorkspaceFileConflictError"
                   ? projectWriteFileConflict(input, cause)
                   : new ProjectRevertFileChangeError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.projectsListFileVersions]: (input) =>
+          fileVersions
+            .list(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new ProjectFileVersionError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.projectsReadFileVersion]: (input) =>
+          fileVersions
+            .read(input)
+            .pipe(
+              Effect.mapError(
+                (cause) => new ProjectFileVersionError({ message: cause.message, cause }),
+              ),
+            ),
+        [WS_METHODS.projectsRestoreFileVersion]: (input) =>
+          fileVersions
+            .restore(input)
+            .pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "WorkspaceFileConflictError"
+                  ? projectWriteFileConflict(input, cause)
+                  : new ProjectFileVersionError({ message: cause.message, cause }),
               ),
             ),
         [WS_METHODS.projectsMutate]: (mutation) =>

@@ -45,7 +45,8 @@ notice and **Backup** is marked in Settings. **Try again** backs up right away.
 - Settings, skills, agents and workflows
 
 Workspaces kept elsewhere on the computer are not included; they stay where they are. Neither
-are Codenine's caches and downloads. Unfinished task copies (worktrees) are left out unless you
+are Codenine's caches and downloads, or the
+[file versions](composer.md#file-versions) it keeps for folders without Git. Unfinished task copies (worktrees) are left out unless you
 turn on **Also keep unfinished task copies**. Without them, an unfinished task restarts from its
 branch and loses changes that were not committed.
 

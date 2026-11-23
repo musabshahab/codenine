@@ -67,6 +67,7 @@ import * as ProviderHostLive from "./provider/ProviderHostLive.ts";
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as FileBaselines from "./checkpointing/FileBaselines.ts";
+import * as FileVersions from "./fileVersions/FileVersions.ts";
 import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
 import * as SourceControlSignIn from "./sourceControl/SourceControlSignIn.ts";
@@ -406,6 +407,11 @@ const layerWorkspace = Layer.mergeAll(
   layerWorkspaceFileSystem,
 );
 
+const layerFileVersions = FileVersions.layer.pipe(
+  Layer.provide(layerWorkspace),
+  Layer.provide(layerCheckpointStore),
+);
+
 const layerProjectFaviconResolver = ProjectFaviconResolver.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
   Layer.provide(CodenineProjectFileLoader.layer),
@@ -428,6 +434,7 @@ const layerCloudManagedEndpointRuntime = Layer.mergeAll(
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  Layer.provide(FileVersions.layerTurnFileVersions.pipe(Layer.provide(layerFileVersions))),
   Layer.provide(layerCheckpointStore),
   Layer.provide(layerGitWorkflow),
   Layer.provide(
@@ -441,6 +448,7 @@ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
 
 const layerOrchestrationApplication = FileBaselines.layer.pipe(
   Layer.provide(layerWorkspace),
+  Layer.provideMerge(layerFileVersions),
   Layer.provideMerge(CheckpointDiffQuery.layer),
   Layer.provideMerge(layerCheckpointStore),
   Layer.provideMerge(layerOrchestrationV2Runtime),

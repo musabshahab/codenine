@@ -3132,6 +3132,7 @@ export default function ChatView(props: ChatViewProps) {
         workspaceRoot: activeWorkspaceRoot,
         availableEditors,
         pendingSurfaceIds: pendingFileSurfaceIds,
+        versionsOffered: liveIsGitRepo === false,
         onOpenFile: openFileSurfaceStable,
         onPendingChange: handleFilePendingChangeStable,
       }}

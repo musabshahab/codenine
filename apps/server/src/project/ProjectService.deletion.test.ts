@@ -20,6 +20,7 @@ import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
+import * as FileVersionStorage from "../fileVersions/FileVersionStorage.ts";
 import { OrchestrationEffectRequestV2 } from "../orchestration-v2/EffectOutbox.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as EventStore from "../orchestration-v2/EventStore.ts";
@@ -438,6 +439,23 @@ it.effect("deletes a project without force once its imported threads were delete
       )
     `;
     yield* TestClock.setTime(Date.parse("2026-09-04T12:00:00.000Z"));
+    const fileSystem = yield* FileSystem.FileSystem;
+    const fileVersions = yield* FileVersionStorage.make;
+    yield* fileVersions.append(
+      `/work/${projectId}`,
+      {
+        relativePath: "notes.md",
+        content: { kind: "bytes", bytes: new TextEncoder().encode("kept for undo") },
+        mtimeMs: null,
+        origin: "user",
+        createdAt: "2026-09-04T12:00:00.000Z",
+      },
+      null,
+    );
+    const storedFileVersions = fileSystem
+      .readDirectory(fileVersions.storeDirectory, { recursive: true })
+      .pipe(Effect.orElseSucceed((): Array<string> => []));
+    assert.isNotEmpty(yield* storedFileVersions);
 
     yield* Effect.gen(function* () {
       const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
@@ -491,6 +509,9 @@ it.effect("deletes a project without force once its imported threads were delete
       });
       assert.isNotNull(deleted.deletedAt);
       assert.isTrue(Option.isNone(yield* service.getById(projectId)));
+      // The workspace's file versions go with it, rows and stored contents.
+      assert.deepEqual(yield* sql`SELECT version_id FROM file_versions`, []);
+      assert.deepEqual(yield* storedFileVersions, []);
     }).pipe(Effect.provide(layerServices));
   }).pipe(Effect.provide(layerDatabase)),
 );

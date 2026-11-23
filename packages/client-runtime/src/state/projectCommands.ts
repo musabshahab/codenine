@@ -156,6 +156,18 @@ export function createProjectEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
       idleTtlMs: 60_000,
     }),
+    listFileVersions: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:list-file-versions",
+      tag: WS_METHODS.projectsListFileVersions,
+      staleTimeMs: 5_000,
+      idleTtlMs: 60_000,
+    }),
+    readFileVersion: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:projects:read-file-version",
+      tag: WS_METHODS.projectsReadFileVersion,
+      staleTimeMs: 30_000,
+      idleTtlMs: 60_000,
+    }),
     optimisticFile: (target: OptimisticProjectFileTarget) =>
       optimisticFileFamily(optimisticProjectFileKey(target)),
     create: createEnvironmentCommand(runtime, {
@@ -249,6 +261,28 @@ export function createProjectEnvironmentAtoms<R, E>(
       },
       execute: (input) =>
         requestGuarded(WS_METHODS.projectsRevertFileChange, input).pipe(
+          Effect.tap((result) =>
+            Effect.forEach(writtenFilePaths(input, result), fileMetadata.invalidate),
+          ),
+        ),
+      onSuccess: ({ environmentId, input }, registry, result) =>
+        Effect.sync(() => {
+          for (const path of writtenFilePaths(input, result))
+            fileMetadata.refreshPath(environmentId, path, registry);
+        }),
+    }),
+    restoreFileVersion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:projects:restore-file-version",
+      tag: WS_METHODS.projectsRestoreFileVersion,
+      scheduler: fileScheduler,
+      // The key `writeFile` uses, so a restore and a save of one file never interleave.
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.cwd, input.relativePath]),
+      },
+      execute: (input) =>
+        requestGuarded(WS_METHODS.projectsRestoreFileVersion, input).pipe(
           Effect.tap((result) =>
             Effect.forEach(writtenFilePaths(input, result), fileMetadata.invalidate),
           ),

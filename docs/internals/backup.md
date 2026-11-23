@@ -42,6 +42,12 @@ undoing it has nothing else to bring back a `.env` from. A symlink into the arch
 stored relative, so links like a Codex shadow home's links into its shared home work in a new
 home; a symlink out of it is left out.
 
+The [file version store](../../apps/server/src/fileVersions/FileVersionStorage.ts) keeps its
+contents in the state folder and its rows in the database. A backup leaves the contents out: they
+copy workspace files and can reach a gigabyte a workspace. Its rows would then name contents that
+are not there, so a restore clears `file_versions` with the runtime tables, and the store deletes
+contents left without rows the next time it walks that workspace.
+
 The database is never copied as a file. SQLite's online backup copies a consistent snapshot in one
 step on a worker thread: a WAL read transaction sees one commit while the server keeps writing. A
 stepped copy restarts whenever another connection writes between steps and may never finish

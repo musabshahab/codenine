@@ -125,6 +125,7 @@ function markdownPreview(truncated: boolean) {
       folderTrail={undefined}
       onPendingChange={vi.fn()}
       selectedFilePending={false}
+      versionsOffered={false}
       workspaceMutationId={null}
     />
   );

@@ -150,6 +150,13 @@ import {
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectFileVersionError,
+  ProjectListFileVersionsInput,
+  ProjectListFileVersionsResult,
+  ProjectReadFileVersionInput,
+  ProjectReadFileVersionResult,
+  ProjectRestoreFileVersionInput,
+  ProjectRestoreFileVersionResult,
   ProjectListIgnoredFilesInput,
   ProjectListIgnoredFilesResult,
   ProjectReadFileBaselineError,
@@ -331,6 +338,9 @@ export const WS_METHODS = {
   projectsWriteFile: "projects.writeFile",
   projectsReadFileBaseline: "projects.readFileBaseline",
   projectsRevertFileChange: "projects.revertFileChange",
+  projectsListFileVersions: "projects.listFileVersions",
+  projectsReadFileVersion: "projects.readFileVersion",
+  projectsRestoreFileVersion: "projects.restoreFileVersion",
   projectsMutate: "projects.mutate",
   projectsEnsureScratch: "projects.ensureScratch",
   projectsCreateNew: "projects.createNew",
@@ -1186,6 +1196,28 @@ const WsProjectsRevertFileChangeRpc = Rpc.make(WS_METHODS.projectsRevertFileChan
   ]),
 });
 
+const WsProjectsListFileVersionsRpc = Rpc.make(WS_METHODS.projectsListFileVersions, {
+  payload: ProjectListFileVersionsInput,
+  success: ProjectListFileVersionsResult,
+  error: Schema.Union([ProjectFileVersionError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsReadFileVersionRpc = Rpc.make(WS_METHODS.projectsReadFileVersion, {
+  payload: ProjectReadFileVersionInput,
+  success: ProjectReadFileVersionResult,
+  error: Schema.Union([ProjectFileVersionError, EnvironmentAuthorizationError]),
+});
+
+const WsProjectsRestoreFileVersionRpc = Rpc.make(WS_METHODS.projectsRestoreFileVersion, {
+  payload: ProjectRestoreFileVersionInput,
+  success: ProjectRestoreFileVersionResult,
+  error: Schema.Union([
+    ProjectFileVersionError,
+    ProjectWriteFileConflictError,
+    EnvironmentAuthorizationError,
+  ]),
+});
+
 const WsProjectsMutateRpc = Rpc.make(WS_METHODS.projectsMutate, {
   payload: ProjectMutation,
   success: Project,
@@ -1740,6 +1772,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsReadFileBaselineRpc,
   WsProjectsRevertFileChangeRpc,
+  WsProjectsListFileVersionsRpc,
+  WsProjectsReadFileVersionRpc,
+  WsProjectsRestoreFileVersionRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,

@@ -90,6 +90,16 @@ capture workspace state without adding commits to the user's branch. A revert mu
 workspace state with the provider conversation. A provider that cannot roll back its conversation
 must reject that operation before changing the filesystem.
 
+A folder without Git has no refs, so its checkpoints stay `missing` and it cannot be reverted to
+one. The [file version store](../../apps/server/src/fileVersions/FileVersions.ts) covers it instead:
+checkpoint capture walks the folder before and after a turn, and a `missing` checkpoint then still
+lists the files the turn changed. Clients read "the turn changed files" from that list and
+"the workspace can roll back" from `ready`; keep the two apart. The store never records in a Git
+checkout. Its walk attributes every difference since the last walk to the turn that ends, so with
+several agents in one folder a change can land on another agent's turn, and a file is called
+created by a turn only when an earlier walk in the same server process saw the whole folder.
+Otherwise a review's Discard could delete a file the agent did not make.
+
 Thread settlement is server-owned. The
 [settlement service](../../apps/server/src/orchestration-v2/ThreadSettlementService.ts) evaluates PR
 and inactivity settings without a connected client. Merge notifications invalidate cached PR state

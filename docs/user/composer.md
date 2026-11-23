@@ -385,8 +385,33 @@ for one change at a time. Discarding a file the turn created deletes it. You can
 a file in the latest turn's changed files or in the Diff tab and choose **Review in file**, which
 also brings back a review you closed with **Keep**. In Work and Create workspaces, selecting a file
 in the latest turn's changed files opens this review; files from earlier turns open in the editor.
-The review covers files Git tracks or would track, not ignored files or links, and it needs a Git
-workspace, because it relies on the checkpoints Codenine saves each turn.
+In a Git workspace the review covers files Git tracks or would track, not ignored files or links,
+and relies on the checkpoints Codenine saves each turn. In a folder without Git it relies on
+[file versions](#file-versions) instead.
+
+### File versions
+
+A folder that is not a Git checkout has no commits to go back to, so Codenine keeps earlier
+versions of its files itself. A version is kept when you save in the editor, and around each
+agent turn for the files that turn changed, created or deleted. Changes made in another app are
+picked up at the start of the next turn.
+
+Open a file and choose **Versions** in the file's toolbar to see them: when each was made, how
+large it is, and whether it came from the editor, an agent's turn, a restore, or outside Codenine.
+Select one to read it, then **Restore this version** to put it back. Restoring keeps the contents
+it replaces as a version too, so you can go back again. Versions work for any kind of file; only
+text has a preview.
+
+Versions live in Codenine's own data folder, never in your folder, and are limited for each
+workspace: 30 versions of a file and 1 GB in total, with the oldest removed first and the newest
+version of every file always kept. A file over 32 MB is listed when it changes but no copy is
+kept, and a folder is watched up to its first 10,000 files, leaving out `node_modules` and
+`.git`. Saves a few minutes apart count as one version. Deleting the workspace deletes its
+versions, and [backups](backup.md) leave them out.
+
+A Git workspace has no **Versions** button: its history is in Git and in the checkpoints behind
+the Diff tab. When several agents work in one folder at once, a change is listed under the turn
+that ended first after it.
 
 ## HTML and PDF files in the file viewer
 

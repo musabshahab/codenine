@@ -48,6 +48,7 @@ import * as ProviderInstallation from "./provider/providerInstallation.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as FileBaselines from "./checkpointing/FileBaselines.ts";
+import * as FileVersions from "./fileVersions/FileVersions.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as CodexInstallation from "./provider/CodexInstallation.ts";
 import * as DocumentText from "./provider/DocumentText.ts";
@@ -762,6 +763,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(BackgroundPolicy.BackgroundPolicy)({}),
   Layer.mock(CheckpointDiffQuery.CheckpointDiffQuery)({}),
   Layer.mock(FileBaselines.FileBaselines)({}),
+  Layer.mock(FileVersions.FileVersions)({}),
   Layer.mock(CommandOutputHub.CommandOutputHub)({}),
   Layer.mock(CodexInstallation.CodexInstallation)({ managedDirectory: "/unused" }),
   Layer.mock(EnvironmentTheme.EnvironmentThemeService)({}),
@@ -1376,7 +1378,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
   }).pipe(Effect.provide(Layer.fresh(layerConfigSources)), Effect.scoped),
 );
 
-it.effect("a refused save or discard reaches the client as a write conflict", () =>
+it.effect("a refused save, discard or restore reaches the client as a write conflict", () =>
   Effect.gen(function* () {
     const exits = yield* Queue.unbounded<Exit.Exit<unknown, unknown>>();
     const conflict = new WorkspaceFileSystem.WorkspaceFileConflictError({
@@ -1386,8 +1388,10 @@ it.effect("a refused save or discard reaches the client as a write conflict", ()
     });
     const services = Layer.mergeAll(
       layerUnusedConfigRpcServices,
-      Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({
+      Layer.mock(WorkspaceFileSystem.WorkspaceFileSystem)({}),
+      Layer.mock(FileVersions.FileVersions)({
         writeFile: () => Effect.fail(conflict),
+        restore: () => Effect.fail(conflict),
       }),
       Layer.mock(FileBaselines.FileBaselines)({ revertTurnChange: () => Effect.fail(conflict) }),
       Layer.mock(ExternalLauncher.ExternalLauncher)({}),
@@ -1427,6 +1431,7 @@ it.effect("a refused save or discard reaches the client as a write conflict", ()
         WS_METHODS.projectsRevertFileChange,
         { ...file, threadId: "thread", turnCount: 1, expectedVersion: "read" },
       ],
+      [WS_METHODS.projectsRestoreFileVersion, { ...file, versionId: "1", expectedVersion: "read" }],
     ] as const;
     for (const [tag, payload] of requests) {
       yield* server.write(0, {

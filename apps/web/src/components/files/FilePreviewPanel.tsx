@@ -39,7 +39,7 @@ import { EditProvider, File, Virtualizer, useWorkerPool } from "@pierre/diffs/re
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import { useFilesystemReadAccess } from "~/state/filesystem";
 import { mediaFileReference } from "@codenine/client-runtime/media-reference";
-import { FolderTree, WrapTextIcon } from "lucide-react";
+import { FolderTree, HistoryIcon, WrapTextIcon } from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
@@ -116,6 +116,7 @@ import {
 } from "./fileSaveSessions";
 import { fileChangeMarkerCssFor } from "./fileChangeBlocks";
 import { FileReviewSurface } from "./FileReviewSurface";
+import { FileVersionsDialog } from "./FileVersionsDialog";
 import { type FileBaseline, useFileBaseline } from "./useFileBaseline";
 import { isFileReviewKept, reviewableTurnCount, useFileReviewStore } from "~/fileReviewStore";
 import { useThreadCheckpointSummaries } from "~/state/entities";
@@ -155,6 +156,8 @@ interface FilePreviewPanelProps {
   folderTrail: string | undefined;
   onPendingChange: (relativePath: string, pending: boolean) => void;
   selectedFilePending: boolean;
+  /** True where the folder has no Git, so the server keeps versions of its files. */
+  versionsOffered: boolean;
   workspaceMutationId: string | null;
 }
 
@@ -1049,6 +1052,7 @@ export default function FilePreviewPanel({
   folderTrail,
   onPendingChange,
   selectedFilePending,
+  versionsOffered,
   workspaceMutationId,
 }: FilePreviewPanelProps) {
   const relativePath =
@@ -1208,6 +1212,14 @@ export default function FilePreviewPanel({
       ? previewPath
       : null;
   const saveConflict = useProjectFileConflict(environmentId, cwd, editablePath);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const versionsPath =
+    versionsOffered &&
+    serverConfig?.environment.capabilities.fileVersions === true &&
+    attachment === undefined &&
+    !isHostFile
+      ? previewPath
+      : null;
   const headBaseline = useFileBaseline(
     editablePath !== null && canWriteFiles
       ? { environmentId, cwd, relativePath: editablePath, source: HEAD_BASELINE_SOURCE }
@@ -1372,6 +1384,11 @@ export default function FilePreviewPanel({
               <WrapTextIcon className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
+          {versionsPath !== null ? (
+            <FileSurfaceAction label="Versions" onPress={() => setVersionsOpen(true)}>
+              <HistoryIcon className="size-3.5" />
+            </FileSurfaceAction>
+          ) : null}
           {!isHostFile && previewPath !== null ? (
             <FileSurfaceAction
               label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
@@ -1387,6 +1404,23 @@ export default function FilePreviewPanel({
         <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
           Read-only connection. Unsaved edits are kept until write access returns.
         </div>
+      ) : null}
+      {versionsPath !== null && versionsOpen ? (
+        <FileVersionsDialog
+          key={versionsPath}
+          open
+          onOpenChange={setVersionsOpen}
+          environmentId={environmentId}
+          cwd={cwd}
+          relativePath={versionsPath}
+          currentVersion={
+            editablePath === null || selectedFilePending || saveConflict
+              ? undefined
+              : file.data?.version
+          }
+          editorHoldsFile={editablePath !== null}
+          canRestore={canWriteFiles}
+        />
       ) : null}
       {saveConflict && editablePath !== null ? (
         <FileSurfaceBar

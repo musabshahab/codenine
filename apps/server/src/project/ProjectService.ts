@@ -22,6 +22,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
+import * as FileVersionStorage from "../fileVersions/FileVersionStorage.ts";
 import { withCommandMetrics } from "../observability/Metrics.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@codenine/provider-core/server/IdAllocator";
@@ -207,6 +208,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
+  const fileVersionStorage = yield* FileVersionStorage.make;
   const projectLocks = yield* KeyedLock.make<ProjectId>();
   const workspaceLocks = yield* KeyedLock.make<string>();
 
@@ -705,6 +707,14 @@ export const make = Effect.gen(function* () {
       yield* commit({ type: "project.delete", commandId: input.commandId, projectId });
       if (isFirstDelete) {
         yield* clearProjectSettingsOverrides(projectId);
+        // Versions are keyed by folder, so one left behind would show in a workspace made there later.
+        yield* fileVersionStorage
+          .deleteWorkspace(path.resolve(existing.value.workspaceRoot))
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("could not delete a removed project's file versions", { cause }),
+            ),
+          );
       }
       yield* projectEnrichment.invalidate([existing.value.workspaceRoot]);
       yield* deleteFolders(existing.value, folders);

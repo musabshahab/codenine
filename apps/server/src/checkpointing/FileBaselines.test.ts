@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { CheckpointRef, ThreadId } from "@codenine/contracts";
+import { CheckpointRef, type ProjectFileLineChange, ThreadId } from "@codenine/contracts";
 import { symlinksSupported } from "@codenine/shared/testing/symlinks";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -9,6 +9,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import * as ServerConfig from "../config.ts";
+import * as FileVersions from "../fileVersions/FileVersions.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
@@ -38,8 +40,10 @@ const layerTest = FileBaselines.layer.pipe(
       getTurnRefs: () => Effect.succeed({ start: TURN_START, end: TURN_END }),
     }),
   ),
+  Layer.provideMerge(FileVersions.layer),
   Layer.provideMerge(layerWorkspaceFileSystem),
   Layer.provideMerge(layerCheckpointStore),
+  Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provideMerge(layerVcsProcess),
   Layer.provideMerge(WorkspacePaths.layer),
   Layer.provideMerge(
@@ -246,6 +250,68 @@ it.layer(layerTest)("FileBaselines", (it) => {
           }),
         ).toEqual({ relativePath: "created.md", deleted: true });
         expect(yield* exists("created.md")).toBe(false);
+      }),
+    );
+
+    it.effect("without Git, reviews and discards a turn's changes from the version store", () =>
+      Effect.gen(function* () {
+        const baselines = yield* FileBaselines.FileBaselines;
+        const versions = yield* FileVersions.FileVersions;
+        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "codenine-plain-folder-" });
+        const writeDisk = (name: string, contents: string) =>
+          fileSystem.writeFileString(path.join(cwd, name), contents);
+        yield* writeDisk("notes.md", BEFORE_TURN);
+        yield* writeDisk("marked.csv", MARKED_BEFORE_TURN);
+        yield* writeDisk("untouched.md", "same\n");
+        yield* versions.syncWorkspace({ cwd, origin: { kind: "external" } });
+        yield* writeDisk("notes.md", AFTER_TURN);
+        yield* writeDisk("marked.csv", "\uFEFFname,count\na,22\n");
+        yield* writeDisk("created.md", "new\n");
+        yield* versions.syncWorkspace({ cwd, origin: { kind: "agent", ...turn } });
+        const source = { kind: "turn", ...turn } as const;
+        const read = (relativePath: string) => baselines.read({ cwd, relativePath, source });
+        const discard = (relativePath: string, change?: ProjectFileLineChange) =>
+          Effect.gen(function* () {
+            const file = { cwd, relativePath };
+            return yield* baselines.revertTurnChange({
+              ...file,
+              ...turn,
+              expectedVersion: (yield* files.readFile(file)).version!,
+              ...(change === undefined ? {} : { change }),
+            });
+          });
+
+        expect(yield* read("notes.md")).toEqual({ available: true, contents: BEFORE_TURN });
+        expect(yield* read("created.md")).toEqual({ available: true, contents: null });
+        expect(yield* read("untouched.md")).toEqual({ available: false, contents: null });
+        // There is no last commit to mark changed lines against.
+        expect(
+          yield* baselines.read({ cwd, relativePath: "notes.md", source: { kind: "head" } }),
+        ).toEqual({ available: false, contents: null });
+
+        yield* discard("notes.md", {
+          baseStart: 1,
+          baseCount: 1,
+          currentStart: 1,
+          currentCount: 1,
+        });
+        expect(yield* fileSystem.readFileString(path.join(cwd, "notes.md"))).toBe(
+          AFTER_TURN.replace("TWO", "two"),
+        );
+        yield* discard("marked.csv");
+        expect(Buffer.from(yield* fileSystem.readFile(path.join(cwd, "marked.csv")))).toEqual(
+          Buffer.from(MARKED_BEFORE_TURN),
+        );
+        expect(yield* discard("created.md")).toEqual({ relativePath: "created.md", deleted: true });
+        // Each discard is itself a version, so the agent's text can be brought back.
+        const listed = yield* versions.list({ cwd, relativePath: "created.md" });
+        expect(listed.versions.map(({ origin, state }) => ({ origin, state }))).toEqual([
+          { origin: "restore", state: "deleted" },
+          { origin: "agent", state: "stored" },
+        ]);
       }),
     );
   });

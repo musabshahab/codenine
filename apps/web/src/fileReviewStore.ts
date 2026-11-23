@@ -59,13 +59,15 @@ export function isFileReviewKept(
 /**
  * The turn whose change to a file can be reviewed in the file: the latest one, once its
  * checkpoint is ready, when it lists the file. A long list is cut short, so any file may be in it;
- * the server then answers whether the turn changed the file.
+ * the server then answers whether the turn changed the file. Without Git the checkpoint is
+ * missing and still lists the files, whose earlier contents the server's version store holds.
  */
 export function reviewableTurnCount(
   latestTurn: ThreadCheckpointSummary | undefined,
   isFile: (changedPath: string) => boolean,
 ): number | null {
-  if (latestTurn?.status !== "ready" || latestTurn.checkpointTurnCount <= 0) return null;
+  if (latestTurn === undefined || latestTurn.checkpointTurnCount <= 0) return null;
+  if (latestTurn.status !== "ready" && latestTurn.status !== "missing") return null;
   return latestTurn.filesTotal !== undefined || latestTurn.files.some((file) => isFile(file.path))
     ? latestTurn.checkpointTurnCount
     : null;

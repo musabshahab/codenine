@@ -147,6 +147,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   projectOrganization: Schema.optionalKey(Schema.Boolean),
   /** Server keeps `kind` on project create, update and clone. Older servers drop it. */
   workspaceKinds: Schema.optionalKey(Schema.Boolean),
+  /** Server answers projects.listFileVersions, readFileVersion and restoreFileVersion. */
+  fileVersions: Schema.optionalKey(Schema.Boolean),
   /** Server honors `deleteFolder` on project.delete. Older servers ignore it and keep the folder. */
   projectFolderDeletion: Schema.optionalKey(Schema.Boolean),
   /** Server answers projects.listIgnoredFiles. */

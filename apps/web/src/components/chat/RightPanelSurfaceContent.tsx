@@ -29,6 +29,8 @@ interface RightPanelFileProps {
   readonly workspaceRoot: string | undefined;
   readonly availableEditors: ReadonlyArray<EditorId>;
   readonly pendingSurfaceIds: ReadonlySet<string>;
+  /** True where the folder has no Git, so the server keeps versions of its files. */
+  readonly versionsOffered: boolean;
   readonly onOpenFile: (relativePath: string) => void;
   readonly onPendingChange: (relativePath: string, pending: boolean) => void;
 }
@@ -129,6 +131,7 @@ export function RightPanelSurfaceContent(props: {
             folderTrail={surface.folderTrail}
             onPendingChange={files.onPendingChange}
             selectedFilePending={surface.kind === "file" && files.pendingSurfaceIds.has(surface.id)}
+            versionsOffered={files.versionsOffered}
             workspaceMutationId={props.workspaceMutationId}
           />
         </Suspense>

@@ -16,6 +16,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import { FILE_VERSIONS_DIRECTORY } from "../fileVersions/FileVersionStorage.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { isWithinRoot } from "../workspace/KnownWorkspaces.ts";
 import {
@@ -102,6 +103,8 @@ const STATE_EXCLUDED_NAMES = new Set([
   "compacted-at",
   "reclaim-requested",
   "reclaim-failed",
+  // Copies of workspace files, which a backup does not hold either; up to a gigabyte a workspace.
+  FILE_VERSIONS_DIRECTORY,
   BACKUP_STATE_FILE,
   RESTORE_REPORT_FILE,
 ]);

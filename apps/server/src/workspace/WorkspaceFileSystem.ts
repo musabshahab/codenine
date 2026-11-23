@@ -119,6 +119,19 @@ export class WorkspaceFileConflictError extends Schema.TaggedError<WorkspaceFile
   }
 }
 
+export interface WriteWorkspaceFileBytesInput {
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly bytes: Uint8Array;
+  readonly expectedVersion?: string | undefined;
+}
+
+export type WorkspaceFileBytes =
+  | { readonly kind: "absent" }
+  | { readonly kind: "file"; readonly bytes: Uint8Array; readonly mtimeMs: number }
+  /** Larger than the caller's limit, so it was not read. */
+  | { readonly kind: "too-large"; readonly byteLength: number; readonly mtimeMs: number };
+
 export interface RemoveWorkspaceFileInput {
   readonly cwd: string;
   readonly relativePath: string;
@@ -146,9 +159,28 @@ export class WorkspaceFileSystem extends Context.Service<
       ProjectReadFileResult,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
+    /** The bytes of a workspace-relative file of any type. Never reads outside the root. */
+    readonly readFileBytes: (input: {
+      readonly cwd: string;
+      readonly relativePath: string;
+      readonly maxBytes: number;
+    }) => Effect.Effect<
+      WorkspaceFileBytes,
+      WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
+    >;
     /** Writes inside a known workspace only. */
     readonly writeFile: (
       input: ProjectWriteFileInput,
+    ) => Effect.Effect<
+      ProjectWriteFileResult,
+      | WorkspaceFileSystemError
+      | WorkspaceFileConflictError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | KnownWorkspaces.UnknownWorkspaceError
+    >;
+    /** `writeFile` for contents of any type. */
+    readonly writeFileBytes: (
+      input: WriteWorkspaceFileBytesInput,
     ) => Effect.Effect<
       ProjectWriteFileResult,
       | WorkspaceFileSystemError
@@ -495,6 +527,73 @@ export const make = Effect.gen(function* () {
     );
   });
 
+  const readFileBytes: WorkspaceFileSystem["Service"]["readFileBytes"] = Effect.fn(
+    "WorkspaceFileSystem.readFileBytes",
+  )(function* (input) {
+    // An absolute or `~/` path would be read in place, outside the root checks.
+    if (path.isAbsolute(input.relativePath.trim()) || input.relativePath.trim().startsWith("~/")) {
+      return yield* new WorkspacePaths.WorkspacePathOutsideRootError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+      });
+    }
+    const target = yield* resolveReadTarget({ ...input, allowMissing: true });
+    const realTargetPath = target.realTargetPath;
+    if (realTargetPath === null) return { kind: "absent" } as const;
+    if (yield* isServerInternalPath(realTargetPath)) {
+      return yield* new WorkspacePaths.WorkspacePathOutsideRootError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+      });
+    }
+    const failure = (operation: "open" | "read") => (cause: unknown) =>
+      new WorkspaceFileSystemOperationError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedPath: realTargetPath,
+        operationPath: realTargetPath,
+        operation,
+        cause,
+      });
+    return yield* Effect.acquireUseRelease(
+      Effect.tryPromise({
+        try: () =>
+          NodeFSP.open(
+            realTargetPath,
+            NodeFS.constants.O_RDONLY | (NodeFS.constants.O_NONBLOCK ?? 0),
+          ).catch((cause: NodeJS.ErrnoException) => {
+            if (cause.code === "ENOENT") return null;
+            throw cause;
+          }),
+        catch: failure("open"),
+      }),
+      (handle) =>
+        Effect.tryPromise({
+          try: async (): Promise<WorkspaceFileBytes | "not-file"> => {
+            if (handle === null) return { kind: "absent" };
+            const stat = await handle.stat();
+            if (!stat.isFile()) return "not-file";
+            if (stat.size > input.maxBytes) {
+              return { kind: "too-large", byteLength: stat.size, mtimeMs: stat.mtimeMs };
+            }
+            return { kind: "file", bytes: await handle.readFile(), mtimeMs: stat.mtimeMs };
+          },
+          catch: failure("read"),
+        }).pipe(
+          Effect.filterOrFail(
+            (result) => result !== "not-file",
+            () =>
+              new WorkspacePathNotFileError({
+                workspaceRoot: input.cwd,
+                relativePath: input.relativePath,
+                resolvedPath: realTargetPath,
+              }),
+          ),
+        ),
+      (handle) => Effect.promise(() => handle?.close().catch(() => undefined) ?? Promise.resolve()),
+    );
+  });
+
   // Resolve existing ancestors and reject dangling links so creation cannot follow symlinks outside root.
   const resolveWriteTarget = Effect.fn("WorkspaceFileSystem.resolveWriteTarget")(function* (
     input: Pick<ProjectWriteFileInput, "cwd" | "relativePath">,
@@ -608,9 +707,11 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = Effect.fn(
-    "WorkspaceFileSystem.writeFile",
-  )(function* (input) {
+  const writeContents = Effect.fn("WorkspaceFileSystem.writeContents")(function* (
+    input: Pick<ProjectWriteFileInput, "cwd" | "relativePath" | "expectedVersion"> & {
+      readonly contents: string | Uint8Array;
+    },
+  ) {
     yield* knownWorkspaces.assertContains(input.cwd);
     const target = yield* resolveWriteTarget(input);
     const realTargetPath = target.realTargetPath;
@@ -662,9 +763,15 @@ export const make = Effect.gen(function* () {
     }
     return {
       relativePath: target.relativePath,
-      version: fileVersion(Buffer.from(input.contents)),
+      version: fileVersion(
+        typeof input.contents === "string" ? Buffer.from(input.contents) : input.contents,
+      ),
     };
   });
+
+  const writeFile: WorkspaceFileSystem["Service"]["writeFile"] = writeContents;
+  const writeFileBytes: WorkspaceFileSystem["Service"]["writeFileBytes"] = (input) =>
+    writeContents({ ...input, contents: input.bytes });
 
   const removeFile: WorkspaceFileSystem["Service"]["removeFile"] = Effect.fn(
     "WorkspaceFileSystem.removeFile",
@@ -701,7 +808,14 @@ export const make = Effect.gen(function* () {
     yield* workspaceEntries.refresh(input.cwd);
   });
 
-  return WorkspaceFileSystem.of({ getMetadata, readFile, writeFile, removeFile });
+  return WorkspaceFileSystem.of({
+    getMetadata,
+    readFile,
+    readFileBytes,
+    writeFile,
+    writeFileBytes,
+    removeFile,
+  });
 });
 
 export const layer = Layer.effect(WorkspaceFileSystem, make);

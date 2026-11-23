@@ -333,6 +333,8 @@ function AssistantChangedFilesSectionInner({
   const reviewTurnCount =
     latestTurn?.runId === turnSummary.runId ? reviewableTurnCount(latestTurn, () => true) : null;
   const threadRef = ctx.threadRef;
+  // A folder without Git has no checkpoint for the Diff tab to read, in any workspace type.
+  const diffOffered = ctx.turnDiffTabOffered && turnSummary.status !== "missing";
   // Without a Diff tab, a file opens itself, on its review when this is the latest turn.
   const openInFile = (_runId: RunId, filePath?: string) => {
     const relativePath =
@@ -358,8 +360,8 @@ function AssistantChangedFilesSectionInner({
       onToggleAllDirectories={() =>
         setExpanded(routeThreadKey, turnSummary.runId, !allDirectoriesExpanded)
       }
-      onOpenTurnDiff={ctx.turnDiffTabOffered ? onOpenTurnDiff : openInFile}
-      fullDiffOffered={ctx.turnDiffTabOffered}
+      onOpenTurnDiff={diffOffered ? onOpenTurnDiff : openInFile}
+      fullDiffOffered={diffOffered}
       onFileContextMenu={(filePath, event) =>
         onFileContextMenu(
           {

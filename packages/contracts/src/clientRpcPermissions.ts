@@ -56,6 +56,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.projectsCreateFromThread]: AuthOrchestrationOperateScope,
   // Rewrites or deletes a workspace file, as a save does.
   [WS_METHODS.projectsRevertFileChange]: AuthFilesystemWriteScope,
+  [WS_METHODS.projectsRestoreFileVersion]: AuthFilesystemWriteScope,
   [WS_METHODS.sourceControlCloneRepository]: AuthSourceControlWriteScope,
   [WS_METHODS.sourceControlPublishRepository]: AuthSourceControlWriteScope,
   // Signing in replaces the server's GitHub credential, as saving a token in Settings does.

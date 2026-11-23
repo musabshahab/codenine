@@ -10,6 +10,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import * as FileVersions from "../fileVersions/FileVersions.ts";
+import type * as FileVersionStorage from "../fileVersions/FileVersionStorage.ts";
 import type * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "../workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
@@ -71,13 +73,16 @@ export class FileBaselines extends Context.Service<
   {
     /**
      * A workspace file's text at the last commit or at the start of a thread's turn. A turn that
-     * did not change the file has no baseline for it.
+     * did not change the file has no baseline for it. Without Git a turn's baseline comes from
+     * the version store, and there is no last commit.
      */
     readonly read: (
       input: ProjectReadFileBaselineInput,
     ) => Effect.Effect<
       ProjectReadFileBaselineResult,
-      WorkspacePaths.WorkspacePathOutsideRootError | CheckpointServiceError
+      | WorkspacePaths.WorkspacePathOutsideRootError
+      | CheckpointServiceError
+      | FileVersionStorage.FileVersionStorageError
     >;
     /**
      * Restores a file, or one change in it, to the start of a turn. Refused when the file no
@@ -93,26 +98,59 @@ export class FileBaselines extends Context.Service<
       | WorkspacePaths.WorkspacePathOutsideRootError
       | KnownWorkspaces.UnknownWorkspaceError
       | CheckpointServiceError
+      | FileVersionStorage.FileVersionStorageError
     >;
   }
 >()("codenine/checkpointing/FileBaselines") {}
 
 const UNAVAILABLE: ProjectReadFileBaselineResult = { available: false, contents: null };
+// The largest text a workspace read returns, so a baseline never exceeds what it is compared to.
+const VERSION_BASELINE_MAX_BYTES = 1024 * 1024;
+const BYTE_ORDER_MARK_BYTES = [0xef, 0xbb, 0xbf];
 
 const make = Effect.gen(function* () {
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
   const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
   const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
+  const fileVersions = yield* FileVersions.FileVersions;
+
+  const readFromVersions = Effect.fn("FileBaselines.readFromVersions")(function* (
+    input: ProjectReadFileBaselineInput,
+    turn: { readonly threadId: string; readonly turnCount: number },
+  ) {
+    const baseline = yield* fileVersions.turnBaseline({ ...turn, ...input });
+    if (baseline === null) return { result: UNAVAILABLE, byteOrderMark: false };
+    const bytes = baseline.bytes;
+    if (bytes === null) {
+      return { result: { available: true, contents: null }, byteOrderMark: false };
+    }
+    if (bytes.byteLength > VERSION_BASELINE_MAX_BYTES || bytes.includes(0)) {
+      return { result: UNAVAILABLE, byteOrderMark: false };
+    }
+    return {
+      // Decoding drops a byte order mark, as a workspace read does.
+      result: { available: true, contents: new TextDecoder("utf-8").decode(bytes) },
+      byteOrderMark: BYTE_ORDER_MARK_BYTES.every((byte, index) => bytes[index] === byte),
+    };
+  });
 
   const readWithByteOrderMark = Effect.fn("FileBaselines.read")(function* (
     input: ProjectReadFileBaselineInput,
-  ) {
+  ): Effect.fn.Return<
+    { readonly result: ProjectReadFileBaselineResult; readonly byteOrderMark: boolean },
+    | WorkspacePaths.WorkspacePathOutsideRootError
+    | CheckpointServiceError
+    | FileVersionStorage.FileVersionStorageError
+  > {
     const target = yield* workspacePaths.resolveRelativePathWithinRoot({
       workspaceRoot: input.cwd,
       relativePath: input.relativePath,
     });
     const source = input.source;
+    if (source.kind === "turn" && !(yield* checkpointStore.isGitRepository(input.cwd))) {
+      return yield* readFromVersions(input, source);
+    }
     const turn =
       source.kind === "head"
         ? undefined
@@ -179,7 +217,7 @@ const make = Effect.gen(function* () {
       });
     }
     if (input.change === undefined && baseline.contents === null) {
-      yield* workspaceFileSystem.removeFile({ ...target, expectedVersion: input.expectedVersion });
+      yield* fileVersions.removeFile({ ...target, expectedVersion: input.expectedVersion });
       return { relativePath: current.relativePath, deleted: true };
     }
     const contents =
@@ -190,12 +228,15 @@ const make = Effect.gen(function* () {
       return yield* new FileBaselineUnavailableError({ ...target, reason: "change-out-of-range" });
     }
     // The write checks the version again, so a change after the read above is still refused.
-    const written = yield* workspaceFileSystem.writeFile({
-      ...target,
-      // Reads hide the mark, so it is put back for a file that began the turn with one.
-      contents: byteOrderMark ? BYTE_ORDER_MARK + contents : contents,
-      expectedVersion: input.expectedVersion,
-    });
+    const written = yield* fileVersions.writeFile(
+      {
+        ...target,
+        // Reads hide the mark, so it is put back for a file that began the turn with one.
+        contents: byteOrderMark ? BYTE_ORDER_MARK + contents : contents,
+        expectedVersion: input.expectedVersion,
+      },
+      "restore",
+    );
     return { ...written, deleted: false };
   });
 

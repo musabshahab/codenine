@@ -463,6 +463,8 @@ const RUNTIME_TABLES = [
   "provider_session_runtime",
   "orchestration_v2_effect_outbox",
   "orchestration_v2_thread_launch_workflows",
+  // A backup leaves the stored contents out, so its rows would name files that are not there.
+  "file_versions",
 ] as const;
 
 const copyTable = (from: NodeSqlite.DatabaseSync, to: NodeSqlite.DatabaseSync, table: string) => {

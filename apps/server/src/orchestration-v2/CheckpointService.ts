@@ -21,6 +21,7 @@ import * as Schema from "effect/Schema";
 
 import { isGitImport, parseTurnDiffFilesFromNumstat } from "../checkpointing/Diffs.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
+import * as FileVersions from "../fileVersions/FileVersions.ts";
 import * as IdAllocator from "@codenine/provider-core/server/IdAllocator";
 
 const CHECKPOINT_REFS_PREFIX = "refs/codenine/orchestration-v2/checkpoints";
@@ -239,6 +240,7 @@ export const layer: Layer.Layer<
   CheckpointServiceV2,
   Effect.gen(function* () {
     const checkpointStore = yield* CheckpointStore.CheckpointStore;
+    const fileVersions = yield* FileVersions.TurnFileVersions;
     const crypto = yield* Digest.Digest;
     const checkpointRefFor = (input: Parameters<typeof checkpointRefForScopeOrdinal>[0]) =>
       checkpointRefForScopeOrdinal(input).pipe(Effect.provideService(Digest.Digest, crypto));
@@ -255,6 +257,11 @@ export const layer: Layer.Layer<
         input.scope.cwd,
         Effect.gen(function* () {
           if (!(yield* isGitCheckpointable(input.scope.cwd))) {
+            // Without Git the version store holds what the turn is about to change.
+            yield* fileVersions.syncWorkspace({
+              cwd: input.scope.cwd,
+              origin: { kind: "external" },
+            });
             return;
           }
 
@@ -372,6 +379,23 @@ export const layer: Layer.Layer<
           });
 
           if (input.forceMissing === true || !(yield* isGitCheckpointable(input.scope.cwd))) {
+            // There is no ref to restore, so the checkpoint stays missing; the version store
+            // still names the files the turn changed, and holds what they were.
+            const turn =
+              input.forceMissing === true || input.appRunOrdinal === null
+                ? null
+                : {
+                    cwd: input.scope.cwd,
+                    threadId: input.scope.threadId,
+                    turnCount: input.appRunOrdinal,
+                  };
+            if (turn !== null) {
+              yield* fileVersions.syncWorkspace({
+                cwd: turn.cwd,
+                origin: { kind: "agent", threadId: turn.threadId, turnCount: turn.turnCount },
+              });
+            }
+            const changedPaths = turn === null ? [] : yield* fileVersions.turnChanges(turn);
             return makeCheckpoint({
               id: checkpointId,
               scope: input.scope,
@@ -382,7 +406,12 @@ export const layer: Layer.Layer<
               appRunOrdinal: input.appRunOrdinal,
               ref: checkpointRef,
               status: "missing",
-              files: [],
+              files: changedPaths.map((path) => ({
+                path,
+                kind: "modified",
+                additions: 0,
+                deletions: 0,
+              })),
               capturedAt: input.capturedAt,
             });
           }
