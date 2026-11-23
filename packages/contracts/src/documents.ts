@@ -134,7 +134,7 @@ export const SpreadsheetOperation = Schema.Union([
   Schema.Struct({ type: Schema.Literal("insertColumns"), ...SpreadsheetSpan }),
   Schema.Struct({ type: Schema.Literal("deleteColumns"), ...SpreadsheetSpan }),
   // Sorts the table around a cell by that cell's column: the rows above and below it that hold
-  // something, as whole rows. A first row of headings stays where it is.
+  // something, as whole rows. A first row of headings and rows of totals at the end stay put.
   Schema.Struct({
     type: Schema.Literal("sortRows"),
     sheet: SheetName,
@@ -173,6 +173,9 @@ export type SpreadsheetEditInput = typeof SpreadsheetEditInput.Type;
 export const SpreadsheetEditResult = Schema.Struct({
   version: TrimmedNonEmptyString,
   sheets: Schema.Array(SpreadsheetSheet),
+  // True when the operations changed nothing, such as a sort of rows already in order, so
+  // nothing was written.
+  unchanged: Schema.optionalKey(Schema.Boolean),
 });
 export type SpreadsheetEditResult = typeof SpreadsheetEditResult.Type;
 

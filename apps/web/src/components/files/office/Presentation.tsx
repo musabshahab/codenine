@@ -1,7 +1,6 @@
 /* oxlint-disable react/no-unstable-nested-components -- These callbacks return overlays, and are invoked as render functions. */
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
-import { FileSurfaceAction, FileSurfaceLoading, FileToolRow } from "../fileSurfaceChrome";
+import { FilePager, FileStatusBar, FileSurfaceLoading } from "../fileSurfaceChrome";
 import { OfficePages, type PaintPage } from "./OfficePages";
 import { createWorkerClient } from "./worker-rpc";
 import {
@@ -94,25 +93,6 @@ export default function Presentation(props: {
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <FileToolRow label="Slides">
-        <FileSurfaceAction
-          label="Previous slide"
-          disabled={page === 0}
-          onPress={() => select(page - 1)}
-        >
-          <ChevronLeftIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <span className="px-1 tabular-nums" aria-live="polite">
-          Slide {page + 1} of {opened.slides.length}
-        </span>
-        <FileSurfaceAction
-          label="Next slide"
-          disabled={page + 1 === opened.slides.length}
-          onPress={() => select(page + 1)}
-        >
-          <ChevronRightIcon className="size-3.5" />
-        </FileSurfaceAction>
-      </FileToolRow>
       <OfficePages
         pages={opened.slides}
         paint={opened.paint}
@@ -153,6 +133,9 @@ export default function Presentation(props: {
           ) : null;
         }}
       />
+      <FileStatusBar>
+        <FilePager noun="Slide" index={page} count={opened.slides.length} onShow={select} />
+      </FileStatusBar>
     </div>
   );
 }

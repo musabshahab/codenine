@@ -4,8 +4,10 @@ import type { GridSelection } from "./spreadsheetModel";
 export interface SheetView {
   /** Columns with a width of their own: fitted to their text, or dragged. Replaced, never changed. */
   widths: ReadonlyMap<number, number>;
-  /** Columns whose text has been measured, so loading more cells never moves them again. */
+  /** Columns whose width is settled, so loading more cells never moves them again. */
   readonly fitted: Set<number>;
+  /** The width the file gave each column when it was last taken, so only a new one is taken again. */
+  readonly fileWidths: Map<number, number>;
   scrollTop: number;
   scrollLeft: number;
   selection: GridSelection | null;
@@ -34,7 +36,14 @@ export function workbookView(key: string): WorkbookView {
 export function sheetView(view: WorkbookView, sheet: string): SheetView {
   let held = view.sheets.get(sheet);
   if (held === undefined) {
-    held = { widths: new Map(), fitted: new Set(), scrollTop: 0, scrollLeft: 0, selection: null };
+    held = {
+      widths: new Map(),
+      fitted: new Set(),
+      fileWidths: new Map(),
+      scrollTop: 0,
+      scrollLeft: 0,
+      selection: null,
+    };
     view.sheets.set(sheet, held);
   }
   return held;
@@ -52,18 +61,14 @@ export function rememberSheetScroll(
   held.scrollLeft = scrollLeft;
 }
 
-/** `fitted` names columns whose width is now settled, or with `false` ones to measure again. */
+/** `columns` names the ones whose width is now settled. */
 export function rememberColumnWidths(
   view: WorkbookView,
   sheet: string,
   widths: ReadonlyMap<number, number>,
   columns: ReadonlyArray<number>,
-  fitted = true,
 ): void {
   const held = sheetView(view, sheet);
   held.widths = widths;
-  for (const column of columns) {
-    if (fitted) held.fitted.add(column);
-    else held.fitted.delete(column);
-  }
+  for (const column of columns) held.fitted.add(column);
 }

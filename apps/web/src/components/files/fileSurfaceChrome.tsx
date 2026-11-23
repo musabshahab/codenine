@@ -1,5 +1,5 @@
 import { type ComponentType, type ReactNode, use } from "react";
-import { FileWarningIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, FileWarningIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { Spinner } from "~/components/ui/spinner";
@@ -62,6 +62,12 @@ export const FILE_LINK_REVEAL_UNSAFE_CSS = `
   }
 `;
 
+/** Widths of the tool row, measured on the tools themselves, at which labels take over from icons. */
+const COLLAPSED_TOOL = {
+  narrow: { icon: "contents @[18.5rem]/tools:hidden", label: "hidden @[18.5rem]/tools:inline" },
+  wide: { icon: "contents @[27.5rem]/tools:hidden", label: "hidden @[27.5rem]/tools:inline" },
+} as const;
+
 export function FileSurfaceAction(props: {
   readonly label: string;
   readonly pressed?: boolean;
@@ -118,22 +124,28 @@ export function FileToolButton(props: {
   readonly pressed?: boolean;
   readonly disabled?: boolean;
   readonly onPress: () => void;
-  /** In a row too narrow for every label the tool shows its icon alone, so it needs one. */
-  readonly collapse?: boolean;
+  /**
+   * The tool shows its icon alone in a row too narrow for its label, and its label alone in a
+   * wider one, so it needs an icon. Names how wide the row is before the label shows.
+   */
+  readonly collapse?: keyof typeof COLLAPSED_TOOL;
   /** An icon before the label. */
   readonly children?: ReactNode;
 }) {
   const { pressed } = props;
-  const content = (
-    <>
-      {props.children}
-      {props.collapse ? (
-        <span className="hidden @[44rem]/tools:inline">{props.label}</span>
-      ) : (
-        props.label
-      )}
-    </>
-  );
+  const collapsed = props.collapse === undefined ? null : COLLAPSED_TOOL[props.collapse];
+  const content =
+    collapsed === null ? (
+      <>
+        {props.children}
+        {props.label}
+      </>
+    ) : (
+      <>
+        <span className={collapsed.icon}>{props.children}</span>
+        <span className={collapsed.label}>{props.label}</span>
+      </>
+    );
   const fullName = props.name ?? props.label;
   const name = props.collapse || props.name !== undefined ? { "aria-label": fullName } : {};
   // A button, not a toggle, so a tool that stays on is the same size as the ones beside it.
@@ -167,14 +179,35 @@ export function FileToolSeparator() {
 }
 
 /** What the tool row says about the file at its end: whether it is saved, or cannot be changed. */
-export function FileToolStatus(props: { readonly busy?: boolean; readonly children: ReactNode }) {
+export function FileToolStatus(props: {
+  readonly busy?: boolean;
+  /** A narrow row drops the words: for a state the button beside it tells as well. */
+  readonly brief?: boolean;
+  readonly children: ReactNode;
+}) {
   return (
     <span
       role="status"
       aria-live="polite"
       className="flex shrink-0 items-center gap-1 px-1.5 text-2xs whitespace-nowrap text-muted-foreground"
     >
-      {props.busy ? <Spinner className="size-3" /> : null}
+      {props.busy ? <Spinner size="xs" /> : null}
+      {props.brief ? (
+        <span className="sr-only @[26rem]/toolrow:not-sr-only">{props.children}</span>
+      ) : (
+        props.children
+      )}
+    </span>
+  );
+}
+
+/**
+ * Kept in view at the end of a tool row that scrolls sideways: the menu that holds every tool
+ * the row has no room for, so none of them is out of reach or out of sight.
+ */
+export function FileToolRowPinned(props: { readonly children: ReactNode }) {
+  return (
+    <span className="sticky right-0 z-10 flex shrink-0 items-center bg-background pl-0.5">
       {props.children}
     </span>
   );
@@ -182,7 +215,8 @@ export function FileToolStatus(props: { readonly busy?: boolean; readonly childr
 
 /**
  * An editor's tools. A row of its own beside the chat; on the stage of document view they join
- * the stage's one tool row.
+ * the stage's one tool row. The tools are a size container named `tools`, so a tool can give
+ * way by the room the tools themselves have, wherever the row is.
  */
 export function FileToolRow(props: {
   readonly label: string;
@@ -202,7 +236,7 @@ export function FileToolRow(props: {
         role="toolbar"
         aria-label={props.label}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-0.5 text-xs",
+          "@container/tools flex min-w-0 flex-1 items-center gap-0.5 text-xs",
           // One line of tools scrolls sideways where there is no room for all of them.
           props.wrap
             ? "flex-wrap"
@@ -218,7 +252,7 @@ export function FileToolRow(props: {
   return (
     <div
       className={cn(
-        "@container/tools flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 text-xs",
+        "@container/toolrow flex shrink-0 items-center gap-1 border-b border-border/60 bg-background px-2 text-xs",
         props.wrap ? "min-h-9 py-1" : "h-9",
       )}
     >
@@ -262,9 +296,42 @@ export function FileSurfaceNotice(props: { readonly children: ReactNode }) {
 /** One line under the document: a hint while idle, or what the selection adds up to. */
 export function FileStatusBar(props: { readonly children: ReactNode }) {
   return (
-    <div className="flex h-7 shrink-0 items-center gap-3 overflow-hidden border-t border-border/60 bg-muted/40 px-3 text-2xs whitespace-nowrap text-muted-foreground">
+    <div className="@container/status flex h-7 shrink-0 items-center gap-3 overflow-hidden border-t border-border/60 bg-muted/40 px-3 text-2xs whitespace-nowrap text-muted-foreground">
       {props.children}
     </div>
+  );
+}
+
+/** Steps through a paged document. It sits in the status bar under every one of them. */
+export function FilePager(props: {
+  readonly noun: "Page" | "Slide";
+  readonly index: number;
+  /** Null until the document has been read. */
+  readonly count: number | null;
+  readonly onShow: (index: number) => void;
+}) {
+  const { noun, index, count } = props;
+  const name = noun.toLowerCase();
+  return (
+    <span className="flex shrink-0 items-center gap-0.5">
+      <FileSurfaceAction
+        label={`Previous ${name}`}
+        disabled={count === null || index === 0}
+        onPress={() => props.onShow(index - 1)}
+      >
+        <ChevronLeftIcon className="size-3.5" />
+      </FileSurfaceAction>
+      <span className="px-1 tabular-nums" aria-live="polite">
+        {count === null ? noun : `${noun} ${index + 1} of ${count}`}
+      </span>
+      <FileSurfaceAction
+        label={`Next ${name}`}
+        disabled={count === null || index + 1 >= count}
+        onPress={() => props.onShow(index + 1)}
+      >
+        <ChevronRightIcon className="size-3.5" />
+      </FileSurfaceAction>
+    </span>
   );
 }
 

@@ -413,6 +413,11 @@ const make = Effect.gen(function* () {
         if (bytes.byteLength > limits.maxFileBytes) {
           return yield* new SpreadsheetTooLargeError({ relativePath, limit: "file-size" });
         }
+        // Operations that changed nothing, such as sorting rows already in order, write nothing.
+        if (WorkspaceFileSystem.fileVersion(bytes) === version) {
+          hold(key, version, model);
+          return { version, sheets: model.sheets(), unchanged: true };
+        }
         // The write checks the version again, so a change since the read above is still refused.
         const written = yield* fileVersions.writeFileBytes({
           cwd,

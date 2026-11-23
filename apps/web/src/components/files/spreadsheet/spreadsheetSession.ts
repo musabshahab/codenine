@@ -126,7 +126,10 @@ const MIN_COLUMNS = 26;
 const MAX_OPTIMISTIC_FORMAT_CELLS = 5000;
 /** The most operations one save sends, under the server's limit for a request. */
 const MAX_BATCH_OPERATIONS = 10_000;
-const MOVE_NOT_MADE = "Saving failed, so the rows, columns and sheets were left as they were.";
+const NOT_SAVED = "That change was not saved.";
+const MOVE_NOT_MADE = `${NOT_SAVED} Saving failed, so the rows, columns and sheets were left as they were.`;
+const NOTHING_SORTED =
+  "Nothing was sorted. The rows around the selected cell are already in that order, or the cell is not in a table.";
 const ORIGIN: GridSelection = { anchor: { row: 0, column: 0 }, focus: { row: 0, column: 0 } };
 
 interface Page {
@@ -821,7 +824,13 @@ export class SpreadsheetSession {
       this.version = result.value.version;
       this.update({ version: this.version });
       this.savedSequence = batchSequence;
-      if (moved) this.afterMove(result.value.sheets, batch);
+      if (moved && result.value.unchanged === true) {
+        // Nothing moved, so the cells read, and the steps to undo, are still right.
+        this.update({
+          busy: this.pending.some(movesCells),
+          ...(batch[0]?.type === "sortRows" ? { notice: NOTHING_SORTED } : {}),
+        });
+      } else if (moved) this.afterMove(result.value.sheets, batch);
       else for (const page of this.pages.values()) page.stale = true;
       this.saveNext(false);
     } else if (result.failure.kind === "refused") {
@@ -829,13 +838,16 @@ export class SpreadsheetSession {
       if (operationIndex === undefined || operationIndex >= batch.length) {
         // Nothing can be saved to this file as it is, so the grid shows it as it is on disk.
         await this.reload();
-        this.update({ notice: message });
+        this.update({ notice: `${NOT_SAVED} ${message}` });
       } else {
         // Only that operation is at fault. The others were not written either, so they go again
         // without it. Undo steps may name the refused change, so they end here.
         this.pending = [...batch.filter((_, index) => index !== operationIndex), ...this.pending];
         this.history = EMPTY_HISTORY;
-        this.update({ notice: message, busy: this.pending.some(movesCells) });
+        this.update({
+          notice: `${NOT_SAVED} ${message}`,
+          busy: this.pending.some(movesCells),
+        });
         if (this.pending.length === 0) {
           this.savedSequence = this.sequence;
           for (const page of this.pages.values()) page.stale = true;

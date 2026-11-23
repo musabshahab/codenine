@@ -151,7 +151,7 @@ it("saves the other edits when one is refused, and sends a move on its own", asy
     [cell(0, 7), cell(1, 8), cell(2, 9)],
     [cell(0, 7), cell(2, 9)],
   ]);
-  expect(session.getSnapshot().notice).toBe("Not here.");
+  expect(session.getSnapshot().notice).toBe("That change was not saved. Not here.");
   expect(session.getSnapshot().status).toBe("ready");
 
   session.setCells([number(3, 4)]);
@@ -265,7 +265,15 @@ it("says so when a sheet cannot be read, and formats a whole column only where i
 });
 
 it("sorts as a move, saves a dragged width once, searches saved cells and marks an outside change", async () => {
-  const { session, edits, file, finds, until, ready } = setup([], "sorted");
+  const { session, edits, file, finds, until, ready } = setup(
+    [
+      SAVED,
+      SAVED,
+      SAVED,
+      { ok: true, value: { version: "v1", sheets: [{ name: "Data" }], unchanged: true } },
+    ],
+    "sorted",
+  );
   await ready();
   expect([...session.getSnapshot().fileWidths]).toEqual([[0, 140]]);
 
@@ -286,6 +294,14 @@ it("sorts as a move, saves a dragged width once, searches saved cells and marks 
   session.setCells([number(1, 2)]);
   expect(await session.find("7")).toMatchObject({ matches: [{ row: 0, column: 0 }] });
   expect(finds).toEqual([3]);
+
+  // A sort the server says moved nothing keeps the steps to undo, and tells the user.
+  expect(session.getSnapshot()).toMatchObject({ canUndo: true, notice: null });
+  session.sortRows(false);
+  await until((snapshot) => !snapshot.busy && snapshot.saveState === "saved");
+  expect(session.getSnapshot().canUndo).toBe(true);
+  expect(session.getSnapshot().notice).toMatch(/^Nothing was sorted/);
+  session.dismissNotice();
 
   // Something else writes the file. Its changed cells are marked while that change is reviewed.
   file.version = "v2";

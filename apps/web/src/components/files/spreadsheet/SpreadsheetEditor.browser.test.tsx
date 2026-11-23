@@ -1,7 +1,7 @@
 import type { SpreadsheetCell, SpreadsheetOperation } from "@codenine/contracts";
 import { Profiler } from "react";
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
@@ -9,7 +9,7 @@ import { shouldTypeToFocusComposer } from "~/components/chat/composerFocusRedire
 import { shouldRefocusComposerOnWindowFocus } from "~/components/ChatView.logic";
 import { isEditableFocused, isInKeyboardGrid } from "~/lib/editableFocus";
 
-import { render } from "../../../../test/render";
+import { act, render } from "../../../../test/render";
 import SpreadsheetEditor from "./SpreadsheetEditor";
 import type { SpreadsheetResult, SpreadsheetTransport } from "./spreadsheetSession";
 
@@ -19,6 +19,8 @@ const ok = <A,>(value: A): SpreadsheetResult<A> => ({ ok: true, value });
 function fakeWorkbook() {
   const state = {
     a1: 5,
+    /** The width the file gives column B. */
+    bWidth: 150,
     version: 1,
     conflictNext: false,
     opens: 0,
@@ -45,7 +47,14 @@ function fakeWorkbook() {
               { row: 0, column: 1, value: state.a1 * 2, formula: "A1*2" },
             ]
           : [];
-      return ok({ version: `v${state.version}`, rowCount: 1, columnCount: 2, cells, formats: {} });
+      return ok({
+        version: `v${state.version}`,
+        rowCount: 1,
+        columnCount: 2,
+        cells,
+        formats: {},
+        columnWidths: [{ column: 1, width: state.bWidth }],
+      });
     },
     edit: async (operations, expectedVersion) => {
       state.edits.push({ operations, expectedVersion });
@@ -234,7 +243,7 @@ it("sends the tools as operations, goes where the name box and find say, and ren
   await screen.getByRole("button", { name: "Amber fill" }).click();
   await screen.getByRole("button", { name: "Sort" }).click();
   await screen.getByRole("menuitem", { name: "Column A descending" }).click();
-  await screen.getByRole("button", { name: "Row", exact: true }).click();
+  await screen.getByRole("button", { name: "Insert a row below" }).click();
   await vi.waitFor(() =>
     expect(operations).toEqual([
       { type: "setFormat", ...area, format: { bold: true } },
@@ -267,6 +276,21 @@ it("sends the tools as operations, goes where the name box and find say, and ren
   );
   expect(operations).toHaveLength(6);
 
+  // The keyboard sizes a column too, and fitting works on a column the file gives a width.
+  // Both are saved with the file.
+  const width = (column: number) => ({ type: "setColumnWidth", sheet: "Data", column, count: 1 });
+  await userEvent.click(cell("B2")!);
+  await userEvent.keyboard("{Alt>}{Shift>}{ArrowRight}{/Shift}{/Alt}");
+  await vi.waitFor(() => expect(operations.at(-1)).toEqual({ ...width(1), width: 166 }));
+  expect(cell("B2")!.getBoundingClientRect().width).toBe(165);
+  await screen.getByRole("button", { name: /^More for rows/ }).click();
+  await page.getByRole("menuitem", { name: "Fit column to the text" }).click();
+  await vi.waitFor(() => expect(operations.at(-1)).toEqual({ ...width(1), width: 96 }));
+  await vi.waitFor(() => expect(cell("B2")!.getBoundingClientRect().width).toBe(95));
+  // The cells are read again after the save, and the fitted width stays.
+  await expect.element(screen.getByText("Saved", { exact: true })).toBeInTheDocument();
+  expect(cell("B2")!.getBoundingClientRect().width).toBe(95);
+
   // The name box takes an address. Only the rows on screen there are read and rendered.
   const nameBox = screen.getByRole("textbox", { name: "Name box" });
   await nameBox.fill("b90000");
@@ -280,17 +304,26 @@ it("sends the tools as operations, goes where the name box and find say, and ren
   await nameBox.fill("nowhere");
   await userEvent.keyboard("{Enter}");
   await expect.element(nameBox).toHaveAttribute("aria-invalid", "true");
+  await expect.element(screen.getByText(/^No cell or range is called that/)).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(nameBox).toHaveValue("B90000");
 
   // Scrolling within a row draws nothing again, and a row further draws once.
   await vi.waitFor(() => expect(cell("B90000")).not.toBeNull());
-  const settled = commits;
-  const top = grid().scrollTop;
-  for (let step = 1; step <= 10; step++) {
-    grid().scrollTop = top + step;
+  // From the top edge of a row, so ten pixels further is still that row.
+  const top = Math.floor(grid().scrollTop / 28) * 28;
+  await act(() => {
+    grid().scrollTop = top;
     grid().dispatchEvent(new Event("scroll"));
-  }
+  });
+  const settled = commits;
+  // React is flushed before the count is read, so a render the scrolls asked for would show.
+  await act(() => {
+    for (let step = 1; step <= 10; step++) {
+      grid().scrollTop = top + step;
+      grid().dispatchEvent(new Event("scroll"));
+    }
+  });
   expect(commits).toBe(settled);
   grid().scrollTop = top + 28;
   grid().dispatchEvent(new Event("scroll"));
@@ -335,7 +368,12 @@ it("marks the cells an outside change touched while it is reviewed, and not afte
   await vi.waitFor(() =>
     expect(screen.container.querySelector('[data-cell="B1"]')?.textContent).toBe("10"),
   );
+  const width = () =>
+    screen.container.querySelector('[data-cell="B1"]')!.getBoundingClientRect().width;
+  expect(width()).toBe(149);
   // An agent's turn writes the file; the workspace says so, and then the turn is up for review.
+  // A width the turn gave a column the grid had already laid out is the one shown.
+  state.bWidth = 200;
   state.a1 = 6;
   state.version += 1;
   await screen.rerender(view(false, "turn-2"));
@@ -343,6 +381,7 @@ it("marks the cells an outside change touched while it is reviewed, and not afte
     expect(screen.container.querySelector('[data-cell="B1"]')?.textContent).toBe("12"),
   );
   expect(changed()).toEqual([]);
+  await vi.waitFor(() => expect(width()).toBe(199));
   await screen.rerender(view(true, "turn-2"));
   await vi.waitFor(() => expect(changed()).toEqual(["A1", "B1"]));
   await screen.rerender(view(false, "turn-2"));

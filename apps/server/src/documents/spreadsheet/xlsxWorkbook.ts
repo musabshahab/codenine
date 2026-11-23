@@ -494,11 +494,20 @@ export class XlsxWorkbook implements SpreadsheetModel {
           );
           everythingChanged = true;
           break;
-        case "sortRows":
-          if (await this.sortRows(this.sheetNamed(operation.sheet), operation)) {
+        case "sortRows": {
+          // A sort orders rows by what their formulas come to, so the results are settled first.
+          const settle = (unread: boolean) => {
+            if (!unread && !everythingChanged && changed.size === 0) return;
+            this.valuesChanged = true;
+            this.recalculate(unread || everythingChanged ? null : changed);
+            changed.clear();
+            everythingChanged = false;
+          };
+          if (await this.sortRows(this.sheetNamed(operation.sheet), operation, settle)) {
             everythingChanged = true;
           }
           break;
+        }
         case "setColumnWidth": {
           if (operation.column + operation.count > MAX_COLUMNS) {
             throw invalidOperation("out-of-bounds");
@@ -934,14 +943,15 @@ export class XlsxWorkbook implements SpreadsheetModel {
   }
 
   /**
-   * Sorts the rows of the table around a cell, as whole rows with their formats and heights. A
-   * formula that reads its own row follows the row. Refuses, as inserting rows does, a sheet
-   * whose other contents would not follow, and a formula the new order would give other cells.
-   * Returns false when the rows are already in order.
+   * Sorts the rows of the table around a cell as whole rows; a formula that reads its own row
+   * follows it, and rows of totals under the table stay put. Refuses what would misread after.
+   * `settle` brings formula results up to date, all of them when told some were never
+   * calculated. Returns false when the rows are already in order.
    */
   private async sortRows(
     sheet: Sheet,
     operation: Extract<SpreadsheetOperation, { type: "sortRows" }>,
+    settle: (unread: boolean) => void,
   ): Promise<boolean> {
     const contents = sheet.contents!;
     const strings = this.sharedStrings ?? [];
@@ -967,10 +977,38 @@ export class XlsxWorkbook implements SpreadsheetModel {
             ],
       );
     if (hasHeaderRow(rows.slice(first, last + 1).map(probe))) first += 1;
+    // A row that adds up a range of the rows above it is a total, not one of the records.
+    const totals = (row: Row) =>
+      row.cells.some((cell) => {
+        const text = cell.inner.includes("<f") ? this.formulaText(contents, row, cell) : null;
+        if (text === null) return false;
+        let found = false;
+        mapFormulaReferences(text, (reference) => {
+          const { start, end } = reference;
+          if (reference.sheet !== null && !sameName(reference.sheet, sheet.name)) return null;
+          if (end === null || start.row === null || end.row === null) return null;
+          const low = Math.min(start.row, end.row) - 1;
+          const high = Math.max(start.row, end.row) - 1;
+          if (low < high && low >= rows[first]!.index && high < row.index) found = true;
+          return null;
+        });
+        return found;
+      });
+    while (last > first && totals(rows[last]!)) last -= 1;
     const body = rows.slice(first, last + 1);
-    const keys = body.map((row): SortKey => {
+    const keyCell = (row: Row) => {
       const cell = row.cells[lowerBound(row.cells, operation.column, cellColumn)];
-      const value = cell?.column === operation.column ? cachedValue(cell, strings) : undefined;
+      return cell?.column === operation.column ? cell : undefined;
+    };
+    settle(
+      body.some((row) => {
+        const cell = keyCell(row);
+        return cell?.inner.includes("<f") === true && cachedValue(cell, strings) === undefined;
+      }),
+    );
+    const keys = body.map((row): SortKey => {
+      const cell = keyCell(row);
+      const value = cell === undefined ? undefined : cachedValue(cell, strings);
       if (value === undefined || value === null || value === "") return null;
       return value instanceof FormulaErrorValue ? { error: value.code } : value;
     });

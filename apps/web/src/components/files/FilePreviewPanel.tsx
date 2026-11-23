@@ -1517,7 +1517,7 @@ export default function FilePreviewPanel({
             <div
               className={
                 stageToolRow
-                  ? "@container/tools flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 border-b border-border/60 bg-background px-2 text-xs"
+                  ? "@container/toolrow flex min-h-9 shrink-0 flex-wrap items-center gap-x-1 border-b border-border/60 bg-background px-2 text-xs"
                   : FILE_SURFACE_SUBHEADER_CLASS
               }
               // The inline panel's subheader rule shortens the row; the stage's tool row keeps its own.

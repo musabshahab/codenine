@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { IsoDateTime, ThreadId } from "@codenine/contracts";
+import { IsoDateTime, SPREADSHEET_FIND_MAX_MATCHES, ThreadId } from "@codenine/contracts";
 import type {
   PdfSignaturePlacement,
   SpreadsheetCell,
@@ -491,15 +491,20 @@ describe("Documents spreadsheets", () => {
         const workspace = yield* makeWorkspace();
         const text = (name: string, value: string, style = "") =>
           `<c r="${name}"${style} t="inlineStr"><is><t>${value}</t></is></c>`;
-        const table = (extra: { row2?: string; after?: string } = {}) =>
-          sheetXml(
+        const table = (
+          extra: { row2?: string; after?: string; total?: number; cached?: boolean } = {},
+        ) => {
+          const total = extra.total ?? 6;
+          const result = (value: number) => (extra.cached === false ? "" : `<v>${value}</v>`);
+          return sheetXml(
             `<row r="1">${text("A1", "Name", ' s="1"')}${text("B1", "Qty", ' s="1"')}</row>` +
-              `<row r="2" ht="30">${text("A2", "pear")}<c r="B2" s="2"><v>3</v></c><c r="C2"><f>B2*2</f><v>6</v></c>${extra.row2 ?? ""}</row>` +
-              `<row r="3">${text("A3", "Apple")}<c r="B3"><v>10</v></c><c r="C3"><f>B3*2</f><v>20</v></c></row>` +
-              `<row r="4">${text("A4", "fig")}<c r="B4"><v>1</v></c><c r="C4"><f>$B$4*2</f><v>2</v></c></row>` +
-              `<row r="6">${text("A6", "Total")}<c r="B6"><f>SUM(B2:B4)</f><v>14</v></c></row>`,
+              `<row r="2" ht="30">${text("A2", "pear")}<c r="B2" s="2"><v>3</v></c><c r="C2"><f>B2*2</f>${result(6)}</c>${extra.row2 ?? ""}</row>` +
+              `<row r="3">${text("A3", "Apple")}<c r="B3"><v>10</v></c><c r="C3"><f>B3*2</f>${result(20)}</c></row>` +
+              `<row r="4">${text("A4", "fig")}<c r="B4"><v>1</v></c><c r="C4"><f>$B$4*2</f>${result(2)}</c></row>` +
+              `<row r="${total}">${text(`A${total}`, "Total")}<c r="B${total}"><f>SUM(B2:B4)</f><v>14</v></c></row>`,
             extra.after === undefined ? {} : { after: extra.after },
           );
+        };
         const reader = (formula: string) =>
           sheetXml(`<row r="1"><c r="A1"><f>${formula}</f><v>14</v></c></row>`);
         const book = (sheet: string, other = "SUM(T!B2:B4)") =>
@@ -525,6 +530,88 @@ describe("Documents spreadsheets", () => {
             query: "B3",
           }),
         ).toMatchObject({ matches: [{ row: 2, column: 2 }], truncated: false });
+        const find = (relativePath: string, sheet: string, query: string) =>
+          workspace.documents.findInSpreadsheet({ cwd: workspace.cwd, relativePath, sheet, query });
+        // A cell's value matches too, in any letter case.
+        expect((yield* find("sort.xlsx", "T", "APPLE")).matches).toEqual([{ row: 2, column: 0 }]);
+        // A search answers with a capped number of places, however many cells match.
+        const many = SPREADSHEET_FIND_MAX_MATCHES + 20;
+        yield* workspace.write(
+          "many.xlsx",
+          yield* book(
+            sheetXml(
+              Array.from(
+                { length: many },
+                (_, row) => `<row r="${row + 1}"><c r="A${row + 1}"><v>7</v></c></row>`,
+              ).join(""),
+            ),
+          ),
+        );
+        yield* workspace.write("many.csv", "Seven,x\n".repeat(many));
+        for (const [file, sheet, query] of [
+          ["many.xlsx", "T", "7"],
+          ["many.csv", "Sheet1", "seven"],
+        ] as const) {
+          const found = yield* find(file, sheet, query);
+          expect(found.truncated).toBe(true);
+          expect(found.matches).toHaveLength(SPREADSHEET_FIND_MAX_MATCHES);
+          expect(found.matches.at(-1)).toEqual({
+            row: SPREADSHEET_FIND_MAX_MATCHES - 1,
+            column: 0,
+          });
+        }
+        expect(yield* find("many.csv", "Sheet1", "X")).toMatchObject({
+          matches: { length: SPREADSHEET_FIND_MAX_MATCHES },
+          truncated: true,
+        });
+        expect(yield* find("many.csv", "Sheet1", "absent")).toMatchObject({
+          matches: [],
+          truncated: false,
+        });
+
+        // A Total row straight under the data is not one of the rows to sort.
+        yield* workspace.write("total.xlsx", yield* book(table({ total: 5 })));
+        yield* workspace.edit("total.xlsx", [sort(1, true)]);
+        const totalled = (yield* workspace.cells("total.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4", "A5"].map((name) => totalled[name]?.value)).toEqual([
+          "Apple",
+          "pear",
+          "fig",
+          "Total",
+        ]);
+        expect(totalled.B5).toMatchObject({ formula: "SUM(B2:B4)", value: 14 });
+
+        // Rows are ordered by what their formulas come to after the edits before the sort.
+        yield* workspace.write("stale.xlsx", yield* book(table()));
+        yield* workspace.edit("stale.xlsx", [
+          setCell("T", "B4", { kind: "number", number: 500 }),
+          sort(2, true),
+        ]);
+        const fresh = (yield* workspace.cells("stale.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4"].map((name) => fresh[name]?.value)).toEqual([
+          "fig",
+          "Apple",
+          "pear",
+        ]);
+        expect(fresh.C2).toMatchObject({ formula: "$B$2*2", value: 1000 });
+        // A file whose formulas carry no results, as openpyxl writes them, sorts by them all the same.
+        yield* workspace.write("bare.xlsx", yield* book(table({ cached: false })));
+        yield* workspace.edit("bare.xlsx", [sort(2, true)]);
+        const bare = (yield* workspace.cells("bare.xlsx", "T")).byName;
+        expect(["A2", "A3", "A4"].map((name) => bare[name]?.value)).toEqual([
+          "Apple",
+          "pear",
+          "fig",
+        ]);
+
+        // A sort that moves nothing writes nothing, and says so.
+        const before = (yield* workspace.cells("total.xlsx", "T")).version;
+        for (const operation of [sort(1, true), { ...sort(1, true), row: 40 }]) {
+          expect(yield* workspace.edit("total.xlsx", [operation])).toMatchObject({
+            version: before,
+            unchanged: true,
+          });
+        }
 
         yield* workspace.edit("sort.xlsx", [sort(1, true)]);
         const sorted = (yield* workspace.cells("sort.xlsx", "T")).byName;

@@ -12,10 +12,10 @@ import {
 import { type PdfPageGeometry, pdfPageViewSize } from "@codenine/shared/pdfGeometry";
 import * as Schema from "effect/Schema";
 import { TextLayer, type PDFDocumentProxy } from "pdfjs-dist";
-import { ChevronDownIcon, ChevronUpIcon, MinusIcon, PlusIcon, ScanIcon } from "lucide-react";
-import { Input } from "~/components/ui/input";
+import { ChevronDownIcon, MinusIcon, PlusIcon, ScanIcon } from "lucide-react";
 import { observeResize } from "~/lib/observeResize";
 import {
+  FilePager,
   FileSurfaceAction,
   FileSurfaceFailure,
   FileSurfaceLoading,
@@ -262,7 +262,7 @@ export default function PdfViewer(props: {
   initialView?: PdfViewState;
   onViewChange?: (view: PdfViewState) => void;
   handle?: Ref<PdfViewerHandle>;
-  /** Controls before and after the viewer's own in its toolbar. */
+  /** A row of tools over the pages, and what stays in view at its end. */
   toolbarStart?: ReactNode;
   toolbarEnd?: ReactNode;
   /** Lines under the toolbar. */
@@ -522,46 +522,11 @@ export default function PdfViewer(props: {
   }, [pdf, query]);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <FileToolRow label="PDF tools" wrap>
-        {props.toolbarStart}
-        <div className="w-28">
-          <Input
-            ref={find}
-            size="compact"
-            type="search"
-            aria-label="Find in PDF"
-            placeholder="Find in PDF"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setMatches([]);
-              setFindError(null);
-            }}
-          />
-        </div>
-        {query ? (
-          <>
-            <span role="status">
-              {finding
-                ? "Searching…"
-                : (findError ?? `${matches.length ? match + 1 : 0}/${matches.length}`)}
-            </span>
-            <FileSurfaceAction
-              label="Next matching page"
-              disabled={!matches.length}
-              onPress={() => {
-                const next = (match + 1) % matches.length;
-                setMatch(next);
-                showPage(matches[next]!);
-              }}
-            >
-              <ChevronDownIcon className="size-3.5" />
-            </FileSurfaceAction>
-          </>
-        ) : null}
-        <span className="flex-1" />
-        {props.toolbarEnd}
-      </FileToolRow>
+      {props.toolbarStart !== undefined || props.toolbarEnd !== undefined ? (
+        <FileToolRow label="PDF tools" end={props.toolbarEnd}>
+          {props.toolbarStart}
+        </FileToolRow>
+      ) : null}
       {props.header}
       <div className="flex min-h-0 min-w-0 flex-1">
         <div
@@ -636,49 +601,71 @@ export default function PdfViewer(props: {
         {props.side}
       </div>
       <FileStatusBar>
-        <FileSurfaceAction
-          label="Previous page"
-          disabled={!pdf || current === 0}
-          onPress={() => showPage(current - 1)}
-        >
-          <ChevronUpIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <FileSurfaceAction
-          label="Next page"
-          disabled={!pdf || current + 1 >= pdf.numPages}
-          onPress={() => showPage(current + 1)}
-        >
-          <ChevronDownIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <span className="mr-auto tabular-nums" aria-live="polite">
-          {pdf ? `${current + 1} / ${pdf.numPages} pages` : "PDF"}
+        <FilePager noun="Page" index={current} count={pdf?.numPages ?? null} onShow={showPage} />
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <input
+            ref={find}
+            type="search"
+            aria-label="Find in PDF"
+            placeholder="Find in PDF"
+            // A field of the status bar's own height; the shared input is taller than the bar.
+            className="h-5.5 w-20 shrink-0 rounded-sm border border-input bg-background px-1.5 text-2xs text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring @[32rem]/status:w-32"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setMatches([]);
+              setFindError(null);
+            }}
+          />
+          {query ? (
+            <>
+              <span role="status">
+                {finding
+                  ? "Searching…"
+                  : (findError ?? `${matches.length ? match + 1 : 0}/${matches.length}`)}
+              </span>
+              <FileSurfaceAction
+                label="Next matching page"
+                disabled={!matches.length}
+                onPress={() => {
+                  const next = (match + 1) % matches.length;
+                  setMatch(next);
+                  showPage(matches[next]!);
+                }}
+              >
+                <ChevronDownIcon className="size-3.5" />
+              </FileSurfaceAction>
+            </>
+          ) : null}
         </span>
-        <FileSurfaceAction
-          label="Zoom out"
-          disabled={scale <= PDF_MIN_ZOOM}
-          onPress={() => changeZoom(stepPdfZoom(scale, -1))}
-        >
-          <MinusIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <span className="min-w-14 text-center tabular-nums">
-          {zoom === null ? "Fit width" : `${Math.round(scale * 100)}%`}
+        <span className="flex shrink-0 items-center gap-0.5">
+          <FileSurfaceAction
+            label="Zoom out"
+            disabled={scale <= PDF_MIN_ZOOM}
+            onPress={() => changeZoom(stepPdfZoom(scale, -1))}
+          >
+            <MinusIcon className="size-3.5" />
+          </FileSurfaceAction>
+          <span className="sr-only min-w-14 text-center tabular-nums @[32rem]/status:not-sr-only">
+            {zoom === null ? "Fit width" : `${Math.round(scale * 100)}%`}
+          </span>
+          <FileSurfaceAction
+            label="Zoom in"
+            disabled={scale >= PDF_MAX_ZOOM}
+            onPress={() => changeZoom(stepPdfZoom(scale, 1))}
+          >
+            <PlusIcon className="size-3.5" />
+          </FileSurfaceAction>
+          <FileSurfaceAction
+            label="Fit width"
+            onPress={() => {
+              changeZoom(null);
+              scroll.current?.scrollTo({ left: 0 });
+            }}
+          >
+            <ScanIcon className="size-3.5" />
+          </FileSurfaceAction>
         </span>
-        <FileSurfaceAction
-          label="Zoom in"
-          disabled={scale >= PDF_MAX_ZOOM}
-          onPress={() => changeZoom(stepPdfZoom(scale, 1))}
-        >
-          <PlusIcon className="size-3.5" />
-        </FileSurfaceAction>
-        <FileSurfaceAction
-          label="Fit width"
-          onPress={() => {
-            changeZoom(null);
-            scroll.current?.scrollTo({ left: 0 });
-          }}
-        >
-          <ScanIcon className="size-3.5" />
-        </FileSurfaceAction>
       </FileStatusBar>
     </div>
   );

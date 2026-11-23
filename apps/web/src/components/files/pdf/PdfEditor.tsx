@@ -16,10 +16,11 @@ import {
 } from "@codenine/shared/pdfGeometry";
 import {
   DownloadIcon,
+  EllipsisIcon,
+  EraserIcon,
   HighlighterIcon,
   ListIcon,
   MessageSquarePlusIcon,
-  MousePointer2Icon,
   PrinterIcon,
   Redo2Icon,
   SignatureIcon,
@@ -31,6 +32,14 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { usePublishPdfSelection } from "../documentSelectionPublisher";
 
 import { Button } from "~/components/ui/button";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { isEditableFocused } from "~/lib/editableFocus";
 import { cn } from "~/lib/utils";
@@ -440,11 +449,32 @@ export default function PdfEditor(props: {
     setTool("select");
   };
 
-  const chooseTool = (next: PdfTool) => {
+  /** A tool pressed while it is in hand is put down again. */
+  const chooseTool = (pressed: Exclude<PdfTool, "select">) => {
+    const next = activeTool === pressed ? "select" : pressed;
     setSelected(null);
     setTool(next);
     if (next === "sign" && signature === null) setSignatureDialogOpen(true);
   };
+  const highlights = annotations.filter(
+    (annotation) =>
+      annotation.kind === "highlight" && annotation.removable && annotation.removal === null,
+  );
+  const clearHighlights = () => {
+    setSelected(null);
+    setEdits((current) =>
+      highlights.reduce(
+        (next, highlight) =>
+          highlight.saved
+            ? addPdfEdit(next, { kind: "remove", key: editKey(), id: highlight.key })
+            : dropPdfEdit(next, highlight.key),
+        current,
+      ),
+    );
+  };
+  const downloadLabel = dirty ? "Download the saved file" : "Download";
+  const printable = nativePdfViewerAvailable();
+  const print = () => window.open(props.freshSrc, "_blank", "noopener");
 
   const status = saving ? "Saving..." : dirty ? "Unsaved" : "Saved";
   const hint =
@@ -509,17 +539,10 @@ export default function PdfEditor(props: {
                 <Redo2Icon className="size-3.5" />
               </FileSurfaceAction>
               <FileToolSeparator />
-              <FileSurfaceAction
-                label="Select"
-                pressed={activeTool === "select"}
-                onPress={() => chooseTool("select")}
-              >
-                <MousePointer2Icon className="size-3.5" />
-              </FileSurfaceAction>
               <FileToolButton
                 label="Highlight"
                 name="Highlight text"
-                collapse
+                collapse="narrow"
                 pressed={activeTool === "highlight"}
                 disabled={!editable}
                 onPress={() => chooseTool("highlight")}
@@ -529,7 +552,7 @@ export default function PdfEditor(props: {
               <FileToolButton
                 label="Note"
                 name="Add a note"
-                collapse
+                collapse="narrow"
                 pressed={activeTool === "note"}
                 disabled={!editable}
                 onPress={() => chooseTool("note")}
@@ -539,7 +562,7 @@ export default function PdfEditor(props: {
               <FileToolButton
                 label="Sign"
                 name="Sign"
-                collapse
+                collapse="narrow"
                 pressed={activeTool === "sign"}
                 disabled={!editable}
                 onPress={() => chooseTool("sign")}
@@ -550,56 +573,87 @@ export default function PdfEditor(props: {
                 <FileToolButton
                   label="Form"
                   name="Fill in the form"
-                  collapse
+                  collapse="narrow"
                   pressed={fillForm}
                   onPress={() => setFillForm((on) => !on)}
                 >
                   <TextCursorInputIcon />
                 </FileToolButton>
               ) : null}
-              <FileToolSeparator />
             </>
-          ) : null
+          ) : undefined
         }
         toolbarEnd={
-          <>
-            <FileSurfaceAction
-              label={dirty ? "Download the saved file" : "Download"}
-              disabled={downloading}
-              onPress={download}
-            >
-              <DownloadIcon className="size-3.5" />
-            </FileSurfaceAction>
-            {nativePdfViewerAvailable() ? (
-              <FileSurfaceAction
-                label="Open in a new tab to print"
-                onPress={() => window.open(props.freshSrc, "_blank", "noopener")}
-              >
-                <PrinterIcon className="size-3.5" />
-              </FileSurfaceAction>
-            ) : null}
-            <FileSurfaceAction
-              label="Notes and highlights"
-              pressed={listOpen}
-              onPress={() => setListOpen((open) => !open)}
-            >
-              <ListIcon className="size-3.5" />
-            </FileSurfaceAction>
-            {canEdit || dirty ? (
-              // Kept together so the status never wraps away from its button.
-              <span className="flex items-center gap-1">
-                <FileToolStatus busy={saving}>{status}</FileToolStatus>
-                <Button
-                  type="button"
-                  size="xs"
-                  disabled={!dirty || saving || !canEdit}
-                  onClick={() => void save()}
+          canEdit || dirty ? (
+            <>
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="More for this PDF"
+                    />
+                  }
                 >
-                  Save
-                </Button>
-              </span>
-            ) : null}
-          </>
+                  <EllipsisIcon className="size-3.5" />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  <MenuCheckboxItem checked={listOpen} onCheckedChange={setListOpen} closeOnClick>
+                    Notes and highlights
+                  </MenuCheckboxItem>
+                  <MenuItem
+                    disabled={!editable || highlights.length === 0}
+                    onClick={clearHighlights}
+                  >
+                    <EraserIcon />
+                    Clear highlights
+                  </MenuItem>
+                  <MenuSeparator />
+                  <MenuItem disabled={downloading} onClick={download}>
+                    <DownloadIcon />
+                    {downloadLabel}
+                  </MenuItem>
+                  {printable ? (
+                    <MenuItem onClick={print}>
+                      <PrinterIcon />
+                      Open in a new tab to print
+                    </MenuItem>
+                  ) : null}
+                </MenuPopup>
+              </Menu>
+              <FileToolStatus busy={saving} brief>
+                {status}
+              </FileToolStatus>
+              <Button
+                type="button"
+                size="xs"
+                disabled={!dirty || saving || !canEdit}
+                onClick={() => void save()}
+              >
+                Save
+              </Button>
+            </>
+          ) : (
+            <>
+              <FileSurfaceAction label={downloadLabel} disabled={downloading} onPress={download}>
+                <DownloadIcon className="size-3.5" />
+              </FileSurfaceAction>
+              {printable ? (
+                <FileSurfaceAction label="Open in a new tab to print" onPress={print}>
+                  <PrinterIcon className="size-3.5" />
+                </FileSurfaceAction>
+              ) : null}
+              <FileSurfaceAction
+                label="Notes and highlights"
+                pressed={listOpen}
+                onPress={() => setListOpen((open) => !open)}
+              >
+                <ListIcon className="size-3.5" />
+              </FileSurfaceAction>
+            </>
+          )
         }
         header={
           <>

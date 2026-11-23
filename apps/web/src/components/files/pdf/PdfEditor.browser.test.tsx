@@ -1,6 +1,6 @@
 import type { PdfEditInput, PdfEditResult, PdfOpenResult } from "@codenine/contracts";
 import { expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
@@ -102,7 +102,7 @@ it("reviews, fills in, signs and saves a PDF, and keeps edits when the file chan
       />,
       { container },
     );
-    await expect.element(screen.getByText("1 / 1 pages"), { timeout: 10_000 }).toBeVisible();
+    await expect.element(screen.getByText("Page 1 of 1"), { timeout: 10_000 }).toBeVisible();
     const save = screen.getByRole("button", { name: "Save", exact: true });
     await expect.element(save).toBeDisabled();
     // A link in the document can be followed while no tool is in hand.
@@ -157,7 +157,8 @@ it("reviews, fills in, signs and saves a PDF, and keeps edits when the file chan
     expect(onPendingChange).toHaveBeenLastCalledWith(true);
 
     // The list shows what was added and jumps to it.
-    await screen.getByRole("button", { name: "Notes and highlights" }).click();
+    await screen.getByRole("button", { name: "More for this PDF" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Notes and highlights" }).click();
     await expect.element(screen.getByText("Check the dates")).toBeVisible();
 
     // What a save has sent is in the file, so it cannot be changed until the save has answered.
