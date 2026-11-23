@@ -59,7 +59,12 @@ const descriptor = {
   // A matching version, since a mismatch adds an update banner a typical user never sees.
   serverVersion: APP_VERSION,
   orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-  capabilities: { repositoryIdentity: true, workspaceKinds: true },
+  capabilities: {
+    repositoryIdentity: true,
+    workspaceKinds: true,
+    fileActivity: true,
+    folderCreation: true,
+  },
 };
 const auth = {
   policy: "loopback-browser",
@@ -328,6 +333,14 @@ let acceptCommands = false;
 let sequence = 1;
 let vcsStatusSubscriber: Queue.Queue<VcsStatusStreamEvent> | null = null;
 let shellSubscriber: Queue.Queue<OrchestrationV2ShellStreamItem> | null = null;
+let projectFixture: Partial<OrchestrationProjectShell> = {};
+let answers: FakeAnswers = {};
+
+/**
+ * Replies for RPCs the fake environment otherwise leaves pending, by method name. A unary
+ * method's reply is its result; a streaming method's is the list of items it emits first.
+ */
+export type FakeAnswers = Readonly<Record<string, (input: never) => unknown>>;
 
 const subscribe = <A>(first: ReadonlyArray<A>, register?: (queue: Queue.Queue<A>) => () => void) =>
   Stream.unwrap(
@@ -365,7 +378,7 @@ const handlers: Record<string, (input: never) => unknown> = {
           snapshot: {
             schemaVersion: 1,
             snapshotSequence: sequence,
-            projects: [project],
+            projects: [{ ...project, ...projectFixture }],
             threads: threads.map(shellOf),
             archivedThreads: [],
           },
@@ -412,9 +425,14 @@ const handlers: Record<string, (input: never) => unknown> = {
 const client = new Proxy(handlers, {
   get: (target, method: string) =>
     target[method] ??
-    (() => {
+    ((input: never) => {
       const rpc = WsRpcGroup.requests.get(method);
-      return rpc && RpcSchema.isStreamSchema(rpc.successSchema) ? Stream.never : Effect.never;
+      const streams = rpc !== undefined && RpcSchema.isStreamSchema(rpc.successSchema);
+      const answer = answers[method];
+      if (answer === undefined) return streams ? Stream.never : Effect.never;
+      return streams
+        ? subscribe(answer(input) as ReadonlyArray<unknown>)
+        : Effect.sync(() => answer(input));
     }),
 });
 
@@ -458,9 +476,16 @@ const encodedDescriptor = Schema.encodeSync(ExecutionEnvironmentDescriptor)(
 /** Serves the environment's HTTP API and these threads until disposed. */
 export function installFakeEnvironment(
   fixtures: ReadonlyArray<FakeThread>,
-  options?: { readonly acceptCommands?: boolean },
+  options?: {
+    readonly acceptCommands?: boolean;
+    readonly answers?: FakeAnswers;
+    /** Changes to the fixture project, such as its workspace type or folder. */
+    readonly project?: Partial<OrchestrationProjectShell>;
+  },
 ): Disposable {
   threads = fixtures;
+  answers = options?.answers ?? {};
+  projectFixture = options?.project ?? {};
   dispatched = [];
   acceptCommands = options?.acceptCommands === true;
   globalThis.fetch = async (input, init) => {
@@ -486,6 +511,8 @@ export function installFakeEnvironment(
       threads = [];
       dispatched = [];
       acceptCommands = false;
+      answers = {};
+      projectFixture = {};
     },
   };
 }

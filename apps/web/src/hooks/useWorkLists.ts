@@ -10,7 +10,7 @@ import { useOlderSettledShelf, useOlderSettledShelfGrowth } from "../state/older
 import { useNowMinute } from "./useNowMinute";
 
 /** Listed threads that are still open work: not done, archived, or snoozed. */
-export function openWorkThreads(
+function openWorkThreads(
   threads: ReadonlyArray<EnvironmentThreadShell>,
   now: string,
 ): EnvironmentThreadShell[] {

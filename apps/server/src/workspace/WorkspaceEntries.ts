@@ -8,9 +8,12 @@ import * as Path from "effect/Path";
 import * as RcMap from "effect/RcMap";
 import * as Schema from "effect/Schema";
 
+import { FilesystemCreateDirectoryError } from "@codenine/contracts";
 import type {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
+  FilesystemCreateDirectoryInput,
+  FilesystemCreateDirectoryResult,
   ProjectEntry,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -99,6 +102,10 @@ export class WorkspaceEntries extends Context.Service<
     readonly browse: (
       input: FilesystemBrowseInput,
     ) => Effect.Effect<FilesystemBrowseResult, WorkspaceEntriesBrowseError>;
+    /** Makes one new folder in a folder that exists. Never replaces or reuses an existing one. */
+    readonly createDirectory: (
+      input: FilesystemCreateDirectoryInput,
+    ) => Effect.Effect<FilesystemCreateDirectoryResult, FilesystemCreateDirectoryError>;
     readonly list: (
       input: ProjectListEntriesInput,
     ) => Effect.Effect<ProjectListEntriesResult, WorkspaceEntriesError>;
@@ -120,6 +127,12 @@ const IGNORED_FILES_LIMIT = 200;
 
 /** Paths sent to one `git check-ignore` call when labelling a folder's children. */
 const IGNORE_CHECK_CHUNK_SIZE = 1000;
+
+/** Folders checked at once for a `.git` entry when a browse asks for repository marks. */
+const REPOSITORY_CHECK_BATCH_SIZE = 64;
+
+/** Characters no folder name may hold on Windows; the separators are refused everywhere. */
+const WINDOWS_RESERVED_NAME_CHARACTERS = /[<>:"|?*]/;
 
 /** Children classified at once when listing a folder; each symlink costs a realpath and a stat. */
 const SYMLINK_RESOLVE_BATCH_SIZE = 64;
@@ -212,6 +225,7 @@ export const make = Effect.gen(function* () {
       const parentPath = endsWithSeparator ? resolvedInputPath : path.dirname(resolvedInputPath);
       const prefix = endsWithSeparator ? "" : path.basename(resolvedInputPath);
 
+      let permissionDenied = false;
       const dirents = yield* Effect.tryPromise({
         try: () => NodeFSP.readdir(parentPath, { withFileTypes: true }),
         catch: (cause) =>
@@ -227,32 +241,122 @@ export const make = Effect.gen(function* () {
             const code = (error.cause as NodeJS.ErrnoException | undefined)?.code;
             return code === "EACCES" || code === "EPERM";
           },
-          () => Effect.succeed([]),
+          () =>
+            Effect.sync(() => {
+              permissionDenied = true;
+              return [];
+            }),
         ),
       );
 
       const showHidden = endsWithSeparator || prefix.startsWith(".");
       const lowerPrefix = prefix.toLowerCase();
-      const entries: Array<{ readonly name: string; readonly fullPath: string }> = [];
-      for (const dirent of dirents) {
-        if (
-          dirent.isDirectory() &&
+      const named = dirents.filter(
+        (dirent) =>
+          (dirent.isDirectory() || dirent.isSymbolicLink()) &&
           dirent.name.toLowerCase().startsWith(lowerPrefix) &&
-          (showHidden || !dirent.name.startsWith("."))
-        ) {
-          entries.push({
-            name: dirent.name,
-            fullPath: path.join(parentPath, dirent.name),
-          });
-        }
-      }
+          (showHidden || !dirent.name.startsWith(".")),
+      );
+      // A link to a folder opens like one, so it is listed; that costs a stat for each link.
+      const isFolder = yield* Effect.forEach(
+        named,
+        (dirent) =>
+          dirent.isDirectory()
+            ? Effect.succeed(true)
+            : Effect.promise(() =>
+                NodeFSP.stat(path.join(parentPath, dirent.name)).then(
+                  (stats) => stats.isDirectory(),
+                  () => false,
+                ),
+              ),
+        { concurrency: SYMLINK_RESOLVE_BATCH_SIZE },
+      );
+      const entries = named
+        .filter((_, index) => isFolder[index] === true)
+        .map((dirent) => ({ name: dirent.name, fullPath: path.join(parentPath, dirent.name) }));
+
+      const sorted = entries.toSorted((left, right) => left.name.localeCompare(right.name));
+      const repositories =
+        input.detectRepositories === true
+          ? yield* Effect.forEach(
+              sorted,
+              (entry) =>
+                Effect.promise(() =>
+                  NodeFSP.access(path.join(entry.fullPath, ".git")).then(
+                    () => true,
+                    () => false,
+                  ),
+                ),
+              { concurrency: REPOSITORY_CHECK_BATCH_SIZE },
+            )
+          : null;
 
       return {
         parentPath,
-        entries: entries.toSorted((left, right) => left.name.localeCompare(right.name)),
+        entries:
+          repositories === null
+            ? sorted
+            : sorted.map((entry, index) =>
+                repositories[index] === true ? { ...entry, isGitRepository: true } : entry,
+              ),
+        ...(permissionDenied ? { permissionDenied: true } : {}),
       };
     },
   );
+
+  const createDirectory: WorkspaceEntries["Service"]["createDirectory"] = Effect.fn(
+    "WorkspaceEntries.createDirectory",
+  )(function* (input) {
+    const platform = yield* HostProcess.Platform;
+    const name = input.name;
+    if (
+      name === "." ||
+      name === ".." ||
+      /[\\/]/.test(name) ||
+      name.includes("\0") ||
+      (platform === "win32" && (WINDOWS_RESERVED_NAME_CHARACTERS.test(name) || /[. ]$/.test(name)))
+    ) {
+      return yield* new FilesystemCreateDirectoryError({
+        failure: "invalid_name",
+        message: "A folder name cannot be . or .., or hold a slash or a reserved character.",
+      });
+    }
+    const parentPath = path.resolve(
+      expandHomePath(input.parentPath, yield* HostProcess.HomeDirectory),
+    );
+    const target = path.join(parentPath, name);
+    yield* Effect.tryPromise({
+      try: () => NodeFSP.mkdir(target),
+      catch: (cause) => {
+        switch ((cause as NodeJS.ErrnoException | undefined)?.code) {
+          case "EEXIST":
+            return new FilesystemCreateDirectoryError({
+              failure: "already_exists",
+              message: `${name} already exists in this folder.`,
+            });
+          case "ENOENT":
+          case "ENOTDIR":
+            return new FilesystemCreateDirectoryError({
+              failure: "parent_missing",
+              message: `${parentPath} is not a folder any more.`,
+            });
+          case "EACCES":
+          case "EPERM":
+          case "EROFS":
+            return new FilesystemCreateDirectoryError({
+              failure: "permission_denied",
+              message: `Codenine may not make folders in ${parentPath}.`,
+            });
+          default:
+            return new FilesystemCreateDirectoryError({
+              failure: "create_failed",
+              message: `The folder could not be made in ${parentPath}.`,
+            });
+        }
+      },
+    });
+    return { path: target };
+  });
 
   const search: WorkspaceEntries["Service"]["search"] = Effect.fn("WorkspaceEntries.search")(
     function* (input) {
@@ -523,7 +627,15 @@ export const make = Effect.gen(function* () {
     };
   });
 
-  return WorkspaceEntries.of({ browse, list, listIgnoredFiles, refresh, search, searchContents });
+  return WorkspaceEntries.of({
+    browse,
+    createDirectory,
+    list,
+    listIgnoredFiles,
+    refresh,
+    search,
+    searchContents,
+  });
 });
 
 export const layer = Layer.effect(WorkspaceEntries, make).pipe(

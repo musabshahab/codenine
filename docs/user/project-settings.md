@@ -40,6 +40,36 @@ follow-ups from delegated tasks. A turn already running when the switch flips fi
 task's result still lands in its parent chat, which sees it on its next turn. Reset returns the workspace to the
 environment's setting. Every other provider setting stays per environment.
 
+## Create a workspace
+
+**New workspace** in the sidebar starts empty, uses a folder that already exists, or clones a
+repository. For an existing folder, paste its path or choose **Browse**. Browse lists the folders
+of the computer the workspace will live on, so it works the same from a browser connected to
+another machine. Click a folder to open it, or use the arrow keys and Enter; Backspace in the empty
+filter goes up, and typing narrows the list. Folders that are Git repositories or already
+workspaces are marked. **New folder** makes one where you are, and **Use this folder** puts the
+folder you are in into the path box. In the desktop app, **Open system dialog** uses your
+computer's own picker for folders on the same computer. **Import** on the Skills page has the same
+Browse button.
+
+## The workspace home page
+
+Click a workspace's name in the sidebar to open its home page. Type what you want in the box at
+the top, or pick an example, to open a new chat there with that text in its composer; nothing is
+sent until you send it. Below are the workspace's files, chats and tasks:
+
+- **Files** lists what is in the workspace's folder, with recently changed files first. In a Code
+  workspace on a Git checkout it is **Changed files**: the files with changes not committed yet.
+  Choosing a file opens it beside a new chat in the workspace, and **Browse all** opens the whole
+  folder there.
+- **Chats** puts chats that need you first, then running ones, then the rest. A filter box shows
+  once there are more than a few.
+- The side column lists suggested connectors and skills for the workspace type, and whether each
+  is connected or added. A Code workspace also shows its branch, the branch's pull request and
+  the workspace's commands.
+
+Personal's page has the box and its chats only: each of its chats works in its own folder.
+
 ## Pin, archive, and remove workspaces
 
 Pinned workspaces come first in the workspace pickers: the workspace picker on a new chat, the

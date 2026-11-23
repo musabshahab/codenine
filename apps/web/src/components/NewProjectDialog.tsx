@@ -12,7 +12,7 @@ import type {
   WorkspaceKind,
 } from "@codenine/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { FolderIcon } from "lucide-react";
+import { FolderIcon, FolderSearchIcon } from "lucide-react";
 import { lazy, type RefObject, Suspense, useId, useRef, useState } from "react";
 
 import { useEnvironmentSettings } from "../hooks/useSettings";
@@ -36,6 +36,7 @@ import { sourceControlEnvironment } from "../state/sourceControl";
 import { isWorkspaceKind, WORKSPACE_KIND_OPTIONS } from "../workspaceKind";
 import { TeamModelPicker, teamModelText, useTeamModelCatalog } from "./chat/TeamAgentModel";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { FolderBrowserDialog } from "./folderBrowser/FolderBrowserDialog";
 import {
   cloneFolderLabel,
   defaultNewProjectMachine,
@@ -111,6 +112,8 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
   const [workspaceKind, setWorkspaceKind] = useState<WorkspaceKind>("code");
   const [projectIcon, setProjectIcon] = useState<ProjectIconOverride | null>(null);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const folderPicker = useProjectFolderPicker();
   // Account ids belong to one machine, so a pick only holds on the machine it was made on.
   const [pickedModel, setPickedModel] = useState<{
     readonly environmentId: EnvironmentId;
@@ -145,6 +148,24 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
   };
   const clearError = (field: keyof NewProjectErrors) => {
     if (errors[field] !== undefined) setErrors(withoutError(errors, field));
+  };
+
+  const pickFolder = (environmentId: EnvironmentId, path: string) => {
+    setPickedEnvironmentId(environmentId);
+    setFolderPath(path);
+    suggestName("folder", path);
+    clearError("folderPath");
+  };
+  // The system dialog replaces the browser; what it picks lands in the same path box.
+  const openSystemDialog = async (target: NewProjectMachine) => {
+    setBrowsing(false);
+    const picked = await folderPicker.pickFolder({
+      environmentId: target.environmentId,
+      platform: target.platform,
+      initialPath: folderPath.trim() || getAddProjectInitialQuery(target.addProjectBaseDirectory),
+    });
+    if (picked.kind === "picked") pickFolder(picked.environmentId, picked.path);
+    else if (picked.kind === "failed") setSubmitError(picked.message);
   };
 
   const submit = async () => {
@@ -393,13 +414,7 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
                         suggestName("folder", path);
                         clearError("folderPath");
                       }}
-                      onPicked={(environmentId, path) => {
-                        setPickedEnvironmentId(environmentId);
-                        setFolderPath(path);
-                        suggestName("folder", path);
-                        clearError("folderPath");
-                      }}
-                      onPickFailed={setSubmitError}
+                      onBrowse={() => setBrowsing(true)}
                     />
                   )}
                 </RadioCard>
@@ -506,6 +521,19 @@ function NewProjectDialog({ request, open }: { request: NewProjectRequest; open:
             </Button>
           </DialogFooter>
         </form>
+        {browsing && machine !== null ? (
+          <FolderBrowserDialog
+            machine={machine}
+            typedPath={folderPath}
+            onOpenChange={setBrowsing}
+            onUse={(path) => pickFolder(machine.environmentId, path)}
+            onOpenSystemDialog={
+              folderPicker.canPickFolder(machine.environmentId)
+                ? () => void openSystemDialog(machine)
+                : undefined
+            }
+          />
+        ) : null}
         {iconPickerOpen ? (
           <Suspense fallback={null}>
             <ProjectIconPickerDialog
@@ -565,8 +593,7 @@ function FolderField({
   value,
   error,
   onChange,
-  onPicked,
-  onPickFailed,
+  onBrowse,
 }: {
   id: string;
   inputRef: RefObject<HTMLInputElement | null>;
@@ -574,23 +601,9 @@ function FolderField({
   value: string;
   error: string | undefined;
   onChange: (path: string) => void;
-  onPicked: (environmentId: EnvironmentId, path: string) => void;
-  onPickFailed: (message: string) => void;
+  onBrowse: () => void;
 }) {
-  const folderPicker = useProjectFolderPicker();
-  const [picking, setPicking] = useState(false);
   const startsIn = getAddProjectInitialQuery(machine.addProjectBaseDirectory);
-  const browse = async () => {
-    setPicking(true);
-    const picked = await folderPicker.pickFolder({
-      environmentId: machine.environmentId,
-      platform: machine.platform,
-      initialPath: value.trim() || startsIn,
-    });
-    setPicking(false);
-    if (picked.kind === "picked") onPicked(picked.environmentId, picked.path);
-    else if (picked.kind === "failed") onPickFailed(picked.message);
-  };
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id}>Folder</Label>
@@ -606,11 +619,10 @@ function FolderField({
           aria-describedby={`${id}-hint${error === undefined ? "" : ` ${id}-error`}`}
           onChange={(event) => onChange(event.target.value)}
         />
-        {folderPicker.canPickFolder(machine.environmentId) ? (
-          <Button variant="outline" disabled={picking} onClick={() => void browse()}>
-            Browse
-          </Button>
-        ) : null}
+        <Button variant="outline" aria-haspopup="dialog" onClick={onBrowse}>
+          <FolderSearchIcon />
+          Browse
+        </Button>
       </div>
       <p id={`${id}-hint`} className="text-muted-foreground text-xs">
         The files stay where they are.

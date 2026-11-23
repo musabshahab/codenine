@@ -232,6 +232,8 @@ const VcsStatusLocalShape = {
         path: GitFilePath,
         insertions: NonNegativeInt,
         deletions: NonNegativeInt,
+        // Set when the file is no longer in the folder. Older servers never set it.
+        deleted: Schema.optional(Schema.Boolean),
       }),
     ),
     insertions: NonNegativeInt,

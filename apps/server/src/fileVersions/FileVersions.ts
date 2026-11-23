@@ -518,7 +518,7 @@ const make = Effect.gen(function* () {
       const rows = yield* storage.recent(rootOf(input.cwd), {
         since: input.since ?? null,
         threadId: input.threadId ?? null,
-        limit: ACTIVITY_MAX_ENTRIES,
+        limit: Math.min(input.limit ?? ACTIVITY_MAX_ENTRIES, ACTIVITY_MAX_ENTRIES),
       });
       return {
         tracked: yield* isTracked(input.cwd),

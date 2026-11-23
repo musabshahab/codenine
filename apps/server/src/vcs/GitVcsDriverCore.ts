@@ -2283,6 +2283,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     let aheadOfDefaultCount = 0;
     let hasWorkingTreeChanges = false;
     const changedFilesWithoutNumstat = new Set<string>();
+    const deletedFiles = new Set<string>();
     const untrackedRoots: string[] = [];
 
     const statusRecords = statusStdout.split("\0");
@@ -2311,12 +2312,17 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         if (pathValue) {
           changedFilesWithoutNumstat.add(pathValue);
           if (line.startsWith("? ")) untrackedRoots.push(pathValue);
+          // XY follows the record type: gone from the folder, or staged as gone and not put back.
+          if (/^[12] (?:.D|D\.) /.test(line)) deletedFiles.add(pathValue);
         }
         // A rename record is followed by its original path as a separate record. Listing it
         // keeps the deletion selectable when committing only some files.
         if (line.startsWith("2 ")) {
           const originalPath = statusRecords[++index];
-          if (originalPath) changedFilesWithoutNumstat.add(originalPath);
+          if (originalPath) {
+            changedFilesWithoutNumstat.add(originalPath);
+            deletedFiles.add(originalPath);
+          }
         }
       }
     }
@@ -2373,6 +2379,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       files.push({ path: filePath, insertions: 0, deletions: 0 });
     }
     files.sort((a, b) => a.path.localeCompare(b.path));
+    const listedFiles = files.map((file) =>
+      deletedFiles.has(file.path) ? { ...file, deleted: true } : file,
+    );
 
     return {
       isRepo: true,
@@ -2383,7 +2392,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       hasWorkingTreeChanges,
       workingTree: {
         ...(repositoryPaths?.worktreeRoot ? { rootPath: repositoryPaths.worktreeRoot } : {}),
-        files,
+        files: listedFiles,
         insertions,
         deletions,
       },

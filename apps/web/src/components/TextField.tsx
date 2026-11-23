@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -14,6 +14,8 @@ export function TextField(props: {
   readonly error?: string | undefined;
   readonly disabled?: boolean | undefined;
   readonly font?: "default" | "mono" | undefined;
+  /** A control on the field's own line, after the input, such as a Browse button. */
+  readonly trailing?: ReactNode;
 }) {
   const id = useId();
   const describedBy = [props.hint ? `${id}-hint` : null, props.error ? `${id}-error` : null]
@@ -22,19 +24,22 @@ export function TextField(props: {
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id}>{props.label}</Label>
-      <Input
-        id={id}
-        type={props.secret ? "password" : "text"}
-        font={props.font ?? "default"}
-        autoComplete="off"
-        spellCheck={false}
-        value={props.value}
-        placeholder={props.placeholder}
-        disabled={props.disabled}
-        aria-invalid={props.error !== undefined || undefined}
-        aria-describedby={describedBy === "" ? undefined : describedBy}
-        onChange={(event) => props.onChange(event.currentTarget.value)}
-      />
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          type={props.secret ? "password" : "text"}
+          font={props.font ?? "default"}
+          autoComplete="off"
+          spellCheck={false}
+          value={props.value}
+          placeholder={props.placeholder}
+          disabled={props.disabled}
+          aria-invalid={props.error !== undefined || undefined}
+          aria-describedby={describedBy === "" ? undefined : describedBy}
+          onChange={(event) => props.onChange(event.currentTarget.value)}
+        />
+        {props.trailing}
+      </div>
       {props.hint ? (
         <p id={`${id}-hint`} className="text-xs text-muted-foreground">
           {props.hint}

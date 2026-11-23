@@ -1,10 +1,13 @@
 import { isAtomCommandInterrupted } from "@codenine/client-runtime/state/runtime";
 import { type EnvironmentId, skillTitle } from "@codenine/contracts";
+import { FolderSearchIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { commandErrorMessage } from "../../lib/commandError";
 import { skillsEnvironment } from "../../state/skills";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { FolderBrowserDialog } from "../folderBrowser/FolderBrowserDialog";
+import { useFolderBrowserMachine } from "../folderBrowser/useFolderBrowserMachine";
 import { TextField } from "../TextField";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
@@ -24,6 +27,8 @@ export function ImportSkillDialog({
   const [path, setPath] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const machine = useFolderBrowserMachine(environmentId);
 
   const submit = async () => {
     if (submitting) return;
@@ -74,6 +79,19 @@ export function ImportSkillDialog({
               error={error}
               disabled={submitting}
               onChange={setPath}
+              trailing={
+                machine === null ? null : (
+                  <Button
+                    variant="outline"
+                    aria-haspopup="dialog"
+                    disabled={submitting}
+                    onClick={() => setBrowsing(true)}
+                  >
+                    <FolderSearchIcon />
+                    Browse
+                  </Button>
+                )
+              }
             />
           </form>
         </WizardPanel>
@@ -85,6 +103,17 @@ export function ImportSkillDialog({
             {submitting ? "Importing…" : "Import"}
           </Button>
         </WizardFooter>
+        {browsing && machine !== null ? (
+          <FolderBrowserDialog
+            machine={machine}
+            typedPath={path}
+            onOpenChange={setBrowsing}
+            onUse={(picked) => {
+              setPath(picked);
+              setError(undefined);
+            }}
+          />
+        ) : null}
       </WizardPopup>
     </Dialog>
   );

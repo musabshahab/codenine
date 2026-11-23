@@ -2541,6 +2541,7 @@ export const layerWsRpc = (
                 }),
             ),
           ),
+        [WS_METHODS.filesystemCreateDirectory]: (input) => workspaceEntries.createDirectory(input),
         [WS_METHODS.attachmentsCreateUploadUrl]: (input) => issueAttachmentUploadUrl(input),
         [WS_METHODS.attachmentsDelete]: (input) => deletePendingAttachment(input.attachmentId),
         [WS_METHODS.assetsCreateUrl]:

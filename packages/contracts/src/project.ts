@@ -678,6 +678,8 @@ export const ProjectListFileActivityInput = Schema.Struct({
   // The chat asking. Changes it never lists (another chat's turns, and changes made outside
   // Codenine) are then left out before the newest few hundred are taken.
   threadId: Schema.optional(ThreadId),
+  // Fewer than the newest few hundred, for a short list. Older servers ignore it.
+  limit: Schema.optional(PositiveInt),
 });
 export type ProjectListFileActivityInput = typeof ProjectListFileActivityInput.Type;
 

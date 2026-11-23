@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, expect, it } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { IsoDateTime, ThreadId } from "@codenine/contracts";
+import { IsoDateTime, PositiveInt, ThreadId } from "@codenine/contracts";
 import type {
   PdfSignaturePlacement,
   SpreadsheetCell,
@@ -910,6 +910,11 @@ describe("Documents reply files", () => {
           (yield* versions.activity({ cwd, since: IsoDateTime.make("2999-01-01T00:00:00.000Z") }))
             .entries,
         ).toEqual([]);
+        expect(
+          (yield* versions.activity({ cwd, limit: PositiveInt.make(2) })).entries.map(
+            (entry) => entry.origin,
+          ),
+        ).toEqual(["user", "external"]);
         // A chat's activity leaves out other chats' turns and outside changes before the
         // newest are taken, so they cannot crowd out its own.
         const mine = ThreadId.make("activity-mine");
