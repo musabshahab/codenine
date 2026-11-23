@@ -42,6 +42,7 @@ import { useProjectScriptEditing } from "./chat/useProjectScriptEditing";
 import { RightPanelSurfaceContent } from "./chat/RightPanelSurfaceContent";
 import { usePendingThreadRequests } from "./chat/usePendingThreadRequests";
 import { isScratchProject } from "@codenine/client-runtime/state/projects";
+import { projectPreset } from "../workspaceKind";
 import type { UsageLimitSourceSnapshots } from "@codenine/contracts";
 import { feedbackBannerItem } from "./chat/ComposerFeedback";
 import { freshSessionBannerItem } from "./chat/ComposerFreshSession";
@@ -1135,12 +1136,6 @@ export default function ChatView(props: ChatViewProps) {
   };
   const handleFilePendingChangeStable = useStableCallback(handleFilePendingChange);
 
-  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- drops file surfaces from the right panel store once bootstrap shows the thread has no workspace
-  useEffect(() => {
-    if (!activeThreadRef || !activeEnvironmentBootstrapComplete) return;
-    useRightPanelStore.getState().reconcileFileSurfaces(activeThreadRef, activeProject !== null);
-  }, [activeEnvironmentBootstrapComplete, activeProject, activeThreadRef]);
-
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
   const activeEnvironment =
     activeThread == null ? null : (environmentById.get(activeThread.environmentId) ?? null);
@@ -1164,6 +1159,16 @@ export default function ChatView(props: ChatViewProps) {
       activeProject,
       environmentById.get(activeProject.environmentId)?.serverConfig?.scratchWorkspaceRoot ?? null,
     );
+  const workspacePreset = projectPreset(activeProjectIsScratch ? null : activeProject);
+  const diffTabOffered = workspacePreset.rightPanelTabs.includes("diff");
+  const hasActiveProject = activeProject !== null;
+  // oxlint-disable-next-line codenine/no-unreasoned-state-sync -- drops surfaces from the right panel store once bootstrap shows the thread has no workspace, or its workspace type offers no Diff tab
+  useEffect(() => {
+    if (!activeThreadRef || !activeEnvironmentBootstrapComplete) return;
+    useRightPanelStore
+      .getState()
+      .reconcileSurfaces(activeThreadRef, { workspace: hasActiveProject, diff: diffTabOffered });
+  }, [activeEnvironmentBootstrapComplete, hasActiveProject, diffTabOffered, activeThreadRef]);
   const logicalProjectEnvironments = useLogicalProjectEnvironments(
     activeProject,
     activeProjectIsScratch && draftId !== null,
@@ -1211,7 +1216,7 @@ export default function ChatView(props: ChatViewProps) {
     providers: providerStatuses,
   });
   const modelPickerLockedProvider = supportsProviderSwitchingViaHandoff ? null : lockedProvider;
-  const supportsPullRequests = serverConfig !== null;
+  const supportsPullRequests = serverConfig !== null && workspacePreset.composerControls.gitActions;
   const attachmentEnvironmentConfig = environmentById.get(environmentId)?.serverConfig ?? null;
   const attachmentUploadsCapabilityKnown = attachmentEnvironmentConfig !== null;
   const supportsQuestionAttachments = attachmentEnvironmentConfig !== null;
@@ -1673,7 +1678,12 @@ export default function ChatView(props: ChatViewProps) {
       rememberCheckoutIsRepo(environmentId, gitStatusCwd, liveIsGitRepo);
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
-  const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  // A workspace whose preset has no checkout controls reads as a plain folder, so the branch
+  // toolbar, worktrees and the send path all follow from this one value.
+  const isGitRepo =
+    workspacePreset.composerControls.checkout &&
+    (liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true);
+  const diffAvailable = isServerThread && isGitRepo && diffTabOffered;
   // Provider-native subagents cannot take messages; approvals and questions go to the top-level parent.
   const showProviderSubagentBar = isProviderSubagent;
   const composerMounted = !showProviderSubagentBar;
@@ -1902,7 +1912,7 @@ export default function ChatView(props: ChatViewProps) {
     latestRun: activeLatestRun,
     latestRunSettled,
     turnDiffSummaries,
-    isGitRepo: gitStatusQuery.data?.isRepo,
+    isGitRepo: diffTabOffered ? gitStatusQuery.data?.isRepo : false,
     onDiffPanelOpen,
   });
   const threadTeamInfo = useThreadTeam(embedded ? null : serverThreadShell);
@@ -2262,6 +2272,7 @@ export default function ChatView(props: ChatViewProps) {
     threadPanelPresentation,
     isServerThread,
     isGitRepo,
+    diffTabOffered,
     diffOpen,
     rightPanelOpen,
     canMaximizeRightPanel,
@@ -3097,7 +3108,7 @@ export default function ChatView(props: ChatViewProps) {
       workspaceMutationId={workspaceMutationId}
       onCloseSurface={closeRightPanelSurface}
       sideChatParentPanel={sideChatParentPanel}
-      onViewChanges={isServerThread && isGitRepo ? addDiffSurfaceStable : undefined}
+      onViewChanges={diffAvailable ? addDiffSurfaceStable : undefined}
       terminal={{
         launchContext: activeTerminalLaunchContext ?? null,
         keybindings,
@@ -3173,7 +3184,7 @@ export default function ChatView(props: ChatViewProps) {
             }
       }
       changes={
-        isServerThread && isGitRepo
+        diffAvailable
           ? {
               gitCwd: gitStatusCwd,
               open: diffOpen,
@@ -3197,7 +3208,7 @@ export default function ChatView(props: ChatViewProps) {
         teamTask={serverThreadShell?.source.teamTask ?? null}
         working={isWorking}
         pullRequests={activeThread.pullRequests ?? []}
-        gitCwd={gitStatusCwd}
+        gitCwd={workspacePreset.composerControls.gitActions ? gitStatusCwd : null}
         onOpenTask={openTaskSurfaceStable}
       />
     ) : null;
@@ -3396,11 +3407,12 @@ export default function ChatView(props: ChatViewProps) {
                   routeThreadKey={displayedTimelineKey}
                   displayThreadKey={displayedTimelineKey}
                   announceTurnStatus={!isProviderSubagent}
-                  onOpenToolDiff={parentPanel?.openToolDiff ?? onOpenToolDiffStable}
+                  {...(diffTabOffered
+                    ? { onOpenToolDiff: parentPanel?.openToolDiff ?? onOpenToolDiffStable }
+                    : {})}
                   // Side chat runs keep no checkpoints to diff, and a fork would promote the side chat.
-                  {...(embedded
-                    ? {}
-                    : { onOpenTurnDiff: onOpenTurnDiffStable, onForkFromRun: onForkFromRunStable })}
+                  {...(embedded ? {} : { onForkFromRun: onForkFromRunStable })}
+                  {...(embedded || !diffTabOffered ? {} : { onOpenTurnDiff: onOpenTurnDiffStable })}
                   onOpenThread={onOpenRelatedThreadStable}
                   parentThreadLink={parentThreadLink}
                   workflowOpening={workflowOpening}
@@ -3474,7 +3486,7 @@ export default function ChatView(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        <DraftHeroHeadline kind={draftHeroKind} />
+                        <DraftHeroHeadline kind={draftHeroKind} preset={workspacePreset} />
                       </div>
                     </div>
                   ) : null}
@@ -3600,7 +3612,7 @@ export default function ChatView(props: ChatViewProps) {
                                         ? "Describe the task. A lead agent will propose a team for you to approve."
                                         : draftHeroKind === "workflow"
                                           ? "Describe what should happen each time, and when. A lead agent will draft a workflow for you to review."
-                                          : "Ask anything about this workspace."
+                                          : workspacePreset.startScreen.subline
                                 }
                                 onFreshSession={
                                   freshSessionCommandAvailable ? armFreshSessionStable : undefined
@@ -3773,6 +3785,7 @@ export default function ChatView(props: ChatViewProps) {
                           ) : (
                             <DraftHeroExamples
                               target={composerDraftTarget}
+                              examples={workspacePreset.startScreen.examples}
                               hasProject={activeProject !== null}
                               teamOffered={teamOffered}
                               composerRef={composerRef}
@@ -3833,6 +3846,8 @@ export default function ChatView(props: ChatViewProps) {
                   }
                   gitCwd={gitCwd}
                   isGitRepo={isGitRepo}
+                  showCheckout={workspacePreset.composerControls.checkout}
+                  showGitActions={workspacePreset.composerControls.gitActions}
                   envLocked={envLocked}
                   availableEnvironments={logicalProjectEnvironments}
                   autoEnvironmentLabel={autoEnvironmentLabel}
@@ -3861,9 +3876,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
                     : {})}
                   onComposerFocusRequest={scheduleComposerFocusStable}
-                  {...(isServerThread && isGitRepo
-                    ? { onOpenChanges: openChangesFromThreadPanelStable }
-                    : {})}
+                  {...(diffAvailable ? { onOpenChanges: openChangesFromThreadPanelStable } : {})}
                   onRunProjectScript={runProjectScriptStable}
                   onAddProjectScript={saveProjectScriptStable}
                   onUpdateProjectScript={updateProjectScriptStable}
@@ -3939,7 +3952,7 @@ export default function ChatView(props: ChatViewProps) {
           onMoveSurface={moveRightPanelSurfaceStable}
           onCopyFilePath={copyRightPanelFilePathStable}
           onAddTerminal={addTerminalSurfaceStable}
-          onAddDiff={addDiffSurfaceStable}
+          {...(diffTabOffered ? { onAddDiff: addDiffSurfaceStable } : {})}
           onAddFiles={addFilesSurfaceStable}
           onAddSideChat={sideChatsOffered ? openSideChatStable : undefined}
           onAddTask={threadTeamInfo === null ? undefined : openTaskSurfaceStable}
@@ -3947,7 +3960,7 @@ export default function ChatView(props: ChatViewProps) {
             workflowDraft === null && savedWorkflow === null ? undefined : openWorkflowSurfaceStable
           }
           terminalAvailable={activeProject !== null && canOperateTerminal}
-          diffAvailable={isServerThread && isGitRepo}
+          diffAvailable={diffAvailable}
           filesAvailable={activeProject !== null}
           sideChatAvailable={sideChat.available}
           sideChatDisabledReason={sideChatDisabledReason}

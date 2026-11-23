@@ -1,4 +1,5 @@
 import type { OrchestrationV2AppThreadLineage } from "@codenine/contracts";
+import type { WorkspaceExample } from "@codenine/shared/workspacePreset";
 
 interface LeadPlace {
   readonly lineage: Pick<OrchestrationV2AppThreadLineage, "relationshipToParent" | "sideChat">;
@@ -42,29 +43,17 @@ export function sendsComposerRequest(input: {
   return input.requested && !input.prompt.trimStart().startsWith("/");
 }
 
-export interface DraftHeroExample {
-  readonly prompt: string;
-  readonly team: boolean;
-}
-
-const DRAFT_HERO_EXAMPLES: ReadonlyArray<DraftHeroExample> = [
-  { prompt: "Add sign-in with tests, then have a stronger model review it", team: true },
-  { prompt: "Explain how this workspace is structured", team: false },
-  { prompt: "Fix the failing test and explain the cause", team: false },
-];
-
 /**
  * Examples talk about work in the project, so a chat without one shows none, nor does one drafting
  * a workflow, and typing hides them.
  */
 export function draftHeroExamples(input: {
+  readonly examples: ReadonlyArray<WorkspaceExample>;
   readonly hasProject: boolean;
   readonly composerEmpty: boolean;
   readonly teamAvailable: boolean;
   readonly workflowRequested: boolean;
-}): ReadonlyArray<DraftHeroExample> {
+}): ReadonlyArray<WorkspaceExample> {
   if (!input.hasProject || !input.composerEmpty || input.workflowRequested) return [];
-  return input.teamAvailable
-    ? DRAFT_HERO_EXAMPLES
-    : DRAFT_HERO_EXAMPLES.filter((example) => !example.team);
+  return input.teamAvailable ? input.examples : input.examples.filter((example) => !example.team);
 }

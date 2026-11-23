@@ -49,6 +49,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { DraftProjectName } from "./DraftProjectName";
 import { resolveProjectSettings } from "@codenine/shared/projectSettings";
+import type { WorkspacePreset } from "@codenine/shared/workspacePreset";
 import { resolveProjectDefaultProviderModelSelection } from "../../providerInstances";
 import { resolveNewThreadModelSelection } from "@codenine/shared/usageLimits";
 
@@ -331,16 +332,19 @@ export function DraftProjectPicker({
 }
 
 /** The start screen's question: a chat in Chats, a task for a team, or work in a project. */
-export function DraftHeroHeadline(props: { kind: "chat" | "team" | "workflow" | "project" }) {
+export function DraftHeroHeadline(props: {
+  kind: "chat" | "team" | "workflow" | "project";
+  preset: WorkspacePreset;
+}) {
   return (
     <h1 className="w-full px-1 text-start font-semibold text-2xl text-foreground tracking-tight">
       {props.kind === "chat"
         ? "Start a chat"
         : props.kind === "team"
-          ? "What should the team build?"
+          ? props.preset.startScreen.teamHeadline
           : props.kind === "workflow"
             ? "What should the workflow do?"
-            : "What would you like to do?"}
+            : props.preset.startScreen.headline}
     </h1>
   );
 }

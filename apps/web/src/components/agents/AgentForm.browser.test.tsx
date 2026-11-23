@@ -6,6 +6,7 @@ import {
   EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
+  type WorkspaceKind,
 } from "@codenine/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@codenine/contracts/settings";
 import { AsyncResult } from "effect/reactivity";
@@ -22,6 +23,7 @@ const state = vi.hoisted(() => ({
   save: vi.fn(),
   connections: [] as ReadonlyArray<ConnectionSnapshot>,
   catalog: null as AgentModelCatalog | null,
+  workspaceKind: null as WorkspaceKind | null,
 }));
 
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.save }));
@@ -37,7 +39,8 @@ vi.mock("../../state/query", () => ({
 vi.mock("../chat/useComposerSkills", () => ({ useCodenineSkills: () => [] }));
 vi.mock("./useStartAgentChat", () => ({
   useStartAgentChat: () => () => Promise.resolve(true),
-  useAgentChatWorkspace: () => null,
+  useAgentChatWorkspace: () =>
+    state.workspaceKind === null ? null : { kind: state.workspaceKind },
 }));
 vi.mock(import("./useAgents"), async (original) => ({
   ...(await original()),
@@ -87,6 +90,7 @@ const connection: ConnectionSnapshot = {
 function setup() {
   state.save.mockReset().mockResolvedValue(AsyncResult.success({ ...agent, title: "Mail helper" }));
   state.connections = [connection];
+  state.workspaceKind = null;
   state.catalog = {
     settings: DEFAULT_UNIFIED_SETTINGS,
     entries: deriveProviderInstanceEntries([
@@ -182,4 +186,22 @@ it("follows a newer read until it is edited, then keeps the edits and offers the
   await expect
     .element(page.getByRole("button", { name: "Load the newer agent" }))
     .not.toBeInTheDocument();
+});
+
+it.each([
+  { kind: "code", on: [] },
+  { kind: "work", on: ["Read files", "Search the web"] },
+  { kind: "create", on: ["Read files", "Edit files"] },
+] as const)("a new agent in a $kind workspace starts with that type's abilities", async (row) => {
+  setup();
+  state.workspaceKind = row.kind;
+  await using _screen = await render(
+    <AgentForm environmentId={environmentId} workspace={null} agent={null} connected />,
+  );
+  for (const name of ["Read files", "Edit files", "Run commands", "Search the web"] as const) {
+    const ability = page.getByRole("switch", { name });
+    const on: ReadonlyArray<string> = row.on;
+    if (on.includes(name)) await expect.element(ability).toBeChecked();
+    else await expect.element(ability).not.toBeChecked();
+  }
 });

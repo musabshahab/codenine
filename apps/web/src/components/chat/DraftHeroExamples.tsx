@@ -7,6 +7,7 @@ import {
   useComposerTeamRequested,
   useComposerWorkflowRequested,
 } from "~/composerDraftStore";
+import type { WorkspaceExample } from "@codenine/shared/workspacePreset";
 import { cn } from "~/lib/utils";
 import type { ChatComposerHandle } from "./ChatComposer";
 import { draftHeroExamples } from "./composerTeam.logic";
@@ -33,6 +34,8 @@ export function ComposerRequestNote(props: {
 /** Starting points under an empty new chat. A pick fills the composer; it never sends. */
 export function DraftHeroExamples(props: {
   target: ComposerThreadTarget;
+  /** The workspace preset's starting points. */
+  examples: ReadonlyArray<WorkspaceExample>;
   hasProject: boolean;
   teamOffered: boolean;
   composerRef: { readonly current: ChatComposerHandle | null };
@@ -41,6 +44,7 @@ export function DraftHeroExamples(props: {
   const workflowRequested = useComposerWorkflowRequested(props.target);
   const setTeamRequested = useComposerDraftStore((store) => store.setTeamRequested);
   const examples = draftHeroExamples({
+    examples: props.examples,
     hasProject: props.hasProject,
     composerEmpty,
     teamAvailable: props.teamOffered,

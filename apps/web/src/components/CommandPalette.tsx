@@ -124,6 +124,7 @@ import {
   useCommandPaletteStore,
 } from "../commandPaletteStore";
 import { openNewProjectDialog, useNewProjectDialogStore } from "../newProjectDialogStore";
+import { projectPreset } from "../workspaceKind";
 import { getLatestThreadForProject, sortThreads } from "@codenine/client-runtime/state/thread-sort";
 import { cn, getLocalFileManagerName, isMacPlatform } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -864,6 +865,8 @@ function OpenCommandPaletteDialog(props: {
 
   if (
     activeThread !== null &&
+    projectPreset(projectByKey.get(`${activeThread.environmentId}:${activeThread.projectId}`))
+      .composerControls.gitActions &&
     threadPullRequestLinkMode(activeThreadServerConfig?.environment.capabilities) !== "unsupported"
   ) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);

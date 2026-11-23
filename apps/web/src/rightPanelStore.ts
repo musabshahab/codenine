@@ -138,7 +138,11 @@ interface RightPanelStoreState {
   closeSurfacesToRight: (ref: ScopedThreadRef, surfaceId: string) => void;
   closeAllSurfaces: (ref: ScopedThreadRef) => void;
   moveSurface: (ref: ScopedThreadRef, surfaceId: string, toIndex: number) => void;
-  reconcileFileSurfaces: (ref: ScopedThreadRef, workspaceAvailable: boolean) => void;
+  /** Drops surfaces the thread can no longer show: files without a workspace, a Diff tab the workspace does not offer. */
+  reconcileSurfaces: (
+    ref: ScopedThreadRef,
+    available: { readonly workspace: boolean; readonly diff: boolean },
+  ) => void;
   show: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
   setMaximized: (ref: ScopedThreadRef, maximized: boolean) => void;
@@ -828,14 +832,15 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             return { ...current, surfaces };
           }),
         ),
-      reconcileFileSurfaces: (ref, workspaceAvailable) =>
+      reconcileSurfaces: (ref, available) =>
         set((state) =>
           automaticUpdate(state, scopedThreadKey(ref), (current) => {
-            if (workspaceAvailable) return current;
-            const surfaces = current.surfaces.filter(
-              (surface) =>
-                surface.kind !== "files" &&
-                (surface.kind !== "file" || surface.attachment !== undefined),
+            const surfaces = current.surfaces.filter((surface) =>
+              surface.kind === "diff"
+                ? available.diff
+                : available.workspace ||
+                  (surface.kind !== "files" &&
+                    (surface.kind !== "file" || surface.attachment !== undefined)),
             );
             if (surfaces.length === current.surfaces.length) return current;
             const activeStillExists = surfaces.some(

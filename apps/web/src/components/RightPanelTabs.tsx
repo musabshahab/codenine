@@ -88,7 +88,8 @@ export interface RightPanelTabsProps {
   onMoveSurface?: (surfaceId: string, toIndex: number) => void;
   onCopyFilePath: (relativePath: string) => void;
   onAddTerminal: () => void;
-  onAddDiff: () => void;
+  /** Absent where the workspace type offers no Diff tab. */
+  onAddDiff?: (() => void) | undefined;
   onAddFiles: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
@@ -211,7 +212,8 @@ function SurfaceMenuItem(props: {
 
 function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
-  onAddDiff: () => void;
+  /** Absent where the workspace type offers no Diff tab. */
+  onAddDiff?: (() => void) | undefined;
   onAddFiles: () => void;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
@@ -266,14 +268,18 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.files,
       onClick: props.onAddFiles,
     },
-    {
-      label: "Diff",
-      icon: FileDiff,
-      shortcut: "D",
-      available: props.diffAvailable,
-      disabledReason: SURFACE_UNAVAILABLE_HINTS.diff,
-      onClick: props.onAddDiff,
-    },
+    ...(props.onAddDiff
+      ? [
+          {
+            label: "Diff",
+            icon: FileDiff,
+            shortcut: "D",
+            available: props.diffAvailable,
+            disabledReason: SURFACE_UNAVAILABLE_HINTS.diff,
+            onClick: props.onAddDiff,
+          },
+        ]
+      : []),
     ...(props.onAddSideChat
       ? [
           {
@@ -734,14 +740,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.files,
       onClick: props.onAddFiles,
     },
-    {
-      label: "Diff",
-      icon: FileDiff,
-      shortcut: "D",
-      available: props.diffAvailable,
-      disabledReason: SURFACE_DISABLED_REASONS.diff,
-      onClick: props.onAddDiff,
-    },
+    ...(props.onAddDiff
+      ? [
+          {
+            label: "Diff",
+            icon: FileDiff,
+            shortcut: "D",
+            available: props.diffAvailable,
+            disabledReason: SURFACE_DISABLED_REASONS.diff,
+            onClick: props.onAddDiff,
+          },
+        ]
+      : []),
     ...(props.onAddSideChat
       ? [
           {

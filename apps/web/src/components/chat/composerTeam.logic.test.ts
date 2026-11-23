@@ -1,3 +1,4 @@
+import { WORKSPACE_PRESETS } from "@codenine/shared/workspacePreset";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -44,7 +45,12 @@ describe("sendsComposerRequest", () => {
 });
 
 describe("draftHeroExamples", () => {
-  const start = { hasProject: true, composerEmpty: true, workflowRequested: false };
+  const start = {
+    examples: WORKSPACE_PRESETS.code.startScreen.examples,
+    hasProject: true,
+    composerEmpty: true,
+    workflowRequested: false,
+  };
   it.each([
     { ...start, teamAvailable: true, teams: [true, false, false] },
     { ...start, teamAvailable: false, teams: [false, false] },

@@ -1,4 +1,6 @@
 import { WorkspaceKind } from "@codenine/contracts";
+import type { EnvironmentProject } from "@codenine/client-runtime/state/shell";
+import { workspacePreset, type WorkspacePreset } from "@codenine/shared/workspacePreset";
 import * as Schema from "effect/Schema";
 
 export const isWorkspaceKind = Schema.is(WorkspaceKind);
@@ -15,4 +17,11 @@ export const WORKSPACE_KIND_OPTIONS = [
 
 export function workspaceKindOption(kind: WorkspaceKind) {
   return WORKSPACE_KIND_OPTIONS.find((option) => option.kind === kind) ?? WORKSPACE_KIND_OPTIONS[0];
+}
+
+/** Personal has no type: with it, or with no workspace at all, a chat uses the Code preset. */
+export function projectPreset(
+  project: Pick<EnvironmentProject, "kind" | "isScratch"> | null | undefined,
+): WorkspacePreset {
+  return workspacePreset(project == null || project.isScratch ? null : project.kind);
 }

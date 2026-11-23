@@ -344,7 +344,7 @@ describe("rightPanelStore", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "src/app.ts");
     const revision = store.getUserActionRevision(refA);
-    store.reconcileFileSurfaces(refA, false);
+    store.reconcileSurfaces(refA, { workspace: false, diff: true });
 
     expect(store.openProactive(refA, completedDiff, revision)).toBe(true);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
@@ -742,12 +742,12 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("removes persisted file surfaces when their workspace no longer exists", () => {
+  it("removes persisted surfaces their workspace no longer has or offers", () => {
     useRightPanelStore.getState().openFile(refA, "src/index.ts");
     useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().openFile(refA, "README.md");
 
-    useRightPanelStore.getState().reconcileFileSurfaces(refA, false);
+    useRightPanelStore.getState().reconcileSurfaces(refA, { workspace: false, diff: true });
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
@@ -756,8 +756,15 @@ describe("rightPanelStore", () => {
     });
 
     useRightPanelStore.getState().openFile(refB, "conductor.json");
-    useRightPanelStore.getState().reconcileFileSurfaces(refB, false);
+    useRightPanelStore.getState().reconcileSurfaces(refB, { workspace: false, diff: true });
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB)).toEqual({
+      isOpen: false,
+      activeSurfaceId: null,
+      surfaces: [],
+    });
+
+    useRightPanelStore.getState().reconcileSurfaces(refA, { workspace: true, diff: false });
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: false,
       activeSurfaceId: null,
       surfaces: [],
@@ -775,7 +782,7 @@ describe("rightPanelStore", () => {
     useRightPanelStore.getState().openFile(refA, "README.md");
     useRightPanelStore.getState().openAttachment(refA, attachment);
 
-    useRightPanelStore.getState().reconcileFileSurfaces(refA, false);
+    useRightPanelStore.getState().reconcileSurfaces(refA, { workspace: false, diff: true });
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,

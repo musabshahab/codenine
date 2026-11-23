@@ -24,6 +24,8 @@ interface RightPanelActionsInput {
   readonly threadPanelPresentation: ThreadPanelPresentation;
   readonly isServerThread: boolean;
   readonly isGitRepo: boolean;
+  /** False when the workspace preset has no Diff tab, so no shortcut or link opens one. */
+  readonly diffTabOffered: boolean;
   readonly diffOpen: boolean;
   readonly rightPanelOpen: boolean;
   readonly canMaximizeRightPanel: boolean;
@@ -48,6 +50,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     threadPanelPresentation,
     isServerThread,
     isGitRepo,
+    diffTabOffered,
     diffOpen,
     rightPanelOpen,
     canMaximizeRightPanel,
@@ -59,7 +62,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   } = input;
 
   const onToggleDiff = () => {
-    if (!isServerThread) {
+    if (!isServerThread || !diffTabOffered) {
       return;
     }
     if (!diffOpen) {
@@ -71,7 +74,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const onToggleDiffStable = useStableCallback(onToggleDiff);
   const addDiffSurface = () => {
-    if (!activeThreadRef || !isServerThread || !isGitRepo) return;
+    if (!activeThreadRef || !isServerThread || !isGitRepo || !diffTabOffered) return;
     useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
@@ -201,7 +204,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   };
   const copyRightPanelFilePathStable = useStableCallback(copyRightPanelFilePath);
   const onOpenTurnDiff = (runId: RunId, filePath?: string) => {
-    if (!isServerThread || !activeThreadRef) return;
+    if (!isServerThread || !activeThreadRef || !diffTabOffered) return;
     const diffOpen =
       selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) === "diff";
     explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;
@@ -210,7 +213,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     onDiffPanelOpen?.();
   };
   const onOpenToolDiffStable = useStableCallback((target: ToolCallDiffTarget) => {
-    if (!isServerThread || !activeThreadRef) return;
+    if (!isServerThread || !activeThreadRef || !diffTabOffered) return;
     const diffOpen =
       selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, activeThreadRef) === "diff";
     explicitDiffOpenRef.current = diffOpen ? null : activeThreadRef;

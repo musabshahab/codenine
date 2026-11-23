@@ -22,6 +22,7 @@ import { commandErrorMessage } from "../../lib/commandError";
 import { useEditorDraft } from "../../hooks/useEditorDraft";
 import { ensureLocalApi } from "../../localApi";
 import { agentsEnvironment } from "../../state/agents";
+import { projectPreset } from "../../workspaceKind";
 import { connectorsEnvironment } from "../../state/connectors";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -55,7 +56,6 @@ import {
   checkAgentDraft,
   effectiveApproval,
   modelInfoLine,
-  NO_ABILITIES,
 } from "./agents.logic";
 import { describeAgentModel, useAgentModelCatalog } from "./useAgents";
 import { useAgentChatWorkspace, useStartAgentChat } from "./useStartAgentChat";
@@ -94,7 +94,12 @@ export interface AgentFormForTeam {
   readonly intro?: string;
 }
 
-function draftOf(agent: AgentDetail | null, start: AgentFormStart | undefined) {
+function draftOf(
+  agent: AgentDetail | null,
+  start: AgentFormStart | undefined,
+  /** The workspace preset's abilities, for a new agent no suggestion describes. */
+  presetAbilities: AgentAbilities,
+) {
   const model = agent === null ? (start?.model ?? null) : agent.model;
   const modelChoice: AgentModelChoiceValue | null =
     model === null ? null : { instanceId: model.instanceId, model: model.model };
@@ -109,7 +114,7 @@ function draftOf(agent: AgentDetail | null, start: AgentFormStart | undefined) {
     effort,
     skills,
     connectors,
-    abilities: agent?.abilities ?? start?.abilities ?? NO_ABILITIES,
+    abilities: agent?.abilities ?? start?.abilities ?? presetAbilities,
   };
 }
 
@@ -146,7 +151,7 @@ export function AgentForm({
   const [busy, setBusy] = useState(false);
   const { draft, newer, follow, change, release, saved } = useEditorDraft(
     agent,
-    (from) => draftOf(from, forTeam?.start),
+    (from) => draftOf(from, forTeam?.start, projectPreset(chatWorkspace).agentAbilities),
     busy,
   );
   const { title, description, instructions, modelChoice, effort, skills, abilities } = draft;

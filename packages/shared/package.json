@@ -526,6 +526,10 @@
     "./cloneUrl": {
       "types": "./src/cloneUrl.ts",
       "import": "./src/cloneUrl.ts"
+    },
+    "./workspacePreset": {
+      "types": "./src/workspacePreset.ts",
+      "import": "./src/workspacePreset.ts"
     }
   },
   "scripts": {

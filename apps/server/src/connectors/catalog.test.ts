@@ -4,12 +4,14 @@ import {
   ConnectorCatalogId,
   DEFAULT_CONNECTOR_APPROVALS,
 } from "@codenine/contracts";
+import { WORKSPACE_PRESETS } from "@codenine/shared/workspacePreset";
 import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 
 import { CONNECTOR_CATALOG, catalogConnector } from "./catalog.ts";
 import { toolRisk } from "./ConnectorApprovals.ts";
 import { resolveServer } from "./connectionServer.ts";
+import { SKILL_LIBRARY } from "../skills/SkillLibrary.ts";
 
 const isCatalogEntry = Schema.is(ConnectorCatalogEntry);
 
@@ -67,4 +69,13 @@ it("starts the browser without its sandbox only when Codenine runs as root", () 
   };
   assert.include(args(true), "--no-sandbox");
   assert.notInclude(args(false), "--no-sandbox");
+});
+
+it("workspace presets suggest only connectors and skills the libraries have", () => {
+  const connectors = CONNECTOR_CATALOG.map(({ entry }) => String(entry.id));
+  const skills = SKILL_LIBRARY.map((skill) => skill.name);
+  for (const preset of Object.values(WORKSPACE_PRESETS)) {
+    assert.includeMembers(connectors, [...preset.suggestedConnectors]);
+    assert.includeMembers(skills, [...preset.suggestedSkills]);
+  }
 });

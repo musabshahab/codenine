@@ -16,6 +16,7 @@ import { getRouter } from "~/router";
 import {
   ENVIRONMENT_ID,
   PROJECT_ID,
+  emitProjectUpdate,
   installFakeEnvironment,
   type FakeDriver,
 } from "../../test/fakeEnvironment";
@@ -65,4 +66,56 @@ it("a new draft does not load its reserved thread before the server lists it", a
     .filter((url) => url.includes(`/api/orchestration/threads/${threadId}/`));
   // A 404 here marks the thread deleted, and the view never loads it once the send creates it.
   expect(threadRequests).toEqual([]);
+});
+
+it("a new chat starts from its workspace type's preset, and follows a change of type", async () => {
+  using _environment = installFakeEnvironment([]);
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+    onboardingCompletedEnvironmentId: ENVIRONMENT_ID,
+  });
+  const draftId = DraftId.make("draft-preset");
+  useComposerDraftStore
+    .getState()
+    .setProjectDraftThreadId(scopeProjectRef(ENVIRONMENT_ID, PROJECT_ID), draftId, {
+      threadId: ThreadId.make("thread-preset"),
+    });
+
+  const router = getRouter(createMemoryHistory({ initialEntries: [`/draft/${draftId}`] }));
+  await router.load();
+  await using _app = await render(<AppRoot router={router} />, {
+    // AppRoot brings its own router.
+    router: false,
+  });
+  await expect.element(page.getByText("render", { exact: true }).first()).toBeVisible();
+
+  const checkout = page.getByText("Current checkout").first();
+  // Ends on code: the app's connection, and so its project, outlives this test.
+  for (const { kind, headline, example, git } of [
+    {
+      kind: "work",
+      headline: "What do you need done?",
+      example: "Summarise this week's emails from my team into a table",
+      git: false,
+    },
+    {
+      kind: "create",
+      headline: "What do you want to make?",
+      example: "Design a poster for a summer music festival",
+      git: false,
+    },
+    {
+      kind: "code",
+      headline: "What would you like to do?",
+      example: "Fix the failing test and explain the cause",
+      git: true,
+    },
+  ] as const) {
+    await emitProjectUpdate({ kind });
+    await expect.element(page.getByRole("heading", { name: headline })).toBeVisible();
+    await expect.element(page.getByText(example)).toBeVisible();
+    if (git) await expect.element(checkout).toBeVisible();
+    else await expect.element(checkout).not.toBeInTheDocument();
+  }
 });
