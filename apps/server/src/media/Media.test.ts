@@ -26,7 +26,12 @@ import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "../workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as Media from "./Media.ts";
-import { type MediaAdapter, type MediaAdapterRequest, mediaFailure } from "./MediaAdapter.ts";
+import {
+  type MediaAdapter,
+  type MediaAdapterRequest,
+  mediaFailure,
+  MediaLimits,
+} from "./MediaAdapter.ts";
 import { MediaAdapters } from "./MediaProviders.ts";
 
 const KEY = "key-live-0123456789";
@@ -79,14 +84,14 @@ interface Harness {
   readonly adapters?: ReadonlyArray<MediaAdapter>;
   readonly media?: { readonly monthlyLimitUsd?: number; readonly perRequestLimitUsd?: number };
   /** Answers downloads. Without it any request fails the test. */
-  readonly http?: (url: string) => Response;
+  readonly http?: (url: string) => Response | Effect.Effect<Response>;
 }
 
 const layerWith = (harness: Harness = {}) =>
   Media.layer.pipe(
     Layer.provide(Layer.succeed(MediaAdapters, harness.adapters ?? [adapter()])),
     Layer.provide(
-      Layer.succeed(Media.MediaLimits, {
+      Layer.succeed(MediaLimits, {
         maxImageBytes: MAX_IMAGE_BYTES,
         maxSourceBytes: 32,
         downloadTimeout: "60 seconds",
@@ -95,11 +100,20 @@ const layerWith = (harness: Harness = {}) =>
     Layer.provide(
       Layer.succeed(
         HttpClient.HttpClient,
-        HttpClient.make((request) =>
-          harness.http === undefined
-            ? Effect.die(`must not send a request: ${request.url}`)
-            : Effect.succeed(HttpClientResponse.fromWeb(request, harness.http(request.url))),
-        ),
+        HttpClient.make((request) => {
+          if (harness.http === undefined) {
+            return Effect.die(`must not send a request: ${request.url}`);
+          }
+          const answer = harness.http(request.url);
+          return (Effect.isEffect(answer) ? answer : Effect.succeed(answer)).pipe(
+            Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
+          );
+        }),
+      ),
+    ),
+    Layer.provide(
+      Layer.succeed(Media.MediaHostAddresses, (hostname) =>
+        Effect.succeed([hostname.startsWith("inside.") ? "10.0.0.7" : "203.0.114.9"]),
       ),
     ),
     Layer.provide(Layer.mock(ConnectorStore.ConnectorStore)({})),
@@ -254,8 +268,9 @@ describe("Media", () => {
     }).pipe(Effect.provide(layerWith())),
   );
 
-  it.effect("downloads a result within its limits and records what the provider charged", () =>
-    Effect.gen(function* () {
+  it.effect("downloads a result within its limits and records what the provider charged", () => {
+    const fetched: Array<string> = [];
+    return Effect.gen(function* () {
       const media = yield* Media.Media;
       const cwd = yield* workspace;
       const result = yield* media.generate({ jobId: jobId(), cwd, prompt: "ok", folder: "art/" });
@@ -268,13 +283,20 @@ describe("Media", () => {
         ["not an image", "unavailable"],
         ["missing", "unavailable"],
         ["local", "unavailable"],
+        // A public address that sends the request on to a private one, or stands for one.
+        ["redirected inside", "unavailable"],
+        ["named inside", "unavailable"],
+        ["redirected for ever", "unavailable"],
       ] as const) {
         const error = yield* media.generate({ jobId: jobId(), cwd, prompt }).pipe(Effect.flip);
         expect(error, prompt).toMatchObject({ _tag: "MediaProviderError", reason });
       }
       expect(yield* listFolder(cwd, "art")).toEqual(["ok.jpg"]);
       // The provider charged for every request, saved or not.
-      expect((yield* media.overview).usage).toMatchObject({ spentUsd: 0.35, images: 1 });
+      expect((yield* media.overview).usage).toMatchObject({ spentUsd: 0.56, images: 1 });
+      expect(fetched.filter((url) => !url.startsWith("https://cdn.studio.example/"))).toEqual([
+        "https://files.studio.example/ok.jpg",
+      ]);
     }).pipe(
       Effect.provide(
         layerWith({
@@ -288,7 +310,9 @@ describe("Media", () => {
                       url:
                         request.prompt === "local"
                           ? "https://127.0.0.1/a.png"
-                          : `https://cdn.studio.example/${encodeURIComponent(request.prompt)}.png`,
+                          : request.prompt === "named inside"
+                            ? "https://inside.studio.example/a.png"
+                            : `https://cdn.studio.example/${encodeURIComponent(request.prompt)}.png`,
                     },
                   ],
                   costUsd: 0.07,
@@ -297,7 +321,13 @@ describe("Media", () => {
             }),
           ],
           http: (url) => {
+            fetched.push(url);
             const image = { headers: { "content-type": "image/png" } };
+            const moved = (location: string) =>
+              new Response(null, { status: 302, headers: { location } });
+            if (url.endsWith("/ok.png")) return moved("https://files.studio.example/ok.jpg");
+            if (url.includes("redirected%20inside")) return moved("http://169.254.169.254/a.png");
+            if (url.includes("for%20ever")) return moved(url);
             if (url.includes("too%20big")) {
               return new Response(new Uint8Array(MAX_IMAGE_BYTES + 1), image);
             }
@@ -309,8 +339,8 @@ describe("Media", () => {
           },
         }),
       ),
-    ),
-  );
+    );
+  });
 
   it.effect.each<
     [
@@ -436,7 +466,10 @@ describe("Media", () => {
     );
   });
 
-  it.effect("cancels a running job, stops the provider and gives its allowance back", () => {
+  it.effect.each<[string, { stops: boolean }]>([
+    ["a provider that stops gives the allowance back", { stops: true }],
+    ["a provider that works on is counted at the estimate", { stops: false }],
+  ])("cancels a running job: %s", ([, { stops }]) => {
     const started = Deferred.makeUnsafe<void>();
     const stopped = Deferred.makeUnsafe<void>();
     let hang = true;
@@ -453,15 +486,25 @@ describe("Media", () => {
       expect(yield* Fiber.join(fiber).pipe(Effect.flip)).toMatchObject({
         _tag: "MediaCancelledError",
       });
-      yield* Deferred.await(stopped);
+      expect(yield* Deferred.isDone(stopped)).toBe(true);
       expect(events.map((event) => event.phase)).toEqual(["queued", "cancelled"]);
       expect(yield* media.cancel(id)).toBe(false);
-      expect((yield* media.overview).usage).toMatchObject({ spentUsd: 0, images: 0 });
+      expect((yield* media.overview).usage).toMatchObject({
+        spentUsd: stops ? 0 : 0.3,
+        images: 0,
+      });
 
-      // The whole month's limit is free again.
       hang = false;
-      const next = yield* media.generate({ jobId: id, cwd, prompt: "quick", count: 3 });
-      expect(next.files).toHaveLength(3);
+      const next = yield* media
+        .generate({ jobId: id, cwd, prompt: "quick", count: 3 })
+        .pipe(Effect.result);
+      if (stops) expect(next._tag === "Success" ? next.success.files : []).toHaveLength(3);
+      else {
+        expect(next._tag === "Failure" ? next.failure : undefined).toMatchObject({
+          _tag: "MediaLimitError",
+          scope: "month",
+        });
+      }
     }).pipe(
       Effect.provide(
         layerWith({
@@ -471,12 +514,128 @@ describe("Media", () => {
                 hang
                   ? Deferred.succeed(started, undefined).pipe(
                       Effect.andThen(Effect.never),
-                      Effect.onInterrupt(() => Deferred.succeed(stopped, undefined)),
+                      Effect.onInterrupt(() =>
+                        (stops ? request.charged(0) : Effect.void).pipe(
+                          Effect.andThen(Deferred.succeed(stopped, undefined)),
+                        ),
+                      ),
                     )
                   : adapter().run(request),
             }),
           ],
           media: { monthlyLimitUsd: 0.3, perRequestLimitUsd: 0.3 },
+        }),
+      ),
+    );
+  });
+
+  it.effect.each<[string, number | undefined, { spentUsd: number; estimated: number }]>([
+    ["at its estimate when the provider says nothing", undefined, { spentUsd: 0.2, estimated: 1 }],
+    ["at what the provider charged", 0.02, { spentUsd: 0.02, estimated: 0 }],
+  ])("counts a request that failed after the provider took it %s", ([, charged, expected]) =>
+    Effect.gen(function* () {
+      const media = yield* Media.Media;
+      const sql = yield* SqlClient.SqlClient;
+      const cwd = yield* workspace;
+      const error = yield* media
+        .generate({ jobId: jobId(), cwd, prompt: "a kite", count: 2 })
+        .pipe(Effect.flip);
+      expect(error).toMatchObject({ _tag: "MediaProviderError", reason: "unavailable" });
+      expect((yield* media.overview).usage).toMatchObject({
+        spentUsd: expected.spentUsd,
+        images: 0,
+      });
+      expect(yield* sql`SELECT cost_estimated AS estimated FROM media_generations`).toEqual([
+        { estimated: expected.estimated },
+      ]);
+    }).pipe(
+      Effect.provide(
+        layerWith({
+          adapters: [
+            adapter({
+              run: (request) =>
+                (charged === undefined ? Effect.void : request.charged(charged)).pipe(
+                  Effect.andThen(Effect.fail(mediaFailure("studio", "unavailable"))),
+                ),
+            }),
+          ],
+        }),
+      ),
+    ),
+  );
+
+  it.effect("finishes and records a job whose caller went away", () => {
+    const started = Deferred.makeUnsafe<void>();
+    const release = Deferred.makeUnsafe<void>();
+    return Effect.gen(function* () {
+      const media = yield* Media.Media;
+      const cwd = yield* workspace;
+      const subscribed = yield* Deferred.make<void>();
+      const completed = yield* media.jobs.pipe(
+        Stream.onStart(Deferred.succeed(subscribed, undefined)),
+        Stream.filter((event) => event.phase === "completed"),
+        Stream.runHead,
+        Effect.forkChild,
+      );
+      yield* Deferred.await(subscribed);
+      const caller = yield* media
+        .generate({ jobId: jobId(), cwd, prompt: "a kite" })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(started);
+      yield* Fiber.interrupt(caller);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(completed);
+      expect(yield* listFolder(cwd)).toEqual(["a-kite.png"]);
+      expect((yield* media.overview).usage).toMatchObject({ spentUsd: 0.1, images: 1 });
+    }).pipe(
+      Effect.provide(
+        layerWith({
+          adapters: [
+            adapter({
+              run: (request) =>
+                Deferred.succeed(started, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                  Effect.andThen(adapter().run(request)),
+                ),
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it.effect("answers that nothing was cancelled once the provider has answered", () => {
+    const downloading = Deferred.makeUnsafe<void>();
+    const release = Deferred.makeUnsafe<void>();
+    return Effect.gen(function* () {
+      const media = yield* Media.Media;
+      const cwd = yield* workspace;
+      const id = jobId();
+      const fiber = yield* media
+        .generate({ jobId: id, cwd, prompt: "a kite" })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(downloading);
+      expect(yield* media.cancel(id)).toBe(false);
+      yield* Deferred.succeed(release, undefined);
+      expect((yield* Fiber.join(fiber)).files).toHaveLength(1);
+    }).pipe(
+      Effect.provide(
+        layerWith({
+          adapters: [
+            adapter({
+              run: () =>
+                Effect.succeed({
+                  images: [{ kind: "url", url: "https://cdn.studio.example/a.png" }],
+                  costUsd: undefined,
+                  seed: undefined,
+                }),
+            }),
+          ],
+          http: () =>
+            Deferred.succeed(downloading, undefined).pipe(
+              Effect.andThen(Deferred.await(release)),
+              Effect.as(new Response(PNG, { headers: { "content-type": "image/png" } })),
+            ),
         }),
       ),
     );
@@ -566,8 +725,14 @@ describe("Media", () => {
         layerWith({
           adapters: [
             adapter({
-              run: () =>
-                Effect.fail(mediaFailure("studio", "key-rejected", `Bad key ${KEY} given`)),
+              run: (request) =>
+                request
+                  .charged(0)
+                  .pipe(
+                    Effect.andThen(
+                      Effect.fail(mediaFailure("studio", "key-rejected", `Bad key ${KEY} given`)),
+                    ),
+                  ),
             }),
           ],
         }),

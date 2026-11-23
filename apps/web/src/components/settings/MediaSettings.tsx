@@ -264,7 +264,7 @@ export function MediaSettings({
           />
           <SettingsRow
             title="This month"
-            description={`${usd(overview.usage.spentUsd)} of ${usd(overview.limits.monthlyLimitUsd)} spent on ${overview.usage.images} ${overview.usage.images === 1 ? "image" : "images"}. Where a provider does not report a price, its estimate is counted.`}
+            description={`${usd(overview.usage.spentUsd)} of ${usd(media.monthlyLimitUsd)} spent on ${overview.usage.images} ${overview.usage.images === 1 ? "image" : "images"}. Where a provider does not report a price, its estimate is counted.`}
           />
         </>
       )}

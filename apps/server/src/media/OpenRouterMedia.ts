@@ -11,7 +11,9 @@ import {
   jsonBody,
   type MediaAdapter,
   type MediaAdapterImage,
+  MEBIBYTE,
   mediaFailure,
+  MediaLimits,
   statusFailure,
   transportFailure,
 } from "./MediaAdapter.ts";
@@ -62,8 +64,10 @@ const errorFailure = (status: number, error: typeof ErrorBody.Type | undefined) 
 
 const run: MediaAdapter["run"] = Effect.fn("OpenRouterMedia.run")(function* (request) {
   const http = yield* HttpClient.HttpClient;
+  // Base64 is a third longer than the image it carries.
+  const maxAnswerBytes = Math.ceil(((yield* MediaLimits).maxImageBytes * 4) / 3) + MEBIBYTE;
   yield* request.progress({ phase: "running" });
-  const response = yield* http
+  const answer = yield* http
     .execute(
       HttpClientRequest.post(CHAT_URL).pipe(
         HttpClientRequest.bearerToken(Redacted.value(request.apiKey)),
@@ -90,13 +94,34 @@ const run: MediaAdapter["run"] = Effect.fn("OpenRouterMedia.run")(function* (req
         }),
       ),
     )
-    .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.mapError(transportFailure(ID)));
-  const body = decodeCompletion(yield* jsonBody(response));
+    .pipe(
+      Effect.mapError(transportFailure(ID)),
+      // A request that failed at once was not taken. One still waiting when time ran out was.
+      Effect.tapError(() => request.charged(0)),
+      Effect.flatMap((response) =>
+        jsonBody(response, maxAnswerBytes).pipe(
+          Effect.map((body) => ({ status: response.status, body })),
+        ),
+      ),
+      // One limit covers the headers and the body, which holds the image and may come slowly.
+      Effect.timeoutOrElse({
+        duration: REQUEST_TIMEOUT,
+        orElse: () => Effect.fail(mediaFailure(ID, "timed-out")),
+      }),
+    );
+  const body = decodeCompletion(answer.body);
   const completion = body._tag === "Some" ? body.value : undefined;
-  if (response.status !== 200) return yield* errorFailure(response.status, completion?.error);
+  if (answer.status !== 200) {
+    yield* request.charged(0);
+    return yield* errorFailure(answer.status, completion?.error);
+  }
+  const cost = completion?.usage?.cost ?? undefined;
   const choice = completion?.choices?.[0];
   const error = completion?.error ?? choice?.error;
-  if (error !== undefined) return yield* errorFailure(response.status, error);
+  if (error !== undefined) {
+    yield* request.charged(cost ?? 0);
+    return yield* errorFailure(answer.status, error);
+  }
 
   const images: Array<MediaAdapterImage> = [];
   for (const image of choice?.message?.images ?? []) {
@@ -113,12 +138,14 @@ const run: MediaAdapter["run"] = Effect.fn("OpenRouterMedia.run")(function* (req
     }
   }
   if (images.length === 0) {
+    // An answer of words alone is still billed, at what OpenRouter says it cost.
+    if (cost !== undefined) yield* request.charged(cost);
     const finish = `${choice?.finish_reason ?? ""} ${choice?.native_finish_reason ?? ""}`;
     return yield* mediaFailure(ID, REFUSAL.test(finish) ? "content-refused" : "unavailable");
   }
   return {
     images,
-    costUsd: completion?.usage?.cost ?? undefined,
+    costUsd: cost,
     seed: request.seed,
   };
 });

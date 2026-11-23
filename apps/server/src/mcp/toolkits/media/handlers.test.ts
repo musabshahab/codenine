@@ -8,7 +8,9 @@ import {
   type RuntimeMode,
   ThreadId,
 } from "@codenine/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -72,6 +74,9 @@ const chat = {
   runtimeMode: "full-access" as RuntimeMode,
   hasKey: true,
   requests: [] as Array<MediaAdapterRequest>,
+  /** Set to make the provider wait until it is stopped. */
+  waiting: undefined as Deferred.Deferred<void> | undefined,
+  stopped: false,
 };
 
 const studio: MediaAdapter = {
@@ -93,9 +98,17 @@ const studio: MediaAdapter = {
   ],
   key: Effect.sync(() => (chat.hasKey ? Option.some(Redacted.make(KEY)) : Option.none())),
   run: (request) =>
-    Effect.sync(() => {
+    Effect.suspend(() => {
       chat.requests.push(request);
-      return {
+      if (chat.waiting !== undefined) {
+        return Deferred.succeed(chat.waiting, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() =>
+            request.charged(0).pipe(Effect.andThen(Effect.sync(() => void (chat.stopped = true)))),
+          ),
+        );
+      }
+      return Effect.succeed({
         images: Array.from({ length: request.count }, () => ({
           kind: "bytes" as const,
           bytes: PNG,
@@ -103,7 +116,7 @@ const studio: MediaAdapter = {
         })),
         costUsd: undefined,
         seed: undefined,
-      };
+      });
     }),
 };
 
@@ -177,6 +190,8 @@ const setup = Effect.fn("MediaToolkitTest.setup")(function* () {
     runtimeMode: "full-access",
     hasKey: true,
     requests: [],
+    waiting: undefined,
+    stopped: false,
   });
   yield* fileSystem.writeFile(path.join(cwd, "photo.png"), PNG);
   yield* versions.syncWorkspace({ cwd, origin: { kind: "turn-start", threadId } });
@@ -231,6 +246,20 @@ it.layer(layer)("image tools", (it) => {
         "edits/make-the-sky-pink.png",
         "media/a-lighthouse-at-dusk.png",
       ]);
+    }),
+  );
+
+  it.effect("stop the provider when the agent's call is stopped", () =>
+    Effect.gen(function* () {
+      const { call } = yield* setup();
+      const waiting = yield* Deferred.make<void>();
+      chat.waiting = waiting;
+      const fiber = yield* call("codenine_image_generate", { prompt: "A lighthouse" }).pipe(
+        Effect.forkChild,
+      );
+      yield* Deferred.await(waiting);
+      yield* Fiber.interrupt(fiber);
+      expect(chat.stopped).toBe(true);
     }),
   );
 

@@ -13,7 +13,7 @@ import { TestClock } from "effect/testing";
 import * as ConnectorStore from "../connectors/ConnectorStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { falMediaAdapter } from "./FalMedia.ts";
-import type { MediaAdapter, MediaAdapterRequest } from "./MediaAdapter.ts";
+import { type MediaAdapter, type MediaAdapterRequest, MediaLimits } from "./MediaAdapter.ts";
 import { openRouterMediaAdapter } from "./OpenRouterMedia.ts";
 
 const KEY = "key-live-0123456789";
@@ -67,8 +67,18 @@ const requestFor = (
   source: undefined,
   mask: undefined,
   progress: () => Effect.void,
+  charged: () => Effect.void,
   ...overrides,
 });
+
+/** A request that keeps what the adapter said the provider charged for work without images. */
+const tracked = (adapter: MediaAdapter, modelId: string) => {
+  const charged: Array<number> = [];
+  const request = requestFor(adapter, modelId, {
+    charged: (costUsd) => Effect.sync(() => void charged.push(costUsd)),
+  });
+  return { charged, request };
+};
 
 const runWith = (
   adapter: MediaAdapter,
@@ -200,31 +210,33 @@ describe("fal adapter", () => {
   ])("maps %s to a typed error", ([, status, body, reason]) =>
     Effect.gen(function* () {
       const { sent, client } = fakeHttp(() => Response.json(body, { status }));
-      const error = yield* runWith(
-        falMediaAdapter,
-        client,
-        requestFor(falMediaAdapter, FAL_SCHNELL),
-      ).pipe(Effect.flip);
+      const { charged, request } = tracked(falMediaAdapter, FAL_SCHNELL);
+      const error = yield* runWith(falMediaAdapter, client, request).pipe(Effect.flip);
       expect(error).toMatchObject({ _tag: "MediaProviderError", provider: "fal", reason });
       expect(sent).toHaveLength(1);
+      // fal turned the request down, so nothing is owed.
+      expect(charged).toEqual([0]);
     }),
   );
 
-  it.effect.each<[string, number, unknown, MediaProviderFailure]>([
+  // The last column is what the job still costs: nothing where fal refused it, else its estimate.
+  it.effect.each<[string, number, unknown, MediaProviderFailure, ReadonlyArray<number>]>([
     [
       "a job that failed on content",
       422,
       { detail: [{ msg: "Blocked.", type: "content_policy_violation" }] },
       "content-refused",
+      [0],
     ],
     [
       "images the safety checker blanked",
       200,
       { images: [{ url: "https://v3.fal.media/files/a.png" }], has_nsfw_concepts: [true] },
       "content-refused",
+      [],
     ],
-    ["a result without images", 200, { images: [] }, "unavailable"],
-  ])("maps %s to a typed error", ([, status, body, reason]) =>
+    ["a result without images", 200, { images: [] }, "unavailable", []],
+  ])("maps %s to a typed error", ([, status, body, reason, owed]) =>
     Effect.gen(function* () {
       const { client } = fakeHttp((request) =>
         request.method === "POST"
@@ -233,49 +245,88 @@ describe("fal adapter", () => {
             ? Response.json({ status: "COMPLETED" })
             : Response.json(body, { status }),
       );
-      const error = yield* runWith(
-        falMediaAdapter,
-        client,
-        requestFor(falMediaAdapter, FAL_SCHNELL),
-      ).pipe(Effect.flip);
+      const { charged, request } = tracked(falMediaAdapter, FAL_SCHNELL);
+      const error = yield* runWith(falMediaAdapter, client, request).pipe(Effect.flip);
       expect(error).toMatchObject({ provider: "fal", reason });
+      expect(charged).toEqual(owed);
     }),
   );
 
-  it.effect.each<["interrupted" | "left waiting"]>([["interrupted"], ["left waiting"]])(
-    "tells fal to cancel a job that is %s",
-    ([ending]) =>
-      Effect.gen(function* () {
-        const polled = yield* Queue.unbounded<void>();
-        const { sent, client } = fakeHttp((request) => {
-          if (request.method === "POST") return falSubmitted();
-          if (request.method === "PUT") {
-            return Response.json({ status: "CANCELLATION_REQUESTED" }, { status: 202 });
-          }
-          return Queue.offer(polled, undefined).pipe(
-            Effect.as(Response.json({ status: "IN_QUEUE", queue_position: 9 }, { status: 202 })),
-          );
-        });
-        const fiber = yield* runWith(
-          falMediaAdapter,
-          client,
-          requestFor(falMediaAdapter, FAL_SCHNELL),
-        ).pipe(Effect.forkChild);
-        yield* Queue.take(polled);
-        if (ending === "interrupted") {
-          yield* Fiber.interrupt(fiber);
-        } else {
-          yield* TestClock.adjust("5 minutes");
-          expect(yield* Fiber.join(fiber).pipe(Effect.flip)).toMatchObject({
-            reason: "timed-out",
-          });
+  it.effect("asks again when a status or result request gets no usable answer", () =>
+    Effect.gen(function* () {
+      const asked = yield* Queue.unbounded<void>();
+      const busy = () => Response.json({ detail: "Bad gateway" }, { status: 502 });
+      const statuses = [busy(), new Response("<html>", { status: 200 }), busy()];
+      const results = [busy()];
+      const { sent, client } = fakeHttp((request) => {
+        if (request.method === "POST") return falSubmitted();
+        const answer = request.url.endsWith("/status")
+          ? (statuses.shift() ?? Response.json({ status: "COMPLETED" }))
+          : (results.shift() ??
+            Response.json({ images: [{ url: "https://v3.fal.media/files/a.png" }] }));
+        return Queue.offer(asked, undefined).pipe(Effect.as(answer));
+      });
+      const { charged, request } = tracked(falMediaAdapter, FAL_SCHNELL);
+      const fiber = yield* runWith(falMediaAdapter, client, request).pipe(Effect.forkChild);
+      for (let question = 0; question < 6; question++) {
+        yield* Queue.take(asked);
+        yield* TestClock.adjust("1 second");
+      }
+      expect((yield* Fiber.join(fiber)).images).toHaveLength(1);
+      expect(sent.map((entry) => entry.method)).not.toContain("PUT");
+      expect(charged).toEqual([]);
+    }),
+  );
+
+  // fal stops a job that is still in its queue, so only that one costs nothing once cancelled.
+  it.effect.each<
+    ["interrupted" | "left waiting" | "not answered", "IN_QUEUE" | "IN_PROGRESS", Array<number>]
+  >([
+    ["interrupted", "IN_QUEUE", [0]],
+    ["left waiting", "IN_QUEUE", [0]],
+    ["not answered", "IN_QUEUE", [0]],
+    ["interrupted", "IN_PROGRESS", []],
+    ["not answered", "IN_PROGRESS", []],
+  ])("tells fal to cancel a job that is %s while %s", ([ending, status, owed]) =>
+    Effect.gen(function* () {
+      const polled = yield* Queue.unbounded<void>();
+      let polls = 0;
+      const { sent, client } = fakeHttp((request) => {
+        if (request.method === "POST") return falSubmitted();
+        if (request.method === "PUT") {
+          return Response.json({ status: "CANCELLATION_REQUESTED" }, { status: 202 });
         }
-        expect(sent.at(-1)).toMatchObject({
-          method: "PUT",
-          url: `${FAL_REQUESTS}/cancel`,
-          authorization: `Key ${KEY}`,
+        const answer =
+          ending === "not answered" && polls++ > 0
+            ? Response.json({ detail: "Bad gateway" }, { status: 502 })
+            : Response.json({ status, queue_position: 9 }, { status: 202 });
+        return Queue.offer(polled, undefined).pipe(Effect.as(answer));
+      });
+      const { charged, request } = tracked(falMediaAdapter, FAL_SCHNELL);
+      const fiber = yield* runWith(falMediaAdapter, client, request).pipe(Effect.forkChild);
+      yield* Queue.take(polled);
+      if (ending === "interrupted") {
+        yield* Fiber.interrupt(fiber);
+      } else if (ending === "left waiting") {
+        yield* TestClock.adjust("5 minutes");
+        expect(yield* Fiber.join(fiber).pipe(Effect.flip)).toMatchObject({ reason: "timed-out" });
+      } else {
+        // One good answer, then five that fail one after the other.
+        for (let failed = 0; failed < 5; failed++) {
+          yield* TestClock.adjust("1 second");
+          yield* Queue.take(polled);
+        }
+        expect(yield* Fiber.join(fiber).pipe(Effect.flip)).toMatchObject({
+          reason: "unavailable",
         });
-      }),
+      }
+      expect(sent.at(-1)).toMatchObject({
+        method: "PUT",
+        url: `${FAL_REQUESTS}/cancel`,
+        authorization: `Key ${KEY}`,
+      });
+      expect(charged).toEqual(owed);
+    }),
   );
 
   it.effect("builds the request addresses itself when fal names one off its queue", () =>
@@ -403,58 +454,94 @@ describe("OpenRouter adapter", () => {
     }),
   );
 
-  it.effect.each<[string, number, unknown, MediaProviderFailure]>([
-    ["a rejected key", 401, { error: { code: 401, message: "No auth" } }, "key-rejected"],
-    ["an account out of credit", 402, { error: { code: 402, message: "x" } }, "out-of-credit"],
-    ["a rate limit", 429, { error: { code: 429, message: "Slow down" } }, "rate-limited"],
+  it.effect.each<[string, number, unknown, MediaProviderFailure, ReadonlyArray<number>]>([
+    ["a rejected key", 401, { error: { code: 401, message: "No auth" } }, "key-rejected", [0]],
+    ["an account out of credit", 402, { error: { code: 402, message: "x" } }, "out-of-credit", [0]],
+    ["a rate limit", 429, { error: { code: 429, message: "Slow down" } }, "rate-limited", [0]],
     [
       "flagged input",
       403,
       { error: { code: 403, message: "Your input was flagged by moderation" } },
       "content-refused",
+      [0],
     ],
-    ["a provider timeout", 408, { error: { code: 408, message: "Timed out" } }, "timed-out"],
-    ["a request that is too large", 413, { error: { code: 413, message: "x" } }, "too-large"],
-    ["a provider failure", 502, { error: { code: 502, message: "Bad gateway" } }, "unavailable"],
-    ["an error inside an answer", 200, { error: { code: 402, message: "x" } }, "out-of-credit"],
+    ["a provider timeout", 408, { error: { code: 408, message: "Timed out" } }, "timed-out", [0]],
+    ["a request that is too large", 413, { error: { code: 413, message: "x" } }, "too-large", [0]],
+    [
+      "a provider failure",
+      502,
+      { error: { code: 502, message: "Bad gateway" } },
+      "unavailable",
+      [0],
+    ],
+    [
+      "an error inside an answer",
+      200,
+      { error: { code: 402, message: "x" } },
+      "out-of-credit",
+      [0],
+    ],
+    // An answer without an image is billed: at what it says it cost, else at the estimate.
     [
       "an answer the model's filter emptied",
       200,
       { choices: [{ finish_reason: "content_filter", message: { content: "" } }] },
       "content-refused",
+      [],
     ],
     [
       "an answer without an image",
       200,
-      { choices: [{ finish_reason: "stop", message: { content: "I can only describe it." } }] },
+      {
+        choices: [{ finish_reason: "stop", message: { content: "I can only describe it." } }],
+        usage: { cost: 0.0004 },
+      },
       "unavailable",
+      [0.0004],
     ],
-  ])("maps %s to a typed error", ([, status, body, reason]) =>
+  ])("maps %s to a typed error", ([, status, body, reason, owed]) =>
     Effect.gen(function* () {
       const { client } = fakeHttp(() => Response.json(body, { status }));
-      const error = yield* runWith(
-        openRouterMediaAdapter,
-        client,
-        requestFor(openRouterMediaAdapter, OPENROUTER_MODEL),
-      ).pipe(Effect.flip);
+      const { charged, request } = tracked(openRouterMediaAdapter, OPENROUTER_MODEL);
+      const error = yield* runWith(openRouterMediaAdapter, client, request).pipe(Effect.flip);
       expect(error).toMatchObject({ _tag: "MediaProviderError", provider: "openrouter", reason });
+      expect(charged).toEqual(owed);
     }),
   );
 
-  it.effect("stops waiting for an answer that does not come", () =>
+  it.effect.each<[string, () => Response | Effect.Effect<Response>, MediaProviderFailure]>([
+    ["that does not come", () => Effect.never, "timed-out"],
+    ["whose body never ends", () => new Response(new ReadableStream({})), "timed-out"],
+    [
+      "that is larger than an image may be",
+      () => Response.json(completion({ padding: "x".repeat(2 * 1024 * 1024) })),
+      "unavailable",
+    ],
+  ])("stops waiting for an answer %s", ([, answer, reason]) =>
     Effect.gen(function* () {
       const asked = yield* Queue.unbounded<void>();
       const { client } = fakeHttp(() =>
-        Queue.offer(asked, undefined).pipe(Effect.andThen(Effect.never)),
+        Queue.offer(asked, undefined).pipe(
+          Effect.andThen(() => {
+            const answered = answer();
+            return Effect.isEffect(answered) ? answered : Effect.succeed(answered);
+          }),
+        ),
       );
-      const fiber = yield* runWith(
-        openRouterMediaAdapter,
-        client,
-        requestFor(openRouterMediaAdapter, OPENROUTER_MODEL),
-      ).pipe(Effect.forkChild);
+      const { charged, request } = tracked(openRouterMediaAdapter, OPENROUTER_MODEL);
+      const fiber = yield* runWith(openRouterMediaAdapter, client, request).pipe(
+        Effect.provideService(MediaLimits, {
+          maxImageBytes: 1024,
+          maxSourceBytes: 1024,
+          downloadTimeout: "60 seconds",
+        }),
+        Effect.forkChild,
+      );
       yield* Queue.take(asked);
       yield* TestClock.adjust("3 minutes");
-      expect(yield* Fiber.join(fiber).pipe(Effect.flip)).toMatchObject({ reason: "timed-out" });
+      expect(yield* Fiber.join(fiber).pipe(Effect.flip)).toMatchObject({ reason });
+      // OpenRouter took the request, so it stays counted at its estimate.
+      expect(charged).toEqual([]);
     }),
   );
 

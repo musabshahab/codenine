@@ -151,7 +151,7 @@ export const MediaCancelInput = Schema.Struct({ jobId: MediaJobId });
 export type MediaCancelInput = typeof MediaCancelInput.Type;
 
 export const MediaCancelResult = Schema.Struct({
-  /** False when no such job was running. */
+  /** False when no such job was running, or its provider had already answered. */
   cancelled: Schema.Boolean,
 });
 export type MediaCancelResult = typeof MediaCancelResult.Type;

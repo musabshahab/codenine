@@ -1,5 +1,6 @@
-// @effect-diagnostics nodeBuiltinImport:off - record ids are random UUIDs.
+// @effect-diagnostics nodeBuiltinImport:off - record ids are random UUIDs; hosts are resolved.
 import * as NodeCrypto from "node:crypto";
+import * as NodeDnsPromises from "node:dns/promises";
 
 import {
   type MediaEditInput,
@@ -36,7 +37,12 @@ import * as PubSub from "effect/PubSub";
 import * as Redacted from "effect/Redacted";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { HttpClient, HttpClientRequest } from "effect/http";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  type HttpClientResponse,
+} from "effect/http";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ConnectorStore from "../connectors/ConnectorStore.ts";
@@ -49,12 +55,13 @@ import {
   type MediaAdapter,
   type MediaAdapterImage,
   type MediaAdapterInputImage,
+  MEBIBYTE,
   mediaFailure,
+  MediaLimits,
   transportFailure,
 } from "./MediaAdapter.ts";
 import { MediaAdapters } from "./MediaProviders.ts";
 
-const MEBIBYTE = 1024 * 1024;
 const DEFAULT_FOLDER = "media";
 const MAX_NAME_ATTEMPTS = 500;
 const EXTENSIONS: Readonly<Record<string, string>> = {
@@ -63,18 +70,26 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/webp": "webp",
 };
 
-/** How large an image may be coming in from a provider, and going out to one for an edit. */
-export const MediaLimits = Context.Reference<{
-  readonly maxImageBytes: number;
-  readonly maxSourceBytes: number;
-  readonly downloadTimeout: `${number} seconds`;
-}>("codenine/media/MediaLimits", {
-  defaultValue: () => ({
-    maxImageBytes: 20 * MEBIBYTE,
-    maxSourceBytes: 10 * MEBIBYTE,
-    downloadTimeout: "60 seconds",
-  }),
+const MAX_REDIRECTS = 3;
+
+/**
+ * The addresses a host name stands for, so a public name that points at a private address is
+ * refused. Empty when this machine cannot resolve the name, as behind a proxy that resolves it.
+ */
+export const MediaHostAddresses = Context.Reference<
+  (hostname: string) => Effect.Effect<ReadonlyArray<string>>
+>("codenine/media/MediaHostAddresses", {
+  defaultValue: () => (hostname) =>
+    Effect.tryPromise({
+      try: () => NodeDnsPromises.lookup(hostname, { all: true }),
+      catch: () => "unresolved" as const,
+    }).pipe(
+      Effect.map((entries) => entries.map((entry) => entry.address)),
+      Effect.orElseSucceed(() => []),
+    ),
 });
+
+const isInternalHost = (host: string) => isLocalLoopbackHost(host) || isPrivateNetworkHost(host);
 
 export interface MediaRunOptions {
   /** True when an agent asks during its turn, so the files are recorded as that turn's change. */
@@ -100,7 +115,10 @@ export class Media extends Context.Service<
       input: MediaEditInput,
       options?: MediaRunOptions,
     ) => Effect.Effect<MediaImageResult, MediaImageError>;
-    /** Stops a running job and tells its provider to stop. False when no such job runs. */
+    /**
+     * Stops a job that waits for its provider, and tells the provider to stop. False when no such
+     * job runs or the provider has already answered. What the provider still charges is recorded.
+     */
     readonly cancel: (jobId: MediaJobId) => Effect.Effect<boolean>;
     /** Every job's steps from now on. */
     readonly jobs: Stream.Stream<MediaJobEvent>;
@@ -159,12 +177,17 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const adapters = yield* MediaAdapters;
   const limits = yield* MediaLimits;
+  const hostAddresses = yield* MediaHostAddresses;
   const scope = yield* Effect.scope;
   const events = yield* PubSub.sliding<MediaJobEvent>(256);
   // One request at a time decides whether it fits, so two cannot both take the last of a limit.
   const admission = yield* Semaphore.make(1);
   let reservedMicros = 0;
-  const running = new Map<string, Deferred.Deferred<void>>();
+  // `stopped` answers a cancel: true once the provider call was stopped, false once it had answered.
+  const running = new Map<
+    string,
+    { readonly cancel: Deferred.Deferred<void>; readonly stopped: Deferred.Deferred<boolean> }
+  >();
 
   const mediaSettings = settings.getSettings.pipe(
     Effect.map((current) => current.media),
@@ -336,20 +359,42 @@ const make = Effect.gen(function* () {
     return { bytes: file.bytes, mimeType } satisfies MediaAdapterInputImage;
   });
 
-  /** Fetches a result without the provider key, and only from a public HTTPS address. */
+  /**
+   * Fetches a result without the provider key, and only from a public HTTPS address. Redirects
+   * are followed here, one checked address at a time, since the first address proves nothing
+   * about where it sends the request on.
+   */
   const download = Effect.fn("Media.download")(function* (provider: string, address: string) {
-    const url = URL.parse(address);
-    if (
-      url === null ||
-      url.protocol !== "https:" ||
-      isLocalLoopbackHost(url.hostname) ||
-      isPrivateNetworkHost(url.hostname)
-    ) {
-      return yield* mediaFailure(provider, "unavailable");
+    let next = address;
+    for (let hop = 0; ; hop++) {
+      const url = URL.parse(next);
+      if (url === null || url.protocol !== "https:" || isInternalHost(url.hostname)) {
+        return yield* mediaFailure(provider, "unavailable");
+      }
+      if ((yield* hostAddresses(url.hostname)).some(isInternalHost)) {
+        return yield* mediaFailure(provider, "unavailable");
+      }
+      const response = yield* http
+        .execute(HttpClientRequest.get(url))
+        .pipe(
+          Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+          Effect.timeout(limits.downloadTimeout),
+          Effect.mapError(transportFailure(provider)),
+        );
+      const location = response.headers["location"];
+      if (response.status >= 300 && response.status < 400 && location !== undefined) {
+        if (hop >= MAX_REDIRECTS) return yield* mediaFailure(provider, "unavailable");
+        next = URL.parse(location, url.href)?.href ?? "";
+        continue;
+      }
+      return yield* readDownload(provider, response);
     }
-    const response = yield* http
-      .execute(HttpClientRequest.get(url))
-      .pipe(Effect.timeout(limits.downloadTimeout), Effect.mapError(transportFailure(provider)));
+  });
+
+  const readDownload = Effect.fnUntraced(function* (
+    provider: string,
+    response: HttpClientResponse.HttpClientResponse,
+  ) {
     if (response.status !== 200) return yield* mediaFailure(provider, "unavailable");
     if (!(response.headers["content-type"] ?? "").toLowerCase().startsWith("image/")) {
       return yield* mediaFailure(provider, "unavailable", "The result was not an image.");
@@ -464,11 +509,18 @@ const make = Effect.gen(function* () {
     if (running.has(input.jobId)) {
       return yield* requestError("job", "A job with this id is already running.");
     }
-    const cancelled = yield* Deferred.make<void>();
-    running.set(input.jobId, cancelled);
-    const finished = Effect.sync(() => {
-      if (running.get(input.jobId) === cancelled) running.delete(input.jobId);
-    });
+    const entry = {
+      cancel: yield* Deferred.make<void>(),
+      stopped: yield* Deferred.make<boolean>(),
+    };
+    running.set(input.jobId, entry);
+    const finished = Deferred.succeed(entry.stopped, false).pipe(
+      Effect.andThen(
+        Effect.sync(() => {
+          if (running.get(input.jobId) === entry) running.delete(input.jobId);
+        }),
+      ),
+    );
     const reservation = yield* reserve(model, count).pipe(Effect.onError(() => finished));
 
     const step = (event: Omit<MediaJobEvent, "jobId" | "cwd" | "kind">) =>
@@ -483,64 +535,16 @@ const make = Effect.gen(function* () {
             detail: error.detail.replaceAll(Redacted.value(key), "[key]"),
           });
 
-    const job = Effect.gen(function* () {
-      yield* step({ phase: "queued" });
-      const made = yield* adapter
-        .run({
-          apiKey: key,
-          model,
-          prompt: input.prompt,
-          aspectRatio: input.aspectRatio,
-          count,
-          seed: input.seed,
-          source,
-          mask,
-          progress: step,
-        })
-        .pipe(
-          Effect.provideService(HttpClient.HttpClient, http),
-          Effect.mapError(withoutKey),
-          Effect.raceFirst(
-            Deferred.await(cancelled).pipe(Effect.andThen(Effect.fail(new MediaCancelledError()))),
-          ),
-        );
-      // From here the provider has charged, so the rest runs to its end and is recorded.
-      return yield* Effect.uninterruptible(
-        Effect.gen(function* () {
-          yield* step({ phase: "saving" });
-          const images = made.images.slice(0, count);
-          const stem = mediaFileStem(input.prompt);
-          const files: Array<MediaImageFile> = [];
-          let failure: MediaImageError | undefined;
-          for (const image of images) {
-            const saved = yield* imageBytes(adapter.id, image).pipe(
-              Effect.flatMap((content) =>
-                saveImage({
-                  cwd: input.cwd,
-                  folder,
-                  stem,
-                  extension: content.extension,
-                  bytes: content.bytes,
-                  duringTurn: options?.duringTurn === true,
-                }).pipe(
-                  Effect.map((written) => ({
-                    ...written,
-                    mimeType: content.mimeType,
-                    byteLength: content.bytes.byteLength,
-                  })),
-                ),
-              ),
-              Effect.exit,
-            );
-            if (Exit.isSuccess(saved)) files.push(saved.value);
-            else failure ??= Option.getOrUndefined(Exit.findErrorOption(saved));
-          }
-          const costUsd = made.costUsd ?? (reservation.estimateUsd / count) * images.length;
-          const costEstimated = made.costUsd === undefined;
-          const each = images.length === 0 ? 0 : costUsd / images.length;
-          const unsaved = images.length - files.length;
-          const createdAt = DateTime.formatIso(yield* DateTime.now);
-          const record = (relativePath: string | null, cost: number) => sql`
+    const record = (
+      relativePath: string | null,
+      cost: number,
+      estimated: boolean,
+      seed: number | undefined,
+    ) =>
+      DateTime.now.pipe(
+        Effect.map(DateTime.formatIso),
+        Effect.flatMap(
+          (createdAt) => sql`
             INSERT INTO media_generations (
               generation_id, job_id, created_at, month, workspace_root, relative_path, kind,
               provider, model, prompt, aspect_ratio, seed, cost_usd, cost_estimated,
@@ -548,31 +552,121 @@ const make = Effect.gen(function* () {
             ) VALUES (
               ${NodeCrypto.randomUUID()}, ${input.jobId}, ${createdAt}, ${createdAt.slice(0, 7)},
               ${path.resolve(input.cwd)}, ${relativePath}, ${kind}, ${adapter.id}, ${model.id},
-              ${input.prompt}, ${input.aspectRatio ?? null}, ${made.seed ?? input.seed ?? null},
-              ${cost}, ${costEstimated ? 1 : 0}, ${input.sourcePath ?? null},
+              ${input.prompt}, ${input.aspectRatio ?? null}, ${seed ?? input.seed ?? null},
+              ${cost}, ${estimated ? 1 : 0}, ${input.sourcePath ?? null},
               ${input.maskPath ?? null}
             )
-          `;
-          yield* Effect.forEach(files, (file) => record(file.relativePath, each), {
-            discard: true,
-          }).pipe(Effect.orDie);
-          if (unsaved > 0 || images.length === 0) {
-            yield* record(null, images.length === 0 ? costUsd : each * unsaved).pipe(Effect.orDie);
-          }
-          if (files.length === 0) {
-            return yield* failure ?? mediaFailure(adapter.id, "unavailable");
-          }
-          return {
-            jobId: input.jobId,
-            provider: MediaProviderId.make(adapter.id),
-            model: MediaModelId.make(model.id),
-            files,
-            costUsd: dollars(micros(each * files.length)),
-            costEstimated,
-          };
-        }),
+          `,
+        ),
+        Effect.orDie,
       );
-    }).pipe(
+
+    // Only the wait for the provider can be interrupted: what it charged is always recorded.
+    const job = Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        yield* step({ phase: "queued" });
+        // What a request without images costs: its estimate, until the adapter knows better.
+        let charged: number | undefined;
+        const provider = yield* restore(
+          adapter.run({
+            apiKey: key,
+            model,
+            prompt: input.prompt,
+            aspectRatio: input.aspectRatio,
+            count,
+            seed: input.seed,
+            source,
+            mask,
+            progress: step,
+            charged: (costUsd) =>
+              Effect.sync(() => {
+                charged = costUsd;
+              }),
+          }),
+        ).pipe(
+          Effect.provideService(HttpClient.HttpClient, http),
+          Effect.mapError(withoutKey),
+          Effect.forkChild,
+        );
+        const waited = yield* restore(
+          Effect.raceFirst(
+            Fiber.await(provider).pipe(Effect.as(false)),
+            Deferred.await(entry.cancel).pipe(Effect.as(true)),
+          ),
+        ).pipe(Effect.exit);
+        // The adapter is waited for, so it has told the provider to stop and knows what is owed.
+        if (!Exit.isSuccess(waited) || waited.value) yield* Fiber.interrupt(provider);
+        const answered = yield* Fiber.await(provider);
+        if (!Exit.isSuccess(answered)) {
+          const owed = charged ?? reservation.estimateUsd;
+          if (owed > 0) yield* record(null, owed, charged === undefined, undefined);
+          if (Exit.isSuccess(waited) && waited.value) {
+            yield* Deferred.succeed(entry.stopped, true);
+            return yield* new MediaCancelledError();
+          }
+          return yield* Effect.failCause(answered.cause);
+        }
+        // The provider has answered and charged, so a cancel from here on stops nothing.
+        yield* Deferred.succeed(entry.stopped, false);
+        const made = answered.value;
+        yield* step({ phase: "saving" });
+        const images = made.images.slice(0, count);
+        const stem = mediaFileStem(input.prompt);
+        const files: Array<MediaImageFile> = [];
+        let failure: MediaImageError | undefined;
+        for (const image of images) {
+          const saved = yield* imageBytes(adapter.id, image).pipe(
+            Effect.flatMap((content) =>
+              saveImage({
+                cwd: input.cwd,
+                folder,
+                stem,
+                extension: content.extension,
+                bytes: content.bytes,
+                duringTurn: options?.duringTurn === true,
+              }).pipe(
+                Effect.map((written) => ({
+                  ...written,
+                  mimeType: content.mimeType,
+                  byteLength: content.bytes.byteLength,
+                })),
+              ),
+            ),
+            Effect.exit,
+          );
+          if (Exit.isSuccess(saved)) files.push(saved.value);
+          else failure ??= Option.getOrUndefined(Exit.findErrorOption(saved));
+        }
+        const costUsd = made.costUsd ?? (reservation.estimateUsd / count) * images.length;
+        const costEstimated = made.costUsd === undefined;
+        const each = images.length === 0 ? 0 : costUsd / images.length;
+        const unsaved = images.length - files.length;
+        yield* Effect.forEach(
+          files,
+          (file) => record(file.relativePath, each, costEstimated, made.seed),
+          { discard: true },
+        );
+        if (unsaved > 0 || images.length === 0) {
+          yield* record(
+            null,
+            images.length === 0 ? costUsd : each * unsaved,
+            costEstimated,
+            made.seed,
+          );
+        }
+        if (files.length === 0) {
+          return yield* failure ?? mediaFailure(adapter.id, "unavailable");
+        }
+        return {
+          jobId: input.jobId,
+          provider: MediaProviderId.make(adapter.id),
+          model: MediaModelId.make(model.id),
+          files,
+          costUsd: dollars(micros(each * files.length)),
+          costEstimated,
+        };
+      }),
+    ).pipe(
       Effect.tap((result) =>
         step({ phase: "completed", files: result.files.map((file) => file.relativePath) }),
       ),
@@ -613,10 +707,12 @@ const make = Effect.gen(function* () {
     generate: Effect.fn("Media.generate")((input, options) => run("generate", input, options)),
     edit: Effect.fn("Media.edit")((input, options) => run("edit", input, options)),
     cancel: Effect.fn("Media.cancel")((jobId) => {
-      const cancelled = running.get(jobId);
-      return cancelled === undefined
+      const entry = running.get(jobId);
+      return entry === undefined
         ? Effect.succeed(false)
-        : Deferred.succeed(cancelled, undefined);
+        : Deferred.succeed(entry.cancel, undefined).pipe(
+            Effect.andThen(Deferred.await(entry.stopped)),
+          );
     }),
     jobs: Stream.fromPubSub(events),
     imageRecord,

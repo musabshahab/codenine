@@ -1,8 +1,10 @@
 import type { MediaAspectRatio, MediaImageModel } from "@codenine/contracts";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 
 import {
   connectorToken,
@@ -10,6 +12,7 @@ import {
   jsonBody,
   type MediaAdapter,
   type MediaAdapterRequest,
+  MEBIBYTE,
   mediaFailure,
   statusFailure,
   transportFailure,
@@ -21,6 +24,15 @@ const REQUEST_TIMEOUT = "30 seconds";
 const POLL_INTERVAL = "1 second";
 /** How long a job may sit in fal's queue and run before it is cancelled. */
 const JOB_TIMEOUT = "5 minutes";
+/** How often in a row a question about an accepted job may go unanswered before it is given up. */
+const MAX_TRIES = 5;
+/** fal answers with short JSON: the images themselves are fetched from the addresses it names. */
+const MAX_ANSWER_BYTES = MEBIBYTE;
+
+interface Answer {
+  readonly status: number;
+  readonly body: unknown;
+}
 
 const SQUARE_SIZES: Readonly<Record<MediaAspectRatio, string>> = {
   "1:1": "square_hd",
@@ -128,20 +140,18 @@ const errorDetail = (body: unknown): { readonly text: string; readonly types: st
   return { text: field("msg"), types: field("type") };
 };
 
-const responseFailure = Effect.fnUntraced(function* (
-  response: HttpClientResponse.HttpClientResponse,
-) {
-  const { text, types } = errorDetail(yield* jsonBody(response));
+const answerFailure = ({ status, body }: Answer) => {
+  const { text, types } = errorDetail(body);
   if (/content_policy|safety|nsfw/i.test(`${types} ${text}`)) {
     return mediaFailure(ID, "content-refused", text);
   }
   // fal locks an account that ran out of credit and answers 403, as it does for a bad key.
-  if (response.status === 403 && /balance|billing|locked/i.test(text)) {
+  if (status === 403 && /balance|billing|locked/i.test(text)) {
     return mediaFailure(ID, "out-of-credit");
   }
-  const reason = statusFailure(response.status);
+  const reason = statusFailure(status);
   return mediaFailure(ID, reason, reason === "unavailable" ? text : undefined);
-});
+};
 
 /** The address fal named for a request, or the documented one when it named none on its queue. */
 const requestUrl = (
@@ -160,6 +170,7 @@ const run: MediaAdapter["run"] = Effect.fn("FalMedia.run")(function* (request) {
   const http = yield* HttpClient.HttpClient;
   const model = MODELS.find((candidate) => candidate.id === request.model.id);
   if (model === undefined) return yield* mediaFailure(ID, "unavailable");
+  // One limit covers the answer's headers and its body, so a body that never ends cannot hold a job.
   const send = (outgoing: HttpClientRequest.HttpClientRequest) =>
     http
       .execute(
@@ -167,39 +178,86 @@ const run: MediaAdapter["run"] = Effect.fn("FalMedia.run")(function* (request) {
           HttpClientRequest.setHeader("authorization", `Key ${Redacted.value(request.apiKey)}`),
         ),
       )
-      .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.mapError(transportFailure(ID)));
+      .pipe(
+        Effect.flatMap((response) =>
+          jsonBody(response, MAX_ANSWER_BYTES).pipe(
+            Effect.map((body): Answer => ({ status: response.status, body })),
+          ),
+        ),
+        Effect.timeout(REQUEST_TIMEOUT),
+        Effect.mapError(transportFailure(ID)),
+      );
 
-  const submitResponse = yield* send(
+  const submitAnswer = yield* send(
     HttpClientRequest.post(`${QUEUE_ORIGIN}/${model.id}`).pipe(
       HttpClientRequest.bodyJsonUnsafe(model.input(request)),
     ),
+  ).pipe(
+    // A request that failed at once was not taken. One that timed out may have been.
+    Effect.tapError((error) => (error.reason === "timed-out" ? Effect.void : request.charged(0))),
   );
-  if (submitResponse.status !== 200) return yield* yield* responseFailure(submitResponse);
-  const submitted = decodeSubmitted(yield* jsonBody(submitResponse));
+  if (submitAnswer.status !== 200) {
+    yield* request.charged(0);
+    return yield* answerFailure(submitAnswer);
+  }
+  const submitted = decodeSubmitted(submitAnswer.body);
   if (submitted._tag === "None") return yield* mediaFailure(ID, "unavailable");
   const { request_id: requestId } = submitted.value;
   const address = (named: string | undefined, tail: string) =>
     requestUrl(named, model.id, requestId, tail);
 
+  /**
+   * Asks about the accepted job, and asks again when the question got no usable answer: fal goes
+   * on working, and bills, whether or not one status or result request reaches it.
+   */
+  const ask = Effect.fnUntraced(function* <A>(
+    url: string,
+    read: (answer: Answer) => A | undefined,
+    refused: (answer: Answer) => Effect.Effect<void>,
+  ) {
+    for (let attempt = 1; ; attempt++) {
+      const answer = yield* send(HttpClientRequest.get(url)).pipe(Effect.result);
+      let failure = mediaFailure(ID, "unavailable");
+      if (answer._tag === "Failure") {
+        failure = answer.failure;
+      } else if (answer.success.status === 200 || answer.success.status === 202) {
+        const value = read(answer.success);
+        if (value !== undefined) return value;
+      } else {
+        const { status } = answer.success;
+        failure = answerFailure(answer.success);
+        if (status < 500 && status !== 408 && status !== 429) {
+          yield* refused(answer.success);
+          return yield* failure;
+        }
+      }
+      if (attempt >= MAX_TRIES) return yield* failure;
+      yield* Effect.sleep(POLL_INTERVAL);
+    }
+  });
+
+  let begun = false;
+  // fal stops a request that is still in its queue. One it has begun runs on and is billed.
   const cancel = send(HttpClientRequest.put(address(submitted.value.cancel_url, "/cancel"))).pipe(
+    Effect.flatMap((answer) =>
+      !begun && (answer.status === 200 || answer.status === 202) ? request.charged(0) : Effect.void,
+    ),
     Effect.ignore,
   );
 
-  const wait: Effect.Effect<void, ReturnType<typeof mediaFailure>> = Effect.gen(function* () {
+  const wait = Effect.gen(function* () {
     let lastReported = "";
     while (true) {
-      const response = yield* send(
-        HttpClientRequest.get(address(submitted.value.status_url, "/status")),
-      );
       // 202 is how fal answers while the request is still queued or running.
-      if (response.status !== 200 && response.status !== 202) {
-        return yield* yield* responseFailure(response);
-      }
-      const status = decodeStatus(yield* jsonBody(response));
-      if (status._tag === "None") return yield* mediaFailure(ID, "unavailable");
-      if (status.value.status === "COMPLETED") return;
-      const queued = status.value.status === "IN_QUEUE";
-      const position = queued ? status.value.queue_position : undefined;
+      const status = yield* ask(
+        address(submitted.value.status_url, "/status"),
+        (answer) => Option.getOrUndefined(decodeStatus(answer.body)),
+        () => Effect.void,
+      );
+      const queued = status.status === "IN_QUEUE";
+      if (!queued) begun = true;
+      if (status.status === "COMPLETED") return;
+      const position = queued ? status.queue_position : undefined;
       const queuePosition = typeof position === "number" ? Math.max(0, position) : undefined;
       const reported = `${queued}:${queuePosition}`;
       if (reported !== lastReported) {
@@ -215,31 +273,30 @@ const run: MediaAdapter["run"] = Effect.fn("FalMedia.run")(function* (request) {
   yield* wait.pipe(
     Effect.timeoutOrElse({
       duration: JOB_TIMEOUT,
-      orElse: () => cancel.pipe(Effect.andThen(Effect.fail(mediaFailure(ID, "timed-out")))),
+      orElse: () => Effect.fail(mediaFailure(ID, "timed-out")),
     }),
-    Effect.onInterrupt(() => cancel),
+    // However the wait ends short of a result, the job is not left running at fal.
+    Effect.onExit((exit) => (Exit.isSuccess(exit) ? Effect.void : cancel)),
   );
 
   // A request that failed is also COMPLETED: its result is then the error.
-  const resultResponse = yield* send(
-    HttpClientRequest.get(address(submitted.value.response_url, "")),
+  const output = yield* ask(
+    address(submitted.value.response_url, ""),
+    (answer) =>
+      answer.status === 200 ? Option.getOrUndefined(decodeOutput(answer.body)) : undefined,
+    // fal bills a request that made a result, not one it turned down as invalid.
+    (answer) => (answer.status === 400 || answer.status === 422 ? request.charged(0) : Effect.void),
   );
-  if (resultResponse.status !== 200) return yield* yield* responseFailure(resultResponse);
-  const output = decodeOutput(yield* jsonBody(resultResponse));
-  if (output._tag === "None") return yield* mediaFailure(ID, "unavailable");
-  const flagged = output.value.has_nsfw_concepts ?? [];
-  const images = output.value.images.filter((_, index) => flagged[index] !== true);
+  const flagged = output.has_nsfw_concepts ?? [];
+  const images = output.images.filter((_, index) => flagged[index] !== true);
   if (images.length === 0) {
-    return yield* mediaFailure(
-      ID,
-      output.value.images.length > 0 ? "content-refused" : "unavailable",
-    );
+    return yield* mediaFailure(ID, output.images.length > 0 ? "content-refused" : "unavailable");
   }
   return {
     images: images.map((image) => ({ kind: "url" as const, url: image.url })),
     // fal's result carries no price; the service records the estimate.
     costUsd: undefined,
-    seed: output.value.seed ?? undefined,
+    seed: output.seed ?? undefined,
   };
 });
 

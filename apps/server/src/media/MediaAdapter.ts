@@ -6,13 +6,31 @@ import {
   MediaProviderError,
 } from "@codenine/contracts";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { type HttpClient, HttpClientResponse } from "effect/http";
 
 import * as ConnectorStore from "../connectors/ConnectorStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
+
+export const MEBIBYTE = 1024 * 1024;
+
+/** How large an image may be coming in from a provider, and going out to one for an edit. */
+export const MediaLimits = Context.Reference<{
+  readonly maxImageBytes: number;
+  readonly maxSourceBytes: number;
+  readonly downloadTimeout: `${number} seconds`;
+}>("codenine/media/MediaLimits", {
+  defaultValue: () => ({
+    maxImageBytes: 20 * MEBIBYTE,
+    maxSourceBytes: 10 * MEBIBYTE,
+    downloadTimeout: "60 seconds",
+  }),
+});
 
 export interface MediaAdapterInputImage {
   readonly bytes: Uint8Array;
@@ -40,6 +58,11 @@ export interface MediaAdapterRequest {
     readonly phase: "queued" | "running";
     readonly queuePosition?: number;
   }) => Effect.Effect<void>;
+  /**
+   * What the provider charged for a request that ends without images. Until an adapter says, such
+   * a request counts at its estimate: say 0 only where the provider refused or stopped the work.
+   */
+  readonly charged: (costUsd: number) => Effect.Effect<void>;
 }
 
 export interface MediaAdapterResult {
@@ -63,7 +86,7 @@ export interface MediaAdapter extends Pick<MediaProvider, "id" | "name" | "setup
   >;
   /**
    * Makes the images. Interrupting it must also stop the provider's work where the provider
-   * can be told, so a cancelled job stops costing money.
+   * can be told, and call `charged(0)` only when the provider confirmed it had not begun.
    */
   readonly run: (
     request: MediaAdapterRequest,
@@ -142,9 +165,22 @@ export const statusFailure = (status: number): MediaProviderFailure => {
   }
 };
 
-/** A response body as JSON, or null when it is not JSON. */
-export const jsonBody = (response: HttpClientResponse.HttpClientResponse) =>
-  response.json.pipe(Effect.orElseSucceed((): unknown => null));
+const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+
+/** A response body as JSON, or null when it is not JSON or is larger than `maxBytes`. */
+export const jsonBody = (response: HttpClientResponse.HttpClientResponse, maxBytes: number) =>
+  Effect.suspend(() => {
+    let received = 0;
+    return response.stream.pipe(
+      Stream.mapEffect((chunk) => {
+        received += chunk.byteLength;
+        return received > maxBytes ? Effect.fail("too-large") : Effect.succeed(chunk);
+      }),
+      Stream.runCollect,
+      Effect.flatMap((chunks) => decodeJson(Buffer.concat(chunks).toString("utf8"))),
+      Effect.orElseSucceed((): unknown => null),
+    );
+  });
 
 export const dataUri = (image: MediaAdapterInputImage) =>
   `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString("base64")}`;

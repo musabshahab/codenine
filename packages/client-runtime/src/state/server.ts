@@ -1156,6 +1156,13 @@ export function createServerEnvironmentAtoms<R, E>(
       ]);
     }).pipe(Atom.withLabel(`environment-data:server:usage-scan-settings:${environmentId}`)),
   );
+  // What the media overview is worked out from: the limits, the default model and account keys.
+  const mediaSettingsAtom = Atom.family((environmentId: EnvironmentId) =>
+    Atom.make((get) => {
+      const settings = get(settingsValueAtom(environmentId));
+      return JSON.stringify([settings?.media, settings?.providerInstances]);
+    }).pipe(Atom.withLabel(`environment-data:media:settings:${environmentId}`)),
+  );
   // Settings snapshots rebuild the filter object; only a changed filter should touch the Usage tab.
   const usageModelFilterAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get) => get(settingsValueAtom(environmentId))?.usageModelFilter).pipe(
@@ -1328,6 +1335,7 @@ export function createServerEnvironmentAtoms<R, E>(
       // Spending and saved keys change outside this client, so each visit reads them again.
       staleTimeMs: 0,
       idleTtlMs: 30_000,
+      refreshTrigger: ({ environmentId }) => mediaSettingsAtom(environmentId),
     }),
     npmRelease: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:npm-release",

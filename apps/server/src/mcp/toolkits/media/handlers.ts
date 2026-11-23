@@ -48,6 +48,15 @@ const summary = (result: MediaImageResult) => ({
 // The agent asks during its turn, so the user reviews the files as they do its other changes.
 const DURING_TURN = { duringTurn: true } as const;
 
+/**
+ * A job outlives its caller, so that a client that goes away keeps the image it paid for. An
+ * agent whose call is stopped (its turn was, or it gave up) wants the opposite: the job ends too.
+ */
+const stoppedWithCall =
+  (media: Media.Media["Service"], jobId: MediaJobId) =>
+  <A, E, R>(job: Effect.Effect<A, E, R>) =>
+    job.pipe(Effect.onInterrupt(() => media.cancel(jobId)));
+
 const request = (input: {
   readonly prompt: string;
   readonly aspectRatio?: MediaAspectRatio | undefined;
@@ -64,14 +73,17 @@ export const layer = McpToolAccess.toLayer(MediaToolkit, {
     Effect.gen(function* () {
       const folder = yield* callerFolder("edit", REFUSAL);
       const media = yield* Media.Media;
-      const result = yield* media.generate(
-        {
-          ...request(input),
-          cwd: folder.cwd,
-          ...(input.folder === undefined ? {} : { folder: folder.relative(input.folder) }),
-        },
-        DURING_TURN,
-      );
+      const job = request(input);
+      const result = yield* media
+        .generate(
+          {
+            ...job,
+            cwd: folder.cwd,
+            ...(input.folder === undefined ? {} : { folder: folder.relative(input.folder) }),
+          },
+          DURING_TURN,
+        )
+        .pipe(stoppedWithCall(media, job.jobId));
       return summary(result);
     }).pipe(Effect.mapError(mediaFailure)),
   ),
@@ -79,16 +91,19 @@ export const layer = McpToolAccess.toLayer(MediaToolkit, {
     Effect.gen(function* () {
       const folder = yield* callerFolder("edit", REFUSAL);
       const media = yield* Media.Media;
-      const result = yield* media.edit(
-        {
-          ...request(input),
-          cwd: folder.cwd,
-          sourcePath: folder.relative(input.path),
-          ...(input.mask === undefined ? {} : { maskPath: folder.relative(input.mask) }),
-          ...(input.folder === undefined ? {} : { folder: folder.relative(input.folder) }),
-        },
-        DURING_TURN,
-      );
+      const job = request(input);
+      const result = yield* media
+        .edit(
+          {
+            ...job,
+            cwd: folder.cwd,
+            sourcePath: folder.relative(input.path),
+            ...(input.mask === undefined ? {} : { maskPath: folder.relative(input.mask) }),
+            ...(input.folder === undefined ? {} : { folder: folder.relative(input.folder) }),
+          },
+          DURING_TURN,
+        )
+        .pipe(stoppedWithCall(media, job.jobId));
       return summary(result);
     }).pipe(Effect.mapError(mediaFailure)),
   ),

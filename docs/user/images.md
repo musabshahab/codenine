@@ -29,8 +29,10 @@ for each model and keeps two limits, in US dollars:
 
 A request that would pass either limit is refused before any provider is called, and the message
 says which limit it was. **This month** shows what has been spent. Where a provider reports what it
-charged, that amount is counted; otherwise the estimate is. Your provider's own bill is the final
-word, so set a spending cap with the provider too if it offers one.
+charged, that amount is counted; otherwise the estimate is. A request that you cancel, or that
+fails, after the provider has started work is counted too, because the provider may still charge
+for it. Your provider's own bill is the final word, so set a spending cap with the provider too if
+it offers one.
 
 ## Agents
 
