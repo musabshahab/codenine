@@ -1370,6 +1370,8 @@ const WsMediaGetImageRecordRpc = Rpc.make(WS_METHODS.mediaGetImageRecord, {
   payload: MediaImageRecordInput,
   success: Schema.NullOr(MediaImageRecord),
   error: EnvironmentAuthorizationError,
+});
+
 const WsDocumentsCopyAttachmentRpc = Rpc.make(WS_METHODS.documentsCopyAttachment, {
   payload: AttachmentCopyInput,
   success: AttachmentCopyResult,
