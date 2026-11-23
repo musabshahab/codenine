@@ -208,7 +208,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const isManagedWorktreePath = yield* makeIsManagedWorktreePath;
-  const fileVersionStorage = yield* FileVersionStorage.make;
+  const fileVersionStorage = yield* FileVersionStorage.FileVersionStorage;
   const projectLocks = yield* KeyedLock.make<ProjectId>();
   const workspaceLocks = yield* KeyedLock.make<string>();
 
@@ -446,6 +446,14 @@ export const make = Effect.gen(function* () {
       });
       if (workspaceRoot !== previousRoot) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);
+        // Versions are keyed by folder, so they follow the workspace to its new one.
+        yield* fileVersionStorage
+          .moveWorkspace(path.resolve(previousRoot), path.resolve(workspaceRoot))
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("could not move a project's file versions", { cause }),
+            ),
+          );
       }
       return yield* readCommitted(input.projectId);
     },
@@ -709,7 +717,7 @@ export const make = Effect.gen(function* () {
         yield* clearProjectSettingsOverrides(projectId);
         // Versions are keyed by folder, so one left behind would show in a workspace made there later.
         yield* fileVersionStorage
-          .deleteWorkspace(path.resolve(existing.value.workspaceRoot))
+          .forgetWorkspace(path.resolve(existing.value.workspaceRoot))
           .pipe(
             Effect.catchCause((cause) =>
               Effect.logWarning("could not delete a removed project's file versions", { cause }),
@@ -808,4 +816,6 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(ProjectService, make).pipe(
   Layer.provide(ThreadCommandExecutor.layer),
+  // The same layer the file version service is built on, so both use one store.
+  Layer.provide(FileVersionStorage.layer),
 );

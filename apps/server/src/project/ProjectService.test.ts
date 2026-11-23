@@ -18,6 +18,7 @@ import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
+import * as FileVersionStorage from "../fileVersions/FileVersionStorage.ts";
 import {
   orchestrationCommandDuration,
   orchestrationCommandsTotal,
@@ -206,6 +207,7 @@ const layerProjectServiceDependencies = Layer.mergeAll(
   ProjectionStore.layer,
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
+  FileVersionStorage.layer,
 ).pipe(
   Layer.provideMerge(LegacyV1ThreadImporter.layer.pipe(Layer.provide(RuntimeLayer.layerEventSink))),
   Layer.provideMerge(ProjectEnrichmentService.layer),

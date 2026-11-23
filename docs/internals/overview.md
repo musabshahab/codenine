@@ -96,8 +96,10 @@ checkpoint capture walks the folder before and after a turn, and a `missing` che
 lists the files the turn changed. Clients read "the turn changed files" from that list and
 "the workspace can roll back" from `ready`; keep the two apart. The store never records in a Git
 checkout. Its walk attributes every difference since the last walk to the turn that ends, so with
-several agents in one folder a change can land on another agent's turn, and a file is called
-created by a turn only when an earlier walk in the same server process saw the whole folder.
+several agents in one folder a change can land on another agent's turn. The walk before a turn
+is skipped while another thread's turn runs in the folder, or it would take that turn's changes
+from it. A file is called created by a turn only when the walk before, in the same server
+process, would have seen it: one that walk could not read counts as an outside change.
 Otherwise a review's Discard could delete a file the agent did not make.
 
 Thread settlement is server-owned. The

@@ -115,11 +115,13 @@ import {
   useFileSaveSession,
 } from "./fileSaveSessions";
 import { fileChangeMarkerCssFor } from "./fileChangeBlocks";
-import { FileReviewSurface } from "./FileReviewSurface";
+import { DeletedFileReviewBar, FileReviewSurface } from "./FileReviewSurface";
 import { FileVersionsDialog } from "./FileVersionsDialog";
 import { type FileBaseline, useFileBaseline } from "./useFileBaseline";
 import { isFileReviewKept, reviewableTurnCount, useFileReviewStore } from "~/fileReviewStore";
 import { useThreadCheckpointSummaries } from "~/state/entities";
+import { projectEnvironment } from "~/state/projects";
+import { useEnvironmentQuery } from "~/state/query";
 import { scopedThreadKey } from "@codenine/client-runtime/environment";
 import { Button } from "~/components/ui/button";
 import { revisionedQuery } from "~/state/revisionedQuery";
@@ -1213,13 +1215,34 @@ export default function FilePreviewPanel({
       : null;
   const saveConflict = useProjectFileConflict(environmentId, cwd, editablePath);
   const [versionsOpen, setVersionsOpen] = useState(false);
-  const versionsPath =
-    versionsOffered &&
+  const versionedPath =
     serverConfig?.environment.capabilities.fileVersions === true &&
     attachment === undefined &&
     !isHostFile
       ? previewPath
       : null;
+  // A folder that gained Git keeps the versions made before, so a file that has some offers them.
+  const earlierVersions = useEnvironmentQuery(
+    versionedPath !== null && !versionsOffered
+      ? projectEnvironment.listFileVersions({
+          environmentId,
+          input: { cwd, relativePath: versionedPath },
+        })
+      : null,
+  );
+  const versionsPath =
+    versionsOffered || (earlierVersions.data?.versions.length ?? 0) > 0 ? versionedPath : null;
+  // A file that cannot be read may be one the latest turn deleted, which can be put back.
+  const missingPath =
+    previewPath !== null &&
+    attachment === undefined &&
+    !isHostFile &&
+    file.data === null &&
+    file.error !== null &&
+    !file.isPending
+      ? previewPath
+      : null;
+  const reviewPath = editablePath ?? missingPath;
   const headBaseline = useFileBaseline(
     editablePath !== null && canWriteFiles
       ? { environmentId, cwd, relativePath: editablePath, source: HEAD_BASELINE_SOURCE }
@@ -1229,9 +1252,9 @@ export default function FilePreviewPanel({
   const threadKey = scopedThreadKey(threadRef);
   const latestTurn = useThreadCheckpointSummaries(draft ? null : threadRef).at(-1);
   const reviewTurnCount =
-    editablePath === null
+    reviewPath === null
       ? null
-      : reviewableTurnCount(latestTurn, (changed) => isSameWorkspaceFile(changed, editablePath));
+      : reviewableTurnCount(latestTurn, (changed) => isSameWorkspaceFile(changed, reviewPath));
   const reviewKept = useFileReviewStore(
     (state) =>
       reviewTurnCount !== null &&
@@ -1239,11 +1262,11 @@ export default function FilePreviewPanel({
       isFileReviewKept(state, threadKey, reviewTurnCount, editablePath),
   );
   const turnBaseline = useFileBaseline(
-    editablePath !== null && reviewTurnCount !== null && !reviewKept
+    reviewPath !== null && reviewTurnCount !== null && !reviewKept
       ? {
           environmentId,
           cwd,
-          relativePath: editablePath,
+          relativePath: reviewPath,
           source: { kind: "turn", threadId: threadRef.threadId, turnCount: reviewTurnCount },
         }
       : null,
@@ -1451,6 +1474,19 @@ export default function FilePreviewPanel({
           This file changed on disk while you were editing, so your edits are not saved. Reloading
           drops them.
         </FileSurfaceBar>
+      ) : null}
+      {missingPath !== null &&
+      reviewTurnCount !== null &&
+      turnBaseline?.available === true &&
+      turnBaseline.contents !== null ? (
+        <DeletedFileReviewBar
+          environmentId={environmentId}
+          cwd={cwd}
+          relativePath={missingPath}
+          threadRef={threadRef}
+          turnCount={reviewTurnCount}
+          canRestore={canWriteFiles}
+        />
       ) : null}
       {reviewAvailable && !reviewOpen ? (
         <FileSurfaceBar

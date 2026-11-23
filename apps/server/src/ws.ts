@@ -2381,7 +2381,7 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.projectsWriteFile]: (input) =>
-          fileVersions.writeFile(input, "user").pipe(
+          fileVersions.writeFile(input).pipe(
             Effect.mapError((cause) =>
               cause._tag === "WorkspaceFileConflictError"
                 ? projectWriteFileConflict(input, cause)

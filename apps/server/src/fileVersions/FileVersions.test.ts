@@ -1,7 +1,12 @@
+// @effect-diagnostics nodeBuiltinImport:off - fails the walk's own file calls, which are Node's.
+import * as NodeFS from "node:fs";
+import * as NodeModule from "node:module";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { symlinksSupported } from "@codenine/shared/testing/symlinks";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
@@ -28,6 +33,8 @@ const DEFAULT_LIMITS = {
 
 const layerWith = (limits: Partial<typeof DEFAULT_LIMITS> = {}) =>
   FileVersions.layer.pipe(
+    // The store the service is built on, which a project's deletion uses too.
+    Layer.provideMerge(FileVersionStorage.layer),
     Layer.provide(
       Layer.succeed(FileVersionStorage.FileVersionLimits, { ...DEFAULT_LIMITS, ...limits }),
     ),
@@ -56,6 +63,24 @@ const layerWith = (limits: Partial<typeof DEFAULT_LIMITS> = {}) =>
 
 const EXTERNAL = { kind: "external" } as const;
 const turn = (turnCount: number) => ({ kind: "agent", threadId: "thread", turnCount }) as const;
+
+/** Makes these workspace files fail to open, as one held open by another program does. */
+const blockOpen = (...names: ReadonlyArray<string>) => {
+  const open = NodeFS.promises.open;
+  const spy = vi
+    .spyOn(NodeFS.promises, "open")
+    .mockImplementation(((...args: Parameters<typeof open>) =>
+      names.some((name) => String(args[0]).endsWith(name))
+        ? Promise.reject(Object.assign(new Error("EBUSY"), { code: "EBUSY" }))
+        : open(...args)) as typeof open);
+  NodeModule.syncBuiltinESMExports();
+  return {
+    [Symbol.dispose]: () => {
+      spy.mockRestore();
+      NodeModule.syncBuiltinESMExports();
+    },
+  };
+};
 
 const makeWorkspace = Effect.fn("FileVersionsTest.makeWorkspace")(function* (
   prefix = "codenine-versions-workspace-",
@@ -168,8 +193,8 @@ describe("FileVersions", () => {
       const file = { cwd, relativePath: "notes.md" };
       yield* write("notes.md", "written outside\n");
 
-      yield* versions.writeFile({ ...file, contents: "first save\n" }, "user");
-      yield* versions.writeFile({ ...file, contents: "second save, longer\n" }, "user");
+      yield* versions.writeFile({ ...file, contents: "first save\n" });
+      yield* versions.writeFile({ ...file, contents: "second save, longer\n" });
       const saved = yield* list("notes.md");
       expect(saved.map((version) => version.origin)).toEqual(["user", "external"]);
       expect(yield* versions.read({ ...file, versionId: saved[0]!.id })).toMatchObject({
@@ -180,9 +205,9 @@ describe("FileVersions", () => {
       });
 
       yield* TestClock.adjust("2 minutes");
-      yield* versions.writeFile({ ...file, contents: "a later save\n" }, "user");
+      yield* versions.writeFile({ ...file, contents: "a later save\n" });
       // Saving the same contents again is not a new version.
-      yield* versions.writeFile({ ...file, contents: "a later save\n" }, "user");
+      yield* versions.writeFile({ ...file, contents: "a later save\n" });
       expect((yield* list("notes.md")).map((version) => version.origin)).toEqual([
         "user",
         "user",
@@ -240,7 +265,7 @@ describe("FileVersions", () => {
         yield* write("big.bin", "x".repeat(40));
         yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
         const file = { cwd, relativePath: "big.bin" };
-        const saved = yield* versions.writeFile({ ...file, contents: "y".repeat(50) }, "user");
+        const saved = yield* versions.writeFile({ ...file, contents: "y".repeat(50) });
 
         expect(saved.relativePath).toBe("big.bin");
         expect((yield* readBytes("big.bin")).toString()).toBe("y".repeat(50));
@@ -254,6 +279,22 @@ describe("FileVersions", () => {
           .restore({ ...file, versionId: listed[1]!.id })
           .pipe(Effect.flip);
         expect(unavailable).toMatchObject({ reason: "not-stored" });
+
+        // A restore, a discard and a delete promise an undo, so they leave a file alone when
+        // the store cannot hold what they would replace.
+        yield* write("grown.bin", "small");
+        yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
+        const small = (yield* list("grown.bin"))[0]!;
+        yield* write("grown.bin", "z".repeat(40));
+        const grown = { cwd, relativePath: "grown.bin" };
+        for (const refused of [
+          versions.restore({ ...grown, versionId: small.id }),
+          versions.overwriteFile({ ...grown, contents: "small" }),
+          versions.removeFile({ ...grown, expectedVersion: "unused" }),
+        ]) {
+          expect((yield* refused.pipe(Effect.flip))._tag).toBe("FileVersionNotKeptError");
+        }
+        expect((yield* readBytes("grown.bin")).toString()).toBe("z".repeat(40));
       }).pipe(Effect.provide(layerWith({ maxFileBytes: 32 }))),
   );
 
@@ -286,6 +327,17 @@ describe("FileVersions", () => {
         ).toBe("WorkspacePathOutsideRootError");
       }
       if (symlinksSupported) {
+        // A file saved through a link inside the workspace has one history, under where it is,
+        // so the next walk does not find the linked name gone and call it deleted by the turn.
+        yield* fileSystem.symlink(path.join(cwd, "inside.txt"), path.join(cwd, "alias.txt"));
+        yield* versions.writeFile({ cwd, relativePath: "alias.txt", contents: "saved by link" });
+        yield* versions.syncWorkspace({ cwd, origin: turn(1) });
+        expect(yield* versions.turnChanges({ cwd, threadId: "thread", turnCount: 1 })).toEqual([]);
+        expect((yield* list("alias.txt")).map((version) => version.origin)).toEqual([
+          "user",
+          "external",
+        ]);
+        expect(yield* list("alias.txt")).toEqual(yield* list("inside.txt"));
         // A version of one file cannot be restored over another through a link that leaves.
         const inside = (yield* list("inside.txt"))[0]!;
         const escaped = yield* versions
@@ -305,10 +357,12 @@ describe("FileVersions", () => {
       yield* write("changed.md", "before\n");
       yield* write("deleted.md", "to be deleted\n");
       yield* write("untouched.md", "same\n");
-      yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
+      yield* versions.syncWorkspace({ cwd, origin: { kind: "turn-start", threadId: "thread" } });
       yield* write("changed.md", "after the turn\n");
       yield* write("created.md", "new\n");
       yield* remove("deleted.md");
+      // Another thread's turn starting in the folder must not take the running turn's changes.
+      yield* versions.syncWorkspace({ cwd, origin: { kind: "turn-start", threadId: "other" } });
       yield* versions.syncWorkspace({ cwd, origin: turn(1) });
 
       const changes = yield* versions.turnChanges({ cwd, threadId: "thread", turnCount: 1 });
@@ -354,6 +408,72 @@ describe("FileVersions", () => {
     }).pipe(Effect.provide(layerWith({ maxTrackedFiles: 2 }))),
   );
 
+  it.effect("does not call a file the turn's when the walk before could not read it", () =>
+    Effect.gen(function* () {
+      const { cwd, versions, write, list } = yield* makeWorkspace();
+      yield* write("seen.md", "seen");
+      yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
+      yield* write("report.xlsx", "open in another program");
+      {
+        using _blocked = blockOpen("report.xlsx");
+        yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
+      }
+      expect(yield* list("report.xlsx")).toEqual([]);
+      yield* write("made.md", "made by the turn");
+      yield* versions.syncWorkspace({ cwd, origin: turn(1) });
+      expect((yield* list("report.xlsx")).map((version) => version.origin)).toEqual(["external"]);
+      expect(yield* versions.turnChanges({ cwd, threadId: "thread", turnCount: 1 })).toEqual([
+        "made.md",
+      ]);
+    }).pipe(Effect.provide(layerWith())),
+  );
+
+  it.effect("an editor save does not wait for a walk of the folder", () =>
+    Effect.gen(function* () {
+      const { cwd, versions, write, list } = yield* makeWorkspace();
+      yield* write("notes.md", "before");
+      yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
+      const reached = Promise.withResolvers<void>();
+      const released = Promise.withResolvers<void>();
+      const readdir = NodeFS.promises.readdir;
+      using _spy = vi.spyOn(NodeFS.promises, "readdir").mockImplementation((async (
+        ...args: Parameters<typeof readdir>
+      ) => {
+        reached.resolve();
+        await released.promise;
+        return readdir(...args);
+      }) as typeof readdir);
+      NodeModule.syncBuiltinESMExports();
+      const walk = yield* versions.syncWorkspace({ cwd, origin: turn(1) }).pipe(Effect.forkChild);
+      yield* Effect.promise(() => reached.promise);
+      yield* versions.writeFile({ cwd, relativePath: "notes.md", contents: "saved mid-walk" });
+      released.resolve();
+      yield* Fiber.join(walk);
+      // The walk finds the save already recorded, so the turn is not given the user's edit.
+      expect((yield* list("notes.md")).map((version) => version.origin)).toEqual([
+        "user",
+        "external",
+      ]);
+    }).pipe(
+      Effect.provide(layerWith()),
+      Effect.ensuring(Effect.sync(NodeModule.syncBuiltinESMExports)),
+    ),
+  );
+
+  it.effect("starts a workspace's limit afresh once its versions are deleted", () =>
+    Effect.gen(function* () {
+      const { cwd, versions, write, list } = yield* makeWorkspace();
+      const storage = yield* FileVersionStorage.FileVersionStorage;
+      const path = yield* Path.Path;
+      yield* write("a.bin", "a".repeat(90));
+      yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
+      // What a project's deletion does; the folder is then added again as a new workspace.
+      yield* storage.forgetWorkspace(path.resolve(cwd));
+      yield* versions.writeFile({ cwd, relativePath: "notes.md", contents: "n".repeat(50) });
+      expect((yield* list("notes.md")).map((version) => version.state)).toEqual(["stored"]);
+    }).pipe(Effect.provide(layerWith({ maxWorkspaceBytes: 100 }))),
+  );
+
   it.effect("records nothing in a Git checkout", () =>
     Effect.gen(function* () {
       const { cwd, versions, write, readBytes, list } = yield* makeWorkspace(
@@ -361,7 +481,7 @@ describe("FileVersions", () => {
       );
       yield* write("notes.md", "committed\n");
       yield* versions.syncWorkspace({ cwd, origin: EXTERNAL });
-      yield* versions.writeFile({ cwd, relativePath: "notes.md", contents: "edited\n" }, "user");
+      yield* versions.writeFile({ cwd, relativePath: "notes.md", contents: "edited\n" });
 
       expect((yield* readBytes("notes.md")).toString()).toBe("edited\n");
       expect(yield* versions.list({ cwd, relativePath: "notes.md" })).toEqual({

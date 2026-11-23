@@ -61,6 +61,7 @@ it.live(
       yield* write("userdata/server-owner.sqlite");
       yield* write("userdata/logs/server.log");
       yield* write("userdata/usage-scan-cache-v11.json");
+      yield* write("userdata/file-versions/ab/abcdef");
       yield* write("userdata/secrets/provider-env-a.bin");
       yield* write("userdata/secrets/provider-env-a.bin.123.tmp");
       yield* write("worktrees/app/feature/file.ts");
@@ -102,6 +103,7 @@ it.live(
         "userdata/server-owner.sqlite",
         "userdata/logs/server.log",
         "userdata/usage-scan-cache-v11.json",
+        "userdata/file-versions/ab/abcdef",
         "userdata/secrets/provider-env-a.bin.123.tmp",
         "worktrees/app/feature/file.ts",
       ]) {

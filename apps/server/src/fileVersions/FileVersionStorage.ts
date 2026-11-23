@@ -2,8 +2,10 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 
+import * as KeyedLock from "@codenine/shared/KeyedLock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -87,17 +89,86 @@ export interface AppendFileVersionInput {
 export const contentHash = (bytes: Uint8Array) =>
   NodeCrypto.createHash("sha256").update(bytes).digest("hex");
 
+type Stored<A> = Effect.Effect<A, FileVersionStorageError>;
+
 /**
- * Rows and contents of the version store. Callers serialise writes to one workspace; the total
- * kept in memory is only right when they do.
+ * Rows and contents of the version store. One instance serves the whole server: the total kept
+ * in memory is only right when every write to a workspace goes through it under `withWriteLock`.
  */
-export const make = Effect.gen(function* () {
+export class FileVersionStorage extends Context.Service<
+  FileVersionStorage,
+  {
+    readonly limits: (typeof FileVersionLimits)["Service"];
+    readonly storeDirectory: string;
+    /** Held for a whole walk of a workspace. Saves do not wait for it. */
+    readonly withWalkLock: <A, E, R>(
+      workspaceRoot: string,
+      effect: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E, R>;
+    /** Held around each change to a workspace's rows, so a walk lets saves in between its files. */
+    readonly withWriteLock: <A, E, R>(
+      workspaceRoot: string,
+      effect: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E, R>;
+    readonly list: (
+      workspaceRoot: string,
+      relativePath: string,
+    ) => Stored<ReadonlyArray<FileVersionRow>>;
+    readonly head: (workspaceRoot: string, relativePath: string) => Stored<FileVersionRow | null>;
+    /** The latest version of every file in the workspace, by path. */
+    readonly heads: (workspaceRoot: string) => Stored<Map<string, FileVersionRow>>;
+    readonly get: (workspaceRoot: string, versionId: number) => Stored<FileVersionRow | null>;
+    /** The version a row replaced. Null once pruned, and for a file's first version. */
+    readonly previous: (
+      workspaceRoot: string,
+      row: FileVersionRow,
+    ) => Stored<FileVersionRow | null>;
+    readonly turnRows: (
+      workspaceRoot: string,
+      turn: { readonly threadId: string; readonly turnCount: number },
+    ) => Stored<ReadonlyArray<FileVersionRow>>;
+    /** Records a new latest version of a file, then applies the per-file limit. */
+    readonly append: (
+      workspaceRoot: string,
+      input: AppendFileVersionInput,
+      replaced: FileVersionRow | null,
+    ) => Stored<void>;
+    /** Puts new contents in an existing version, for editor saves that count as one. */
+    readonly replaceContent: (
+      workspaceRoot: string,
+      row: FileVersionRow,
+      bytes: Uint8Array,
+    ) => Stored<void>;
+    /** Notes the file's new modification time when only that changed. */
+    readonly touch: (row: FileVersionRow, mtimeMs: number) => Stored<void>;
+    /** Null when the contents are gone, as after restoring a backup onto another computer. */
+    readonly readContents: (workspaceRoot: string, hash: string) => Stored<Uint8Array | null>;
+    /** For a caller that holds the workspace's locks. */
+    readonly deleteWorkspace: (workspaceRoot: string) => Stored<void>;
+    /** `deleteWorkspace` for a caller that holds neither lock, such as a project's deletion. */
+    readonly forgetWorkspace: (workspaceRoot: string) => Stored<void>;
+    /**
+     * Hands a workspace's versions to the folder it moved to. Versions the new folder already
+     * has are of that folder's files, so they stay and the old folder's are dropped instead.
+     */
+    readonly moveWorkspace: (from: string, to: string) => Stored<void>;
+  }
+>()("codenine/fileVersions/FileVersionStorage") {}
+
+const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const config = yield* ServerConfig.ServerConfig;
   const path = yield* Path.Path;
   const limits = yield* FileVersionLimits;
   const storeDirectory = path.join(config.stateDir, FILE_VERSIONS_DIRECTORY);
   const totals = new Map<string, number>();
+  const walkLocks = yield* KeyedLock.make<string>();
+  const writeLocks = yield* KeyedLock.make<string>();
+
+  const withWalkLock = <A, E, R>(workspaceRoot: string, effect: Effect.Effect<A, E, R>) =>
+    walkLocks.withLock(workspaceRoot, effect);
+  const withWriteLock = <A, E, R>(workspaceRoot: string, effect: Effect.Effect<A, E, R>) =>
+    writeLocks.withLock(workspaceRoot, effect);
 
   const failed = (operation: string) => (cause: unknown) =>
     new FileVersionStorageError({ operation, cause });
@@ -141,7 +212,6 @@ export const make = Effect.gen(function* () {
       Effect.mapError(failed("read the latest version")),
     );
 
-  /** The latest version of every file in the workspace, by path. */
   const heads = (workspaceRoot: string) =>
     sql<FileVersionRow>`
       SELECT ${columns} FROM file_versions
@@ -164,7 +234,6 @@ export const make = Effect.gen(function* () {
       Effect.mapError(failed("read a version")),
     );
 
-  /** The version a row replaced. Null once pruned, and for a file's first version. */
   const previous = (workspaceRoot: string, row: FileVersionRow) =>
     sql<FileVersionRow>`
       SELECT ${columns} FROM file_versions
@@ -320,7 +389,6 @@ export const make = Effect.gen(function* () {
       : ({ state: "skipped", contentHash: null, byteLength } as const);
   });
 
-  /** Records a new latest version of a file, then applies the per-file limit. */
   const append = Effect.fn("FileVersionStorage.append")(function* (
     workspaceRoot: string,
     input: AppendFileVersionInput,
@@ -346,7 +414,6 @@ export const make = Effect.gen(function* () {
     if (replaced !== null) yield* pruneFile(workspaceRoot, input.relativePath);
   });
 
-  /** Puts new contents in an existing version, for editor saves that count as one. */
   const replaceContent = Effect.fn("FileVersionStorage.replaceContent")(function* (
     workspaceRoot: string,
     row: FileVersionRow,
@@ -362,14 +429,12 @@ export const make = Effect.gen(function* () {
     yield* releaseContents(workspaceRoot, [row]);
   });
 
-  /** Notes the file's new modification time when only that changed. */
   const touch = (row: FileVersionRow, mtimeMs: number) =>
     sql`UPDATE file_versions SET mtime_ms = ${mtimeMs} WHERE version_id = ${row.versionId}`.pipe(
       Effect.mapError(failed("update a version")),
       Effect.asVoid,
     );
 
-  /** Null when the contents are gone, as after restoring a backup onto another computer. */
   const readContents = (workspaceRoot: string, hash: string) =>
     Effect.tryPromise({
       try: () =>
@@ -393,9 +458,52 @@ export const make = Effect.gen(function* () {
     });
   });
 
-  return {
+  const whole = <A, E, R>(workspaceRoot: string, effect: Effect.Effect<A, E, R>) =>
+    withWalkLock(workspaceRoot, withWriteLock(workspaceRoot, effect));
+
+  const forgetWorkspace = (workspaceRoot: string) =>
+    whole(workspaceRoot, deleteWorkspace(workspaceRoot));
+
+  const moveWorkspace = Effect.fn("FileVersionStorage.moveWorkspace")(function* (
+    from: string,
+    to: string,
+  ) {
+    if (from === to) return;
+    const [first, second] = from < to ? [from, to] : [to, from];
+    yield* whole(
+      first,
+      whole(
+        second,
+        Effect.gen(function* () {
+          if ((yield* heads(to)).size > 0) return yield* deleteWorkspace(from);
+          yield* deleteWorkspace(to);
+          yield* sql`UPDATE file_versions SET workspace_root = ${to} WHERE workspace_root = ${from}`.pipe(
+            Effect.mapError(failed("move a workspace's versions")),
+          );
+          totals.delete(from);
+          yield* Effect.tryPromise({
+            try: async () => {
+              await NodeFSP.mkdir(storeDirectory, { recursive: true });
+              await NodeFSP.rename(workspaceDirectory(from), workspaceDirectory(to)).catch(
+                (cause: NodeJS.ErrnoException) => {
+                  if (cause.code !== "ENOENT") throw cause;
+                },
+              );
+            },
+            catch: failed("move a workspace's versions"),
+          });
+        }),
+      ),
+    );
+  });
+
+  return FileVersionStorage.of({
     limits,
     storeDirectory,
+    withWalkLock,
+    withWriteLock,
+    forgetWorkspace,
+    moveWorkspace,
     list,
     head,
     heads,
@@ -407,5 +515,7 @@ export const make = Effect.gen(function* () {
     touch,
     readContents,
     deleteWorkspace,
-  };
+  });
 });
+
+export const layer = Layer.effect(FileVersionStorage, make);

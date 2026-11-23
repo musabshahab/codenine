@@ -266,7 +266,13 @@ it.layer(layerTest)("FileBaselines", (it) => {
         yield* writeDisk("notes.md", BEFORE_TURN);
         yield* writeDisk("marked.csv", MARKED_BEFORE_TURN);
         yield* writeDisk("untouched.md", "same\n");
+        yield* writeDisk("removed.md", "removed by the turn\n");
+        // "café;10" in Latin-1, which is not valid UTF-8.
+        const latin = (count: string) => Buffer.from(`caf\u00e9;${count}\n`, "latin1");
+        yield* fileSystem.writeFile(path.join(cwd, "latin.csv"), latin("10"));
         yield* versions.syncWorkspace({ cwd, origin: { kind: "external" } });
+        yield* fileSystem.writeFile(path.join(cwd, "latin.csv"), latin("20"));
+        yield* fileSystem.remove(path.join(cwd, "removed.md"));
         yield* writeDisk("notes.md", AFTER_TURN);
         yield* writeDisk("marked.csv", "\uFEFFname,count\na,22\n");
         yield* writeDisk("created.md", "new\n");
@@ -279,7 +285,7 @@ it.layer(layerTest)("FileBaselines", (it) => {
             return yield* baselines.revertTurnChange({
               ...file,
               ...turn,
-              expectedVersion: (yield* files.readFile(file)).version!,
+              expectedVersion: (yield* files.readFile({ ...file, allowMissing: true })).version,
               ...(change === undefined ? {} : { change }),
             });
           });
@@ -287,6 +293,19 @@ it.layer(layerTest)("FileBaselines", (it) => {
         expect(yield* read("notes.md")).toEqual({ available: true, contents: BEFORE_TURN });
         expect(yield* read("created.md")).toEqual({ available: true, contents: null });
         expect(yield* read("untouched.md")).toEqual({ available: false, contents: null });
+        // Text in another encoding cannot be put back as text, so it has no baseline, as in Git.
+        expect(yield* read("latin.csv")).toEqual({ available: false, contents: null });
+        expect((yield* discard("latin.csv").pipe(Effect.flip))._tag).toBe(
+          "FileBaselineUnavailableError",
+        );
+        expect(Buffer.from(yield* fileSystem.readFile(path.join(cwd, "latin.csv")))).toEqual(
+          latin("20"),
+        );
+        // A file the turn deleted is put back; there is no version of it on disk to expect.
+        expect(yield* discard("removed.md")).toMatchObject({ deleted: false });
+        expect(yield* fileSystem.readFileString(path.join(cwd, "removed.md"))).toBe(
+          "removed by the turn\n",
+        );
         // There is no last commit to mark changed lines against.
         expect(
           yield* baselines.read({ cwd, relativePath: "notes.md", source: { kind: "head" } }),

@@ -48,6 +48,7 @@ const layerServices = Layer.mergeAll(
   ProjectStore.layer,
   IdAllocator.layer,
   ThreadCommandExecutor.layer,
+  FileVersionStorage.layer,
   Layer.succeed(WorkspacePaths.WorkspacePaths, {
     normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
     resolveRelativePathWithinRoot: ({ workspaceRoot, relativePath }) =>
@@ -439,30 +440,30 @@ it.effect("deletes a project without force once its imported threads were delete
       )
     `;
     yield* TestClock.setTime(Date.parse("2026-09-04T12:00:00.000Z"));
-    const fileSystem = yield* FileSystem.FileSystem;
-    const fileVersions = yield* FileVersionStorage.make;
-    yield* fileVersions.append(
-      `/work/${projectId}`,
-      {
-        relativePath: "notes.md",
-        content: { kind: "bytes", bytes: new TextEncoder().encode("kept for undo") },
-        mtimeMs: null,
-        origin: "user",
-        createdAt: "2026-09-04T12:00:00.000Z",
-      },
-      null,
-    );
-    const storedFileVersions = fileSystem
-      .readDirectory(fileVersions.storeDirectory, { recursive: true })
-      .pipe(Effect.orElseSucceed((): Array<string> => []));
-    assert.isNotEmpty(yield* storedFileVersions);
-
     yield* Effect.gen(function* () {
       const importer = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
       const eventSink = yield* EventSink.EventSinkV2;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const service = yield* ProjectService.make;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fileVersions = yield* FileVersionStorage.FileVersionStorage;
+      yield* fileVersions.append(
+        `/work/${projectId}`,
+        {
+          relativePath: "notes.md",
+          content: { kind: "bytes", bytes: new TextEncoder().encode("kept for undo") },
+          mtimeMs: null,
+          origin: "user",
+          createdAt: "2026-09-04T12:00:00.000Z",
+        },
+        null,
+      );
+      const stored = yield* fileVersions.head(`/work/${projectId}`, "notes.md");
+      const storedFileVersions = fileSystem
+        .readDirectory(fileVersions.storeDirectory, { recursive: true })
+        .pipe(Effect.orElseSucceed((): Array<string> => []));
+      assert.isNotEmpty(yield* storedFileVersions);
       yield* importer.reconcileShells;
       const early = yield* service
         .delete({ commandId: CommandId.make("command:emptied:early"), projectId })
@@ -502,6 +503,19 @@ it.effect("deletes a project without force once its imported threads were delete
         SELECT deleted_at FROM projection_threads WHERE thread_id = ${threadId}
       `;
       assert.deepEqual(legacy, [{ deleted_at: null }]);
+
+      // Versions are keyed by folder, so they follow the workspace when it is pointed elsewhere.
+      yield* service.update({
+        commandId: CommandId.make("command:emptied:move"),
+        projectId,
+        workspaceRoot: `/moved/${projectId}`,
+      });
+      assert.deepEqual(yield* sql`SELECT DISTINCT workspace_root FROM file_versions`, [
+        { workspace_root: `/moved/${projectId}` },
+      ]);
+      assert.isNotNull(
+        yield* fileVersions.readContents(`/moved/${projectId}`, stored!.contentHash!),
+      );
 
       const deleted = yield* service.delete({
         commandId: CommandId.make("command:emptied:project-delete"),

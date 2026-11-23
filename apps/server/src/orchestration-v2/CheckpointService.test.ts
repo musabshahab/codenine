@@ -145,7 +145,7 @@ it.effect("without Git, a turn's changed files come from the version store", () 
       const sideChat = yield* checkpoints.capture({ ...capture, forceMissing: true });
 
       assert.deepEqual(synced, [
-        { cwd: "/documents", origin: { kind: "external" } },
+        { cwd: "/documents", origin: { kind: "turn-start", threadId: "thread:plain-folder" } },
         {
           cwd: "/documents",
           origin: { kind: "agent", threadId: "thread:plain-folder", turnCount: 1 },

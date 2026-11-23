@@ -114,6 +114,8 @@ const seedAlpha = Effect.fn(function* (home: Home) {
         VALUES ('t-1', 'p-app', 'Thread', 'codex', 'full-access', 'default', ${now()}, ${now()}, ${thread})`,
       client`INSERT INTO provider_session_runtime (thread_id, provider_name, adapter_key, status, last_seen_at)
         VALUES ('t-1', 'codex', 'codex', 'running', ${now()})`,
+      client`INSERT INTO file_versions (workspace_root, relative_path, state, content_hash, byte_length, change, origin, created_at)
+        VALUES (${`${home.userHome}/code/site`}, 'notes.md', 'stored', 'hash', 5, 'created', 'user', ${now()})`,
     ]),
   );
   yield* writeFile(path.join(codenine, "workspaces", "app", "README.md"), "app");
@@ -290,8 +292,10 @@ it.effect(
         (client) =>
           client<{
             readonly count: number;
-          }>`SELECT COUNT(*) AS count FROM provider_session_runtime`,
+          }>`SELECT (SELECT COUNT(*) FROM provider_session_runtime)
+            + (SELECT COUNT(*) FROM file_versions) AS count`,
       );
+      // File versions go too: the archive leaves their stored contents out.
       assert.equal(runtime!.count, 0);
       const environmentId = (yield* fs.readFileString(beta.paths.environmentIdPath)).trim();
       assert.notInclude(["env-alpha", "env-beta", ""], environmentId);

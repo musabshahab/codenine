@@ -609,7 +609,9 @@ export const ProjectRevertFileChangeInput = Schema.Struct({
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   threadId: ThreadId,
   turnCount: PositiveInt,
-  expectedVersion: TrimmedNonEmptyString,
+  // The read `version` the caller saw. Omit for a file that is gone, to put back one the turn
+  // deleted.
+  expectedVersion: Schema.optional(TrimmedNonEmptyString),
   // Omit to restore the whole file, which deletes a file the turn created.
   change: Schema.optional(ProjectFileLineChange),
 });

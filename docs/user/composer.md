@@ -381,7 +381,8 @@ commit: green for added, blue for changed, and a red tick where lines were remov
 When the agent's latest turn changed a file you have open, the file offers **Review changes**. The
 review shows that turn's changes inside the file, against the file as it was when the turn
 started. **Keep** accepts them and **Discard** puts the earlier text back, for the whole file or
-for one change at a time. Discarding a file the turn created deletes it. You can also right-click
+for one change at a time. Discarding a file the turn created deletes it, and a file the turn
+deleted offers **Restore file** when you open it. You can also right-click
 a file in the latest turn's changed files or in the Diff tab and choose **Review in file**, which
 also brings back a review you closed with **Keep**. In Work and Create workspaces, selecting a file
 in the latest turn's changed files opens this review; files from earlier turns open in the editor.
@@ -399,8 +400,9 @@ picked up at the start of the next turn.
 Open a file and choose **Versions** in the file's toolbar to see them: when each was made, how
 large it is, and whether it came from the editor, an agent's turn, a restore, or outside Codenine.
 Select one to read it, then **Restore this version** to put it back. Restoring keeps the contents
-it replaces as a version too, so you can go back again. Versions work for any kind of file; only
-text has a preview.
+it replaces as a version too, so you can go back again. When those contents cannot be kept, as
+for a file over the size limit, the restore is refused and the file is left as it is; the same
+holds for **Discard** in a review. Versions work for any kind of file; only text has a preview.
 
 Versions live in Codenine's own data folder, never in your folder, and are limited for each
 workspace: 30 versions of a file and 1 GB in total, with the oldest removed first and the newest
@@ -409,9 +411,10 @@ kept, and a folder is watched up to its first 10,000 files, leaving out `node_mo
 `.git`. Saves a few minutes apart count as one version. Deleting the workspace deletes its
 versions, and [backups](backup.md) leave them out.
 
-A Git workspace has no **Versions** button: its history is in Git and in the checkpoints behind
-the Diff tab. When several agents work in one folder at once, a change is listed under the turn
-that ended first after it.
+A Git workspace keeps no versions: its history is in Git and in the checkpoints behind the Diff
+tab. A folder that becomes a Git checkout later keeps the versions it already has, and
+**Versions** stays on the files that have some. When several agents work in one folder at once,
+a change is listed under the turn that ended first after it.
 
 ## HTML and PDF files in the file viewer
 

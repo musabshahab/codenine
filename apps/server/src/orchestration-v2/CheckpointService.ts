@@ -260,7 +260,7 @@ export const layer: Layer.Layer<
             // Without Git the version store holds what the turn is about to change.
             yield* fileVersions.syncWorkspace({
               cwd: input.scope.cwd,
-              origin: { kind: "external" },
+              origin: { kind: "turn-start", threadId: input.scope.threadId },
             });
             return;
           }

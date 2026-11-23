@@ -86,13 +86,14 @@ export class FileBaselines extends Context.Service<
     >;
     /**
      * Restores a file, or one change in it, to the start of a turn. Refused when the file no
-     * longer has the version the caller saw.
+     * longer has the version the caller saw, which is none for a file the turn deleted.
      */
     readonly revertTurnChange: (
       input: ProjectRevertFileChangeInput,
     ) => Effect.Effect<
       ProjectRevertFileChangeResult,
       | FileBaselineUnavailableError
+      | FileVersions.FileVersionNotKeptError
       | WorkspaceFileSystem.WorkspaceFileConflictError
       | WorkspaceFileSystem.WorkspaceFileSystemError
       | WorkspacePaths.WorkspacePathOutsideRootError
@@ -107,6 +108,14 @@ const UNAVAILABLE: ProjectReadFileBaselineResult = { available: false, contents:
 // The largest text a workspace read returns, so a baseline never exceeds what it is compared to.
 const VERSION_BASELINE_MAX_BYTES = 1024 * 1024;
 const BYTE_ORDER_MARK_BYTES = [0xef, 0xbb, 0xbf];
+
+const decodeUtf8 = (bytes: Uint8Array) => {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+};
 
 const make = Effect.gen(function* () {
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
@@ -128,9 +137,13 @@ const make = Effect.gen(function* () {
     if (bytes.byteLength > VERSION_BASELINE_MAX_BYTES || bytes.includes(0)) {
       return { result: UNAVAILABLE, byteOrderMark: false };
     }
+    // Text in another encoding has no baseline, as with Git: a Discard would write it back
+    // as UTF-8 with every other character replaced.
+    const contents = decodeUtf8(bytes);
+    if (contents === null) return { result: UNAVAILABLE, byteOrderMark: false };
     return {
       // Decoding drops a byte order mark, as a workspace read does.
-      result: { available: true, contents: new TextDecoder("utf-8").decode(bytes) },
+      result: { available: true, contents },
       byteOrderMark: BYTE_ORDER_MARK_BYTES.every((byte, index) => bytes[index] === byte),
     };
   });
@@ -217,7 +230,9 @@ const make = Effect.gen(function* () {
       });
     }
     if (input.change === undefined && baseline.contents === null) {
-      yield* fileVersions.removeFile({ ...target, expectedVersion: input.expectedVersion });
+      if (input.expectedVersion !== undefined) {
+        yield* fileVersions.removeFile({ ...target, expectedVersion: input.expectedVersion });
+      }
       return { relativePath: current.relativePath, deleted: true };
     }
     const contents =
@@ -228,15 +243,12 @@ const make = Effect.gen(function* () {
       return yield* new FileBaselineUnavailableError({ ...target, reason: "change-out-of-range" });
     }
     // The write checks the version again, so a change after the read above is still refused.
-    const written = yield* fileVersions.writeFile(
-      {
-        ...target,
-        // Reads hide the mark, so it is put back for a file that began the turn with one.
-        contents: byteOrderMark ? BYTE_ORDER_MARK + contents : contents,
-        expectedVersion: input.expectedVersion,
-      },
-      "restore",
-    );
+    const written = yield* fileVersions.overwriteFile({
+      ...target,
+      // Reads hide the mark, so it is put back for a file that began the turn with one.
+      contents: byteOrderMark ? BYTE_ORDER_MARK + contents : contents,
+      expectedVersion: input.expectedVersion,
+    });
     return { ...written, deleted: false };
   });
 

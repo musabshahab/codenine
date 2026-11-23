@@ -216,3 +216,64 @@ export function FileReviewSurface(props: {
     </div>
   );
 }
+
+/** Shown on the tab of a file the latest turn deleted, with the way to put it back. */
+export function DeletedFileReviewBar(props: {
+  readonly environmentId: EnvironmentId;
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly threadRef: ScopedThreadRef;
+  readonly turnCount: number;
+  readonly canRestore: boolean;
+}) {
+  const { environmentId, cwd, relativePath } = props;
+  const revertFileChange = useAtomCommand(projectEnvironment.revertFileChange, {
+    reportFailure: false,
+  });
+  const [restoring, setRestoring] = useState(false);
+
+  const restore = async () => {
+    setRestoring(true);
+    // No expected version: the server refuses if a file is there again.
+    const result = await revertFileChange({
+      environmentId,
+      input: {
+        cwd,
+        relativePath,
+        threadId: props.threadRef.threadId,
+        turnCount: props.turnCount,
+      },
+    });
+    setRestoring(false);
+    reloadProjectFileQueryData(environmentId, cwd, relativePath);
+    if (result._tag === "Success") return;
+    const failure = squashAtomCommandFailure(result);
+    toastManager.add({
+      type: "error",
+      title: "Could not restore the file",
+      description: isWriteConflict(failure)
+        ? "A file with this name exists again. It has been reloaded."
+        : failure instanceof Error
+          ? failure.message
+          : "Try again.",
+    });
+  };
+
+  return (
+    <FileSurfaceBar
+      actions={
+        <Button
+          type="button"
+          size="micro"
+          variant="outline"
+          disabled={!props.canRestore || restoring}
+          onClick={() => void restore()}
+        >
+          Restore file
+        </Button>
+      }
+    >
+      The agent deleted this file in its last turn.
+    </FileSurfaceBar>
+  );
+}

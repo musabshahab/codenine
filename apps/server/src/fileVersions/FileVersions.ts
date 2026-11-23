@@ -14,7 +14,6 @@ import type {
   ProjectWriteFileResult,
 } from "@codenine/contracts";
 import { IsoDateTime, PositiveInt, ThreadId } from "@codenine/contracts";
-import * as KeyedLock from "@codenine/shared/KeyedLock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -52,9 +51,24 @@ export class FileVersionUnavailableError extends Schema.TaggedError<FileVersionU
   }
 }
 
-export type FileVersionSyncOrigin =
+/** A write that would destroy contents the store holds no copy of, so nothing was changed. */
+export class FileVersionNotKeptError extends Schema.TaggedError<FileVersionNotKeptError>()(
+  "FileVersionNotKeptError",
+  { relativePath: Schema.String },
+) {
+  override get message(): string {
+    return `The current contents of '${this.relativePath}' could not be kept as a version, so the file was left as it is. It may be too large, or the workspace's versions may be full.`;
+  }
+}
+
+type FileVersionWalkOrigin =
   | { readonly kind: "external" }
   | { readonly kind: "agent"; readonly threadId: string; readonly turnCount: number };
+
+export type FileVersionSyncOrigin =
+  | FileVersionWalkOrigin
+  /** The walk before a thread's turn. It is skipped while another thread's turn runs there. */
+  | { readonly kind: "turn-start"; readonly threadId: string };
 
 export interface FileVersionTurn {
   readonly cwd: string;
@@ -62,11 +76,12 @@ export interface FileVersionTurn {
   readonly turnCount: number;
 }
 
-type WriteError =
+type SaveError =
   | WorkspaceFileSystem.WorkspaceFileSystemError
   | WorkspaceFileSystem.WorkspaceFileConflictError
   | WorkspacePaths.WorkspacePathOutsideRootError
   | KnownWorkspaces.UnknownWorkspaceError;
+type WriteError = SaveError | FileVersionNotKeptError;
 
 /**
  * Earlier contents of files in workspaces without Git, where no checkpoint holds them. A Git
@@ -76,12 +91,21 @@ type WriteError =
 export class FileVersions extends Context.Service<
   FileVersions,
   {
-    /** A save that first records what it replaces. In a Git checkout it only saves. */
+    /**
+     * An editor save, which first records what it replaces and goes ahead when that fails. In a
+     * Git checkout it only saves.
+     */
     readonly writeFile: (
       input: ProjectWriteFileInput,
-      origin: "user" | "restore",
+    ) => Effect.Effect<ProjectWriteFileResult, SaveError>;
+    /** `writeFile` for a write that promises an undo: refused when what it replaces is not kept. */
+    readonly overwriteFile: (
+      input: ProjectWriteFileInput,
     ) => Effect.Effect<ProjectWriteFileResult, WriteError>;
-    /** A delete that first records what it removes. In a Git checkout it only deletes. */
+    /**
+     * A delete that first records what it removes, and is refused when it cannot. In a Git
+     * checkout it only deletes.
+     */
     readonly removeFile: (
       input: WorkspaceFileSystem.RemoveWorkspaceFileInput,
     ) => Effect.Effect<void, WriteError>;
@@ -101,7 +125,7 @@ export class FileVersions extends Context.Service<
     >;
     /**
      * Puts a version's contents back as a save does, after recording what is on disk, so the
-     * restore can itself be undone.
+     * restore can itself be undone. Refused when what is on disk cannot be recorded.
      */
     readonly restore: (
       input: ProjectRestoreFileVersionInput,
@@ -112,7 +136,8 @@ export class FileVersions extends Context.Service<
     /**
      * Records every file that differs from its latest version. Run before a turn it attributes
      * the differences to outside changes, and after it to the turn. Never fails: a workspace
-     * that cannot be read is logged and left alone. Does nothing in a Git checkout.
+     * that cannot be read is logged and left alone. Does nothing in a Git checkout. A turn
+     * that ends with no walk, as a failed one does, counts as running until its thread's next.
      */
     readonly syncWorkspace: (input: {
       readonly cwd: string;
@@ -143,6 +168,18 @@ export class TurnFileVersions extends Context.Reference<
   }),
 }) {}
 
+/** What a walk could not read, and so cannot say existed or not. Directories end in "/". */
+interface Unread {
+  readonly files: Set<string>;
+  readonly directories: ReadonlyArray<string>;
+}
+
+const isUnread = (unread: Unread, relativePath: string) =>
+  unread.files.has(relativePath) ||
+  unread.directories.some((directory) => relativePath.startsWith(directory));
+
+const EXTERNAL = { kind: "external" } as const;
+
 interface WalkedFile {
   readonly relativePath: string;
   readonly absolutePath: string;
@@ -162,16 +199,17 @@ const toWire = (row: FileVersionStorage.FileVersionRow): ProjectFileVersion => (
 });
 
 const make = Effect.gen(function* () {
-  const storage = yield* FileVersionStorage.make;
+  const storage = yield* FileVersionStorage.FileVersionStorage;
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
   const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const config = yield* ServerConfig.ServerConfig;
   const path = yield* Path.Path;
-  const locks = yield* KeyedLock.make<string>();
   const { limits } = storage;
-  // Workspaces whose every file had a version after a walk in this process.
-  const fullyWalked = new Set<string>();
+  // Workspaces a walk in this process saw whole, apart from what it could not read.
+  const walked = new Map<string, Unread>();
+  // Threads with a turn running in each workspace.
+  const runningTurns = new Map<string, Set<string>>();
 
   const rootOf = (cwd: string) => path.resolve(cwd);
   const now = DateTime.now.pipe(Effect.map(DateTime.formatIso));
@@ -183,10 +221,36 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => false),
     );
 
-  const relativePathOf = (input: { readonly cwd: string; readonly relativePath: string }) =>
-    workspacePaths
-      .resolveRelativePathWithinRoot({ workspaceRoot: input.cwd, relativePath: input.relativePath })
-      .pipe(Effect.map((target) => target.relativePath));
+  /**
+   * The path a file's versions are kept under: where it really is, as the walk records it, so a
+   * file reached through a link inside the workspace has one history. A link that leaves the
+   * workspace keeps the path as named.
+   */
+  const relativePathOf = Effect.fn("FileVersions.relativePathOf")(function* (input: {
+    readonly cwd: string;
+    readonly relativePath: string;
+  }) {
+    const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+      workspaceRoot: input.cwd,
+      relativePath: input.relativePath,
+    });
+    const root = rootOf(input.cwd);
+    const segments = path.relative(root, target.absolutePath).split(path.sep);
+    return yield* Effect.promise(async () => {
+      const realRoot = await NodeFSP.realpath(root).catch(() => root);
+      for (let depth = segments.length; depth > 0; depth--) {
+        const real = await NodeFSP.realpath(path.join(realRoot, ...segments.slice(0, depth))).catch(
+          () => null,
+        );
+        if (real === null) continue;
+        const relative = path.relative(realRoot, path.join(real, ...segments.slice(depth)));
+        return relative === "" || relative.startsWith("..") || path.isAbsolute(relative)
+          ? target.relativePath
+          : relative.replaceAll(path.sep, "/");
+      }
+      return target.relativePath;
+    });
+  });
 
   const sameAsHead = (
     head: FileVersionStorage.FileVersionRow | null,
@@ -208,7 +272,7 @@ const make = Effect.gen(function* () {
     relativePath: string,
     content: FileVersionStorage.FileVersionContent,
     mtimeMs: number | null,
-    origin: FileVersionSyncOrigin | { readonly kind: "user" | "restore" },
+    origin: FileVersionWalkOrigin | { readonly kind: "user" | "restore" },
     known?: { readonly head: FileVersionStorage.FileVersionRow | null },
   ) {
     const head = known === undefined ? yield* storage.head(root, relativePath) : known.head;
@@ -261,7 +325,7 @@ const make = Effect.gen(function* () {
       relativePath,
       disk.kind === "file" ? { kind: "bytes", bytes: disk.bytes } : disk,
       disk.kind === "absent" ? null : disk.mtimeMs,
-      { kind: "external" },
+      EXTERNAL,
     );
   });
 
@@ -275,43 +339,87 @@ const make = Effect.gen(function* () {
     );
 
   /** Runs a write between a record of what it replaces and a record of what it wrote. */
-  const recorded = Effect.fn("FileVersions.recorded")(function* <A, E>(
+  const recorded = Effect.fn("FileVersions.recorded")(function* <A, E, E2>(
     input: { readonly cwd: string; readonly relativePath: string },
     write: Effect.Effect<A, E>,
     written: FileVersionStorage.FileVersionContent,
     origin: "user" | "restore",
+    recordReplaced: (relativePath: string) => Effect.Effect<void, E2>,
   ) {
-    const relativePath = yield* relativePathOf(input).pipe(Effect.option);
+    const found = yield* relativePathOf(input).pipe(Effect.option);
     // The write reports a path outside the workspace itself.
-    if (relativePath._tag === "None") return yield* write;
-    return yield* locks.withLock(
-      rootOf(input.cwd),
+    if (found._tag === "None") return yield* write;
+    const relativePath = found.value;
+    const root = rootOf(input.cwd);
+    return yield* storage.withWriteLock(
+      root,
       Effect.gen(function* () {
-        yield* bestEffort("record-replaced", recordDisk(input.cwd, relativePath.value));
+        yield* recordReplaced(relativePath);
         const result = yield* write;
         yield* bestEffort(
           "record-written",
-          record(rootOf(input.cwd), relativePath.value, written, null, { kind: origin }),
+          record(root, relativePath, written, null, { kind: origin }),
         );
         return result;
       }),
     );
   });
 
+  const replacedIfPossible = (cwd: string) => (relativePath: string) =>
+    bestEffort("record-replaced", recordDisk(cwd, relativePath));
+
+  /** Fails unless the store holds what is on disk, which a latest version without contents lacks. */
+  const replacedKept = (cwd: string) =>
+    Effect.fn("FileVersions.replacedKept")(function* (relativePath: string) {
+      const kept = yield* recordDisk(cwd, relativePath).pipe(
+        Effect.andThen(storage.head(rootOf(cwd), relativePath)),
+        Effect.map((head) => head?.state !== "skipped"),
+        Effect.catchTags({
+          FileVersionStorageError: (cause) =>
+            Effect.logWarning("file version store could not record a change", {
+              operation: "record-replaced",
+              cause,
+            }).pipe(Effect.as(false)),
+        }),
+      );
+      if (!kept) return yield* new FileVersionNotKeptError({ relativePath });
+    });
+
   const writeFile: FileVersions["Service"]["writeFile"] = Effect.fn("FileVersions.writeFile")(
-    function* (input, origin) {
+    function* (input) {
       const write = workspaceFileSystem.writeFile(input);
       if (!(yield* isTracked(input.cwd))) return yield* write;
       const bytes = Buffer.from(input.contents);
-      return yield* recorded(input, write, { kind: "bytes", bytes }, origin);
+      return yield* recorded(
+        input,
+        write,
+        { kind: "bytes", bytes },
+        "user",
+        replacedIfPossible(input.cwd),
+      );
     },
   );
+
+  const overwriteFile: FileVersions["Service"]["overwriteFile"] = Effect.fn(
+    "FileVersions.overwriteFile",
+  )(function* (input) {
+    const write = workspaceFileSystem.writeFile(input);
+    if (!(yield* isTracked(input.cwd))) return yield* write;
+    const bytes = Buffer.from(input.contents);
+    return yield* recorded(
+      input,
+      write,
+      { kind: "bytes", bytes },
+      "restore",
+      replacedKept(input.cwd),
+    );
+  });
 
   const removeFile: FileVersions["Service"]["removeFile"] = Effect.fn("FileVersions.removeFile")(
     function* (input) {
       const remove = workspaceFileSystem.removeFile(input);
       if (!(yield* isTracked(input.cwd))) return yield* remove;
-      return yield* recorded(input, remove, { kind: "absent" }, "restore");
+      return yield* recorded(input, remove, { kind: "absent" }, "restore", replacedKept(input.cwd));
     },
   );
 
@@ -353,17 +461,18 @@ const make = Effect.gen(function* () {
 
   const restore: FileVersions["Service"]["restore"] = Effect.fn("FileVersions.restore")(
     function* (input) {
-      const { relativePath, bytes } = yield* storedVersion(input);
+      const { bytes } = yield* storedVersion(input);
       const written = yield* recorded(
         input,
         workspaceFileSystem.writeFileBytes({
           cwd: input.cwd,
-          relativePath,
+          relativePath: input.relativePath,
           bytes,
           expectedVersion: input.expectedVersion,
         }),
         { kind: "bytes", bytes },
         "restore",
+        replacedKept(input.cwd),
       );
       return { relativePath: written.relativePath, version: written.version ?? "" };
     },
@@ -372,9 +481,17 @@ const make = Effect.gen(function* () {
   /** Regular files below the root. Links are never followed, so nothing outside is reached. */
   const walk = async (realRoot: string, ownDirectories: ReadonlySet<string>) => {
     const files: Array<WalkedFile> = [];
+    const unreadFiles = new Set<string>();
+    const unreadDirectories: Array<string> = [];
+    const relative = (absolutePath: string) =>
+      path.relative(realRoot, absolutePath).replaceAll(path.sep, "/");
     const pending = [realRoot];
     for (let directory = pending.pop(); directory !== undefined; directory = pending.pop()) {
-      const entries = await NodeFSP.readdir(directory, { withFileTypes: true }).catch(() => []);
+      const entries = await NodeFSP.readdir(directory, { withFileTypes: true }).catch(() => null);
+      if (entries === null) {
+        unreadDirectories.push(directory === realRoot ? "" : `${relative(directory)}/`);
+        continue;
+      }
       entries.sort((left, right) => (left.name < right.name ? -1 : 1));
       for (const entry of entries) {
         const absolutePath = path.join(directory, entry.name);
@@ -385,18 +502,24 @@ const make = Effect.gen(function* () {
           continue;
         }
         if (!entry.isFile()) continue;
-        if (files.length >= limits.maxTrackedFiles) return { files, complete: false };
+        if (files.length >= limits.maxTrackedFiles) {
+          return { files, unreadFiles, unreadDirectories, complete: false };
+        }
         const stat = await NodeFSP.lstat(absolutePath).catch(() => null);
-        if (stat?.isFile() !== true) continue;
+        if (stat === null) {
+          unreadFiles.add(relative(absolutePath));
+          continue;
+        }
+        if (!stat.isFile()) continue;
         files.push({
-          relativePath: path.relative(realRoot, absolutePath).replaceAll(path.sep, "/"),
+          relativePath: relative(absolutePath),
           absolutePath,
           byteLength: stat.size,
           mtimeMs: stat.mtimeMs,
         });
       }
     }
-    return { files, complete: true };
+    return { files, unreadFiles, unreadDirectories, complete: true };
   };
 
   const readWalkedFile = async (
@@ -428,7 +551,7 @@ const make = Effect.gen(function* () {
 
   const sync = Effect.fn("FileVersions.sync")(function* (
     cwd: string,
-    origin: FileVersionSyncOrigin,
+    origin: FileVersionWalkOrigin,
   ) {
     const root = rootOf(cwd);
     const realRoot = yield* realPath(root);
@@ -436,21 +559,32 @@ const make = Effect.gen(function* () {
     const ownDirectories = new Set(
       yield* Effect.forEach([config.baseDir, config.stateDir], realPath),
     );
-    const heads = yield* storage.heads(root);
-    if (heads.size === 0) {
-      // Contents without rows are left from a restored backup or an interrupted delete.
-      yield* storage.deleteWorkspace(root);
-    }
-    const { files, complete } = yield* Effect.promise(() => walk(realRoot, ownDirectories));
+    // Forgotten until this walk ends, so one that fails part-way does not count as whole.
+    const earlier = walked.get(root);
+    walked.delete(root);
+    const heads = yield* storage.withWriteLock(
+      root,
+      Effect.gen(function* () {
+        const heads = yield* storage.heads(root);
+        // Contents without rows are left from a restored backup or an interrupted delete.
+        if (heads.size === 0) yield* storage.deleteWorkspace(root);
+        return heads;
+      }),
+    );
+    const { files, unreadFiles, unreadDirectories, complete } = yield* Effect.promise(() =>
+      walk(realRoot, ownDirectories),
+    );
     if (!complete) {
       yield* Effect.logWarning("file version store reached its file limit for a workspace", {
         cwd,
         maxTrackedFiles: limits.maxTrackedFiles,
       });
     }
-    // A file first seen now existed before the turn unless an earlier walk saw the whole folder.
-    // Calling it the turn's would let a review's Discard delete it.
-    const newFileOrigin = fullyWalked.has(root) ? origin : ({ kind: "external" } as const);
+    const unread: Unread = { files: unreadFiles, directories: unreadDirectories };
+    // A file first seen now existed before the turn unless the walk before this one would have
+    // seen it. Calling it the turn's would let a review's Discard delete it.
+    const seenBefore = (relativePath: string) =>
+      earlier !== undefined && !isUnread(earlier, relativePath);
     const seen = new Set<string>();
     for (const file of files) {
       seen.add(file.relativePath);
@@ -463,24 +597,43 @@ const make = Effect.gen(function* () {
       ) {
         continue;
       }
-      const content = yield* Effect.promise(() => readWalkedFile(file));
-      if (content === null) continue;
-      yield* record(
+      // The lock is taken for each file, so an editor save waits for one file and not the walk.
+      // A save may have come since `heads` was read, so the file's latest version is read again.
+      yield* storage.withWriteLock(
         root,
-        file.relativePath,
-        content,
-        file.mtimeMs,
-        head === null ? newFileOrigin : origin,
-        { head },
+        Effect.gen(function* () {
+          const content = yield* Effect.promise(() => readWalkedFile(file));
+          if (content === null) {
+            unread.files.add(file.relativePath);
+            return;
+          }
+          const latest = yield* storage.head(root, file.relativePath);
+          yield* record(
+            root,
+            file.relativePath,
+            content,
+            file.mtimeMs,
+            latest === null && !seenBefore(file.relativePath) ? EXTERNAL : origin,
+            { head: latest },
+          );
+        }),
       );
     }
-    if (complete) fullyWalked.add(root);
-    else fullyWalked.delete(root);
     // A cut-short walk cannot tell a deleted file from one it did not reach.
     if (!complete) return;
+    walked.set(root, unread);
     for (const head of heads.values()) {
       if (head.state === "deleted" || seen.has(head.relativePath)) continue;
-      yield* record(root, head.relativePath, { kind: "absent" }, null, origin, { head });
+      if (isUnread(unread, head.relativePath)) continue;
+      yield* storage.withWriteLock(
+        root,
+        Effect.gen(function* () {
+          const latest = yield* storage.head(root, head.relativePath);
+          // A newer version means a save wrote the file after the walk passed it.
+          if (latest?.versionId !== head.versionId) return;
+          yield* record(root, head.relativePath, { kind: "absent" }, null, origin, { head });
+        }),
+      );
     }
   });
 
@@ -488,7 +641,22 @@ const make = Effect.gen(function* () {
     "FileVersions.syncWorkspace",
   )(function* (input) {
     if (!(yield* isTracked(input.cwd))) return;
-    yield* bestEffort("sync", locks.withLock(rootOf(input.cwd), sync(input.cwd, input.origin)));
+    const root = rootOf(input.cwd);
+    const origin = input.origin;
+    if (origin.kind === "turn-start") {
+      const running = runningTurns.get(root) ?? new Set<string>();
+      runningTurns.set(root, running);
+      const othersRunning = running.size > (running.has(origin.threadId) ? 1 : 0);
+      running.add(origin.threadId);
+      // A walk now would call the running turn's changes outside ones and take them from it.
+      // They stay unrecorded for the turn that ends first.
+      if (othersRunning) return;
+    }
+    yield* bestEffort(
+      "sync",
+      storage.withWalkLock(root, sync(input.cwd, origin.kind === "agent" ? origin : EXTERNAL)),
+    );
+    if (origin.kind === "agent") runningTurns.get(root)?.delete(origin.threadId);
   });
 
   const turnChanges: FileVersions["Service"]["turnChanges"] = Effect.fn("FileVersions.turnChanges")(
@@ -518,6 +686,7 @@ const make = Effect.gen(function* () {
 
   return FileVersions.of({
     writeFile,
+    overwriteFile,
     removeFile,
     list,
     read,
@@ -528,7 +697,7 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(FileVersions, make);
+export const layer = Layer.effect(FileVersions, make).pipe(Layer.provide(FileVersionStorage.layer));
 
 export const layerTurnFileVersions = Layer.effect(
   TurnFileVersions,
