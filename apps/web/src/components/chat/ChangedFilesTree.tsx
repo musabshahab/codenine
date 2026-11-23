@@ -265,7 +265,7 @@ const ChangedFilesTree = memo(function ChangedFilesTree(props: {
         <span className="flex min-w-0 font-mono text-xs text-foreground/85 group-hover:text-foreground">
           <MiddleTruncate value={node.name} />
         </span>
-        {node.stat && (
+        {node.stat && hasNonZeroStat(node.stat) && (
           <span className="ml-auto shrink-0 font-mono text-3xs tabular-nums">
             <DiffStatLabel additions={node.stat.additions} deletions={node.stat.deletions} />
           </span>

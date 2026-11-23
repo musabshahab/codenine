@@ -129,7 +129,7 @@ export function FileSurfaceBar(props: {
           : "text-muted-foreground",
       )}
     >
-      <span className="min-w-0 flex-1">{props.children}</span>
+      <span className="min-w-48 flex-1">{props.children}</span>
       <span className="flex shrink-0 items-center gap-1.5">{props.actions}</span>
     </div>
   );
