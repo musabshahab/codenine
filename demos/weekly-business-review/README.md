@@ -1,0 +1,102 @@
+# Weekly business review demo
+
+A runnable prototype of Codenine as a work-focused workspace. It plays one complete weekly business review (WBR) for a fictional company, Contoso Fulfilment:
+
+1. An analyst signs in and imports an Excel workbook.
+2. The analyst investigates a drop in on-time delivery in the report.
+3. The analyst generates a Word briefing whose figures link back to the report and to the source cells.
+4. A manager comments on the briefing and approves it.
+5. The analyst shares the approved briefing and schedules the workflow to run again next week.
+
+If a source figure changes, the change carries through to the report and the briefing. An approval only covers the figures the approver saw, so it is withdrawn when one of them changes.
+
+Microsoft 365 is not needed. Sign-in (Entra ID), SharePoint, Power BI, Teams and Outlook are **simulated**, and every simulated part is labelled in the app. The **Connections** page shows the request that production would send for each simulated call. Everything else is real: the Excel parsing, the KPI model, the change analysis, the Word file, review and approval, permissions, the scheduler and live sync between clients.
+
+## Setup
+
+Requirements: Node.js 22 or later. There are no dependencies to install.
+
+```bash
+node demos/weekly-business-review/server/main.mjs
+```
+
+Then open http://127.0.0.1:4317.
+
+Options:
+
+- `--port 4317` and `--host 127.0.0.1`. Use `--host 0.0.0.0` to open the demo from another device on your network.
+- `--data <dir>` sets where state is kept. The default is the demo's own `.data/` folder, which git ignores.
+- `--reset` starts from an empty workspace. **Reset demo data** in the user menu does the same while the server runs.
+
+To play two people at once, sign in to the second one in a private window or another browser profile, because each browser holds one session. Add `?client=desktop` to the URL (for example `http://127.0.0.1:4317/?client=desktop`) to make that window act as the desktop app. Presence avatars then show who is on the web and who is on the desktop app.
+
+Tests (Office file round trips, the sample-data story, and the workflow engine):
+
+```bash
+node --test demos/weekly-business-review/test/*.test.mjs
+```
+
+The sample workbooks are generated deterministically. To regenerate them:
+
+```bash
+node demos/weekly-business-review/scripts/make-sample-data.mjs
+```
+
+### Optional: rewriting text with a model
+
+Briefing paragraphs get a **Rewrite** button when a model is configured. Set `WBR_AI_MODEL` to an OpenRouter model id and `OPENROUTER_API_KEY` to your key. `WBR_AI_URL` points at any other OpenAI-compatible chat completions endpoint. The model only ever sees figure tokens such as `[[otd.current]]`. A rewrite that types a number or uses an unknown figure is rejected, so a model can change the wording but never a figure. Without a model configured, the demo needs no network at all.
+
+## Walkthrough (about 10 minutes)
+
+| #   | Who                                                                                  | Do this                                                                                                                                                                                                                                          | What it shows                                                                                                                                                                                                                           |
+| --- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Priya Sharma, analyst (Owner)                                                        | Open the app and pick **Priya** on the simulated Entra ID account picker.                                                                                                                                                                        | Organization sign-in, roles, and the six-step review tracker on Home.                                                                                                                                                                   |
+| 2   | Priya                                                                                | **Data** › SharePoint › **Import** `contoso-fulfilment-2026-W47.xlsx`. Or download the sample and upload it with **Choose a file**.                                                                                                              | Real .xlsx import with structure validation, data quality checks, a versioned dataset (v1), and the simulated Graph calls on **Connections**.                                                                                           |
+| 3   | Priya                                                                                | **Report**: on-time delivery fell from 94.3% to 89.8%. Read **Explain this change**: North · Northwind Freight explains 84% of the drop. Select rows to see segment trends. **Pin** a KPI to Home.                                               | KPI cards against targets, the 13-week trend, regions, and an exact rate-and-mix breakdown of the change. Pinned tiles form a shared dashboard on Home.                                                                                 |
+| 4   | Priya                                                                                | **Draft a briefing for 2026-W47**. Click any blue figure to see its calculation and source cells, then use **Open in report** or **Show source cells**. Edit a paragraph and insert a figure from the list. On **Review**, ask Marcus to review. | Every number is bound to the data and has an as-of version. Typed numbers are flagged because they would go stale. Versions are kept on **History**.                                                                                    |
+| 5   | Marcus Lee, operations manager (Approver), in a second window with `?client=desktop` | Open **Inbox** › the review request. Hover the summary paragraph › **Comment**: "North · Northwind looks too low; the hub had a scanner outage."                                                                                                 | Comments anchored to a paragraph, notifications, live sync and presence across web and desktop.                                                                                                                                         |
+| 6   | Priya                                                                                | Follow the figure link to the source row (or **Data** › week 2026-W47 › row 146). Click **On time** (G146), change 1,878 to 2,288, and give the reason.                                                                                          | The correction is recorded with its reason (data v2). The report updates (on-time 91.7%), and the briefing highlights the 9 figures that changed, with old values struck through. Late recalculates.                                    |
+| 7   | Priya, then Marcus                                                                   | Priya replies in the comment thread. Marcus resolves it and clicks **Approve**. Priya, as the author, cannot approve.                                                                                                                            | Separation of duties. Approval is blocked while comments are open, and the approval records the exact figures and data version.                                                                                                         |
+| 8   | Priya                                                                                | **Share…** › SharePoint, Teams and Outlook (each simulated, with previews) › **Share**. Download the **Shared file**.                                                                                                                            | A link-first share with a record of who got which version, and **Stop sharing**. The .docx opens in Word or LibreOffice with the approval stamp, live links on each figure, and a "Figure sources" appendix that names the exact cells. |
+| 9   | Priya                                                                                | **Run this review every week…** › Monday 07:30 Europe/London, share automatically once approved › **Schedule**. On **Automations**, press **Run now** to play next Monday's run.                                                                 | The run imports the W48 export, carries the G146 correction forward, refreshes the model, drafts the W48 briefing from the approved layout (keeping Priya's edits), and asks Marcus to review.                                          |
+| 10  | Marcus, then Dana Okafor (Viewer)                                                    | Marcus approves the W48 draft, and the workflow shares it. Dana signs in, sees only shared briefings, and cannot edit.                                                                                                                           | Approval-gated automation, viewer permissions, and the **Activity** audit trail.                                                                                                                                                        |
+| Try | Anyone with edit rights                                                              | After an approval, correct a W47 figure again. Then correct a cell in an old week such as W40.                                                                                                                                                   | The first withdraws the approval and notifies the approver. The second leaves it alone, because no approved figure changed.                                                                                                             |
+
+## Features, demo steps and production work
+
+Status: **Working** means it runs for real in the demo. **Simulated** means the demo runs locally in its place and shows what production would send.
+
+| Feature                                                                                         | Demo step              | Status in the demo                                                     | Remaining production work                                                                                                                                                                         |
+| ----------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign-in with Microsoft Entra ID                                                                 | 1                      | Simulated: account picker, signed session cookie                       | Multi-tenant OIDC with PKCE; `tid` allow-list; admin consent; publisher verification; claims-challenge handling for Conditional Access; SCIM, then per-customer SAML                              |
+| Workspace members and roles (Owner, Editor, Approver, Viewer)                                   | 1, 7, 10, Members page | Working: every action checked on the server                            | User and organization records in the Codenine server; map Entra groups or app roles to roles; per-workspace access lists; audit retention                                                         |
+| Excel import with validation and data-quality checks                                            | 2                      | Working (real .xlsx parsing); the SharePoint library is simulated      | Download through Graph from OneDrive and SharePoint; delta queries to detect new exports; handle files Purview protects; size limits                                                              |
+| Versioned data and corrections with reasons, carried forward to later imports                   | 6, 9                   | Working                                                                | Store versions in Codenine's file-version store; write corrections back to SharePoint as a new file version; policy when the source and a correction disagree                                     |
+| KPI model and report (cards against targets, trend, regions)                                    | 3                      | Working on the workspace's own model; the Power BI report is simulated | Query the customer's semantic model with delegated Execute Queries (aggregate DAX, within its caps); embed the real report (each viewer needs Pro or PPU below F64); refresh through the REST API |
+| Explain a change (exact rate and mix contributions)                                             | 3                      | Working (calculated)                                                   | The same breakdown as DAX; agent-drafted commentary marked as a draft until the metric owner confirms the cause                                                                                   |
+| Shared dashboard of pinned visuals                                                              | 3, Home                | Working                                                                | A dashboard surface in Codenine with live refresh                                                                                                                                                 |
+| Briefings with bound figures, provenance and an as-of version                                   | 4                      | Working                                                                | Bind figures in Codenine's Documents service (Word content controls tagged with figure ids); agent tools that insert figures, not typed numbers                                                   |
+| Check for typed numbers that are not linked                                                     | 4                      | Working                                                                | Run the same check in the agents' Word tools and before review                                                                                                                                    |
+| Rewrite with a model that cannot change figures                                                 | 4 (optional)           | Working when a model is configured                                     | Run it through Codenine's provider adapters with organization credentials; add evals                                                                                                              |
+| Review requests, anchored comments, replies, resolve and reopen                                 | 4, 5, 7                | Working                                                                | Persistent comment threads for several people in the Codenine server; @mentions; Teams activity-feed and email notifications                                                                      |
+| Approval with separation of duties, withdrawn when an approved figure changes                   | 7, Try                 | Working                                                                | Same model; optional hand-off to Teams Approvals where a customer requires it (that API is beta and delegated only)                                                                               |
+| Briefing versions and restore                                                                   | 4 (History)            | Working                                                                | Reuse Codenine's file versions for the .docx                                                                                                                                                      |
+| Word export with live links to the report and source cells, approval stamp and sources appendix | 8                      | Working (real .docx)                                                   | Save into SharePoint and open in Word for the web from the file URL (Word for the web cannot be embedded in another app); later a Word add-in that refreshes figures in place                     |
+| Share to SharePoint, Teams and Outlook, with a record of each share and Stop sharing            | 8                      | Simulated, with the Graph requests shown                               | Delegated Graph upload and `createLink`, `ChannelMessage.Send` and `sendMail`; keep sensitivity labels; scoped app-only mail only with Exchange RBAC for Applications                             |
+| Weekly schedule in the owner's time zone, run now and run history                               | 9                      | Working (in-process scheduler)                                         | An always-on cloud runner; the owner's stored delegated token or `Sites.Selected` for unattended reads; retries and idempotent runs                                                               |
+| Scheduled run that drafts from the approved layout and asks for review                          | 9                      | Working                                                                | Same logic as a Codenine workflow; the agent writes the commentary                                                                                                                                |
+| Share automatically after approval                                                              | 9, 10                  | Working, with simulated delivery                                       | Unattended Teams posts need a Teams bot or a Workflows webhook the customer creates (Graph allows app-only channel posts only for migration)                                                      |
+| Inbox and activity log                                                                          | All                    | Working                                                                | Delivery to the Teams activity feed and email digests; retention policy                                                                                                                           |
+| Web and desktop clients kept in sync, with presence                                             | 5                      | Working (server-sent events; `?client=desktop` plays the desktop app)  | The Electron app connects to the same cloud environment; offline edits; opening local Office files                                                                                                |
+| Connections page with production requirements and a request log                                 | Connections page       | Working (lists the simulated calls)                                    | Real connection status, consent state and token health per connector                                                                                                                              |
+
+## Layout
+
+- `server/main.mjs` is the HTTP server, live updates (server-sent events) and the scheduler tick.
+- `server/workspace.mjs` holds every user action as one method with its permission check. Routes and the scheduler only call these methods.
+- `server/model.mjs` is the KPI model, the change breakdown and the named figures that briefings bind to.
+- `server/briefing.mjs` covers the briefing template, figure tokens, checks, approval snapshots and Word export.
+- `server/integrations.mjs` holds the simulated Microsoft 365 and Power BI connectors and their request log.
+- `server/office/` reads and writes .xlsx and writes .docx with no dependencies.
+- `web/` is the browser app, plain ES modules with no build step.
+- `sample-data/` holds the generated W47 and W48 workbooks, and `scripts/make-sample-data.mjs` regenerates them.
